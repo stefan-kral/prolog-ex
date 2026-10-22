@@ -5,60 +5,54 @@ defmodule Bench do
   import PrologEx
 
   def main do
-    [x, y, z, h, t, r, n, m, acc, acc1] =
-      Enum.map(~w(X Y Z H T R N M A A1), &v/1)
-
-    _ = {x, y, z, h, r}
+    [h, t, r, l, rt, n, m, acc, acc1] = Enum.map(~w(H T R L RT N M A A1), &v/1)
 
     db =
       consult([
-        # Familie
-        fact(s("parent", [a("tom"), a("bob")])),
-        fact(s("parent", [a("tom"), a("liz")])),
-        fact(s("parent", [a("bob"), a("ann")])),
-        fact(s("parent", [a("bob"), a("pat")])),
-        rule(s("grandparent", [x, z]), [s("parent", [x, y]), s("parent", [y, z])]),
-
-        # append/3
-        fact(s("append", [a("[]"), x, x])),
-        rule(s("append", [list([h], t), y, list([h], r)]), [s("append", [t, y, r])]),
-
-        # max/3 mit Cut
-        rule(s("max", [x, y, x]), [s(">=", [x, y]), a("!")]),
-        fact(s("max", [v("_"), y, y])),
-
-        # member/2 und Negation
-        fact(s("member", [x, list([x], v("_"))])),
-        rule(s("member", [x, list([v("_")], t)]), [s("member", [x, t])]),
-        rule(s("not_member", [x, y]), [s("\\+", [s("member", [x, y])])]),
-
-        # Unendlicher Generator
-        fact(s("nat", [0])),
-        rule(s("nat", [n]), [s("nat", [m]), s("is", [n, s("+", [m, 1])])]),
-
-        # Endrekursive Schleifen für den Speichertest
+        # Endrekursive Schleife ohne Datenstrukturen
         rule(s("count", [0]), [a("!")]),
         rule(s("count", [n]), [s("is", [m, s("-", [n, 1])]), s("count", [m])]),
 
-        fact(s("len", [a("[]"), acc, acc])),
+        # Endrekursion über eine große Liste
+        fact(s("len", [list([]), acc, acc])),
         rule(s("len", [list([v("_")], t), acc, n]), [
           s("is", [acc1, s("+", [acc, 1])]),
           s("len", [t, acc1, n])
+        ]),
+
+        # Klassischer nrev-Benchmark: nrev einer 30er-Liste = 496 logische Inferenzen
+        fact(s("app", [list([]), l, l])),
+        rule(s("app", [list([h], t), l, list([h], r)]), [s("app", [t, l, r])]),
+        fact(s("nrev", [list([]), list([])])),
+        rule(s("nrev", [list([h], t), r]), [
+          s("nrev", [t, rt]),
+          s("app", [rt, list([h]), r])
+        ]),
+        rule(s("bench", [0]), [a("!")]),
+        rule(s("bench", [n]), [
+          s("nrev", [list(Enum.to_list(1..30)), v("_")]),
+          s("is", [m, s("-", [n, 1])]),
+          s("bench", [m])
         ])
       ])
 
-    IO.puts("Speichertest:")
+    IO.puts("Speicher (Spitze während des Laufs) und Zeit:")
 
-    for k <- [100_000, 1_000_000, 10_000_000] do
+    for k <- [100_000, 1_000_000] do
       measure("count(#{k})", fn -> first_with_stats(db, s("count", [k])) end)
     end
 
-    measure("len(<Liste mit 1 Mio.>, 0, N)", fn ->
+    measure("len(<1 Mio. Elemente>)", fn ->
       first_with_stats(db, s("len", [list(Enum.to_list(1..1_000_000)), 0, n]))
     end)
+
+    iters = 10_000
+    us = measure("nrev30 × #{iters}", fn -> first_with_stats(db, s("bench", [iters])) end)
+    lips = (496 + 3) * iters / (us / 1_000_000)
+    IO.puts("   -> #{Float.round(lips / 1_000_000, 2)} Mio. LIPS")
   end
 
-  # Spitzen-Speicher des ausführenden Prozesses, von außen alle 20 ms abgefragt
+  # Spitzen-Speicher des ausführenden Prozesses, von außen alle 5 ms abgefragt
   defp measure(label, fun) do
     parent = self()
 
@@ -69,21 +63,22 @@ defmodule Bench do
       end)
 
     {res, us, peak} = poll(pid, 0)
-
     {:ok, stats} = res
 
     IO.puts(
-      "   #{String.pad_trailing(label, 28)} Spitze #{Float.round(peak / 1_048_576, 1)} MB, " <>
-        "am Ende #{stats.bindings} Bindungen / #{stats.choicepoints} Choice Points, " <>
-        "#{div(us, 1000)} ms"
+      "   #{String.pad_trailing(label, 24)} Spitze #{String.pad_leading(Float.to_string(Float.round(peak / 1_048_576, 1)), 6)} MB, " <>
+        "#{String.pad_leading(Integer.to_string(div(us, 1000)), 6)} ms  " <>
+        "(am Ende #{stats.bindings} Bindungen, #{stats.choicepoints} Choice Points)"
     )
+
+    us
   end
 
   defp poll(pid, peak) do
     receive do
       {:done, ^pid, res, us} -> {res, us, peak}
     after
-      20 ->
+      5 ->
         peak =
           case Process.info(pid, :memory) do
             {:memory, m} -> max(m, peak)
