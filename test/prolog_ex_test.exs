@@ -81,6 +81,53 @@ defmodule PrologExTest do
     assert answers(db, s("len", [list(Enum.to_list(1..10_000)), 0, @n]), 1) == ["N = 10000"]
   end
 
+  describe "Listen als native Cons-Zellen" do
+    test "kanonische Form: '.'/2 ist immer Cons, '[]' immer []" do
+      assert a("[]") == []
+      assert s(".", [1, a("[]")]) == [1]
+      assert s(".", [1, 2]) == [1 | 2]
+      assert list([1, 2], @t) == [1, 2 | @t]
+      assert s("foo", []) == a("foo")
+    end
+
+    test "uncons/cons" do
+      assert uncons([1, 2]) == {:cons, 1, [2]}
+      assert uncons([]) == :empty
+      assert uncons(a("x")) == :other
+      assert cons(1, [2]) == [1, 2]
+    end
+
+    test "Liste mit offenem Rest wird gebunden", %{db: db} do
+      goal = s("=", [list([1, 2], @t), list([1, 2, 3, 4])])
+      assert answers(db, goal) == ["T = [3, 4]"]
+    end
+
+    test "unvollständige Liste wird mit | ausgegeben", %{db: db} do
+      assert answers(db, s("=", [@x, list([1, 2], @t)])) == ["T = T, X = [1, 2 | T]"]
+      assert answers(db, s("=", [@x, s(".", [1, 2])])) == ["X = [1 | 2]"]
+    end
+
+    test "Liste und '.'-Struktur sind derselbe Term", %{db: db} do
+      goal = s("=", [s(".", [@h, @t]), list([a("a"), a("b")])])
+      assert answers(db, goal) == ["H = a, T = [b]"]
+    end
+
+    test "Liste unifiziert nicht mit anderer Struktur oder Atom", %{db: db} do
+      assert answers(db, s("=", [list([1]), s("f", [1, a("[]")])])) == []
+      assert answers(db, s("=", [list([]), a("nil")])) == []
+    end
+
+    test "Unifikation sehr langer Listen ohne Rekursionstiefe", %{db: db} do
+      n = 200_000
+      xs = Enum.to_list(1..n)
+      open = Enum.map(1..n, fn i -> v("V#{i}") end) |> list(@t)
+      goal = s(",", [s("=", [open, list(xs ++ [0])]), s("len", [@t, 0, @n])])
+      [ans] = db |> query(goal) |> Enum.take(1)
+      assert ans["T"] == [0]
+      assert ans["N"] == 1
+    end
+  end
+
   test "deterministische Schleife hinterlässt keine Choice Points und wenig Bindungen",
        %{db: db} do
     assert {:ok, %{choicepoints: 0, bindings: b}} = first_with_stats(db, s("count", [100_000]))

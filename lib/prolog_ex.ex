@@ -1,4 +1,7 @@
-# PrologEx – Prolog-Kern in Elixir (Stand: Version 2)
+# PrologEx – Prolog-Kern in Elixir
+#
+# Listen sind native BEAM-Listen: '.'(H, T) ist [H | T], '[]' ist [].
+# Eine Liste mit offenem Rest ist eine improper list, z. B. [1, 2 | {:var, 7}].
 #
 # Gegenüber Version 1 (Closures als Continuations) ist die Maschine jetzt
 # "defunktionalisiert": Ziel-Stack und Choice-Point-Stack sind gewöhnliche
@@ -22,16 +25,38 @@ defmodule PrologEx do
   #   {:var, 42}                 frische Variable (umbenannte Klauselvariable)
   #   {:atom, "foo"}             Atom – bewusst KEIN Elixir-Atom!
   #   integer                    Zahl
-  #   {:struct, "f", [args]}     Struktur f(args...)
-  # Listen: '.'(H, T) und '[]', wie in klassischem Prolog.
+  #   {:struct, "f", [args]}     Struktur f(args...), Stelligkeit >= 1
+  #   []                         das Atom '[]'
+  #   [h | t]                    die Struktur '.'(h, t)
+  #
+  # Kanonische Form: '.'/2 ist IMMER eine Cons-Zelle, '[]' IMMER [].
+  # Deshalb werden Terme ausschließlich über a/1 und mk/2 gebaut.
+  # Elixir-Listen kommen sonst nur als Argumentliste in {:struct, f, args}
+  # vor – auf Term-Ebene ist eine Liste also immer eine Prolog-Liste.
   # ---------------------------------------------------------------------
 
   def v(name), do: {:var, name}
-  def a(name), do: {:atom, name}
-  def s(name, args), do: {:struct, name, args}
 
-  def list(items, tail \\ {:atom, "[]"}),
-    do: List.foldr(items, tail, fn x, acc -> {:struct, ".", [x, acc]} end)
+  def a("[]"), do: []
+  def a(name), do: {:atom, name}
+
+  def mk(".", [h, t]), do: [h | t]
+  def mk(name, []), do: a(name)
+  def mk(name, args), do: {:struct, name, args}
+
+  def s(name, args), do: mk(name, args)
+
+  # [x1, ..., xn | tail]; ++ akzeptiert auch einen Nicht-Listen-Rest
+  def list(items, tail \\ []), do: items ++ tail
+
+  # Einheitlicher Listenzugriff. Spätere alternative Darstellungen
+  # (Text-Ansichten auf Binaries) kommen hier dazu, ohne dass sich
+  # Aufrufer ändern müssen.
+  def uncons([h | t]), do: {:cons, h, t}
+  def uncons([]), do: :empty
+  def uncons(_), do: :other
+
+  def cons(h, t), do: [h | t]
 
   def fact(head), do: {head, a("true")}
   def rule(head, goals), do: {head, conj(goals)}
@@ -40,7 +65,7 @@ defmodule PrologEx do
   def conj([g | rest]), do: s(",", [g, conj(rest)])
 
   # ---------------------------------------------------------------------
-  # Unifikation (unverändert)
+  # Unifikation
   # ---------------------------------------------------------------------
 
   def walk({:var, _} = var, subst) do
@@ -68,6 +93,15 @@ defmodule PrologEx do
        when length(xs) == length(ys),
        do: unify_args(xs, ys, subst)
 
+  # Listen: Kopf unifizieren, dann per Tail Call mit dem Rest weiter –
+  # keine Rekursionstiefe entlang der Liste.
+  defp unify_struct([x | xs], [y | ys], subst) do
+    case unify(x, y, subst) do
+      {:ok, s} -> unify(xs, ys, s)
+      :error -> :error
+    end
+  end
+
   defp unify_struct(_, _, _), do: :error
 
   defp unify_args([], [], subst), do: {:ok, subst}
@@ -82,6 +116,7 @@ defmodule PrologEx do
   def resolve(t, subst) do
     case walk(t, subst) do
       {:struct, f, args} -> {:struct, f, Enum.map(args, &resolve(&1, subst))}
+      [h | t] -> [resolve(h, subst) | resolve(t, subst)]
       other -> other
     end
   end
@@ -124,10 +159,19 @@ defmodule PrologEx do
     {{:struct, f, args}, map}
   end
 
+  defp number_vars([h | t], map) do
+    {h, map} = number_vars(h, map)
+    {t, map} = number_vars(t, map)
+    {[h | t], map}
+  end
+
   defp number_vars(t, map), do: {t, map}
 
   defp key({:struct, f, args}), do: {f, length(args)}
   defp key({:atom, f}), do: {f, 0}
+  defp key([]), do: {"[]", 0}
+  defp key([_ | _]), do: {".", 2}
+  defp key(t), do: raise("type_error(callable, #{format(t)})")
 
   defp first_arg({:struct, _, [x | _]}), do: x
   defp first_arg(_), do: nil
@@ -136,6 +180,7 @@ defmodule PrologEx do
   defp index_key(nil), do: :any
   defp index_key({:var, _}), do: :any
   defp index_key({:struct, f, args}), do: {f, length(args)}
+  defp index_key([_ | _]), do: {".", 2}
   defp index_key(t), do: t
 
   defp candidates(db, goal, subst) do
@@ -153,6 +198,7 @@ defmodule PrologEx do
 
   defp rename({:var, {:local, i}}, base), do: {:var, base + i}
   defp rename({:struct, f, args}, base), do: {:struct, f, Enum.map(args, &rename(&1, base))}
+  defp rename([h | t], base), do: [rename(h, base) | rename(t, base)]
   defp rename(t, _base), do: t
 
   # ---------------------------------------------------------------------
@@ -339,6 +385,15 @@ defmodule PrologEx do
       else: {t, {memo, size + 1}, false}
   end
 
+  defp compact3([h | t] = l, subst, acc) do
+    {h2, acc, ch} = compact3(h, subst, acc)
+    {t2, {memo, size}, ct} = compact3(t, subst, acc)
+
+    if ch or ct,
+      do: {[h2 | t2], {memo, size + 1}, true},
+      else: {l, {memo, size + 1}, false}
+  end
+
   defp compact3(t, _subst, acc), do: {t, acc, false}
 
   # ---------------------------------------------------------------------
@@ -408,6 +463,7 @@ defmodule PrologEx do
 
   defp query_vars({:var, _} = var), do: [var]
   defp query_vars({:struct, _, args}), do: Enum.flat_map(args, &query_vars/1)
+  defp query_vars([h | t]), do: query_vars(h) ++ query_vars(t)
   defp query_vars(_), do: []
 
   # ---------------------------------------------------------------------
@@ -418,15 +474,13 @@ defmodule PrologEx do
   def format({:var, n}), do: n
   def format({:atom, n}), do: n
   def format(n) when is_integer(n), do: Integer.to_string(n)
-  def format({:struct, ".", _} = l), do: "[" <> format_list(l) <> "]"
+  def format([]), do: "[]"
+  def format([_ | _] = l), do: "[" <> format_list(l) <> "]"
   def format({:struct, f, args}), do: f <> "(" <> Enum.map_join(args, ", ", &format/1) <> ")"
 
-  defp format_list({:struct, ".", [h, {:atom, "[]"}]}), do: format(h)
-
-  defp format_list({:struct, ".", [h, {:struct, ".", _} = t]}),
-    do: format(h) <> ", " <> format_list(t)
-
-  defp format_list({:struct, ".", [h, t]}), do: format(h) <> " | " <> format(t)
+  defp format_list([h]), do: format(h)
+  defp format_list([h | [_ | _] = t]), do: format(h) <> ", " <> format_list(t)
+  defp format_list([h | t]), do: format(h) <> " | " <> format(t)
 
   def format_answer(ans) when map_size(ans) == 0, do: "true"
   def format_answer(ans), do: Enum.map_join(ans, ", ", fn {k, t} -> "#{k} = #{format(t)}" end)
