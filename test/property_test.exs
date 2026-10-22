@@ -212,6 +212,54 @@ defmodule PrologEx.PropertyTest do
     assert checked > @runs * 0.9
   end
 
+  # Regel p(H, R) :- R = T. T enthält Kopfvariablen (Slots) und reine
+  # Rumpfvariablen (frisch). Erwartet: G = H unifiziert, R = Instanz von T.
+  test "Rumpf-Instanziierung stimmt mit Referenz überein" do
+    head_vars = [v("A"), v("B"), v("C")]
+    body_vars = head_vars ++ [v("D"), v("E"), v("_")]
+
+    for _ <- 1..@runs do
+      h = gen_term(head_vars, 3)
+      t = gen_term(body_vars, 3)
+      g = linearize(gen_term([v("_")], 3))
+      r = v("R")
+      db = consult([rule(s("p", [h, r]), [s("=", [r, t])])])
+      qvars = vars_in(g) ++ [r]
+
+      case ref_unify(g, h, %{}) do
+        :occurs ->
+          :skip
+
+        :error ->
+          assert Enum.take(query(db, s("p", [g, r])), 1) == []
+
+        {:ok, rs} ->
+          # "_" im Rumpf ist bei jedem Vorkommen eine eigene Variable
+          {t_ref, _} = lin_anon(t, 0)
+          rs = Map.put(rs, r, t_ref)
+          assert [ans] = Enum.take(query(db, s("p", [g, r])), 1)
+          mine = normalize(Enum.map(qvars, fn {:var, name} -> ans[name] end))
+          ref = normalize(Enum.map(qvars, &ref_resolve(&1, rs)))
+          assert mine == ref, "verschieden bei p(#{format(h)}, R) :- R = #{format(t)}"
+      end
+    end
+  end
+
+  defp lin_anon({:var, "_"}, i), do: {v({:anon, i}), i + 1}
+
+  defp lin_anon({:struct, f, args}, i) do
+    {args, i} = Enum.map_reduce(args, i, &lin_anon/2)
+    {{:struct, f, args}, i}
+  end
+
+  defp lin_anon([h | t], i) do
+    {h, i} = lin_anon(h, i)
+    {t, i} = lin_anon(t, i)
+    {[h | t], i}
+  end
+
+  defp lin_anon(t, i), do: {t, i}
+
   test "=/2 stimmt mit Referenz überein" do
     db = consult([fact(s("dummy", [0]))])
 

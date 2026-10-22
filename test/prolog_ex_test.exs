@@ -128,6 +128,22 @@ defmodule PrologExTest do
     end
   end
 
+  test "frische Rumpfvariablen sind bei jedem Aufruf verschieden" do
+    db =
+      consult([
+        rule(s("mk", [0, list([])]), [a("!")]),
+        rule(s("mk", [@n, list([@x], @t)]), [s("is", [@m, s("-", [@n, 1])]), s("mk", [@m, @t])]),
+        rule(s("fresh", [list([])]), []),
+        rule(s("fresh", [list([@x], @t)]), [s("=", [@y, @x]), s("fresh", [@t])])
+      ])
+
+    goal = s(",", [s("mk", [3, @x]), s("=", [@x, list([a("a"), a("b"), a("c")])])])
+    assert answers(db, goal) == ["X = [a, b, c]"]
+
+    goal = s(",", [s("fresh", [list([@x, @y])]), s("=", [list([@x, @y]), list([1, 2])])])
+    assert answers(db, goal) == ["X = 1, Y = 2"]
+  end
+
   test "deterministische Schleife hinterlässt keine Choice Points und wenig Bindungen",
        %{db: db} do
     assert {:ok, %{choicepoints: 0, bindings: b}} = first_with_stats(db, s("count", [100_000]))
