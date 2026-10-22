@@ -25,41 +25,96 @@ defmodule PrologEx do
   # ---------------------------------------------------------------------
   # Terme
   #   {:var, "X"}                Variable aus der Anfrage
-  #   {:var, 42}                 frische Variable (umbenannte Klauselvariable)
+  #   {:var, 42}                 frische Variable
   #   {:atom, "foo"}             Atom – bewusst KEIN Elixir-Atom!
   #   integer                    Zahl
   #   {:struct, "f", [args]}     Struktur f(args...), Stelligkeit >= 1
   #   []                         das Atom '[]'
   #   [h | t]                    die Struktur '.'(h, t)
   #
-  # Kanonische Form: '.'/2 ist IMMER eine Cons-Zelle, '[]' IMMER [].
-  # Deshalb werden Terme ausschließlich über a/1 und mk/2 gebaut.
-  # Elixir-Listen kommen sonst nur als Argumentliste in {:struct, f, args}
-  # vor – auf Term-Ebene ist eine Liste also immer eine Prolog-Liste.
+  # Ground-Markierungen (beim Bauen ausgestellte Bescheinigung "enthält
+  # keine Variable"; einseitig: unmarkierte Terme können trotzdem ground
+  # sein):
+  #   {:gstruct, "f", [args]}    variablenfreie Struktur
+  #   {:glist, [h | t]}          variablenfreie Liste (auch improper, z. B.
+  #                              [1 | 2]); die Cons-Kette darin ist roh
+  #
+  # Kanonische Form:
+  #   * '.'/2 ist IMMER eine Cons-Zelle (bzw. glist), '[]' IMMER [].
+  #   * Innerhalb eines markierten Terms ist jeder zusammengesetzte
+  #     Teilterm markiert – außer den Rest-Zellen der glist-Kette selbst.
+  #     Zwei markierte Terme sind deshalb genau dann gleich, wenn == gilt.
+  # Terme werden ausschließlich über a/1, mk/2, cons/2, list/2 gebaut.
+  # Antworten (resolve/2) werden ohne Markierungen ausgeliefert.
   # ---------------------------------------------------------------------
+
+  defguard is_marked(t)
+           when is_tuple(t) and (elem(t, 0) == :gstruct or elem(t, 0) == :glist)
+
+  # atomar oder markiert = sicher ground, ohne hineinzuschauen
+  defguard is_known_ground(t)
+           when is_integer(t) or t == [] or is_marked(t) or
+                  (is_tuple(t) and elem(t, 0) == :atom)
 
   def v(name), do: {:var, name}
 
   def a("[]"), do: []
   def a(name), do: {:atom, name}
 
-  def mk(".", [h, t]), do: [h | t]
+  def mk(".", [h, t]), do: cons(h, t)
   def mk(name, []), do: a(name)
-  def mk(name, args), do: {:struct, name, args}
+  def mk(name, args), do: mk_struct(name, args)
+
+  def mk_struct(f, args) do
+    if all_known_ground?(args), do: {:gstruct, f, args}, else: {:struct, f, args}
+  end
+
+  defp all_known_ground?([]), do: true
+  defp all_known_ground?([x | xs]) when is_known_ground(x), do: all_known_ground?(xs)
+  defp all_known_ground?(_), do: false
 
   def s(name, args), do: mk(name, args)
 
-  # [x1, ..., xn | tail]; ++ akzeptiert auch einen Nicht-Listen-Rest
-  def list(items, tail \\ []), do: items ++ tail
+  # Ein ground Kopf vor einer markierten Liste ergibt in O(1) wieder eine.
+  def cons(h, t) when is_known_ground(h) and is_known_ground(t) do
+    case t do
+      {:glist, l} -> {:glist, [h | l]}
+      _ -> {:glist, [h | t]}
+    end
+  end
 
-  # Einheitlicher Listenzugriff. Spätere alternative Darstellungen
-  # (Text-Ansichten auf Binaries) kommen hier dazu, ohne dass sich
-  # Aufrufer ändern müssen.
+  def cons(h, t), do: [h | t]
+
+  # [x1, ..., xn | tail]
+  def list(items, tail \\ []), do: List.foldr(items, tail, &cons/2)
+
+  # Einheitlicher Listenzugriff
   def uncons([h | t]), do: {:cons, h, t}
+  def uncons({:glist, [h | t]}), do: {:cons, h, glist_tail(t)}
   def uncons([]), do: :empty
   def uncons(_), do: :other
 
-  def cons(h, t), do: [h | t]
+  defp glist_tail([_ | _] = t), do: {:glist, t}
+  defp glist_tail(t), do: t
+
+  # Markiert einen (beliebig markierten) variablenfreien Term vollständig
+  @doc false
+  def mark({:struct, f, args}), do: mk_struct(f, Enum.map(args, &mark/1))
+  def mark([h | t]), do: cons(mark(h), mark(t))
+  def mark(t), do: t
+
+  # Entfernt alle Markierungen
+  def unmark({:gstruct, f, args}), do: {:struct, f, Enum.map(args, &unmark/1)}
+  def unmark({:glist, l}), do: unmark(l)
+  def unmark({:struct, f, args}), do: {:struct, f, Enum.map(args, &unmark/1)}
+  def unmark([h | t]), do: [unmark(h) | unmark(t)]
+  def unmark(t), do: t
+
+  # Oberste Ebene ohne Markierung (für Zielauswahl und Arithmetik)
+  @doc false
+  def unmark_top({:gstruct, f, args}), do: {:struct, f, args}
+  def unmark_top({:glist, l}), do: l
+  def unmark_top(t), do: t
 
   def fact(head), do: {head, a("true")}
   def rule(head, goals), do: {head, conj(goals)}
@@ -97,9 +152,27 @@ defmodule PrologEx do
     end
   end
 
-  defp unify_struct({:struct, f, xs}, {:struct, f, ys}, subst)
-       when length(xs) == length(ys),
+  # Zwei markierte Terme sind nur bei == gleich – und das wurde schon geprüft.
+  defp unify_struct(x, y, _subst) when is_marked(x) and is_marked(y), do: :error
+
+  defp unify_struct({t1, f, xs}, {t2, f, ys}, subst)
+       when t1 in [:struct, :gstruct] and t2 in [:struct, :gstruct] and
+              length(xs) == length(ys),
        do: unify_args(xs, ys, subst)
+
+  defp unify_struct({:glist, [x | xs]}, [y | ys], subst) do
+    case unify(x, y, subst) do
+      {:ok, s} -> unify(glist_tail(xs), ys, s)
+      :error -> :error
+    end
+  end
+
+  defp unify_struct([x | xs], {:glist, [y | ys]}, subst) do
+    case unify(x, y, subst) do
+      {:ok, s} -> unify(xs, glist_tail(ys), s)
+      :error -> :error
+    end
+  end
 
   # Listen: Kopf unifizieren, dann per Tail Call mit dem Rest weiter –
   # keine Rekursionstiefe entlang der Liste.
@@ -121,10 +194,12 @@ defmodule PrologEx do
     end
   end
 
+  # Vollständig auflösen, ohne Markierungen (für Antworten / Interop)
   def resolve(t, subst) do
     case walk(t, subst) do
       {:struct, f, args} -> {:struct, f, Enum.map(args, &resolve(&1, subst))}
       [h | t] -> [resolve(h, subst) | resolve(t, subst)]
+      t when is_marked(t) -> unmark(t)
       other -> other
     end
   end
@@ -157,7 +232,9 @@ defmodule PrologEx do
   @doc false
   def index_key({:var, _}), do: :any
   def index_key({:struct, f, args}), do: {f, length(args)}
+  def index_key({:gstruct, f, args}), do: {f, length(args)}
   def index_key([_ | _]), do: {".", 2}
+  def index_key({:glist, _}), do: {".", 2}
   def index_key(t), do: t
 
   defp candidates(db, goal, args, subst) do
@@ -229,6 +306,12 @@ defmodule PrologEx do
           :error -> :error
         end
 
+      {:glist, [h | tl]} ->
+        case m(ph, h, env, s, nv) do
+          {:ok, env, s, nv} -> m(pt, glist_tail(tl), env, s, nv)
+          :error -> :error
+        end
+
       {:var, _} = v ->
         {term, env, nv} = build(p, env, nv)
         {:ok, env, bind(v, term, s), nv}
@@ -240,7 +323,7 @@ defmodule PrologEx do
 
   defp m({:struct, f, n, ps} = p, t, env, s, nv) do
     case walk(t, s) do
-      {:struct, ^f, args} when length(args) == n ->
+      {tag, ^f, args} when tag in [:struct, :gstruct] and length(args) == n ->
         match_args(ps, args, env, s, nv)
 
       {:var, _} = v ->
@@ -271,12 +354,12 @@ defmodule PrologEx do
   def build({:list, ph, pt}, env, nv) do
     {h, env, nv} = build(ph, env, nv)
     {t, env, nv} = build(pt, env, nv)
-    {[h | t], env, nv}
+    {cons(h, t), env, nv}
   end
 
   def build({:struct, f, _n, ps}, env, nv) do
     {args, env, nv} = build_args(ps, env, nv)
-    {{:struct, f, args}, env, nv}
+    {mk_struct(f, args), env, nv}
   end
 
   defp build_args([], env, nv), do: {[], env, nv}
@@ -297,8 +380,8 @@ defmodule PrologEx do
   defp inst({:t_slot, i}, env, _base), do: elem(env, i)
   defp inst({:t_fresh, j}, _env, base), do: {:var, base + j}
   defp inst({:t_lit, t}, _env, _base), do: t
-  defp inst({:t_list, h, t}, env, base), do: [inst(h, env, base) | inst(t, env, base)]
-  defp inst({:t_struct, f, args}, env, base), do: {:struct, f, inst_args(args, env, base)}
+  defp inst({:t_list, h, t}, env, base), do: cons(inst(h, env, base), inst(t, env, base))
+  defp inst({:t_struct, f, args}, env, base), do: mk_struct(f, inst_args(args, env, base))
 
   defp inst_args([], _env, _base), do: []
   defp inst_args([a | as], env, base), do: [inst(a, env, base) | inst_args(as, env, base)]
@@ -320,14 +403,15 @@ defmodule PrologEx do
             db: %{},
             next_var: 0,
             answer: [],
-            threshold: @min_threshold
+            threshold: @min_threshold,
+            min_threshold: @min_threshold
 
   defp run(st) do
     st = maybe_compact(st)
 
     case st.goals do
       [] -> {:sol, st}
-      [{goal, cutb} | rest] -> step(walk(goal, st.subst), cutb, rest, st)
+      [{goal, cutb} | rest] -> step(unmark_top(walk(goal, st.subst)), cutb, rest, st)
     end
   end
 
@@ -433,7 +517,10 @@ defmodule PrologEx do
   # Wir setzen die Bindungen dort ein und starten mit leerer Map.
   # Das Memo pro Variable erhält geteilte Teilterme (sonst droht
   # exponentielles Aufblähen bei DAG-artigen Termen).
-  # Die nächste Schwelle ist 2 × Größe der lebenden Terme -> amortisiert O(1).
+  # Dabei werden Terme, die durch das Einsetzen ground geworden sind, als
+  # gstruct/glist markiert; markierte Terme werden nie wieder durchlaufen.
+  # Die nächste Schwelle ist 2 × Anzahl der NICHT-ground Knoten in den
+  # lebenden Termen -> amortisiert O(1), unabhängig von großen ground Daten.
   # ---------------------------------------------------------------------
 
   defp maybe_compact(%{subst: s, threshold: t} = st) when map_size(s) < t, do: st
@@ -451,62 +538,70 @@ defmodule PrologEx do
         {{n, t}, acc}
       end)
 
-    %{st | goals: goals, answer: answer, subst: %{}, threshold: max(@min_threshold, 2 * size)}
+    %{st | goals: goals, answer: answer, subst: %{}, threshold: max(st.min_threshold, 2 * size)}
   end
 
-  # Unveränderte Teilterme werden nicht kopiert, sondern das Original wird
-  # zurückgegeben – so bleibt z. B. eine große, variablenfreie Liste geteilt.
   defp compact(t, subst, acc) do
-    {t2, acc, _changed} = compact3(t, subst, acc)
+    {t2, acc, _changed, _ground} = compact3(t, subst, acc)
     {t2, acc}
   end
 
+  # Ergebnis: {Term, {memo, nicht_ground_größe}, verändert?, ground?}
+  # Unveränderte Teilterme werden nicht kopiert, sondern geteilt.
+  defp compact3(t, _subst, acc) when is_marked(t), do: {t, acc, false, true}
+
   defp compact3({:var, _} = var, subst, {memo, size} = acc) do
     case Map.fetch(memo, var) do
-      {:ok, t} ->
-        {t, acc, t != var}
+      {:ok, {t, g}} ->
+        {t, acc, t != var, g}
 
       :error ->
         case walk(var, subst) do
           {:var, _} = free ->
-            {free, {Map.put(memo, var, free), size}, free != var}
+            {free, {Map.put(memo, var, {free, false}), size}, free != var, false}
 
           bound ->
-            {t, {memo, size}} = compact(bound, subst, {memo, size})
-            {t, {Map.put(memo, var, t), size}, true}
+            {t, {memo, size}, _ch, g} = compact3(bound, subst, {memo, size})
+            {t, {Map.put(memo, var, {t, g}), size}, true, g}
         end
     end
   end
 
   defp compact3({:struct, f, args} = t, subst, acc) do
-    {args2, {{memo, size}, changed}} =
-      Enum.map_reduce(args, {acc, false}, fn arg, {acc, ch} ->
-        {a2, acc, c} = compact3(arg, subst, acc)
-        {a2, {acc, ch or c}}
+    {args2, {acc, changed, ground}} =
+      Enum.map_reduce(args, {acc, false, true}, fn arg, {acc, ch, gr} ->
+        {a2, acc, c, g} = compact3(arg, subst, acc)
+        {a2, {acc, ch or c, gr and g}}
       end)
 
-    if changed,
-      do: {{:struct, f, args2}, {memo, size + 1}, true},
-      else: {t, {memo, size + 1}, false}
+    {memo, size} = acc
+
+    cond do
+      ground -> {{:gstruct, f, args2}, acc, true, true}
+      changed -> {{:struct, f, args2}, {memo, size + 1}, true, false}
+      true -> {t, {memo, size + 1}, false, false}
+    end
   end
 
   defp compact3([h | t] = l, subst, acc) do
-    {h2, acc, ch} = compact3(h, subst, acc)
-    {t2, {memo, size}, ct} = compact3(t, subst, acc)
+    {h2, acc, ch, gh} = compact3(h, subst, acc)
+    {t2, {memo, size} = acc, ct, gt} = compact3(t, subst, acc)
 
-    if ch or ct,
-      do: {[h2 | t2], {memo, size + 1}, true},
-      else: {l, {memo, size + 1}, false}
+    cond do
+      gh and gt -> {cons(h2, t2), acc, true, true}
+      ch or ct -> {[h2 | t2], {memo, size + 1}, true, false}
+      true -> {l, {memo, size + 1}, false, false}
+    end
   end
 
-  defp compact3(t, _subst, acc), do: {t, acc, false}
+  defp compact3(t, _subst, acc), do: {t, acc, false, true}
 
   # ---------------------------------------------------------------------
   # Arithmetik
   # ---------------------------------------------------------------------
 
   defp eval(t, subst) do
-    case walk(t, subst) do
+    case unmark_top(walk(t, subst)) do
       n when is_integer(n) -> n
       {:struct, "+", [x, y]} -> eval(x, subst) + eval(y, subst)
       {:struct, "-", [x, y]} -> eval(x, subst) - eval(y, subst)
@@ -529,7 +624,10 @@ defmodule PrologEx do
   # Top-Level: Lösungen als lazy Stream
   # ---------------------------------------------------------------------
 
-  def query(db, goal) do
+  # Optionen:
+  #   compact_threshold: Mindestschwelle für die Kompaktierung (Standard
+  #   #{@min_threshold}); 1 = bei jedem Schritt kompaktieren (für Tests)
+  def query(db, goal, opts \\ []) do
     answer =
       goal
       |> query_vars()
@@ -537,7 +635,7 @@ defmodule PrologEx do
       |> Enum.reject(&(&1 == {:var, "_"}))
       |> Enum.map(fn {:var, n} = var -> {n, var} end)
 
-    start = %__MODULE__{goals: [{goal, 0}], db: db, answer: answer}
+    start = new_state(db, [{goal, 0}], answer, opts)
 
     Stream.unfold({:start, start}, fn
       :halt ->
@@ -551,6 +649,11 @@ defmodule PrologEx do
     end)
   end
 
+  defp new_state(db, goals, answer, opts) do
+    min = Keyword.get(opts, :compact_threshold, @min_threshold)
+    %__MODULE__{goals: goals, db: db, answer: answer, threshold: min, min_threshold: min}
+  end
+
   defp emit(:done), do: nil
 
   defp emit({:sol, st}) do
@@ -559,8 +662,8 @@ defmodule PrologEx do
   end
 
   # Für Messungen: erste Lösung plus Zustandsgrößen
-  def first_with_stats(db, goal) do
-    case run(%__MODULE__{goals: [{goal, 0}], db: db}) do
+  def first_with_stats(db, goal, opts \\ []) do
+    case run(new_state(db, [{goal, 0}], [], opts)) do
       {:sol, st} -> {:ok, %{bindings: map_size(st.subst), choicepoints: st.height}}
       :done -> false
     end
@@ -581,11 +684,19 @@ defmodule PrologEx do
   def format(n) when is_integer(n), do: Integer.to_string(n)
   def format([]), do: "[]"
   def format([_ | _] = l), do: "[" <> format_list(l) <> "]"
-  def format({:struct, f, args}), do: f <> "(" <> Enum.map_join(args, ", ", &format/1) <> ")"
+  def format({:glist, l}), do: "[" <> format_list(l) <> "]"
 
-  defp format_list([h]), do: format(h)
-  defp format_list([h | [_ | _] = t]), do: format(h) <> ", " <> format_list(t)
-  defp format_list([h | t]), do: format(h) <> " | " <> format(t)
+  def format({tag, f, args}) when tag in [:struct, :gstruct],
+    do: f <> "(" <> Enum.map_join(args, ", ", &format/1) <> ")"
+
+  defp format_list([h | t]) do
+    case t do
+      [] -> format(h)
+      [_ | _] -> format(h) <> ", " <> format_list(t)
+      {:glist, l} -> format(h) <> ", " <> format_list(l)
+      _ -> format(h) <> " | " <> format(t)
+    end
+  end
 
   def format_answer(ans) when map_size(ans) == 0, do: "true"
   def format_answer(ans), do: Enum.map_join(ans, ", ", fn {k, t} -> "#{k} = #{format(t)}" end)

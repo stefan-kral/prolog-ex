@@ -84,10 +84,25 @@ defmodule PrologExTest do
   describe "Listen als native Cons-Zellen" do
     test "kanonische Form: '.'/2 ist immer Cons, '[]' immer []" do
       assert a("[]") == []
-      assert s(".", [1, a("[]")]) == [1]
-      assert s(".", [1, 2]) == [1 | 2]
+      assert s(".", [@x, a("[]")]) == [@x]
+      assert s(".", [@x, 2]) == [@x | 2]
       assert list([1, 2], @t) == [1, 2 | @t]
       assert s("foo", []) == a("foo")
+    end
+
+    test "variablenfreie Terme werden beim Bauen markiert" do
+      assert s(".", [1, a("[]")]) == {:glist, [1]}
+      assert s(".", [1, 2]) == {:glist, [1 | 2]}
+      assert list([1, 2, 3]) == {:glist, [1, 2, 3]}
+      assert s("f", [1, a("b")]) == {:gstruct, "f", [1, {:atom, "b"}]}
+      assert s("f", [@x]) == {:struct, "f", [@x]}
+      # ground Kopf vor markierter Liste: O(1), bleibt markiert
+      assert cons(0, list([1, 2])) == {:glist, [0, 1, 2]}
+      # nicht-ground Kopf vor markierter Liste: rohe Zelle, Rest bleibt markiert
+      assert cons(@x, list([1, 2])) == [@x | {:glist, [1, 2]}]
+      assert unmark(cons(@x, list([1, 2]))) == [@x, 1, 2]
+      assert uncons(list([1, 2])) == {:cons, 1, {:glist, [2]}}
+      assert uncons(list([1])) == {:cons, 1, []}
     end
 
     test "uncons/cons" do

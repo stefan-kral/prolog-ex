@@ -20,6 +20,13 @@ defmodule Bench do
           s("len", [t, acc1, n])
         ]),
 
+        # Liste in Prolog aufbauen: numlist(N, L) mit L = [N, ..., 1]
+        rule(s("numlist", [0, list([])]), [a("!")]),
+        rule(s("numlist", [n, list([n], t)]), [
+          s("is", [m, s("-", [n, 1])]),
+          s("numlist", [m, t])
+        ]),
+
         # Klassischer nrev-Benchmark: nrev einer 30er-Liste = 496 logische Inferenzen
         fact(s("app", [list([]), l, l])),
         rule(s("app", [list([h], t), l, list([h], r)]), [s("app", [t, l, r])]),
@@ -44,6 +51,13 @@ defmodule Bench do
 
     measure("len(<1 Mio. Elemente>)", fn ->
       first_with_stats(db, s("len", [list(Enum.to_list(1..1_000_000)), 0, n]))
+    end)
+
+    measure("numlist + len (1 Mio.)", fn ->
+      first_with_stats(
+        db,
+        s(",", [s("numlist", [1_000_000, l]), s("len", [l, 0, n])])
+      )
     end)
 
     iters = 10_000

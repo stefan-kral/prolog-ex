@@ -43,6 +43,10 @@ defmodule PrologEx.Compiler do
 
   Eine kompilierte Klausel ist
   `{:clause, index_key, nslots, head_patterns, nfresh, body_templates}`.
+
+  Variablenfreie Teilterme (`:ground`, `:t_lit`) werden vollständig als
+  gstruct/glist markiert; Write-Modus und Instanziierung markieren über
+  `PrologEx.mk_struct/2` und `PrologEx.cons/2`.
   """
 
   def compile_clause({head, body}) do
@@ -57,13 +61,22 @@ defmodule PrologEx.Compiler do
 
   @doc "Funktor/Stelligkeit eines aufrufbaren Terms"
   def key({:struct, f, args}), do: {f, length(args)}
+  def key({:gstruct, f, args}), do: {f, length(args)}
+  def key({:glist, _}), do: {".", 2}
   def key({:atom, f}), do: {f, 0}
   def key([]), do: {"[]", 0}
   def key([_ | _]), do: {".", 2}
   def key(t), do: raise("type_error(callable, #{PrologEx.format(t)})")
 
   def args_of({:struct, _, args}), do: args
+  def args_of({:gstruct, _, args}), do: args
   def args_of([h | t]), do: [h, t]
+
+  def args_of({:glist, _} = l) do
+    {:cons, h, t} = PrologEx.uncons(l)
+    [h, t]
+  end
+
   def args_of(_), do: []
 
   # ---------------------------------------------------------------------
@@ -74,7 +87,9 @@ defmodule PrologEx.Compiler do
   defp count_vars([h | t], c), do: count_vars(t, count_vars(h, c))
   defp count_vars(_, c), do: c
 
-  defp flatten_conj({:struct, ",", [a, b]}), do: flatten_conj(a) ++ flatten_conj(b)
+  defp flatten_conj({tag, ",", [a, b]}) when tag in [:struct, :gstruct],
+    do: flatten_conj(a) ++ flatten_conj(b)
+
   defp flatten_conj({:atom, "true"}), do: []
   defp flatten_conj(g), do: [g]
 
@@ -85,6 +100,8 @@ defmodule PrologEx.Compiler do
 
   defp compound?([_ | _]), do: true
   defp compound?({:struct, _, _}), do: true
+  defp compound?({:gstruct, _, _}), do: true
+  defp compound?({:glist, _}), do: true
   defp compound?(_), do: false
 
   # --- Kopf -------------------------------------------------------------
@@ -109,7 +126,7 @@ defmodule PrologEx.Compiler do
   defp head_pat(t, st) do
     cond do
       not compound?(t) -> {{:const, t}, st}
-      ground?(t) -> {{:ground, t}, st}
+      ground?(t) -> {{:ground, PrologEx.mark(t)}, st}
       true -> compound_pat(t, st)
     end
   end
@@ -153,7 +170,7 @@ defmodule PrologEx.Compiler do
 
   defp body_tmpl(t, st) do
     cond do
-      not compound?(t) or ground?(t) -> {{:t_lit, t}, st}
+      not compound?(t) or ground?(t) -> {{:t_lit, PrologEx.mark(t)}, st}
       true -> compound_tmpl(t, st)
     end
   end
