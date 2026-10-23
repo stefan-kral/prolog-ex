@@ -276,14 +276,12 @@ defmodule PrologEx.Canonical do
 
   defp take_while(s, pred), do: take_while(s, pred, 0)
 
+  # Byte für Byte prüfen (ohne Bitstring-Muster mit variabler Größe, das
+  # neuere Elixir-Versionen nur mit Pin-Operator akzeptieren)
   defp take_while(s, pred, n) do
-    case s do
-      <<_::binary-size(n), c, _::binary>> ->
-        if pred.(c), do: take_while(s, pred, n + 1), else: split(s, n)
-
-      _ ->
-        split(s, n)
-    end
+    if n < byte_size(s) and pred.(:binary.at(s, n)),
+      do: take_while(s, pred, n + 1),
+      else: split(s, n)
   end
 
   defp split(s, n), do: {binary_part(s, 0, n), binary_part(s, n, byte_size(s) - n)}

@@ -177,15 +177,13 @@ defmodule PrologEx.Toplevel do
       [{ans, more?}] ->
         text = PrologEx.format_answer(ans)
 
-        cond do
-          not more? or (map_size(ans) == 0 and not more?) ->
-            IO.puts(text <> ".")
-
-          true ->
-            case IO.gets(text <> " ") do
-              ";" <> _ -> show_from(answers, n + 1)
-              _ -> IO.puts(".")
-            end
+        if more? do
+          case IO.gets(text <> " ") do
+            ";" <> _ -> show_from(answers, n + 1)
+            _ -> IO.puts(".")
+          end
+        else
+          IO.puts(text <> ".")
         end
     end
   end
