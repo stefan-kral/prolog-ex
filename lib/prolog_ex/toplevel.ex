@@ -70,21 +70,8 @@ defmodule PrologEx.Toplevel do
     %{st | db: db}
   end
 
-  # [user]: Zeilen lesen bis end_of_file. oder Dateiende
-  defp read_user(acc \\ []) do
-    case IO.gets("|: ") do
-      :eof ->
-        acc |> Enum.reverse() |> Enum.join()
-
-      {:error, _} ->
-        acc |> Enum.reverse() |> Enum.join()
-
-      line ->
-        if String.trim(line) == "end_of_file.",
-          do: acc |> Enum.reverse() |> Enum.join(),
-          else: read_user([line | acc])
-    end
-  end
+  # [user]: bis end_of_file., Ctrl-D oder Dateiende (siehe PrologEx.Terminal)
+  defp read_user, do: PrologEx.Terminal.read_until_eof("|: ")
 
   # ---------------------------------------------------------------------
   # Interaktiv
