@@ -47,12 +47,12 @@ defmodule PrologEx.BuiltinsTest do
   end
 
   test "Vergleich und Typprüfung", %{db: db} do
-    assert all(db, s("==", [s("f", [@x]), s("f", [@x])])) == ["X = X"]
+    assert all(db, s("==", [s("f", [@x]), s("f", [@x])])) == ["true"]
     assert all(db, s("==", [@x, @y])) == []
-    assert all(db, s("\\==", [@x, @y])) == ["X = X, Y = Y"]
+    assert all(db, s("\\==", [@x, @y])) == ["true"]
     assert all(db, s("\\=", [1, 2])) == ["true"]
     assert all(db, s("\\=", [@x, 2])) == []
-    assert all(db, s("var", [@x])) == ["X = X"]
+    assert all(db, s("var", [@x])) == ["true"]
     assert all(db, s("atom", [a("a")])) == ["true"]
     assert all(db, s("atom", [list([])])) == ["true"]
     assert all(db, s("compound", [list([1])])) == ["true"]

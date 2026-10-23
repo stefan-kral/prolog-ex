@@ -49,6 +49,11 @@ defmodule PrologEx.Consult do
   defp add_clause({head, _} = cl, st) do
     key = Compiler.key(head)
 
+    if PrologEx.Builtins.protected?(key) do
+      {name, arity} = key
+      raise "permission_error(modify, static_procedure, #{name}/#{arity})"
+    end
+
     case Map.fetch(st.pending, key) do
       {:ok, cls} ->
         %{st | pending: Map.put(st.pending, key, [cl | cls])}

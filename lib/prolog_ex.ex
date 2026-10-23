@@ -250,23 +250,16 @@ defmodule PrologEx do
   def index_key({:glist, _}), do: {".", 2}
   def index_key(t), do: t
 
-  defp candidates(db, goal, args, subst) do
-    case Map.fetch(db, Compiler.key(goal)) do
-      {:ok, {:pred, all, by_key, var_only, _source}} ->
-        case args do
-          [] ->
-            all
+  defp candidates({:pred, all, by_key, var_only, _source}, args, subst) do
+    case args do
+      [] ->
+        all
 
-          [x | _] ->
-            case walk(x, subst) do
-              {:var, _} -> all
-              t -> Map.get(by_key, index_key(t), var_only)
-            end
+      [x | _] ->
+        case walk(x, subst) do
+          {:var, _} -> all
+          t -> Map.get(by_key, index_key(t), var_only)
         end
-
-      :error ->
-        {name, arity} = Compiler.key(goal)
-        raise "existence_error(procedure, #{name}/#{arity}) – unbekanntes Prädikat"
     end
   end
 
@@ -418,7 +411,8 @@ defmodule PrologEx do
             next_var: 0,
             answer: [],
             threshold: @min_threshold,
-            min_threshold: @min_threshold
+            min_threshold: @min_threshold,
+            inferences: 0
 
   defp run(st) do
     st = maybe_compact(st)
@@ -469,59 +463,6 @@ defmodule PrologEx do
   defp step({:struct, "not", [g]}, cutb, rest, st),
     do: step({:struct, "\\+", [g]}, cutb, rest, st)
 
-  defp step({:struct, "\\=", [x, y]}, _cutb, rest, st) do
-    case unify(x, y, st.subst) do
-      {:ok, _} -> backtrack(st)
-      :error -> run(%{st | goals: rest})
-    end
-  end
-
-  defp step({:struct, op, [x, y]}, _cutb, rest, st) when op in ["==", "\\=="] do
-    same = resolve(x, st.subst) == resolve(y, st.subst)
-    if same == (op == "=="), do: run(%{st | goals: rest}), else: backtrack(st)
-  end
-
-  defp step({:struct, type, [x]}, _cutb, rest, st)
-       when type in ~w(var nonvar atom number integer float atomic compound callable is_list) do
-    if type_check(type, walk(x, st.subst), st.subst),
-      do: run(%{st | goals: rest}),
-      else: backtrack(st)
-  end
-
-  defp step({:struct, w, [x]}, _cutb, rest, st) when w in ["write", "print", "writeq"] do
-    IO.write(format(resolve(x, st.subst)))
-    run(%{st | goals: rest})
-  end
-
-  defp step({:atom, "nl"}, _cutb, rest, st) do
-    IO.write("\n")
-    run(%{st | goals: rest})
-  end
-
-  defp step({:atom, "listing"}, _cutb, rest, st) do
-    IO.write(PrologEx.Listing.listing(st.db, :all))
-    run(%{st | goals: rest})
-  end
-
-  defp step({:struct, "listing", [spec]}, _cutb, rest, st) do
-    IO.write(PrologEx.Listing.listing(st.db, resolve(spec, st.subst)))
-    run(%{st | goals: rest})
-  end
-
-  # phrase(G, L) / phrase(G, L, R): Nichtterminal G mit 2 Zusatzargumenten
-  defp step({:struct, "phrase", [g, l]}, cutb, rest, st),
-    do: step({:struct, "phrase", [g, l, []]}, cutb, rest, st)
-
-  defp step({:struct, "phrase", [g, l, r]}, _cutb, rest, st) do
-    goal = PrologEx.DCG.body(resolve(g, st.subst), l, r)
-    run(%{st | goals: [{goal, st.height} | rest]})
-  end
-
-  defp step({:atom, "halt"}, _cutb, _rest, _st), do: throw({:prolog_halt, 0})
-
-  defp step({:struct, "halt", [code]}, _cutb, _rest, st),
-    do: throw({:prolog_halt, eval(code, st.subst)})
-
   defp step({:struct, "=", [x, y]}, _cutb, rest, st) do
     case unify(x, y, st.subst) do
       {:ok, s1} -> run(%{st | goals: rest, subst: s1})
@@ -553,9 +494,131 @@ defmodule PrologEx do
 
   defp step({:var, _}, _cutb, _rest, _st), do: raise("instantiation_error")
 
+  # time(G): wie call/1, meldet danach Inferenzen und Zeit (auch bei
+  # Fehlschlag, über einen Choice Point, der nur meldet)
+  defp step({:struct, "time", [g]}, _cutb, rest, st) do
+    t0 = {System.monotonic_time(:microsecond), cpu_ms(), st.inferences}
+    h = st.height
+    st = push(st, {:time_fail, t0, st.subst, st.answer})
+    goal = unmark_top(walk(g, st.subst))
+    run(%{st | goals: [{goal, h + 1}, {{:"$time_exit", t0}, 0} | rest]})
+  end
+
+  defp step({:"$time_exit", t0}, _cutb, rest, st) do
+    report_time(t0, st.inferences)
+    run(%{st | goals: rest})
+  end
+
+  # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
   defp step(goal, _cutb, rest, st) do
+    key = Compiler.key(goal)
     args = Compiler.args_of(goal)
-    try_clauses(goal, args, candidates(st.db, goal, args, st.subst), rest, st)
+    st = %{st | inferences: st.inferences + 1}
+
+    case Map.fetch(st.db, key) do
+      {:ok, pred} ->
+        try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
+
+      :error ->
+        case PrologEx.Builtins.lookup(key) do
+          {:det, fun, _} ->
+            apply_result(fun.(args, ctx(st)), rest, st)
+
+          {:nondet, fun, _} ->
+            start_solutions(fun.(args, ctx(st)), rest, st)
+
+          {:prolog, pred, _} ->
+            try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
+
+          nil ->
+            {name, arity} = key
+            raise "existence_error(procedure, #{name}/#{arity}) – unbekanntes Prädikat"
+        end
+    end
+  end
+
+  defp ctx(st), do: %{subst: st.subst, db: st.db}
+
+  # Ergebnis eines Builtins (siehe PrologEx.Builtin) umsetzen
+  defp apply_result(result, rest, st) do
+    case result do
+      r when r in [:ok, true] ->
+        run(%{st | goals: rest})
+
+      r when r in [:fail, false] ->
+        backtrack(st)
+
+      {:unify, pairs} ->
+        case unify_pairs(pairs, st.subst) do
+          {:ok, s} -> run(%{st | goals: rest, subst: s})
+          :error -> backtrack(st)
+        end
+
+      {:call, goal} ->
+        run(%{st | goals: [{goal, st.height} | rest]})
+
+      other ->
+        raise "Builtin lieferte ungültiges Ergebnis: #{inspect(other)}"
+    end
+  end
+
+  defp unify_pairs([], s), do: {:ok, s}
+
+  defp unify_pairs([{x, y} | more], s) do
+    case unify(x, y, s) do
+      {:ok, s} -> unify_pairs(more, s)
+      :error -> :error
+    end
+  end
+
+  # Nichtdeterministische Builtins: Listen direkt (kein Choice Point für das
+  # letzte Element), sonst lazy über Enumerable mit :suspend
+  defp start_solutions([], _rest, st), do: backtrack(st)
+  defp start_solutions([r], rest, st), do: apply_result(r, rest, st)
+
+  defp start_solutions([r | more], rest, st) do
+    st = push(st, {:solutions_list, more, rest, st.subst, st.answer})
+    apply_result(r, rest, st)
+  end
+
+  defp start_solutions(enum, rest, st) do
+    enum
+    |> Enumerable.reduce({:cont, nil}, fn x, _ -> {:suspend, x} end)
+    |> next_solution(rest, st)
+  end
+
+  defp next_solution({:suspended, r, cont}, rest, st) do
+    st = push(st, {:solutions, cont, rest, st.subst, st.answer})
+    apply_result(r, rest, st)
+  end
+
+  defp next_solution(_done_or_halted, _rest, st), do: backtrack(st)
+
+  defp cpu_ms do
+    {ms, _} = :erlang.statistics(:runtime)
+    ms
+  end
+
+  defp report_time({us0, cpu0, inf0}, inf1) do
+    secs = (System.monotonic_time(:microsecond) - us0) / 1_000_000
+    cpu = (cpu_ms() - cpu0) / 1000
+    inf = inf1 - inf0
+    lips = if secs > 0, do: round(inf / secs), else: 0
+    pct = if secs > 0, do: round(100 * cpu / secs), else: 0
+
+    IO.puts(
+      :stderr,
+      "% #{group(inf)} inferences, #{:erlang.float_to_binary(cpu, decimals: 3)} CPU in " <>
+        "#{:erlang.float_to_binary(secs, decimals: 3)} seconds (#{pct}% CPU, #{group(lips)} Lips)"
+    )
+  end
+
+  defp group(n) do
+    n
+    |> Integer.to_string()
+    |> String.reverse()
+    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
+    |> String.reverse()
   end
 
   # (C -> T ; E): Choice Point für E, dann C mit eigener Cut-Barriere (Cut
@@ -573,29 +636,6 @@ defmodule PrologEx do
   defp add_args({:struct, f, args}, extra), do: mk(f, args ++ extra)
   defp add_args({:var, _}, _), do: raise("instantiation_error")
   defp add_args(g, _), do: raise("type_error(callable, #{format(g)})")
-
-  defp type_check("var", t, _), do: match?({:var, _}, t)
-  defp type_check("nonvar", t, _), do: not match?({:var, _}, t)
-  defp type_check("atom", t, _), do: t == [] or match?({:atom, _}, t)
-  defp type_check("number", t, _), do: is_number(t)
-  defp type_check("integer", t, _), do: is_integer(t)
-  defp type_check("float", t, _), do: is_float(t)
-  defp type_check("atomic", t, _), do: is_number(t) or t == [] or match?({:atom, _}, t)
-  defp type_check("compound", t, _), do: compound?(t)
-  defp type_check("callable", t, _), do: compound?(t) or t == [] or match?({:atom, _}, t)
-
-  defp type_check("is_list", t, s) do
-    case uncons(t) do
-      :empty -> true
-      {:cons, _, tl} -> type_check("is_list", walk(tl, s), s)
-      :other -> false
-    end
-  end
-
-  defp compound?(t),
-    do:
-      (is_list(t) and t != []) or match?({tag, _, _} when tag in [:struct, :gstruct], t) or
-        match?({:glist, _}, t)
 
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.
@@ -636,6 +676,16 @@ defmodule PrologEx do
 
       {:clauses, goal, args, more, rest, subst, answer} ->
         try_clauses(goal, args, more, rest, %{st | subst: subst, answer: answer})
+
+      {:solutions_list, more, rest, subst, answer} ->
+        start_solutions(more, rest, %{st | subst: subst, answer: answer})
+
+      {:solutions, cont, rest, subst, answer} ->
+        cont.({:cont, nil}) |> next_solution(rest, %{st | subst: subst, answer: answer})
+
+      {:time_fail, t0, subst, answer} ->
+        report_time(t0, st.inferences)
+        backtrack(%{st | subst: subst, answer: answer})
     end
   end
 
@@ -876,6 +926,11 @@ defmodule PrologEx do
     end
   end
 
-  def format_answer(ans) when map_size(ans) == 0, do: "true"
-  def format_answer(ans), do: Enum.map_join(ans, ", ", fn {k, t} -> "#{k} = #{format(t)}" end)
+  # Wie SWI: ungebundene Anfragevariablen (X = X) werden nicht gezeigt
+  def format_answer(ans) do
+    case Enum.reject(ans, fn {k, t} -> t == {:var, k} end) do
+      [] -> "true"
+      shown -> Enum.map_join(shown, ", ", fn {k, t} -> "#{k} = #{format(t)}" end)
+    end
+  end
 end
