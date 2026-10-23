@@ -3,20 +3,21 @@ defmodule PrologEx.Terminal do
   Eingabe für `[user]` mit Ctrl-D als Ende, ohne dass stdin danach "tot" ist.
 
   Problem: Liefert stdin in Erlang einmal Dateiende, antwortet die
-  Ein-/Ausgabe (`group.erl`) danach auf jede Leseanfrage mit `:eof` – der
-  Toplevel könnte also nach `[user]` + Ctrl-D nichts mehr lesen.
+  Ein-/Ausgabe danach auf jede Leseanfrage mit `:eof` – der Toplevel könnte
+  nach `[user]` + Ctrl-D nichts mehr lesen.
 
-  Lösung (nur, wenn stdin ein Terminal ist): Für die Dauer der Eingabe wird
-  das Terminal mit `stty eof undef eol ^D` umgestellt. Ctrl-D ist dann kein
-  Dateiende mehr, sondern ein Zeilenende-Zeichen, das als `\\x04` ankommt
-  und hier als "Eingabe fertig" gedeutet wird. Danach wird der vorherige
-  Zustand (`stty -g`) wiederhergestellt. Das Terminal wird über seinen
-  Gerätenamen angesprochen (`ps -o tty=`), weil Kindprozesse der BEAM kein
-  steuerndes Terminal haben; das funktioniert auf Linux und macOS.
+  Lösung (nur, wenn stdin ein Terminal ist): Eine kleine Shell liest die
+  Zeilen direkt vom Terminalgerät (`ps -o tty=`, weil Kindprozesse der BEAM
+  kein steuerndes Terminal haben). Ctrl-D ist dann das Dateiende DIESES
+  Lesers; stdin der BEAM sieht es nie. Am Terminal wird nichts umgestellt.
 
-  Ohne Terminal (Pipe, Datei) wird zeilenweise bis Dateiende gelesen.
-  Wird der Toplevel während `[user]` hart abgebrochen (Ctrl-C, a), bleibt die
-  Umstellung bestehen – `stty sane` behebt das.
+  Früher wurde das Terminal mit `stty eof undef eol ^D` umgestellt. Unter
+  rlwrap ging das schief: rlwrap schickt bei Ctrl-D das VEOF-Zeichen des
+  Terminals, und das war dann "undef" (macOS: Byte 0xFF, angezeigt als `?`).
+
+  Wie üblich unter Unix beendet Ctrl-D am Zeilenanfang die Eingabe; mitten
+  in der Zeile braucht es zweimal Ctrl-D. Ohne Terminal (Pipe, Datei) wird
+  zeilenweise bis Dateiende gelesen.
   """
 
   @doc """
@@ -26,59 +27,45 @@ defmodule PrologEx.Terminal do
   def read_until_eof(prompt) do
     with true <- terminal?(),
          {:ok, dev} <- device(),
-         {:ok, saved} <- stty(dev, "-g") do
-      try do
-        case stty(dev, "eof undef eol ^D") do
-          {:ok, _} -> read_chars(prompt)
-          :error -> read_lines(prompt, [])
-        end
-      after
-        stty(dev, String.trim(saved))
-      end
+         {:ok, text} <- read_via_shell(dev, prompt) do
+      text
     else
       _ -> read_lines(prompt, [])
     end
   end
 
+  # Eine Shell liest direkt vom Terminal; Ctrl-D ist dann deren Dateiende,
+  # stdin der BEAM bekommt davon nichts mit. Funktioniert auch unter rlwrap
+  # (das bei Ctrl-D das VEOF-Zeichen des Terminals schickt).
+  @reader_sh ~S"""
+  while :; do
+    printf '%s' "$1" >&2
+    if IFS= read -r line; then
+      [ "$line" = "end_of_file." ] && break
+      printf '%s\n' "$line"
+    else
+      # Ctrl-D mitten in der Zeile: Rest übernehmen
+      [ -n "$line" ] && printf '%s' "$line"
+      printf '\n' >&2
+      break
+    fi
+  done
+  """
+
+  defp read_via_shell(dev, prompt) do
+    script = "exec < #{dev} 2> #{dev}\n" <> @reader_sh
+
+    case System.cmd("sh", ["-c", script, "sh", prompt]) do
+      {text, 0} -> {:ok, text}
+      _ -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
   def terminal?, do: Keyword.get(:io.getopts(), :terminal, false) == true
 
   # ---------------------------------------------------------------------
-
-  # Zeichenweise, damit Ctrl-D sofort wirkt (Erlang würde die Zeile sonst
-  # bis zum nächsten "\n" zurückhalten)
-  defp read_chars(prompt) do
-    IO.write(prompt)
-    read_chars(prompt, [], [])
-  end
-
-  defp read_chars(prompt, line, acc) do
-    case IO.getn("", 1) do
-      "\x04" ->
-        IO.write("\n")
-        finish(line, acc)
-
-      "\n" ->
-        text = line |> Enum.reverse() |> Enum.join()
-
-        if String.trim(text) == "end_of_file." do
-          finish([], acc)
-        else
-          IO.write(prompt)
-          read_chars(prompt, [], [text <> "\n" | acc])
-        end
-
-      c when is_binary(c) ->
-        read_chars(prompt, [c | line], acc)
-
-      _eof_or_error ->
-        finish(line, acc)
-    end
-  end
-
-  defp finish(line, acc) do
-    rest = line |> Enum.reverse() |> Enum.join()
-    Enum.reverse([rest | acc]) |> Enum.join()
-  end
 
   defp read_lines(prompt, acc) do
     case IO.gets(prompt) do
@@ -103,15 +90,6 @@ defmodule PrologEx.Terminal do
 
       _ ->
         :error
-    end
-  rescue
-    _ -> :error
-  end
-
-  defp stty(dev, args) do
-    case System.cmd("sh", ["-c", "stty #{args} < #{dev}"], stderr_to_stdout: true) do
-      {out, 0} -> {:ok, out}
-      _ -> :error
     end
   rescue
     _ -> :error
