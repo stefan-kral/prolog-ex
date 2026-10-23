@@ -6,6 +6,35 @@ defmodule PrologEx.Builtins.Core do
     :fail
   end
 
+  # repeat/0: unendlich viele Lösungen, lazy – jedes Backtracking holt die
+  # nächste aus dem Stream (konstanter Speicher in Fehlschlag-Schleifen)
+  defbuiltin "repeat", [], nondet: true do
+    Stream.repeatedly(fn -> :ok end)
+  end
+
+  # repeat/1 ist in Prolog definiert (siehe library/0); hier nur die Prüfung
+  defbuiltin "$must_be_integer", [x] do
+    case deref(x) do
+      n when is_integer(n) -> :ok
+      {:var, _} -> raise "instantiation_error"
+      other -> raise "type_error(integer, #{format(other)})"
+    end
+  end
+
+  @doc false
+  # repeat(N): genau N Lösungen; nach der letzten bleibt kein Choice Point
+  def library do
+    import PrologEx, only: [s: 2, v: 1, a: 1, fact: 1, rule: 2]
+    [n, m] = [v("N"), v("M")]
+
+    [
+      rule(s("repeat", [n]), [s("$must_be_integer", [n]), s(">", [n, 0]), s("$repeat", [n])]),
+      rule(s("$repeat", [1]), [a("!")]),
+      fact(s("$repeat", [v("_")])),
+      rule(s("$repeat", [n]), [s("is", [m, s("-", [n, 1])]), s("$repeat", [m])])
+    ]
+  end
+
   defbuiltin "\\=", [x, y] do
     case PrologEx.unify(x, y, subst()) do
       {:ok, _} -> :fail

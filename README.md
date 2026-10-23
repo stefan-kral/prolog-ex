@@ -56,7 +56,7 @@ Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`), Direktiven (`op/3`,
 Laden ersetzt Prädikate), `,` `;` `->` `\\+` `!` `call/N` `time/1`,
 `=` `\\=` `==` `\\==`, `is` und Vergleiche (Ganzzahlen beliebiger Größe,
 Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`,
-`false/0`, `write/1` `nl/0` `listing/0,1` `halt/0,1`.
+`false/0`, `repeat/0,1`, `numlist/2,3`, `write/1` `nl/0` `listing/0,1` `halt/0,1`.
 
 Noch nicht: `assert`/`retract`, `catch`/`throw`, Ausgabe in
 Operator-Schreibweise (`write` gibt derzeit kanonisch aus), große

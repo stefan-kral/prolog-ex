@@ -256,6 +256,45 @@ defmodule PrologEx.LibraryTest do
     end
   end
 
+  describe "repeat/0,1" do
+    test "repeat/1: genau N Lösungen, nach der letzten kein Choice Point" do
+      more = fn goal -> db() |> solutions(goal) |> Enum.map(&elem(&1, 1)) end
+      assert more.(s("repeat", [3])) == [true, true, false]
+      assert more.(s("repeat", [1])) == [false]
+      assert more.(s("repeat", [0])) == []
+      assert more.(s("repeat", [-2])) == []
+    end
+
+    test "repeat/1: Fehler" do
+      error(s("repeat", [@n]))
+      error(s("repeat", [a("a")]))
+    end
+
+    test "repeat/0: unendlich, lazy, mit Cut beendbar" do
+      assert db() |> query(a("repeat")) |> Enum.take(5) |> length() == 5
+      assert all(s(",", [a("repeat"), a("!")])) == ["true"]
+    end
+
+    test "repeat/0: lange Fehlschlag-Schleife mit konstantem Speicher" do
+      # repeat, numlist(1, 10, L), fail  – 200.000 Runden in einem Prozess
+      {pid, ref} =
+        spawn_monitor(fn ->
+          goal = s(",", [a("repeat"), s("numlist", [1, 10, @l])])
+          db() |> query(goal) |> Stream.take(200_000) |> Stream.run()
+          exit({:memory, Process.info(self(), :memory)})
+        end)
+
+      assert_receive {:DOWN, ^ref, :process, ^pid, {:memory, {:memory, bytes}}}, 30_000
+      assert bytes < 5_000_000, "Speicher wächst: #{bytes} Bytes"
+    end
+
+    test "listing zeigt repeat/1 als Prolog, repeat/0 als Elixir" do
+      out = capture_io(fn -> all(s("listing", [a("repeat")])) end)
+      assert out =~ "% repeat/0: eingebaut, in Elixir realisiert"
+      assert out =~ "repeat(N) :-"
+    end
+  end
+
   describe "numlist/2,3" do
     test "baut Listen" do
       assert all(s("numlist", [1, 5, @l])) == ["L = [1, 2, 3, 4, 5]"]
