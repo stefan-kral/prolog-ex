@@ -156,7 +156,8 @@ defmodule PrologEx.Toplevel do
     end
 
     if mode != :goal, do: IO.puts("")
-    st
+    # assert/retract während der Anfrage übernehmen
+    %{st | db: PrologEx.current_db()}
   end
 
   # -g Ziele: still ausführen, nur Fehlschlag melden

@@ -17,6 +17,8 @@
 
 main :-
     set_prolog_flag(double_quotes, chars),
+    % Präfix-Operatoren für Deklarationen wie in SWI/ISO-Praxis
+    op(1150, fx, [dynamic, discontiguous, initialization, multifile]),
     loop.
 
 loop :-

@@ -81,7 +81,11 @@ defmodule PrologEx.Consult do
   defp directive(g, st), do: run_directive(g, flush(st), "Direktive")
 
   defp run_directive(g, st, what) do
-    case Enum.take(PrologEx.query(st.db, g), 1) do
+    result = Enum.take(PrologEx.query(st.db, g), 1)
+    # Direktiven dürfen die Datenbank ändern (assert/retract)
+    st = %{st | db: PrologEx.current_db()}
+
+    case result do
       [_] -> st
       [] -> msg(st, "Warnung: #{what} gescheitert: #{PrologEx.format(g)}")
     end

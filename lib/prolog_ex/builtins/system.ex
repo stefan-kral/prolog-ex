@@ -57,15 +57,15 @@ defmodule PrologEx.Builtins.System do
     {name, arity} = key
 
     case Map.fetch(db, key) do
-      {:ok, {:pred, _, _, _, src}} ->
-        src
+      {:ok, pred} ->
+        PrologEx.pred_source(pred)
 
       :error ->
         case Builtins.lookup(key) do
-          {:prolog, {:pred, _, _, _, src}, _} ->
+          {:prolog, pred, _} ->
             if String.starts_with?(name, "$"),
               do: raise("permission_error(access, private_procedure, #{name}/#{arity})"),
-              else: src
+              else: PrologEx.pred_source(pred)
 
           nil ->
             if Builtins.protected?(key),

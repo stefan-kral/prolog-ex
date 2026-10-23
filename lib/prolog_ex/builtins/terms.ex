@@ -6,6 +6,47 @@ defmodule PrologEx.Builtins.Terms do
   # functor(T, Name, Arity)
   #   T gebunden:   Name/Arity von T (atomar: Name = T, Arity = 0)
   #   T ungebunden: T = Name(_, ..., _) mit frischen Variablen
+  # acyclic_term(T): T ist (unter der aktuellen Substitution) endlich.
+  # Zyklen entstehen nur über gebundene Variablen; Tiefensuche merkt sich
+  # die Variablen auf dem aktuellen Pfad und die schon als azyklisch
+  # bekannten (jede gebundene Variable wird so höchstens einmal besucht).
+  defbuiltin "acyclic_term", [t] do
+    acyclic(t, subst(), MapSet.new(), MapSet.new()) != :cyclic
+  end
+
+  defp acyclic({:var, _} = x, s, path, done) do
+    cond do
+      not Map.has_key?(s, x) ->
+        done
+
+      MapSet.member?(done, x) ->
+        done
+
+      MapSet.member?(path, x) ->
+        :cyclic
+
+      true ->
+        case acyclic(Map.fetch!(s, x), s, MapSet.put(path, x), done) do
+          :cyclic -> :cyclic
+          done -> MapSet.put(done, x)
+        end
+    end
+  end
+
+  defp acyclic({:struct, _, args}, s, path, done), do: acyclic_all(args, s, path, done)
+  defp acyclic([h | t], s, path, done), do: acyclic_all([h, t], s, path, done)
+  # ground markierte Terme und Atome/Zahlen sind immer endlich
+  defp acyclic(_, _s, _path, done), do: done
+
+  defp acyclic_all([], _s, _path, done), do: done
+
+  defp acyclic_all([x | xs], s, path, done) do
+    case acyclic(x, s, path, done) do
+      :cyclic -> :cyclic
+      done -> acyclic_all(xs, s, path, done)
+    end
+  end
+
   defbuiltin "functor", [t, name, arity] do
     case deref(t) do
       {:var, _} ->

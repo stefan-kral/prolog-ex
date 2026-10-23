@@ -60,10 +60,20 @@ Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`
 `same_length/2`, `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
 `findall/3,4`, `findnsols/4,5`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
-`occurs_check`), `unify_with_occurs_check/2`, `clause/2`, `current_predicate/1`,
-`false/0`, `repeat/0,1`, `numlist/2,3`, `write/1` `nl/0` `listing/0,1` `halt/0,1`.
+`occurs_check`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
+`current_predicate/1`, `assert/1` `asserta/1` `assertz/1` `retract/1`
+`retractall/1` `dynamic/1`, `false/0`, `repeat/0,1`, `numlist/2,3`,
+`write/1` `nl/0` `listing/0,1` `halt/0,1`.
 
-Noch nicht: `assert`/`retract`, `catch`/`throw`, Ausgabe in
+Datenbank: Prädikate aus `assert` sind dynamisch, geladene statisch (außer
+mit `:- dynamic`); Änderungen an statischen ergeben `permission_error`.
+Es gilt die *logical update view* (ISO): ein laufender Aufruf sieht den
+Stand von seinem Start. `assert` ist O(1); der Index wird beim nächsten
+Aufruf erweitert statt neu gebaut, `retract` der ersten Klausel ist O(1).
+Abwechselnd `assertz` und Aufruf bleibt quadratisch (Kopie der
+Klauselliste, klein: 8000 Runden ≈ 0,4 s).
+
+Noch nicht: `catch`/`throw`, Ausgabe in
 Operator-Schreibweise (`write` gibt derzeit kanonisch aus), große
 Integer-Literale im Quelltext (Grenze von gprolog).
 

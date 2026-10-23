@@ -16,7 +16,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Terms,
     PrologEx.Builtins.Lists,
     PrologEx.Builtins.Order,
-    PrologEx.Builtins.System
+    PrologEx.Builtins.System,
+    PrologEx.Builtins.Database
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst

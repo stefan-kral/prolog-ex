@@ -301,13 +301,37 @@ defmodule PrologEx do
 
   # ---------------------------------------------------------------------
   # Datenbank
-  #   %{{name, arity} => {:pred, alle, nach_schlüssel, nur_var_klauseln, quelle}}
-  # quelle: die Klauseln als Terme ({kopf, rumpf}) für listing/clause
-  # nach_schlüssel: für jeden Erstargument-Schlüssel die passenden
-  # Klauseln (inkl. derer mit Variable an erster Stelle) in Originalreihenfolge.
+  #
+  #   %{{name, arity} => prädikat, :dynamic => MapSet der dynamischen}
+  #
+  # prädikat ist eines von
+  #   {:pred, alle, nach_schlüssel, nur_var_klauseln, einträge}   kompiliert
+  #   {:stale, vorne, hinten_umgekehrt}                           nach assert
+  # einträge: [{kennung, {kopf, rumpf}, kompilierte_klausel}] in Reihenfolge;
+  # die Kennung (eindeutige Ganzzahl) identifiziert eine Klausel für retract.
+  # nach_schlüssel: für jeden Erstargument-Schlüssel die passenden Klauseln
+  # (inkl. derer mit Variable an erster Stelle) in Originalreihenfolge.
+  #
+  # assertz/asserta hängen nur an ({:stale, ...}, O(1)); kompiliert und
+  # indexiert wird beim nächsten Aufruf, einmal für alle neuen Klauseln.
+  #
+  # Die Datenbank einer laufenden Sitzung liegt im Prozess (wie die Flags):
+  # Änderungen überstehen Backtracking und gelten auch aus findall/\+ heraus.
+  # query/3 setzt sie beim Start, current_db/0 liest sie zurück.
   # ---------------------------------------------------------------------
 
   alias PrologEx.Compiler
+
+  @db_key :prolog_ex_db
+
+  @doc "Datenbank der laufenden Sitzung (nach assert/retract)"
+  def current_db, do: Process.get(@db_key, %{})
+
+  @doc false
+  def put_db(db), do: Process.put(@db_key, db)
+
+  @doc false
+  def update_db(fun), do: put_db(fun.(current_db()))
 
   def consult(clauses), do: consult(%{}, clauses)
 
@@ -324,16 +348,141 @@ defmodule PrologEx do
     Map.merge(db, new)
   end
 
-  @doc "Deklariert ein Prädikat ohne Klauseln (Aufrufe scheitern statt Fehler)."
-  def declare(db, key), do: Map.put_new(db, key, build_pred([]))
+  @doc "Deklariert ein dynamisches Prädikat (ohne Klauseln: Aufrufe scheitern)."
+  def declare(db, key) do
+    db
+    |> Map.put_new(key, build_pred([]))
+    |> Map.update(:dynamic, MapSet.new([key]), &MapSet.put(&1, key))
+  end
 
-  defp build_pred(source) do
-    cls = Enum.map(source, &Compiler.compile_clause/1)
-    keys = cls |> Enum.map(&elem(&1, 1)) |> Enum.reject(&(&1 == :any)) |> Enum.uniq()
+  @doc false
+  def dynamic?(db, key), do: MapSet.member?(Map.get(db, :dynamic, MapSet.new()), key)
 
-    by_key = Map.new(keys, fn k -> {k, Enum.filter(cls, &(elem(&1, 1) in [k, :any]))} end)
+  @doc false
+  def entry({head, body} = src),
+    do: {System.unique_integer([:positive]), src, Compiler.compile_clause({head, body})}
 
-    {:pred, cls, by_key, Enum.filter(cls, &(elem(&1, 1) == :any)), source}
+  defp build_pred(source), do: pred_from_entries(Enum.map(source, &entry/1))
+
+  @doc false
+  # Index in einem Durchgang: Klauseln je Schlüssel, Klauseln mit Variable
+  # an erster Stelle werden in jede Schlüsselliste an ihrer Position
+  # eingemischt (O(n + Schlüssel × Var-Klauseln) statt O(n × Schlüssel))
+  def pred_from_entries(entries) do
+    cls = Enum.map(entries, &elem(&1, 2))
+    indexed = Enum.with_index(cls)
+    var_only = for {c, _} <- indexed, elem(c, 1) == :any, do: c
+    any_idx = for {c, i} <- indexed, elem(c, 1) == :any, do: {i, c}
+
+    by_key =
+      indexed
+      |> Enum.reject(fn {c, _} -> elem(c, 1) == :any end)
+      |> Enum.group_by(fn {c, _} -> elem(c, 1) end, fn {c, i} -> {i, c} end)
+      |> Map.new(fn {k, own} -> {k, merge_by_index(own, any_idx)} end)
+
+    {:pred, cls, by_key, var_only, entries}
+  end
+
+  defp merge_by_index([], b), do: Enum.map(b, &elem(&1, 1))
+  defp merge_by_index(a, []), do: Enum.map(a, &elem(&1, 1))
+
+  defp merge_by_index([{i, x} | a], [{j, _} | _] = b) when i < j,
+    do: [x | merge_by_index(a, b)]
+
+  defp merge_by_index(a, [{_, y} | b]), do: [y | merge_by_index(a, b)]
+
+  @doc false
+  def pred_entries({:pred, _, _, _, entries}), do: entries
+  def pred_entries({:pending, p, [], []}), do: pred_entries(p)
+  def pred_entries({:pending, p, fr, bk}), do: fr ++ pred_entries(p) ++ Enum.reverse(bk)
+  def pred_entries({:stale, front, []}), do: front
+  def pred_entries({:stale, front, back}), do: front ++ Enum.reverse(back)
+
+  @doc false
+  # Klausel mit Kennung `ref` entfernen. Kosten O(Position der Klausel):
+  # das häufige "erste Klausel zurückziehen" ist O(1).
+  def remove_entry(pred, ref) do
+    # hinten angehängte Klauseln einmal nach vorn holen, damit folgende
+    # retracts (und ihre Schnappschüsse) wieder O(1) beginnen
+    entries = pred_entries(pred)
+
+    case drop_ref(entries, ref, []) do
+      {:ok, rest} -> {:stale, rest, []}
+      :error -> {:stale, entries, []}
+    end
+  end
+
+  defp drop_ref([], _ref, _acc), do: :error
+  defp drop_ref([{ref, _, _} | rest], ref, acc), do: {:ok, :lists.reverse(acc, rest)}
+  defp drop_ref([e | rest], ref, acc), do: drop_ref(rest, ref, [e | acc])
+
+  @doc "Quelltext eines Prädikats: [{kopf, rumpf}]"
+  def pred_source(pred), do: pred |> pred_entries() |> Enum.map(&elem(&1, 1))
+
+  @doc false
+  def materialize({:pred, _, _, _, _} = p), do: p
+
+  def materialize({:pending, {:pred, cls, _, _, _} = p, fr, bk} = pending) do
+    # viele neue Klauseln: Neubau ist dann billiger als Erweitern
+    if length(fr) + length(bk) > length(cls),
+      do: pred_from_entries(pred_entries(pending)),
+      else: extend(p, fr, Enum.reverse(bk))
+  end
+
+  def materialize(p), do: pred_from_entries(pred_entries(p))
+
+  # Index um vorn (asserta) und hinten (assertz) angefügte Klauseln
+  # erweitern, statt ihn neu aufzubauen (~75× billiger; übrig bleibt das
+  # Kopieren der Klausellisten)
+  defp extend({:pred, cls, by_key, var_only, entries}, fr, bk) do
+    # vorn: von hinten nach vorn voranstellen
+    {by_key, var_only} =
+      fr
+      |> Enum.reverse()
+      |> Enum.reduce({by_key, var_only}, fn {_, _, c}, {bk_, vo} ->
+        case elem(c, 1) do
+          :any -> {Map.new(bk_, fn {k, l} -> {k, [c | l]} end), [c | vo]}
+          k -> {Map.update(bk_, k, [c | vo], &[c | &1]), vo}
+        end
+      end)
+
+    # hinten: anhängen (neue Schlüssel beginnen mit allen Var-Klauseln)
+    {by_key, var_only_rev} =
+      Enum.reduce(bk, {by_key, Enum.reverse(var_only)}, fn {_, _, c}, {bk_, vr} ->
+        case elem(c, 1) do
+          :any -> {Map.new(bk_, fn {k, l} -> {k, l ++ [c]} end), [c | vr]}
+          k -> {Map.update(bk_, k, Enum.reverse([c | vr]), &(&1 ++ [c])), vr}
+        end
+      end)
+
+    cl = &elem(&1, 2)
+
+    {:pred, Enum.map(fr, cl) ++ cls ++ Enum.map(bk, cl), by_key, Enum.reverse(var_only_rev),
+     fr ++ entries ++ bk}
+  end
+
+  @doc false
+  # Zustände eines Prädikats in der Datenbank:
+  #   {:pred, ...}                 übersetzt und indiziert
+  #   {:pending, pred, vorn, hinten_rev}  pred plus angefügte Klauseln;
+  #                                der Index wird beim nächsten Aufruf
+  #                                ERWEITERT (materialize/1)
+  #   {:stale, vorn, hinten_rev}   nach retract: Index wird neu gebaut
+  # Ein assert ist so immer O(1).
+  def assert_entry(pred, entry, :z) do
+    case pred do
+      {:pred, _, _, _, _} -> {:pending, pred, [], [entry]}
+      {:pending, p, fr, bk} -> {:pending, p, fr, [entry | bk]}
+      {:stale, front, back} -> {:stale, front, [entry | back]}
+    end
+  end
+
+  def assert_entry(pred, entry, :a) do
+    case pred do
+      {:pred, _, _, _, _} -> {:pending, pred, [entry], []}
+      {:pending, p, fr, bk} -> {:pending, p, [entry | fr], bk}
+      {:stale, front, back} -> {:stale, [entry | front], back}
+    end
   end
 
   # Hauptfunktor als Indexschlüssel; :any = Variable (passt auf alles)
@@ -717,8 +866,16 @@ defmodule PrologEx do
     key = Compiler.key(goal)
     args = Compiler.args_of(goal)
 
-    case Map.fetch(st.db, key) do
-      {:ok, pred} ->
+    db = current_db()
+
+    case Map.fetch(db, key) do
+      {:ok, {:pred, _, _, _, _} = pred} ->
+        try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
+
+      {:ok, stale} ->
+        # nach assert: einmal kompilieren/indexieren und zurückschreiben
+        pred = materialize(stale)
+        put_db(Map.put(db, key, pred))
         try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
 
       :error ->
@@ -750,7 +907,7 @@ defmodule PrologEx do
     end
   end
 
-  defp ctx(st), do: %{subst: st.subst, db: st.db}
+  defp ctx(st), do: %{subst: st.subst, db: current_db()}
 
   # Ergebnis eines Builtins (siehe PrologEx.Builtin) umsetzen
   defp apply_result(result, rest, st) do
@@ -1126,6 +1283,7 @@ defmodule PrologEx do
         nil
 
       {:start, st} ->
+        put_db(st.db)
         emit(run(st))
 
       {:retry, st} ->
@@ -1147,6 +1305,8 @@ defmodule PrologEx do
 
   # Für Messungen: erste Lösung plus Zustandsgrößen
   def first_with_stats(db, goal, opts \\ []) do
+    put_db(db)
+
     case run(new_state(db, [{goal, 0}], [], opts)) do
       {:sol, st} -> {:ok, %{bindings: map_size(st.subst), choicepoints: st.height}}
       :done -> false

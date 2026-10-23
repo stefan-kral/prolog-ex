@@ -31,6 +31,9 @@ defmodule PrologEx.Listing do
     lib_entries = Enum.map(library, &{&1, {:builtin, PrologEx.Builtins.lookup(&1)}})
 
     Enum.sort_by(user, fn {key, _} -> key end)
+    |> Enum.map(fn {key, pred} ->
+      if PrologEx.dynamic?(db, key), do: {key, {:dynamic, pred}}, else: {key, pred}
+    end)
     |> Kernel.++(lib_entries)
     |> Enum.map_join("\n", fn {key, pred} -> pred_text(key, pred) end)
   end
@@ -55,8 +58,8 @@ defmodule PrologEx.Listing do
 
   defp called_helpers(key) do
     case PrologEx.Builtins.lookup(key) do
-      {:prolog, {:pred, _, _, _, source}, _} ->
-        for {_head, body} <- source,
+      {:prolog, pred, _} ->
+        for {_head, body} <- PrologEx.pred_source(pred),
             g <- called_goals(unmark(body)),
             k = goal_key(g),
             k != nil and helper?(k) and PrologEx.Builtins.lookup(k) != nil,
@@ -94,11 +97,14 @@ defmodule PrologEx.Listing do
     "% #{name}/#{arity}: eingebaut, in Elixir realisiert (#{mod})\n"
   end
 
-  defp pred_text({name, arity}, {:pred, _, _, _, []}),
-    do: ":- dynamic #{name}/#{arity}.\n"
+  defp pred_text({name, arity}, {:dynamic, pred}) do
+    case PrologEx.pred_source(pred) do
+      [] -> ":- dynamic #{name}/#{arity}.\n"
+      src -> ":- dynamic #{name}/#{arity}.\n\n" <> Enum.map_join(src, "", &clause_text/1)
+    end
+  end
 
-  defp pred_text(_key, {:pred, _, _, _, source}),
-    do: Enum.map_join(source, "", &clause_text/1)
+  defp pred_text(_key, pred), do: Enum.map_join(PrologEx.pred_source(pred), "", &clause_text/1)
 
   @doc false
   def clause_text({head, body}) do
