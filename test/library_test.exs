@@ -220,7 +220,7 @@ defmodule PrologEx.LibraryTest do
   end
 
   describe "time/1" do
-    test "meldet Inferenzen, auch bei Fehlschlag, und reicht Lösungen durch" do
+    test "meldet nur die Zeit, auch bei Fehlschlag, und reicht Lösungen durch" do
       err =
         capture_io(:stderr, fn ->
           assert all(s("time", [s("append", [@x, @y, list([1])])])) == [
@@ -229,10 +229,11 @@ defmodule PrologEx.LibraryTest do
                  ]
         end)
 
-      assert err =~ ~r/% [\d,]+ inferences, [\d.]+ CPU in [\d.]+ seconds/
+      assert err =~ ~r/^% \d+\.\d{3} seconds$/m
+      refute err =~ "inferences"
 
       err = capture_io(:stderr, fn -> assert all(s("time", [a("fail")])) == [] end)
-      assert err =~ "inferences"
+      assert err =~ "seconds"
     end
 
     test "Cut im Ziel ist lokal" do
@@ -242,6 +243,63 @@ defmodule PrologEx.LibraryTest do
                ]
       end)
     end
+
+    test "kein zusätzlicher Choice Point, wenn das Ziel deterministisch ist" do
+      capture_io(:stderr, fn ->
+        more = fn goal -> db() |> solutions(goal) |> Enum.map(&elem(&1, 1)) end
+        assert more.(s("time", [a("true")])) == [false]
+        assert more.(s("time", [s("p", [@x])])) == [false]
+        assert more.(s("time", [s("numlist", [1, 3, @l])])) == [false]
+        # nichtdeterministisch: Choice Point bleibt, bis die letzte Lösung kommt
+        assert more.(s("time", [s(";", [s("=", [@x, 1]), s("=", [@x, 2])])])) == [true, false]
+      end)
+    end
+  end
+
+  describe "numlist/2,3" do
+    test "baut Listen" do
+      assert all(s("numlist", [1, 5, @l])) == ["L = [1, 2, 3, 4, 5]"]
+      assert all(s("numlist", [-1, 1, @l])) == ["L = [-1, 0, 1]"]
+      assert all(s("numlist", [3, 3, @l])) == ["L = [3]"]
+      assert all(s("numlist", [5, 1, @l])) == []
+      assert all(s("numlist", [3, @l])) == ["L = [1, 2, 3]"]
+      assert all(s("numlist", [1, 3, list([1, 2, 3])])) == ["true"]
+    end
+
+    test "Ergebnis ist als ground Liste markiert" do
+      [ans] = db() |> query(s("numlist", [1, 3, @l])) |> Enum.take(1)
+      assert ans["L"] == [1, 2, 3]
+      [{_, more?}] = db() |> solutions(s("numlist", [1, 3, @l])) |> Enum.take(1)
+      refute more?
+    end
+
+    test "Fehler" do
+      error(s("numlist", [@x, 3, @l]))
+      error(s("numlist", [1, a("a"), @l]))
+    end
+  end
+
+  describe "listing für Bibliotheksprädikate" do
+    test "Prolog-Quelltext bzw. Hinweis auf Elixir" do
+      out = capture_io(fn -> all(s("listing", [a("numlist")])) end)
+
+      assert out ==
+               "numlist(N, L) :-\n    numlist(1, N, L).\n\n" <>
+                 "% numlist/3: eingebaut, in Elixir realisiert (PrologEx.Builtins.Lists)\n"
+
+      # interne Hilfsprädikate ($append) bleiben verborgen, listing/0 zeigt
+      # nur Benutzerprädikate
+      out = capture_io(fn -> all(s("listing", [a("$append")])) end)
+      assert out == ""
+      out = capture_io(fn -> all(a("listing")) end)
+      refute out =~ "numlist"
+    end
+  end
+
+  test "format ist linear: lange Listen" do
+    {us, text} = :timer.tc(fn -> format(list(Enum.to_list(1..200_000))) end)
+    assert String.starts_with?(text, "[1, 2, 3")
+    assert us < 2_000_000
   end
 
   test "Builtin-Tabelle und Schutz" do

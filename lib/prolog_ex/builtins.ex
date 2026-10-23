@@ -28,7 +28,8 @@ defmodule PrologEx.Builtins do
                 function_exported?(mod, :library, 0),
                 {key, pred} <- PrologEx.consult(mod.library()),
                 into: %{} do
-              {key, {:prolog, pred, true}}
+              # nur interne Hilfsprädikate ($...) sind geschützt
+              {key, {:prolog, pred, String.starts_with?(elem(key, 0), "$")}}
             end)
 
   @all Map.merge(@table, @library)

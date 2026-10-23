@@ -104,6 +104,13 @@ defmodule PrologEx.ConsultTest do
     assert out == "2\n"
   end
 
+  test "Toplevel: ; setzt die Suche fort, Seiteneffekte nur einmal" do
+    input = "[user].\np(1).\np(2).\nend_of_file.\np(X), write(seen(X)), nl.\n;\nhalt.\n"
+    out = capture_io(input, fn -> assert PrologEx.Toplevel.main(["-q"]) == 0 end)
+    assert out |> String.split("seen(1)") |> length() == 2
+    assert out |> String.split("seen(2)") |> length() == 2
+  end
+
   test "Toplevel: [user] und Anfragen mit ;" do
     input = "[user].\nf(a).\nf(b).\nend_of_file.\nf(X).\n;\nf(c).\nhalt.\n"
     out = capture_io(input, fn -> assert PrologEx.Toplevel.main(["-q"]) == 0 end)

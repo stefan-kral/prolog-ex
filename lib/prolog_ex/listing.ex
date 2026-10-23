@@ -12,10 +12,28 @@ defmodule PrologEx.Listing do
 
   import PrologEx, only: [format: 1, unmark: 1]
 
-  @doc "spec: `:all`, ein Atom (alle Stelligkeiten) oder `Name/Stelligkeit`"
+  @doc """
+  spec: `:all` (nur Benutzerprädikate), ein Atom (alle Stelligkeiten) oder
+  `Name/Stelligkeit`. Bei einem Atom oder `Name/Stelligkeit` werden auch
+  Bibliotheksprädikate gezeigt, die nicht vom Benutzer überdeckt sind: in
+  Prolog geschriebene mit Quelltext, in Elixir geschriebene als Hinweis.
+  """
   def listing(db, spec) do
-    db
-    |> Enum.filter(fn {key, _} -> matches?(key, spec) end)
+    user = Enum.filter(db, fn {key, _} -> matches?(key, spec) end)
+
+    library =
+      if spec == :all,
+        do: [],
+        else:
+          for(
+            key <- PrologEx.Builtins.keys(),
+            matches?(key, spec),
+            not Map.has_key?(db, key),
+            not String.starts_with?(elem(key, 0), "$"),
+            do: {key, {:builtin, PrologEx.Builtins.lookup(key)}}
+          )
+
+    (user ++ library)
     |> Enum.sort_by(fn {key, _} -> key end)
     |> Enum.map_join("\n", fn {key, pred} -> pred_text(key, pred) end)
   end
@@ -24,6 +42,13 @@ defmodule PrologEx.Listing do
   defp matches?({name, _}, {:atom, name}), do: true
   defp matches?({name, arity}, {:struct, "/", [{:atom, name}, arity]}), do: true
   defp matches?(_, _), do: false
+
+  defp pred_text(_key, {:builtin, {:prolog, pred, _}}), do: pred_text(nil, pred)
+
+  defp pred_text({name, arity}, {:builtin, {_kind, fun, _}}) do
+    mod = fun |> Function.info() |> Keyword.fetch!(:module) |> inspect()
+    "% #{name}/#{arity}: eingebaut, in Elixir realisiert (#{mod})\n"
+  end
 
   defp pred_text({name, arity}, {:pred, _, _, _, []}),
     do: ":- dynamic #{name}/#{arity}.\n"

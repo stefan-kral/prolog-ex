@@ -1,7 +1,13 @@
 defmodule PrologEx.Builtins.Lists do
   @moduledoc """
-  Listenprädikate: append/3 und length/2 (beide vom Benutzer
+  Listenprädikate: append/3, length/2, numlist/2,3 (alle vom Benutzer
   überschreibbar), dazu die Hilfsfunktion `skip_list/2`.
+
+  ## numlist/3, numlist/2
+
+  `numlist(Lo, Hi, L)`: L = [Lo, ..., Hi] (scheitert bei Lo > Hi), in
+  Elixir gebaut und gleich als ground Liste markiert.
+  `numlist(N, L)` ist in Prolog definiert: `numlist(N, L) :- numlist(1, N, L).`
 
   ## append/3 – hybrid
 
@@ -28,9 +34,12 @@ defmodule PrologEx.Builtins.Lists do
     import PrologEx, only: [s: 2, v: 1, fact: 1, rule: 2]
     [h, t, l, r] = Enum.map(~w(H T L R), &v/1)
 
+    n = v("N")
+
     [
       fact(s("$append", [[], l, l])),
-      rule(s("$append", [[h | t], l, [h | r]]), [s("$append", [t, l, r])])
+      rule(s("$append", [[h | t], l, [h | r]]), [s("$append", [t, l, r])]),
+      rule(s("numlist", [n, l]), [s("numlist", [1, n, l])])
     ]
   end
 
@@ -38,6 +47,16 @@ defmodule PrologEx.Builtins.Lists do
     case prefix(x, subst()) do
       {:ok, front} -> {:unify, [{z, join(front, y, subst())}]}
       :partial -> {:call, mk("$append", [x, y, z])}
+    end
+  end
+
+  defbuiltin "numlist", [lo, hi, l], protected: false do
+    case {deref(lo), deref(hi)} do
+      {a, b} when is_integer(a) and is_integer(b) and a > b -> :fail
+      {a, b} when is_integer(a) and is_integer(b) -> {:unify, [{l, {:glist, Enum.to_list(a..b)}}]}
+      {{:var, _}, _} -> raise "instantiation_error"
+      {_, {:var, _}} -> raise "instantiation_error"
+      {a, b} -> raise "type_error(integer, #{format(if is_integer(a), do: b, else: a)})"
     end
   end
 

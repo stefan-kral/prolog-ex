@@ -411,8 +411,7 @@ defmodule PrologEx do
             next_var: 0,
             answer: [],
             threshold: @min_threshold,
-            min_threshold: @min_threshold,
-            inferences: 0
+            min_threshold: @min_threshold
 
   defp run(st) do
     st = maybe_compact(st)
@@ -494,26 +493,30 @@ defmodule PrologEx do
 
   defp step({:var, _}, _cutb, _rest, _st), do: raise("instantiation_error")
 
-  # time(G): wie call/1, meldet danach Inferenzen und Zeit (auch bei
-  # Fehlschlag, über einen Choice Point, der nur meldet)
+  # time(G): wie call/1, meldet danach die verstrichene Zeit. Ein Choice
+  # Point direkt unter G meldet auch einen Fehlschlag. Hat G bei Erfolg
+  # keine eigenen Choice Points hinterlassen, wird dieser Melde-Choice-Point
+  # sofort entfernt – time(G) ist dann so deterministisch wie G.
   defp step({:struct, "time", [g]}, _cutb, rest, st) do
-    t0 = {System.monotonic_time(:microsecond), cpu_ms(), st.inferences}
+    t0 = System.monotonic_time(:microsecond)
     h = st.height
     st = push(st, {:time_fail, t0, st.subst, st.answer})
     goal = unmark_top(walk(g, st.subst))
-    run(%{st | goals: [{goal, h + 1}, {{:"$time_exit", t0}, 0} | rest]})
+    run(%{st | goals: [{goal, h + 1}, {{:"$time_exit", t0, h}, 0} | rest]})
   end
 
-  defp step({:"$time_exit", t0}, _cutb, rest, st) do
-    report_time(t0, st.inferences)
-    run(%{st | goals: rest})
+  defp step({:"$time_exit", t0, h}, _cutb, rest, st) do
+    report_time(t0)
+
+    if st.height == h + 1,
+      do: run(%{st | goals: rest, cps: tl(st.cps), height: h}),
+      else: run(%{st | goals: rest})
   end
 
   # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
   defp step(goal, _cutb, rest, st) do
     key = Compiler.key(goal)
     args = Compiler.args_of(goal)
-    st = %{st | inferences: st.inferences + 1}
 
     case Map.fetch(st.db, key) do
       {:ok, pred} ->
@@ -594,31 +597,9 @@ defmodule PrologEx do
 
   defp next_solution(_done_or_halted, _rest, st), do: backtrack(st)
 
-  defp cpu_ms do
-    {ms, _} = :erlang.statistics(:runtime)
-    ms
-  end
-
-  defp report_time({us0, cpu0, inf0}, inf1) do
+  defp report_time(us0) do
     secs = (System.monotonic_time(:microsecond) - us0) / 1_000_000
-    cpu = (cpu_ms() - cpu0) / 1000
-    inf = inf1 - inf0
-    lips = if secs > 0, do: round(inf / secs), else: 0
-    pct = if secs > 0, do: round(100 * cpu / secs), else: 0
-
-    IO.puts(
-      :stderr,
-      "% #{group(inf)} inferences, #{:erlang.float_to_binary(cpu, decimals: 3)} CPU in " <>
-        "#{:erlang.float_to_binary(secs, decimals: 3)} seconds (#{pct}% CPU, #{group(lips)} Lips)"
-    )
-  end
-
-  defp group(n) do
-    n
-    |> Integer.to_string()
-    |> String.reverse()
-    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
-    |> String.reverse()
+    IO.puts(:stderr, "% #{:erlang.float_to_binary(secs, decimals: 3)} seconds")
   end
 
   # (C -> T ; E): Choice Point für E, dann C mit eigener Cut-Barriere (Cut
@@ -684,7 +665,7 @@ defmodule PrologEx do
         cont.({:cont, nil}) |> next_solution(rest, %{st | subst: subst, answer: answer})
 
       {:time_fail, t0, subst, answer} ->
-        report_time(t0, st.inferences)
+        report_time(t0)
         backtrack(%{st | subst: subst, answer: answer})
     end
   end
@@ -905,24 +886,32 @@ defmodule PrologEx do
   # Ausgabe
   # ---------------------------------------------------------------------
 
-  def format({:var, n}) when is_integer(n), do: "_G#{n}"
-  def format({:var, n}), do: n
-  def format({:atom, n}), do: n
-  def format(n) when is_integer(n), do: Integer.to_string(n)
-  def format(f) when is_float(f), do: Float.to_string(f)
-  def format([]), do: "[]"
-  def format([_ | _] = l), do: "[" <> format_list(l) <> "]"
-  def format({:glist, l}), do: "[" <> format_list(l) <> "]"
+  # Baut iodata und wandelt erst am Ende in einen String: linear in der
+  # Termgröße (verschachteltes <> wäre bei langen Listen quadratisch)
+  def format(t), do: t |> fmt() |> IO.iodata_to_binary()
 
-  def format({tag, f, args}) when tag in [:struct, :gstruct],
-    do: f <> "(" <> Enum.map_join(args, ", ", &format/1) <> ")"
+  defp fmt({:var, n}) when is_integer(n), do: ["_G", Integer.to_string(n)]
+  defp fmt({:var, n}) when is_binary(n), do: n
+  defp fmt({:var, n}), do: inspect(n)
+  defp fmt({:atom, n}), do: n
+  defp fmt(n) when is_integer(n), do: Integer.to_string(n)
+  defp fmt(f) when is_float(f), do: Float.to_string(f)
+  defp fmt([]), do: "[]"
+  defp fmt([_ | _] = l), do: ["[", fmt_list(l, []), "]"]
+  defp fmt({:glist, l}), do: ["[", fmt_list(l, []), "]"]
 
-  defp format_list([h | t]) do
+  defp fmt({tag, f, args}) when tag in [:struct, :gstruct],
+    do: [f, "(", Enum.map_intersperse(args, ", ", &fmt/1), ")"]
+
+  defp fmt(other), do: inspect(other)
+
+  # endrekursiv entlang der Liste, Akkumulator in umgekehrter Reihenfolge
+  defp fmt_list([h | t], acc) do
     case t do
-      [] -> format(h)
-      [_ | _] -> format(h) <> ", " <> format_list(t)
-      {:glist, l} -> format(h) <> ", " <> format_list(l)
-      _ -> format(h) <> " | " <> format(t)
+      [] -> Enum.reverse(acc, [fmt(h)])
+      [_ | _] -> fmt_list(t, [", ", fmt(h) | acc])
+      {:glist, l} -> fmt_list(l, [", ", fmt(h) | acc])
+      _ -> Enum.reverse(acc, [fmt(h), " | ", fmt(t)])
     end
   end
 

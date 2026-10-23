@@ -152,28 +152,29 @@ defmodule PrologEx.Toplevel do
     if Enum.take(answers, 1) == [], do: IO.puts(:stderr, "Warnung: Ziel gescheitert")
   end
 
-  defp show(answers, _mode), do: show_from(answers, 0)
+  defp show(answers, _mode) do
+    answers
+    |> Enumerable.reduce({:cont, nil}, fn x, _ -> {:suspend, x} end)
+    |> show_next()
+  end
 
-  # Lösung Nr. n zeigen; nur nach ";" fragen, wenn noch Choice Points da sind
-  # (wie SWI: deterministische Antworten enden direkt mit ".")
-  defp show_from(answers, n) do
-    case answers |> Stream.drop(n) |> Enum.take(1) do
-      [] ->
-        IO.puts("false.")
+  # Nächste Lösung zeigen; die Suche wird FORTGESETZT (nicht neu gestartet),
+  # Seiteneffekte früherer Lösungen wiederholen sich also nicht. Nur nach
+  # ";" fragen, wenn noch Choice Points da sind (wie SWI).
+  defp show_next({:suspended, {ans, more?}, cont}) do
+    text = PrologEx.format_answer(ans)
 
-      [{ans, more?}] ->
-        text = PrologEx.format_answer(ans)
-
-        if more? do
-          case IO.gets(text <> " ") do
-            ";" <> _ -> show_from(answers, n + 1)
-            _ -> IO.puts(".")
-          end
-        else
-          IO.puts(text <> ".")
-        end
+    if more? do
+      case IO.gets(text <> " ") do
+        ";" <> _ -> show_next(cont.({:cont, nil}))
+        _ -> IO.puts(".")
+      end
+    else
+      IO.puts(text <> ".")
     end
   end
+
+  defp show_next(_done), do: IO.puts("false.")
 
   defp prolog_list([]), do: []
   defp prolog_list([h | t]), do: [h | prolog_list(t)]
