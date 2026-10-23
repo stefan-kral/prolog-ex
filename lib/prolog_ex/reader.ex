@@ -83,11 +83,19 @@ defmodule PrologEx.Reader do
   def handle_call({:read, text}, _from, st) do
     n = st.batch + 1
     marker = "\n'$batch_end'(#{n}).\n'$batch_end'(#{n}).\n"
+    # 1_000_000 und Ganzzahlen jenseits von gprologs max_integer
+    {text, big?} = PrologEx.NumberSyntax.rewrite(text)
     sent = text <> marker
+
+    fix_big = fn
+      {:term, t, names} when big? -> {:term, PrologEx.NumberSyntax.unwrap(t), names}
+      other -> other
+    end
+
     Port.command(st.port, sent)
 
     # gprolog zählt Zeilen über die ganze Sitzung; auf diesen Text umrechnen
-    fix = &fix_line(&1, st.lines)
+    fix = &(&1 |> fix_line(st.lines) |> fix_big.())
 
     case collect(st.port, n, st.buf, []) do
       {:ok, results, buf} ->

@@ -73,9 +73,12 @@ Aufruf erweitert statt neu gebaut, `retract` der ersten Klausel ist O(1).
 Abwechselnd `assertz` und Aufruf bleibt quadratisch (Kopie der
 Klauselliste, klein: 8000 Runden ≈ 0,4 s).
 
+Zahlen im Quelltext: Zifferngruppen wie in SWI (`1_000_000`, nach `_` darf
+Leerraum folgen) und Ganzzahl-Literale beliebiger Größe; beides schreibt
+`PrologEx.NumberSyntax` vor dem gprolog-Reader um.
+
 Noch nicht: `catch`/`throw`, Ausgabe in
-Operator-Schreibweise (`write` gibt derzeit kanonisch aus), große
-Integer-Literale im Quelltext (Grenze von gprolog).
+Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
 
 ## Eigene Builtins in Elixir
 
