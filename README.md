@@ -54,7 +54,8 @@ X = [], Y = [1, 2] ;       % ";" + Enter für die nächste Lösung
 Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`), Direktiven (`op/3`,
 `dynamic/1`, `initialization/1`, beliebige Ziele), Reconsult (erneutes
 Laden ersetzt Prädikate), `,` `;` `->` `\\+` `!` `call/N` `time/1`,
-`=` `\\=` `==` `\\==`, `is` und Vergleiche (Ganzzahlen beliebiger Größe,
+`=` `\\=` `==` `\\==`, Standardordnung (`@<` `@>` `@=<` `@>=` `compare/3`,
+`sort/2` `msort/2` `keysort/2`), `term_variables/2`, `subsumes_term/2`, `is` und Vergleiche (Ganzzahlen beliebiger Größe,
 Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`,
 `false/0`, `repeat/0,1`, `numlist/2,3`, `write/1` `nl/0` `listing/0,1` `halt/0,1`.
 

@@ -11,7 +11,12 @@ defmodule PrologEx.Builtins do
   eigene Definitionen ersetzen.
   """
 
-  @modules [PrologEx.Builtins.Core, PrologEx.Builtins.Terms, PrologEx.Builtins.Lists]
+  @modules [
+    PrologEx.Builtins.Core,
+    PrologEx.Builtins.Terms,
+    PrologEx.Builtins.Lists,
+    PrologEx.Builtins.Order
+  ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
   # ausführt (siehe PrologEx.step/4); hier nur für den Schutz in consult.

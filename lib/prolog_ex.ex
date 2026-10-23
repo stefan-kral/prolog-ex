@@ -145,7 +145,8 @@ defmodule PrologEx do
     y = walk(y, subst)
 
     cond do
-      x == y -> {:ok, subst}
+      # strikt: 1 und 1.0 sind verschiedene Terme (Elixirs == hält sie für gleich)
+      x === y -> {:ok, subst}
       match?({:var, _}, x) -> {:ok, bind(x, y, subst)}
       match?({:var, _}, y) -> {:ok, bind(y, x, subst)}
       true -> unify_struct(x, y, subst)

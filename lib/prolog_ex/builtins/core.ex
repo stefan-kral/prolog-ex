@@ -48,14 +48,6 @@ defmodule PrologEx.Builtins.Core do
     end
   end
 
-  defbuiltin "==", [x, y] do
-    resolve(x) == resolve(y)
-  end
-
-  defbuiltin "\\==", [x, y] do
-    resolve(x) != resolve(y)
-  end
-
   # --- Typprüfungen ------------------------------------------------------
 
   defbuiltin "var", [x] do
