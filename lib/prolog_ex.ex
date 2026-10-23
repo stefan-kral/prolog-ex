@@ -200,6 +200,39 @@ defmodule PrologEx do
   defp append_term([h | t], x), do: [h | append_term(t, x)]
   defp append_term({:glist, _} = l, x), do: append_term(unmark(l), x)
 
+  @doc """
+  Attributierte Variablen in t, in Reihenfolge des Auftretens, auch die nur
+  über Attribute erreichbaren (wie SWI term_attvars/2).
+  """
+  def term_attvars(t, subst) do
+    {acc, _} = attvars(t, subst, {[], MapSet.new()})
+    Enum.reverse(acc)
+  end
+
+  defp attvars(t, subst, {acc, seen} = st) do
+    case walk(t, subst) do
+      {:var, {:attv, id}} = v ->
+        if MapSet.member?(seen, v) do
+          st
+        else
+          st = {[v | acc], MapSet.put(seen, v)}
+
+          subst
+          |> Map.get({:attrs, id}, %{})
+          |> Enum.reduce(st, fn {_m, a}, st -> attvars(a, subst, st) end)
+        end
+
+      {:struct, _, args} ->
+        Enum.reduce(args, st, &attvars(&1, subst, &2))
+
+      [h | tl] ->
+        attvars(tl, subst, attvars(h, subst, st))
+
+      _ ->
+        st
+    end
+  end
+
   @doc "Aktive Suspensionen ('$s'-Terme mit ungebundenem Done) einer Variablen"
   def suspensions(var, subst) do
     var
@@ -1003,9 +1036,79 @@ defmodule PrologEx do
   defp step(n, _cutb, _mod, _rest, st) when is_number(n),
     do: throw_error(st, fn -> PrologEx.Error.type!("callable", n) end)
 
-  # Weckziele attributierter Variablen (siehe after_unify/2)
-  defp step({:"$wake", attvs}, _cutb, _mod, rest, st),
-    do: run(%{st | goals: wake_goals(attvs, st) ++ rest})
+  # Gebundene attributierte Variablen (siehe after_unify/2). Ohne Module
+  # mit verify_attributes/3 laufen nur die eingebauten Weckziele (freeze,
+  # dif, when). Sonst wie SICStus (library(atts)):
+  #   1. die Bindungen dieser Variablen zurücknehmen,
+  #   2. für jede Variable und jedes Attributmodul M (in Deklarations-
+  #      reihenfolge) M:verify_attributes(Var, Wert, Goals) aufrufen –
+  #      alle sehen alle beteiligten Variablen ungebunden,
+  #   3. die Bindungen wiederherstellen ($attv_redo),
+  #   4. alle Goals aufrufen (jeweils im Modul M),
+  #   5. die eingebauten Weckziele.
+  # Alles sind gewöhnliche Ziele: Scheitern, Alternativen und Ausnahmen
+  # der Hooks wirken wie bei jedem Aufruf.
+  defp step({:"$wake", attvs}, _cutb, _mod, rest, st) do
+    case verify_modules(current_db()) do
+      [] ->
+        run(%{st | goals: wake_goals(attvs, st) ++ rest})
+
+      mods ->
+        pairs = for v <- attvs, do: {v, Map.fetch!(st.subst, v)}
+        subst = Enum.reduce(attvs, st.subst, &Map.delete(&2, &1))
+
+        hooks =
+          for {v, val} <- pairs, m <- mods do
+            g = {:var, "_H#{System.unique_integer([:positive])}"}
+            {mk(":", [a(m), mk("verify_attributes", [v, val, g])]), mk("$g", [a(m), g])}
+          end
+
+        redo =
+          mk("$attv_redo", [
+            list(for({v, val} <- pairs, do: mk("$p", [v, val]))),
+            list(Enum.map(hooks, &elem(&1, 1)))
+          ])
+
+        goals = for {h, _} <- hooks, do: {h, st.height, "system"}
+        run(%{st | subst: subst, goals: goals ++ [{redo, st.height, "system"} | rest]})
+    end
+  end
+
+  # Bindungen wiederherstellen, dann die Goals der Hooks, dann die
+  # eingebauten Weckziele (siehe $wake)
+  defp step({:struct, "$attv_redo", [ps, gs]}, _cutb, _mod, rest, st) do
+    {subst, attvs, again} =
+      ps
+      |> prolog_items()
+      |> Enum.reduce({st.subst, [], []}, fn p, {s, attvs, again} ->
+        {_, "$p", [v, val]} = unmark_top(p)
+
+        case walk(v, s) do
+          {:var, {:attv, _}} = av -> {Map.put(s, av, val), [av | attvs], again}
+          # vom Hook gebunden (laut SICStus undefiniert): normal unifizieren
+          _ -> {s, attvs, [mk("=", [v, val]) | again]}
+        end
+      end)
+
+    st = %{st | subst: subst}
+
+    collected =
+      guarded(fn ->
+        for g <- prolog_items(gs),
+            {_, "$g", [{:atom, m}, list]} = unmark_top(g),
+            goal <- goal_list(list, subst),
+            do: {goal, st.height, m}
+      end)
+
+    case collected do
+      {:ok, hook_goals} ->
+        again = for g <- Enum.reverse(again), do: {g, st.height, "system"}
+        run(%{st | goals: again ++ hook_goals ++ wake_goals(Enum.reverse(attvs), st) ++ rest})
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+    end
+  end
 
   # M:G – G im Modul M ausführen (transparent für den Cut)
   defp step({:struct, ":", [m, g]}, cutb, _mod, rest, st) do
@@ -1266,6 +1369,22 @@ defmodule PrologEx do
     do: {Map.delete(s, :wake), [{{:"$wake", Enum.reverse(ws)}, 0, "system"} | goals]}
 
   defp after_unify(s, goals), do: {s, goals}
+
+  # Goals-Liste eines Hooks (Restlisten können gebundene Variablen sein)
+  defp goal_list(l, subst) do
+    case uncons(walk(l, subst)) do
+      :empty -> []
+      {:cons, h, t} -> [h | goal_list(t, subst)]
+      :other -> PrologEx.Error.type!("list", resolve(l, subst))
+    end
+  end
+
+  # Attributmodule mit verify_attributes/3, in Deklarationsreihenfolge
+  defp verify_modules(db) do
+    for m <- Map.get(db, :attr_modules, []),
+        Map.has_key?(db, {m, "verify_attributes", 3}),
+        do: m
+  end
 
   # Weckziele der gebundenen attributierten Variablen, in der Reihenfolge,
   # in der sie angehängt wurden; jedes wie call/1 (Cut lokal)
@@ -1827,7 +1946,7 @@ defmodule PrologEx do
     # Restziele (freeze, dif, when) der in der Antwort vorkommenden
     # attributierten Variablen, wie im SWI/SICStus-Toplevel
     ans =
-      case residual_goals(Map.values(ans), st.subst) do
+      case residual_goals(Map.values(ans), st) do
         [] -> ans
         goals -> Map.put(ans, "$residual", goals)
       end
@@ -1835,35 +1954,52 @@ defmodule PrologEx do
     if st.height > 0, do: {{ans, true}, {:retry, st}}, else: {{ans, false}, :halt}
   end
 
-  defp residual_goals(terms, subst) do
-    ids = Enum.flat_map(terms, &term_attvs(&1, [])) |> Enum.reverse()
-    residuals(ids, MapSet.new(), MapSet.new(), [], subst)
-  end
+  # Restziele über '$residuals'/2 (eingebaute Bedingungen und
+  # attribute_goal/2 aller Attributmodule), in einer Unter-Maschine im
+  # aktuellen Zustand. M:G wird ohne Modul gezeigt, wenn G in user dasselbe
+  # Prädikat meint (oder M = user).
+  defp residual_goals(terms, st) do
+    case Enum.flat_map(terms, &term_attvars(&1, st.subst)) |> Enum.uniq() do
+      [] ->
+        []
 
-  defp residuals([], _seen, _dones, acc, _subst), do: Enum.reverse(acc)
+      vars ->
+        r = {:var, "_R#{System.unique_integer([:positive])}"}
+        goal = mk("$residuals", [list(vars), r])
+        sub = %{st | goals: [{goal, 0, "system"}], cps: [], height: 0, answer: [{"$r", r}]}
 
-  defp residuals([id | ids], seen, dones, acc, subst) do
-    if MapSet.member?(seen, id) do
-      residuals(ids, seen, dones, acc, subst)
-    else
-      {acc, dones, more} =
-        Enum.reduce(suspensions({:var, {:attv, id}}, subst), {acc, dones, []}, fn susp,
-                                                                                  {acc, dones,
-                                                                                   more} ->
-          {_, "$s", [done, _wake, res]} = unmark_top(susp)
-          done = walk(done, subst)
+        case guarded(fn -> run(sub) end) do
+          {:ok, {:sol, s2}} ->
+            [{_, l}] = s2.answer
+            db = current_db()
 
-          if MapSet.member?(dones, done) do
-            {acc, dones, more}
-          else
-            res = resolve(res, subst)
-            {[res | acc], MapSet.put(dones, done), more ++ Enum.reverse(term_attvs(res, []))}
-          end
-        end)
+            l
+            |> resolve(s2.subst)
+            |> prolog_items()
+            |> Enum.uniq()
+            |> Enum.map(&unqualify(&1, db))
 
-      residuals(ids ++ more, MapSet.put(seen, id), dones, acc, subst)
+          _ ->
+            []
+        end
     end
   end
+
+  defp unqualify({:struct, ":", [{:atom, m}, g]} = q, db) do
+    case g do
+      {:struct, f, args} ->
+        case locate(db, "user", f, length(args)) do
+          {:db, ^m, _} -> g
+          {:builtin, ^m, _} -> g
+          _ -> if m == "user", do: g, else: q
+        end
+
+      _ ->
+        q
+    end
+  end
+
+  defp unqualify(t, _db), do: t
 
   # Ungebundene Variablen in Antworten benennen wie SWI: Anfragevariablen,
   # die auf dieselbe ungebundene Variable zeigen, bilden eine Kette

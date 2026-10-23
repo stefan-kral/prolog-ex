@@ -110,7 +110,7 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "dif(X, a), zaehle(3000), dif(Y, X), zaehle(3000), Y = b.",
                compact_threshold: 1
              ) ==
-               ["Y = b, dif(X, a), dif(b, X)"]
+               ["Y = b, dif(X, a), dif(X, b)"]
     end
   end
 
@@ -124,8 +124,15 @@ defmodule PrologEx.CoroutiningTest do
     end
 
     test "zusammengesetzte Terme und Variablen auf beiden Seiten", c do
-      assert ask(c, "dif(f(X, Y), f(1, 2)), X = 1.") == ["X = 1, dif(f(1, Y), f(1, 2))"]
+      assert ask(c, "dif(f(X, Y), f(1, 2)), X = 1.") == ["X = 1, dif(Y, 2)"]
       assert ask(c, "dif(f(X, Y), f(1, 2)), X = 1, Y = 2.") == []
+      assert ask(c, "dif(f(X, Y, Z), f(1, 2, 3)), X = 1.") == ["X = 1, dif(f(Y, Z), f(2, 3))"]
+      assert ask(c, "dif(f(X, Y, Z), f(1, 2, 3)), Y = 2, X = 1.") == ["X = 1, Y = 2, dif(Z, 3)"]
+      # die Front wird gemeinsam neu unifiziert: einzeln offene Paare, die
+      # sich widersprechen, erledigen dif (kein falsches Restziel)
+      assert ask(c, "dif(f(X, Y), f(Z, Z)), X = a, Y = b.") == ["X = a, Y = b"]
+      assert ask(c, "dif(f(X, Y), f(Z, Z)), X = a.") == ["X = a, dif(f(Z, Y), f(a, a))"]
+      assert ask(c, "dif(f(X, Y), f(Z, Z)), X = a, Y = a, Z = a.") == []
       assert ask(c, "dif(f(X, Y), f(1, 2)), X = 3.") == ["X = 3"]
       assert ask(c, "dif(X, Y), X = Y.") == []
       assert ask(c, "dif(X, Y), Y = X.") == []

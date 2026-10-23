@@ -113,11 +113,35 @@ zeigt der Toplevel als Restziele:
 X = 1, dif(f(1, Y), f(1, 2)).
 ```
 
-Grundlage sind attributierte Variablen (`PrologEx.put_attr/4`): Attribute
-stehen in der Substitution und überstehen damit Backtracking; normale
-Variablen kosten nichts extra. Eine öffentliche Schnittstelle im
-SICStus-Stil (`put_atts/get_atts`, `verify_attributes/3`) kommt später.
-`copy_term/2` und `findall/3` kopieren Attribute (noch) nicht mit.
+`dif/2` merkt sich nur die *Front*: die Paare des Unifikators, die noch
+offen sind. Wird eine ihrer Variablen gebunden, wird die Front gemeinsam
+neu unifiziert (erfüllt, gescheitert oder kleinere Front); das Restziel
+schrumpft entsprechend (`dif(f(X,Y,Z), f(1,2,3)), X = 1` →
+`dif(f(Y, Z), f(2, 3))`).
+
+`frozen/2`, `copy_term/3` (Body als Konjunktion) und `term_attvars/2` wie
+SICStus. `copy_term/2` und `findall/3` kopieren Attribute nicht mit.
+
+### Attributierte Variablen: `library(atts)` wie SICStus
+
+```prolog
+:- module(domain, [domain/2]).
+:- use_module(library(atts)).
+:- attribute dom/1.
+
+verify_attributes(Var, Wert, Goals) :- ...   % vor der Bindung
+attribute_goal(Var, domain(Var, Dom)) :- get_atts(Var, dom(Dom)).
+```
+
+`put_atts/2` (`+A`, `-A`, Listen), `get_atts/2` (auch mit ungebundener
+Angabe: alle Attribute), jeweils im Kontextmodul. Beim Binden
+attributierter Variablen läuft es wie in SICStus: Bindungen zurücknehmen →
+`M:verify_attributes(Var, Wert, Goals)` für jede Variable und jedes Modul
+mit `:- attribute` (alle sehen alle beteiligten Variablen ungebunden) →
+Bindungen wiederherstellen → alle Goals (im Modul M) → Weckziele von
+freeze/dif/when. Scheitern, Alternativen und Ausnahmen der Hooks wirken
+normal. `attribute_goal/2` liefert Restziele für Toplevel, `frozen/2`
+und `copy_term/3`. Ohne Attributmodule kostet das alles nichts.
 
 ## Module
 

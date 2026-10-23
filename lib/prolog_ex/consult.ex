@@ -198,6 +198,10 @@ defmodule PrologEx.Consult do
     end)
   end
 
+  defp directive({:struct, "attribute", [spec]}, st) do
+    %{st | db: PrologEx.Builtins.Atts.declare(st.db, st.module, spec)}
+  end
+
   defp directive({:struct, "meta_predicate", [spec]}, st) do
     %{st | db: PrologEx.Builtins.Modules.declare_meta(st.db, spec, st.module)}
   end
