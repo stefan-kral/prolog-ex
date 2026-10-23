@@ -23,7 +23,7 @@ defmodule PrologEx.Toplevel do
   def main(args) do
     {files, goals, quiet} = parse_args(args, [], [], false)
     {:ok, reader} = Reader.start_link()
-    st = %{db: %{}, reader: reader}
+    st = %{db: %{}, reader: reader, dq: "chars"}
 
     try do
       st = Enum.reduce(files, st, &load_source/2)
@@ -67,7 +67,7 @@ defmodule PrologEx.Toplevel do
     items = Reader.read_terms(st.reader, text)
     {db, msgs} = Consult.load(st.db, items)
     Enum.each(msgs, &IO.puts(:stderr, "#{name}: #{&1}"))
-    %{st | db: db}
+    sync_flags(%{st | db: db})
   end
 
   # [user]: bis end_of_file., Ctrl-D oder Dateiende (siehe PrologEx.Terminal)
@@ -116,10 +116,22 @@ defmodule PrologEx.Toplevel do
     end
   end
 
+  # Hat eine Anfrage double_quotes geändert, muss der Reader es wissen
+  defp sync_flags(st) do
+    {:atom, dq} = PrologEx.Flags.get("double_quotes")
+
+    if dq != st.dq do
+      Reader.set_double_quotes(st.reader, dq)
+      %{st | dq: dq}
+    else
+      st
+    end
+  end
+
   defp run_text(text, st, mode) do
     Enum.reduce(Reader.read_terms(st.reader, text), st, fn
       {:error, msg}, st -> err(msg, st)
-      {:term, t, _names}, st -> run_query(PrologEx.unmark(t), st, mode)
+      {:term, t, _names}, st -> sync_flags(run_query(PrologEx.unmark(t), st, mode))
     end)
   end
 

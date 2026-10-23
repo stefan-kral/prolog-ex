@@ -104,6 +104,20 @@ defmodule PrologEx.ConsultTest do
     assert out == "2\n"
   end
 
+  test "double_quotes: Direktive in der Datei und im Toplevel" do
+    out =
+      capture_io(
+        "s1(\"ab\").\n:- set_prolog_flag(double_quotes, codes).\ns2(\"ab\").\n",
+        fn -> PrologEx.Toplevel.main(["-", "-g", "s1(X), s2(Y), write(X-Y), nl"]) end
+      )
+
+    assert out == "-([a, b], [97, 98])\n"
+
+    input = "set_prolog_flag(double_quotes, atom).\nX = \"ab\".\nhalt.\n"
+    out = capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)
+    assert out =~ "X = ab."
+  end
+
   test "Toplevel: ; setzt die Suche fort, Seiteneffekte nur einmal" do
     input = "[user].\np(1).\np(2).\nend_of_file.\np(X), write(seen(X)), nl.\n;\nhalt.\n"
     out = capture_io(input, fn -> assert PrologEx.Toplevel.main(["-q"]) == 0 end)

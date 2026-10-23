@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Prolog do
   def run(args) do
     Mix.Task.run("compile")
 
-    unless PrologEx.Reader.available?() do
+    if not PrologEx.Reader.available?() or PrologEx.Reader.stale?() do
       Mix.Task.run("prolog.build_reader")
     end
 

@@ -36,6 +36,12 @@ defmodule PrologEx.Reader do
 
   def stop(reader), do: GenServer.stop(reader)
 
+  @doc "Setzt double_quotes im Reader (codes, chars, atom)"
+  def set_double_quotes(reader, value) when value in ["codes", "chars", "atom"] do
+    read_terms(reader, ":- set_prolog_flag(double_quotes, #{value}).\n")
+    :ok
+  end
+
   @doc "Pfad zum übersetzten Reader-Programm"
   def executable do
     priv =
@@ -48,6 +54,18 @@ defmodule PrologEx.Reader do
   end
 
   def available?, do: File.exists?(executable())
+
+  @doc "Ist das übersetzte Programm älter als priv/gprolog/reader.pl?"
+  def stale? do
+    src = Path.join(["priv", "gprolog", "reader.pl"])
+
+    with {:ok, %{mtime: bin}} <- File.stat(executable()),
+         {:ok, %{mtime: pl}} <- File.stat(src) do
+      pl > bin
+    else
+      _ -> false
+    end
+  end
 
   # ---------------------------------------------------------------------
 

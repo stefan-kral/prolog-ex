@@ -15,13 +15,15 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Core,
     PrologEx.Builtins.Terms,
     PrologEx.Builtins.Lists,
-    PrologEx.Builtins.Order
+    PrologEx.Builtins.Order,
+    PrologEx.Builtins.System
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
   # ausführt (siehe PrologEx.step/4); hier nur für den Schutz in consult.
   @engine ~w(true/0 fail/0 !/0 ,/2 ;/2 ->/2 call/1 call/2 call/3 call/4 call/5 call/6
-             call/7 call/8 call_nth/2 not/1 \\+/1 =/2 is/2 </2 >/2 >=/2 =</2 =:=/2 =\\=/2 time/1)
+             call/7 call/8 call_nth/2 findall/3 findall/4
+             findnsols/4 findnsols/5 not/1 \\+/1 =/2 is/2 </2 >/2 >=/2 =</2 =:=/2 =\\=/2 time/1)
 
   @table (for mod <- @modules,
               {key, kind, fun, protected, _helpers} <- mod.__builtins__(),

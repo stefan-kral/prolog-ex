@@ -9,8 +9,9 @@
 %            batch_end(N).           wenn die Markierung erreicht ist
 %            eof.                    bei echtem Dateiende, dann Ende
 %
-% Operator-Direktiven (:- op(...)) werden hier ausgeführt, damit folgende
-% Terme richtig gelesen werden. Sie werden trotzdem auch weitergereicht.
+% Operator-Direktiven (:- op(...)) und :- set_prolog_flag(double_quotes, _)
+% werden hier ausgeführt, damit folgende Terme richtig gelesen werden. Sie
+% werden trotzdem auch weitergereicht.
 
 :- initialization(main).
 
@@ -32,6 +33,8 @@ loop :-
     ).
 
 run_op((:- op(P, Ty, N))) :- !, catch(op(P, Ty, N), _, true).
+run_op((:- set_prolog_flag(double_quotes, V))) :- !,
+    catch(set_prolog_flag(double_quotes, V), _, true).
 run_op(_).
 
 emit(X) :- write_canonical(X), write('.'), nl, flush_output.

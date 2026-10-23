@@ -43,6 +43,42 @@ defmodule PrologEx.Builtins.Terms do
     end
   end
 
+  # arg(N, T, A): N-tes Argument; mit offenem N alle Argumente (lazy)
+  defbuiltin "arg", [n, t, x], nondet: true do
+    args =
+      case deref(t) do
+        {:var, _} ->
+          raise "instantiation_error"
+
+        tt ->
+          if Core.compound?(tt),
+            do: elem(parts(tt), 1),
+            else: raise("type_error(compound, #{format(resolve(tt))})")
+      end
+
+    case deref(n) do
+      k when is_integer(k) and k >= 1 and k <= length(args) ->
+        [{:unify, [{x, Enum.at(args, k - 1)}]}]
+
+      k when is_integer(k) and k >= 0 ->
+        []
+
+      k when is_integer(k) ->
+        raise "domain_error(not_less_than_zero, #{k})"
+
+      {:var, _} ->
+        arg_enum(n, x, args, 1)
+
+      other ->
+        raise "type_error(integer, #{format(resolve(other))})"
+    end
+  end
+
+  # copy_term(T, C): Kopie mit frischen Variablen
+  defbuiltin "copy_term", [t, c] do
+    {:unify, [{c, PrologEx.copy_fresh(t, subst())}]}
+  end
+
   # T =.. [Name | Args]
   defbuiltin "=..", [t, l] do
     case deref(t) do
@@ -97,6 +133,11 @@ defmodule PrologEx.Builtins.Terms do
         end
     end
   end
+
+  defp arg_enum(n, x, [a], k), do: [{:unify, [{n, k}, {x, a}]}]
+
+  defp arg_enum(n, x, [a | rest], k),
+    do: [{:unify, [{n, k}, {x, a}]} | fn -> arg_enum(n, x, rest, k + 1) end]
 
   defp atom_name([]), do: "[]"
   defp atom_name({:atom, n}), do: n

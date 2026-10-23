@@ -78,7 +78,6 @@ defmodule PrologEx.Consult do
   defp directive({:struct, "op", [_, _, _]}, st), do: st
   defp directive({:struct, "discontiguous", [_]}, st), do: st
   defp directive({:struct, "ensure_loaded", [_]}, st), do: st
-  defp directive({:struct, "set_prolog_flag", [_, _]}, st), do: st
   defp directive(g, st), do: run_directive(g, flush(st), "Direktive")
 
   defp run_directive(g, st, what) do

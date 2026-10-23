@@ -205,6 +205,45 @@ defmodule PrologEx do
     end
   end
 
+  @doc """
+  Kopie eines Terms mit frischen Variablen (gleiche Variablen bleiben
+  gleich). Markierte ground Teilterme werden geteilt, nicht kopiert; ground
+  gewordene Teile werden markiert.
+  """
+  def copy_fresh(t, subst) do
+    {c, _map} = copy(t, subst, %{})
+    c
+  end
+
+  defp copy(t, subst, map) do
+    case walk(t, subst) do
+      {:var, _} = var ->
+        case Map.fetch(map, var) do
+          {:ok, fresh} ->
+            {fresh, map}
+
+          :error ->
+            fresh = {:var, "_B#{System.unique_integer([:positive])}"}
+            {fresh, Map.put(map, var, fresh)}
+        end
+
+      m when is_marked(m) ->
+        {m, map}
+
+      {:struct, f, args} ->
+        {args, map} = Enum.map_reduce(args, map, &copy(&1, subst, &2))
+        {mk_struct(f, args), map}
+
+      [h | tl] ->
+        {h, map} = copy(h, subst, map)
+        {tl, map} = copy(tl, subst, map)
+        {cons(h, tl), map}
+
+      atomic ->
+        {atomic, map}
+    end
+  end
+
   # ---------------------------------------------------------------------
   # Datenbank
   #   %{{name, arity} => {:pred, alle, nach_schlüssel, nur_var_klauseln, quelle}}
@@ -480,6 +519,40 @@ defmodule PrologEx do
     end
   end
 
+  # findall(T, G, L) / findall(T, G, L, Rest): alle Lösungen in einer
+  # Unter-Maschine, als Kopien mit frischen Variablen
+  defp step({:struct, "findall", [t, g, l]}, cutb, rest, st),
+    do: step({:struct, "findall", [t, g, l, []]}, cutb, rest, st)
+
+  defp step({:struct, "findall", [t, g, l, tail]}, _cutb, rest, st) do
+    {items, :done} = collect(run(sub_machine(t, g, st)), :infinity, [])
+
+    case unify(l, list(items, tail), st.subst) do
+      {:ok, s} -> run(%{st | goals: rest, subst: s})
+      :error -> backtrack(st)
+    end
+  end
+
+  # findnsols(N, T, G, L) / findnsols(N, T, G, L, Rest) (wie SWI): jeweils
+  # höchstens N Lösungen; beim Backtracking die nächsten N. Die Unter-
+  # Maschine wird dazu im Choice Point aufbewahrt und fortgesetzt. Ist ein
+  # Teil kürzer als N, ist es der letzte (deterministisch); ging es genau
+  # auf, folgt wie bei SWI noch ein leerer Teil.
+  defp step({:struct, "findnsols", [n, t, g, l]}, cutb, rest, st),
+    do: step({:struct, "findnsols", [n, t, g, l, []]}, cutb, rest, st)
+
+  defp step({:struct, "findnsols", [n, t, g, l, tail]}, _cutb, rest, st) do
+    k =
+      case walk(n, st.subst) do
+        k when is_integer(k) and k >= 1 -> k
+        k when is_integer(k) -> raise "domain_error(not_less_than_one, #{k})"
+        {:var, _} -> raise "instantiation_error"
+        other -> raise "type_error(integer, #{format(other)})"
+      end
+
+    findnsols_chunk(run(sub_machine(t, g, st)), k, l, tail, rest, st)
+  end
+
   defp step({:struct, "is", [x, expr]}, _cutb, rest, st) do
     case unify(x, eval(expr, st.subst), st.subst) do
       {:ok, s1} -> run(%{st | goals: rest, subst: s1})
@@ -594,7 +667,18 @@ defmodule PrologEx do
 
           nil ->
             {name, arity} = key
-            raise "existence_error(procedure, #{name}/#{arity}) – unbekanntes Prädikat"
+
+            case PrologEx.Flags.get("unknown") do
+              {:atom, "fail"} ->
+                backtrack(st)
+
+              {:atom, "warning"} ->
+                IO.puts(:stderr, "Warnung: unbekanntes Prädikat #{name}/#{arity}")
+                backtrack(st)
+
+              _error ->
+                raise "existence_error(procedure, #{name}/#{arity}) – unbekanntes Prädikat"
+            end
         end
     end
   end
@@ -668,6 +752,41 @@ defmodule PrologEx do
     IO.puts(:stderr, "% #{:erlang.float_to_binary(secs, decimals: 3)} seconds")
   end
 
+  # Unter-Maschine für findall & Co.: eigener Ziel- und Choice-Point-Stack;
+  # das Template steht in der Antwortliste, damit die Kompaktierung seine
+  # Bindungen mitführt. Cut im Ziel ist lokal (Barriere 0).
+  defp sub_machine(t, g, st) do
+    %{st | goals: [{g, 0}], cps: [], height: 0, answer: [{"$template", t}]}
+  end
+
+  # Lösungen einsammeln: höchstens n (oder :infinity). Ergebnis
+  # {kopien, :done} oder {kopien, {:more, zustand}} zum Fortsetzen.
+  defp collect(:done, _n, acc), do: {Enum.reverse(acc), :done}
+
+  defp collect({:sol, s}, n, acc) do
+    [{_, t}] = s.answer
+    acc = [copy_fresh(t, s.subst) | acc]
+
+    if n != :infinity and length(acc) >= n,
+      do: {Enum.reverse(acc), {:more, s}},
+      else: collect(backtrack(s), n, acc)
+  end
+
+  defp findnsols_chunk(result, k, l, tail, rest, st) do
+    {items, cont} = collect(result, k, [])
+
+    st =
+      case cont do
+        {:more, sub} -> push(st, {:findnsols, sub, k, l, tail, rest, st.subst, st.answer})
+        :done -> st
+      end
+
+    case unify(l, list(items, tail), st.subst) do
+      {:ok, s} -> run(%{st | goals: rest, subst: s})
+      :error -> backtrack(st)
+    end
+  end
+
   # (C -> T ; E): Choice Point für E, dann C mit eigener Cut-Barriere (Cut
   # in der Bedingung ist lokal). Hat C Erfolg, schneidet $cut_to alles ab
   # der Höhe vor E weg – also E und alle Alternativen von C. T und E sind
@@ -729,6 +848,9 @@ defmodule PrologEx do
 
       {:solutions, cont, rest, subst, answer} ->
         cont.({:cont, nil}) |> next_solution(rest, %{st | subst: subst, answer: answer})
+
+      {:findnsols, sub, k, l, tail, rest, subst, answer} ->
+        findnsols_chunk(backtrack(sub), k, l, tail, rest, %{st | subst: subst, answer: answer})
 
       {:nth_cleanup, ref, subst, answer} ->
         backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
