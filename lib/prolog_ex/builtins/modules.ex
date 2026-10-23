@@ -48,6 +48,108 @@ defmodule PrologEx.Builtins.Modules do
     :ok
   end
 
+  # predicate_property(Kopf, Eigenschaft) wie SICStus. Kopf darf M:Kopf
+  # sein (M auch ungebunden), sonst gilt das Kontextmodul; ist Kopf
+  # ungebunden, werden alle dort sichtbaren Prädikate aufgezählt
+  # (definierte, importierte, system). Eigenschaften:
+  #   built_in | compiled | interpreted      (genau eine; dynamische
+  #                                           Prädikate sind interpreted)
+  #   dynamic
+  #   exported | imported_from(M)            (höchstens eine)
+  #   meta_predicate(Kopf)                   (mit den Angaben der Deklaration)
+  #   number_of_clauses(N)                   (Erweiterung wie SWI; nur für
+  #                                           Prädikate der Datenbank)
+  defbuiltin "predicate_property", [head, prop], nondet: true do
+    s = subst()
+    db = db()
+
+    {mod_t, h} =
+      case PrologEx.walk(head, s) do
+        {tag, ":", [m, inner]} when tag in [:struct, :gstruct] ->
+          {PrologEx.walk(m, s), PrologEx.walk(inner, s)}
+
+        other ->
+          {a(context_module()), other}
+      end
+
+    mods =
+      case mod_t do
+        {:atom, m} -> [m]
+        {:var, _} -> modules()
+        other -> PrologEx.Error.type!("atom", other)
+      end
+
+    for m <- mods,
+        {n, ar} <- candidate_keys(db, m, h),
+        p <- properties(db, m, n, ar),
+        do: {:unify, [{mod_t, a(m)}, {h, general(n, ar)}, {prop, p}]}
+  end
+
+  defp candidate_keys(db, m, {:var, _}) do
+    local = for {^m, n, ar} <- Map.keys(db), do: {n, ar}
+    imported = for {:import, ^m, n, ar} <- Map.keys(db), do: {n, ar}
+    lib = PrologEx.Builtins.keys(m)
+    Enum.uniq(local ++ imported ++ lib ++ PrologEx.Builtins.system_keys())
+  end
+
+  defp candidate_keys(_db, _m, h) do
+    case PrologEx.unmark_top(h) do
+      n when is_number(n) -> PrologEx.Error.type!("callable", n)
+      t -> [Compiler.key(t)]
+    end
+  end
+
+  defp general(n, 0), do: a(n)
+  defp general(n, ar), do: mk(n, for(_ <- 1..ar, do: fresh_var()))
+
+  @doc false
+  def properties(db, m, n, ar) do
+    origin = fn dm ->
+      cond do
+        dm != m -> [mk("imported_from", [a(dm)])]
+        exported?(db, dm, n, ar) -> [a("exported")]
+        true -> []
+      end
+    end
+
+    case PrologEx.locate(db, m, n, ar) do
+      {:db, dm, pred} ->
+        dyn = PrologEx.dynamic?(db, {dm, n, ar})
+        impl = if dyn, do: [a("interpreted"), a("dynamic")], else: [a("compiled")]
+        clauses = [mk("number_of_clauses", [length(PrologEx.pred_entries(pred))])]
+        impl ++ origin.(dm) ++ meta_prop(Map.get(db, {:meta, dm, n, ar}), n) ++ clauses
+
+      {:builtin, "system", _} ->
+        [a("built_in")]
+
+      {:builtin, lib, _} ->
+        [a("compiled")] ++ origin.(lib) ++ meta_prop(PrologEx.Builtins.meta(lib, n, ar), n)
+
+      :none ->
+        if PrologEx.Builtins.system?({n, ar}), do: [a("built_in")], else: []
+    end
+  end
+
+  defp exported?(db, m, n, ar) do
+    case Map.fetch(db, {:module, m}) do
+      {:ok, %{exports: ex}} ->
+        MapSet.member?(ex, {n, ar})
+
+      :error ->
+        case PrologEx.Builtins.exports(m) do
+          nil -> false
+          ex -> MapSet.member?(ex, {n, ar})
+        end
+    end
+  end
+
+  defp meta_prop(nil, _n), do: []
+
+  defp meta_prop(specs, n) do
+    args = Enum.map(specs, fn s -> if is_integer(s), do: s, else: a(s) end)
+    [mk("meta_predicate", [mk(n, args)])]
+  end
+
   # --- use_module --------------------------------------------------------
 
   defp use_module({:var, _}, _keys, _ctx, _s), do: PrologEx.Error.instantiation!()

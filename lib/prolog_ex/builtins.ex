@@ -116,6 +116,9 @@ defmodule PrologEx.Builtins do
   @doc "Ist `{name, arity}` ein Prädikat von system (inkl. Steuerkonstrukte)?"
   def system?({name, arity}), do: MapSet.member?(@system_keys, {name, arity})
 
+  @doc "Alle Prädikate von system (inkl. Steuerkonstrukte) als `{name, arity}`, sortiert"
+  def system_keys, do: @system_keys |> Enum.sort()
+
   @doc "meta_predicate-Angaben eines Bibliotheksprädikats (oder nil)"
   def meta(module, name, arity), do: Map.get(@meta, {module, name, arity})
 

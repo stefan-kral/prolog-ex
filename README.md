@@ -101,7 +101,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
     `library(apply)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
-    `current_module/1`, `strip_module/3`; `clause/2`, `retract/1`,
+    `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
+    SICStus, dazu `number_of_clauses/1`); `clause/2`, `retract/1`,
     `dynamic/1`, `listing/1`, `current_predicate/1` mit `M:`.
   * Auflösung eines Aufrufs in Modul `m` wie SICStus: in `m` definiert →
     nach `m` importiert → `system`. Kein Rückgriff auf `user` (sonst
