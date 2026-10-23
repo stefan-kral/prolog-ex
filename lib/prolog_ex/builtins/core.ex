@@ -153,12 +153,12 @@ defmodule PrologEx.Builtins.Core do
   end
 
   defbuiltin "listing", [] do
-    IO.write(PrologEx.Listing.listing(db(), :all))
+    IO.write(PrologEx.Listing.listing(db(), :all, context_module()))
     :ok
   end
 
   defbuiltin "listing", [spec] do
-    IO.write(PrologEx.Listing.listing(db(), resolve(spec)))
+    IO.write(PrologEx.Listing.listing(db(), resolve(spec), context_module()))
     :ok
   end
 

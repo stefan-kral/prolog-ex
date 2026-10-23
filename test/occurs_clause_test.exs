@@ -220,7 +220,7 @@ defmodule PrologEx.OccursClauseTest do
       assert [_] = db() |> query(s("clause", [s("numlist", [@n, @a]), @b])) |> Enum.take(1)
       error(s("clause", [s("append", [@x, @y, @z]), @b]))
       error(s("clause", [s("call", [@x]), @b]))
-      error(s("clause", [s("$select3", [@x, @y, @z, @a]), @b]))
+      error(s("clause", [s(":", [a("lists"), s("$select3", [@x, @y, @z, @a])]), @b]))
     end
 
     test "Fehler" do

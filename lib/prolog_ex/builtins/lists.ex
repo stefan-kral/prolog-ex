@@ -36,7 +36,7 @@ defmodule PrologEx.Builtins.Lists do
       Variablen passender Länge (deterministisch)
     * Rest und `Len` ungebunden: zählt Längen 0, 1, 2, ... auf (lazy)
   """
-  use PrologEx.Builtin
+  use PrologEx.Builtin, module: "lists"
 
   @doc false
   def library do
@@ -68,8 +68,12 @@ defmodule PrologEx.Builtins.Lists do
       rule(s("$perm", [l, [h | t]]), [s("select", [h, l, r]), s("$perm", [r, t])]),
       fact(s("$member", [h, [h | v("_")]])),
       rule(s("$member", [h, [v("_") | t]]), [s("$member", [h, t])])
-    ] ++ maplist_library()
+    ]
+    |> then(&%{"lists" => &1, "apply" => maplist_library()})
   end
+
+  @doc false
+  def meta, do: for(n <- 1..7, do: {"apply", "maplist", [n | List.duplicate("?", n)]})
 
   # maplist(G, L1, ..., Ln), n = 1..7:
   #   maplist(G, L1, ..., Ln) :- '$maplist'(L1, ..., Ln, G).
@@ -222,7 +226,7 @@ defmodule PrologEx.Builtins.Lists do
     member_cells(x, deref(l), subst())
   end
 
-  defbuiltin "between", [lo, hi, x], nondet: true, protected: false do
+  defbuiltin "between", [lo, hi, x], nondet: true, protected: false, module: "system" do
     l = int_arg(deref(lo))
 
     h =
@@ -272,7 +276,7 @@ defmodule PrologEx.Builtins.Lists do
     nth(1, i, l, e, r, subst())
   end
 
-  defbuiltin "length", [l, len], nondet: true, protected: false do
+  defbuiltin "length", [l, len], nondet: true, protected: false, module: "system" do
     {n, rest} = skip_list(l, subst())
 
     case rest do

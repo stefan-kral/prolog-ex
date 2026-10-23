@@ -23,6 +23,8 @@ defmodule PrologEx.Toplevel do
   def main(args) do
     {files, goals, quiet} = parse_args(args, [], [], false)
     {:ok, reader} = Reader.start_link()
+    Reader.put_current(reader)
+    PrologEx.put_db(%{})
     st = %{db: %{}, reader: reader, dq: "chars"}
 
     try do
@@ -52,12 +54,11 @@ defmodule PrologEx.Toplevel do
   defp load_source("user", st), do: load_text(read_user(), "user", st)
 
   defp load_source(file, st) do
-    path = if File.exists?(file) or Path.extname(file) != "", do: file, else: file <> ".pl"
-
-    case File.read(path) do
-      {:ok, text} -> load_text(text, path, st)
-      {:error, reason} -> err("#{path}: #{:file.format_error(reason)}", st)
-    end
+    PrologEx.put_db(st.db)
+    Consult.load_file(file)
+    sync_flags(%{st | db: PrologEx.current_db()})
+  rescue
+    e in PrologEx.Error -> err("#{file}: #{Exception.message(e)}", st)
   end
 
   defp eof_to_text(:eof), do: ""
@@ -66,6 +67,7 @@ defmodule PrologEx.Toplevel do
   defp load_text(text, name, st) do
     items = Reader.read_terms(st.reader, text)
     {db, msgs} = Consult.load(st.db, items)
+    PrologEx.put_db(db)
     Enum.each(msgs, &IO.puts(:stderr, "#{name}: #{&1}"))
     sync_flags(%{st | db: db})
   end

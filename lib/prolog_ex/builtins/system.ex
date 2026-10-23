@@ -2,93 +2,115 @@ defmodule PrologEx.Builtins.System do
   @moduledoc "Prolog-Flags und Zugriff auf die Datenbank (clause/2, current_predicate/1)."
   use PrologEx.Builtin
   alias PrologEx.{Builtins, Compiler, Flags}
+  alias PrologEx.Builtins.Modules
 
-  # clause(H, B): H :- B ist eine Klausel (Fakten: B = true). Gilt für
-  # Benutzerprädikate und in Prolog geschriebene Bibliotheksprädikate; in
-  # Elixir geschriebene Builtins, Steuerkonstrukte und $-Hilfsprädikate
-  # ergeben permission_error. Die Klauseln werden mit frischen Variablen
-  # kopiert; die Liste ist ein Schnappschuss beim Aufruf.
+  # clause(H, B): H :- B ist eine Klausel (Fakten: B = true). H darf
+  # M:Kopf sein; sonst gilt das Kontextmodul, mit derselben Sichtbarkeit wie
+  # ein Aufruf. Gilt für Benutzerprädikate und in Prolog geschriebene
+  # Bibliotheksprädikate; Builtins von system, in Elixir geschriebene und
+  # $-Hilfsprädikate ergeben permission_error. Die Klauseln werden mit
+  # frischen Variablen kopiert; die Liste ist ein Schnappschuss beim Aufruf.
   defbuiltin "clause", [h, b], nondet: true do
+    {m, head} = Modules.strip(h, context_module(), subst())
+
     head =
-      case deref(h) do
+      case head do
         {:var, _} -> PrologEx.Error.instantiation!()
         hh -> hh
       end
 
-    key = Compiler.key(head)
+    {name, arity} = Compiler.key(head)
 
     case deref(b) do
       {:var, _} -> :ok
       bb -> Compiler.key(bb)
     end
 
-    clause_results(source(key, db()), h, b)
+    clause_results(source(m, name, arity, db()), head, b)
   end
 
-  # current_predicate(Name/Arity): benutzerdefinierte Prädikate
+  # current_predicate(PI), PI = Name/Arity oder M:Name/Arity: in M (sonst
+  # im Kontextmodul) definierte oder dorthin importierte Prädikate
+  # (keine von system). Mit ungebundenem M: alle Module.
   defbuiltin "current_predicate", [pi], nondet: true do
-    keys = db() |> Map.keys() |> Enum.filter(&match?({_, _}, &1)) |> Enum.sort()
+    db = db()
 
-    case PrologEx.unmark_top(deref(pi)) do
-      {:var, _} ->
-        for {n, ar} <- keys, do: {:unify, [{pi, mk("/", [a(n), ar])}]}
+    {mod_t, spec} =
+      case PrologEx.unmark_top(deref(pi)) do
+        {:struct, ":", [m, inner]} -> {m, PrologEx.unmark_top(deref(inner))}
+        other -> {a(context_module()), other}
+      end
 
-      {:struct, "/", [name, arity]} ->
-        nm = deref(name)
-        ar = deref(arity)
+    visible = for {m, n, ar} <- visible_keys(db, deref(mod_t)), do: {m, n, ar}
 
-        unless match?({:var, _}, nm) or match?({:atom, _}, nm) or nm == [],
-          do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
+    {name, arity} =
+      case spec do
+        {:var, _} -> {nil, nil}
+        {:struct, "/", [name, arity]} -> {name, arity}
+        other -> PrologEx.Error.type!("predicate_indicator", resolve(other))
+      end
 
-        unless match?({:var, _}, ar) or is_integer(ar),
-          do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
+    if name do
+      nm = deref(name)
+      ar = deref(arity)
 
-        for {n, k} <- keys,
-            match?({:var, _}, nm) or a(n) == nm,
-            match?({:var, _}, ar) or k == ar,
-            do: {:unify, [{name, a(n)}, {arity, k}]}
+      unless match?({:var, _}, nm) or match?({:atom, _}, nm) or nm == [],
+        do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
 
-      other ->
-        PrologEx.Error.type!("predicate_indicator", resolve(other))
+      unless match?({:var, _}, ar) or is_integer(ar),
+        do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
+
+      for {m, n, k} <- visible,
+          match?({:var, _}, nm) or a(n) == nm,
+          match?({:var, _}, ar) or k == ar,
+          do: {:unify, [{mod_t, a(m)}, {name, a(n)}, {arity, k}]}
+    else
+      for {m, n, k} <- visible,
+          do: {:unify, [{mod_t, a(m)}, {spec, mk("/", [a(n), k])}]}
     end
   end
 
-  defp source(key, db) do
-    {name, arity} = key
+  defp visible_keys(db, {:atom, m}), do: visible_keys(db, m)
 
-    case Map.fetch(db, key) do
-      {:ok, pred} ->
+  defp visible_keys(db, {:var, _}) do
+    for({m, n, ar} <- Map.keys(db), is_binary(m), do: {m, n, ar}) |> Enum.sort()
+  end
+
+  defp visible_keys(db, m) when is_binary(m) do
+    local = for {^m, n, ar} <- Map.keys(db), do: {m, n, ar}
+    imported = for {:import, ^m, n, ar} <- Map.keys(db), do: {m, n, ar}
+    Enum.sort(local ++ imported)
+  end
+
+  defp visible_keys(_db, other), do: PrologEx.Error.type!("module", other)
+
+  defp source(m, name, arity, db) do
+    private = fn mod ->
+      pi = PrologEx.Error.indicator(name, arity)
+      pi = if mod in ["user", "system"], do: pi, else: mk(":", [a(mod), pi])
+      PrologEx.Error.permission!("access", "private_procedure", pi)
+    end
+
+    case PrologEx.locate(db, m, name, arity) do
+      {:db, _, pred} ->
         PrologEx.pred_source(pred)
 
-      :error ->
-        case Builtins.lookup(key) do
-          {:prolog, pred, _} ->
-            if String.starts_with?(name, "$"),
-              do:
-                PrologEx.Error.permission!(
-                  "access",
-                  "private_procedure",
-                  PrologEx.Error.indicator(name, arity)
-                ),
-              else: PrologEx.pred_source(pred)
+      {:builtin, lm, {:prolog, pred, _}} ->
+        if lm == "system" or String.starts_with?(name, "$"),
+          do: private.(lm),
+          else: PrologEx.pred_source(pred)
 
-          nil ->
-            if Builtins.protected?(key),
-              do:
-                PrologEx.Error.permission!(
-                  "access",
-                  "private_procedure",
-                  PrologEx.Error.indicator(name, arity)
-                ),
-              else: []
+      {:builtin, lm, _elixir} ->
+        private.(lm)
 
-          _elixir ->
-            PrologEx.Error.permission!(
-              "access",
-              "private_procedure",
-              PrologEx.Error.indicator(name, arity)
-            )
+      {:autoload, lib} ->
+        case Builtins.lookup(lib, name, arity) do
+          {:prolog, pred, _} -> PrologEx.pred_source(pred)
+          _ -> private.(lib)
         end
+
+      :none ->
+        if Builtins.system?({name, arity}), do: private.("system"), else: []
     end
   end
 

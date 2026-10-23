@@ -302,7 +302,15 @@ defmodule PrologEx do
   # ---------------------------------------------------------------------
   # Datenbank
   #
-  #   %{{name, arity} => prädikat, :dynamic => MapSet der dynamischen}
+  #   {modul, name, arity}         => prädikat
+  #   :dynamic                     => MapSet der dynamischen {modul, name, arity}
+  #   {:import, modul, name, arity} => Quellmodul (use_module, Autoload)
+  #   {:module, modul}             => %{exports: MapSet, file: pfad | nil}
+  #   {:meta, modul, name, arity}  => meta_predicate-Angaben
+  #   {:file, pfad}                => Modul der geladenen Datei
+  #
+  # Module sind Strings ("user", "lists", ...). Wie ein Aufruf aufgelöst
+  # wird, steht bei locate/4.
   #
   # prädikat ist eines von
   #   {:pred, alle, nach_schlüssel, nur_var_klauseln, einträge}   kompiliert
@@ -336,27 +344,91 @@ defmodule PrologEx do
   def consult(clauses), do: consult(%{}, clauses)
 
   @doc """
-  Fügt Klauseln hinzu. Jedes Prädikat, das in `clauses` vorkommt, ERSETZT
-  eine bestehende Definition (Reconsult-Semantik); andere bleiben erhalten.
+  Fügt Klauseln (in Modul `module`, Standard `"user"`) hinzu. Jedes
+  Prädikat, das in `clauses` vorkommt, ERSETZT eine bestehende Definition
+  (Reconsult-Semantik); andere bleiben erhalten.
   """
-  def consult(db, clauses) do
-    new =
-      clauses
-      |> Enum.group_by(fn {head, _} -> Compiler.key(head) end)
-      |> Map.new(fn {k, cls} -> {k, build_pred(cls)} end)
-
+  def consult(db, clauses, module \\ "user") do
+    new = Map.new(build_preds(clauses), fn {{n, a}, p} -> {{module, n, a}, p} end)
     Map.merge(db, new)
   end
 
-  @doc "Deklariert ein dynamisches Prädikat (ohne Klauseln: Aufrufe scheitern)."
+  @doc "Klauseln zu Prädikaten: %{{name, arity} => prädikat}"
+  def build_preds(clauses) do
+    clauses
+    |> Enum.group_by(fn {head, _} -> Compiler.key(head) end)
+    |> Map.new(fn {k, cls} -> {k, build_pred(cls)} end)
+  end
+
+  @doc """
+  Deklariert ein dynamisches Prädikat (ohne Klauseln: Aufrufe scheitern).
+  `key`: `{modul, name, arity}` oder `{name, arity}` (Modul user).
+  """
   def declare(db, key) do
+    key = pkey(key)
+
     db
     |> Map.put_new(key, build_pred([]))
     |> Map.update(:dynamic, MapSet.new([key]), &MapSet.put(&1, key))
   end
 
   @doc false
-  def dynamic?(db, key), do: MapSet.member?(Map.get(db, :dynamic, MapSet.new()), key)
+  def dynamic?(db, key), do: MapSet.member?(Map.get(db, :dynamic, MapSet.new()), pkey(key))
+
+  defp pkey({n, a}), do: {"user", n, a}
+  defp pkey({_m, _n, _a} = k), do: k
+
+  @doc """
+  Wo ist name/arity, aufgerufen in Modul `mod`, definiert? (wie SWI)
+
+    1. in `mod` selbst (Datenbank oder Bibliotheks-Builtin von `mod`)
+    2. von `mod` importiert (use_module, Autoload)
+    3. in `user` (Schritte 1–2), wenn `mod` ein anderes Modul ist
+    4. in `system`
+    5. Autoload aus einem Bibliotheksmodul
+
+  Ergebnis: `{:db, modul, prädikat}`, `{:builtin, modul, eintrag}`
+  (siehe `PrologEx.Builtins.lookup/3`), `{:autoload, bibliothek}` oder
+  `:none`.
+  """
+  def locate(db, mod, name, arity) do
+    with :none <- visible(db, mod, name, arity),
+         :none <-
+           if(mod in ["user", "system"], do: :none, else: visible(db, "user", name, arity)),
+         :none <- local(db, "system", name, arity) do
+      case PrologEx.Builtins.autoload({name, arity}) do
+        nil -> :none
+        lib -> {:autoload, lib}
+      end
+    end
+  end
+
+  # lokal oder importiert
+  defp visible(db, mod, name, arity) do
+    case local(db, mod, name, arity) do
+      :none ->
+        case Map.fetch(db, {:import, mod, name, arity}) do
+          {:ok, src} -> local(db, src, name, arity)
+          :error -> :none
+        end
+
+      found ->
+        found
+    end
+  end
+
+  defp local(db, mod, name, arity) do
+    case Map.fetch(db, {mod, name, arity}) do
+      {:ok, pred} ->
+        {:db, mod, pred}
+
+      :error ->
+        case PrologEx.Builtins.lookup(mod, name, arity) do
+          nil -> :none
+          entry -> {:builtin, mod, entry}
+        end
+    end
+  end
 
   @doc false
   def entry({head, body} = src),
@@ -635,10 +707,10 @@ defmodule PrologEx do
 
   # --- Rumpf instanziieren ---------------------------------------------
 
-  defp inst_goals([], _env, _base, _barrier, rest), do: rest
+  defp inst_goals([], _env, _base, _barrier, _mod, rest), do: rest
 
-  defp inst_goals([g | gs], env, base, barrier, rest),
-    do: [{inst(g, env, base), barrier} | inst_goals(gs, env, base, barrier, rest)]
+  defp inst_goals([g | gs], env, base, barrier, mod, rest),
+    do: [{inst(g, env, base), barrier, mod} | inst_goals(gs, env, base, barrier, mod, rest)]
 
   defp inst({:t_slot, i}, env, _base), do: elem(env, i)
   defp inst({:t_fresh, j}, _env, base), do: {:var, base + j}
@@ -678,51 +750,51 @@ defmodule PrologEx do
 
     case st.goals do
       [] -> {:sol, st}
-      [{goal, cutb} | rest] -> step(unmark_top(walk(goal, st.subst)), cutb, rest, st)
+      [{goal, cutb, mod} | rest] -> step(unmark_top(walk(goal, st.subst)), cutb, mod, rest, st)
     end
   end
 
-  defp step({:atom, "true"}, _cutb, rest, st), do: run(%{st | goals: rest})
-  defp step({:atom, "fail"}, _cutb, _rest, st), do: backtrack(st)
+  defp step({:atom, "true"}, _cutb, _mod, rest, st), do: run(%{st | goals: rest})
+  defp step({:atom, "fail"}, _cutb, _mod, _rest, st), do: backtrack(st)
 
-  defp step({:atom, "!"}, cutb, rest, st) do
+  defp step({:atom, "!"}, cutb, _mod, rest, st) do
     cps = Enum.drop(st.cps, st.height - cutb)
     run(%{st | goals: rest, cps: cps, height: cutb})
   end
 
-  defp step({:struct, ",", [g1, g2]}, cutb, rest, st),
-    do: run(%{st | goals: [{g1, cutb}, {g2, cutb} | rest]})
+  defp step({:struct, ",", [g1, g2]}, cutb, mod, rest, st),
+    do: run(%{st | goals: [{g1, cutb, mod}, {g2, cutb, mod} | rest]})
 
-  defp step({:struct, ";", [g1, g2]}, cutb, rest, st) do
+  defp step({:struct, ";", [g1, g2]}, cutb, mod, rest, st) do
     case unmark_top(walk(g1, st.subst)) do
       {:struct, "->", [c, t]} ->
-        if_then_else(c, t, g2, cutb, rest, st)
+        if_then_else(c, t, g2, cutb, mod, rest, st)
 
       _ ->
-        st = push(st, {:alt, {g2, cutb}, rest, st.subst, st.answer})
-        run(%{st | goals: [{g1, cutb} | rest]})
+        st = push(st, {:alt, {g2, cutb, mod}, rest, st.subst, st.answer})
+        run(%{st | goals: [{g1, cutb, mod} | rest]})
     end
   end
 
-  defp step({:struct, "->", [c, t]}, cutb, rest, st),
-    do: if_then_else(c, t, {:atom, "fail"}, cutb, rest, st)
+  defp step({:struct, "->", [c, t]}, cutb, mod, rest, st),
+    do: if_then_else(c, t, {:atom, "fail"}, cutb, mod, rest, st)
 
   # Interne Markierung: Choice Points bis zur Höhe h abschneiden
-  defp step({:"$cut_to", h}, _cutb, rest, st) do
+  defp step({:"$cut_to", h}, _cutb, _mod, rest, st) do
     cps = Enum.drop(st.cps, st.height - h)
     run(%{st | goals: rest, cps: cps, height: h})
   end
 
   # call/1: Cut darin ist lokal (Barriere = aktuelle Höhe)
-  defp step({:struct, "call", [g | extra]}, _cutb, rest, st) do
+  defp step({:struct, "call", [g | extra]}, _cutb, mod, rest, st) do
     goal = add_args(unmark_top(walk(g, st.subst)), extra)
-    run(%{st | goals: [{goal, st.height} | rest]})
+    run(%{st | goals: [{goal, st.height, mod} | rest]})
   end
 
-  defp step({:struct, "not", [g]}, cutb, rest, st),
-    do: step({:struct, "\\+", [g]}, cutb, rest, st)
+  defp step({:struct, "not", [g]}, cutb, mod, rest, st),
+    do: step({:struct, "\\+", [g]}, cutb, mod, rest, st)
 
-  defp step({:struct, "=", [x, y]}, _cutb, rest, st) do
+  defp step({:struct, "=", [x, y]}, _cutb, _mod, rest, st) do
     case guarded(fn -> unify(x, y, st.subst) end) do
       {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
       {:ok, :error} -> backtrack(st)
@@ -731,8 +803,8 @@ defmodule PrologEx do
   end
 
   # Negation: eigener Lauf mit leerem Choice-Point-Stack (Cut darin ist lokal)
-  defp step({:struct, "\\+", [g]}, _cutb, rest, st) do
-    case guarded(fn -> run(%{st | goals: [{g, 0}], cps: [], height: 0, answer: []}) end) do
+  defp step({:struct, "\\+", [g]}, _cutb, mod, rest, st) do
+    case guarded(fn -> run(%{st | goals: [{g, 0, mod}], cps: [], height: 0, answer: []}) end) do
       {:ok, {:sol, _}} -> backtrack(st)
       {:ok, :done} -> run(%{st | goals: rest})
       {:thrown, ball} -> throw_ball(ball, st)
@@ -741,11 +813,11 @@ defmodule PrologEx do
 
   # findall(T, G, L) / findall(T, G, L, Rest): alle Lösungen in einer
   # Unter-Maschine, als Kopien mit frischen Variablen
-  defp step({:struct, "findall", [t, g, l]}, cutb, rest, st),
-    do: step({:struct, "findall", [t, g, l, []]}, cutb, rest, st)
+  defp step({:struct, "findall", [t, g, l]}, cutb, mod, rest, st),
+    do: step({:struct, "findall", [t, g, l, []]}, cutb, mod, rest, st)
 
-  defp step({:struct, "findall", [t, g, l, tail]}, _cutb, rest, st) do
-    case guarded(fn -> collect(run(sub_machine(t, g, st)), :infinity, []) end) do
+  defp step({:struct, "findall", [t, g, l, tail]}, _cutb, mod, rest, st) do
+    case guarded(fn -> collect(run(sub_machine(t, g, mod, st)), :infinity, []) end) do
       {:ok, {items, :done}} ->
         case unify(l, list(items, tail), st.subst) do
           {:ok, s} -> run(%{st | goals: rest, subst: s})
@@ -759,7 +831,7 @@ defmodule PrologEx do
 
   # countall(G, N): Anzahl der Lösungen von G, ohne sie zu sammeln
   # (konstanter Speicher, anders als findall + length)
-  defp step({:struct, "countall", [g, n]}, _cutb, rest, st) do
+  defp step({:struct, "countall", [g, n]}, _cutb, mod, rest, st) do
     counted =
       guarded(fn ->
         case walk(n, st.subst) do
@@ -767,7 +839,7 @@ defmodule PrologEx do
           x -> PrologEx.Error.type!("integer", x)
         end
 
-        count(run(sub_machine([], g, st)), 0)
+        count(run(sub_machine([], g, mod, st)), 0)
       end)
 
     case counted do
@@ -787,10 +859,10 @@ defmodule PrologEx do
   # Maschine wird dazu im Choice Point aufbewahrt und fortgesetzt. Ist ein
   # Teil kürzer als N, ist es der letzte (deterministisch); ging es genau
   # auf, folgt wie bei SWI noch ein leerer Teil.
-  defp step({:struct, "findnsols", [n, t, g, l]}, cutb, rest, st),
-    do: step({:struct, "findnsols", [n, t, g, l, []]}, cutb, rest, st)
+  defp step({:struct, "findnsols", [n, t, g, l]}, cutb, mod, rest, st),
+    do: step({:struct, "findnsols", [n, t, g, l, []]}, cutb, mod, rest, st)
 
-  defp step({:struct, "findnsols", [n, t, g, l, tail]}, _cutb, rest, st) do
+  defp step({:struct, "findnsols", [n, t, g, l, tail]}, _cutb, mod, rest, st) do
     chunk =
       guarded(fn ->
         k =
@@ -801,7 +873,7 @@ defmodule PrologEx do
             other -> PrologEx.Error.type!("integer", other)
           end
 
-        {k, collect(run(sub_machine(t, g, st)), k, [])}
+        {k, collect(run(sub_machine(t, g, mod, st)), k, [])}
       end)
 
     case chunk do
@@ -810,7 +882,7 @@ defmodule PrologEx do
     end
   end
 
-  defp step({:struct, "is", [x, expr]}, _cutb, rest, st) do
+  defp step({:struct, "is", [x, expr]}, _cutb, _mod, rest, st) do
     case guarded(fn -> unify(x, eval(expr, st.subst), st.subst) end) do
       {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
       {:ok, :error} -> backtrack(st)
@@ -818,7 +890,7 @@ defmodule PrologEx do
     end
   end
 
-  defp step({:struct, op, [x, y]}, _cutb, rest, st)
+  defp step({:struct, op, [x, y]}, _cutb, _mod, rest, st)
        when op in ["<", ">", ">=", "=<", "=:=", "=\\="] do
     case guarded(fn -> compare(op, eval(x, st.subst), eval(y, st.subst)) end) do
       {:ok, true} -> run(%{st | goals: rest})
@@ -827,23 +899,33 @@ defmodule PrologEx do
     end
   end
 
-  defp step({:var, _}, _cutb, _rest, st), do: throw_error(st, &PrologEx.Error.instantiation!/0)
+  defp step({:var, _}, _cutb, _mod, _rest, st),
+    do: throw_error(st, &PrologEx.Error.instantiation!/0)
 
-  defp step(n, _cutb, _rest, st) when is_number(n),
+  defp step(n, _cutb, _mod, _rest, st) when is_number(n),
     do: throw_error(st, fn -> PrologEx.Error.type!("callable", n) end)
+
+  # M:G – G im Modul M ausführen (transparent für den Cut)
+  defp step({:struct, ":", [m, g]}, cutb, _mod, rest, st) do
+    case walk(m, st.subst) do
+      {:atom, name} -> run(%{st | goals: [{g, cutb, name} | rest]})
+      {:var, _} -> throw_error(st, &PrologEx.Error.instantiation!/0)
+      other -> throw_error(st, fn -> PrologEx.Error.type!("module", other) end)
+    end
+  end
 
   # catch(G, C, R): Rahmen als Choice Point unter G. Verlässt G ohne eigene
   # Choice Points, wird der Rahmen entfernt; sonst bleibt er liegen, ist
   # aber inaktiv (catch_off), bis Backtracking wieder in G hineinführt –
   # eine Ausnahme NACH catch/3 wird so nicht von ihm gefangen.
-  defp step({:struct, "catch", [g, c, r]}, _cutb, rest, st) do
+  defp step({:struct, "catch", [g, c, r]}, _cutb, mod, rest, st) do
     id = make_ref()
     h = st.height
-    st = push(st, {:catch, id, c, r, rest, st.subst, st.answer})
-    run(%{st | goals: [{g, h + 1}, {{:"$catch_exit", id, h}, 0} | rest]})
+    st = push(st, {:catch, id, c, r, rest, mod, st.subst, st.answer})
+    run(%{st | goals: [{g, h + 1, mod}, {{:"$catch_exit", id, h}, 0, mod} | rest]})
   end
 
-  defp step({:"$catch_exit", id, h}, _cutb, rest, st) do
+  defp step({:"$catch_exit", id, h}, _cutb, _mod, rest, st) do
     if st.height == h + 1,
       do: run(%{st | goals: rest, cps: tl(st.cps), height: h}),
       else:
@@ -852,7 +934,7 @@ defmodule PrologEx do
         )
   end
 
-  defp step({:struct, "throw", [b]}, _cutb, _rest, st) do
+  defp step({:struct, "throw", [b]}, _cutb, _mod, _rest, st) do
     case walk(b, st.subst) do
       {:var, _} -> throw_error(st, &PrologEx.Error.instantiation!/0)
       _ -> throw_ball(b, st)
@@ -863,15 +945,15 @@ defmodule PrologEx do
   # Point direkt unter G meldet auch einen Fehlschlag. Hat G bei Erfolg
   # keine eigenen Choice Points hinterlassen, wird dieser Melde-Choice-Point
   # sofort entfernt – time(G) ist dann so deterministisch wie G.
-  defp step({:struct, "time", [g]}, _cutb, rest, st) do
+  defp step({:struct, "time", [g]}, _cutb, mod, rest, st) do
     t0 = System.monotonic_time(:microsecond)
     h = st.height
     st = push(st, {:time_fail, t0, st.subst, st.answer})
     goal = unmark_top(walk(g, st.subst))
-    run(%{st | goals: [{goal, h + 1}, {{:"$time_exit", t0, h}, 0} | rest]})
+    run(%{st | goals: [{goal, h + 1, mod}, {{:"$time_exit", t0, h}, 0, mod} | rest]})
   end
 
-  defp step({:"$time_exit", t0, h}, _cutb, rest, st) do
+  defp step({:"$time_exit", t0, h}, _cutb, _mod, rest, st) do
     report_time(t0)
 
     if st.height == h + 1,
@@ -884,13 +966,13 @@ defmodule PrologEx do
   # der N-ten Lösung abgeschnitten (deterministisch). Ein Choice Point unter G
   # räumt den Zähler auf, wenn G erschöpft ist; hinterlässt G bei Erfolg
   # keine Choice Points, wird er gleich entfernt (wie bei time/1).
-  defp step({:struct, "call_nth", [g, n]}, cutb, rest, st) do
+  defp step({:struct, "call_nth", [g, n]}, cutb, mod, rest, st) do
     case walk(n, st.subst) do
       {:var, _} ->
-        call_nth(g, n, cutb, rest, st)
+        call_nth(g, n, cutb, mod, rest, st)
 
       k when is_integer(k) and k >= 1 ->
-        call_nth(g, n, cutb, rest, st)
+        call_nth(g, n, cutb, mod, rest, st)
 
       k when is_integer(k) ->
         throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_one", k) end)
@@ -900,18 +982,18 @@ defmodule PrologEx do
     end
   end
 
-  defp step({:"$nth", ref, n, h}, _cutb, rest, st), do: nth_exit(ref, n, h, rest, st)
+  defp step({:"$nth", ref, n, h}, _cutb, _mod, rest, st), do: nth_exit(ref, n, h, rest, st)
 
   # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
-  defp step(goal, _cutb, rest, st), do: call_pred(goal, rest, st)
+  defp step(goal, _cutb, mod, rest, st), do: call_pred(goal, mod, rest, st)
 
-  defp call_nth(g, n, _cutb, rest, st) do
+  defp call_nth(g, n, _cutb, mod, rest, st) do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, 0)}
     st = push(st, {:nth_cleanup, ref, st.subst, st.answer})
     goal = unmark_top(walk(g, st.subst))
-    run(%{st | goals: [{goal, h + 1}, {{:"$nth", ref, n, h}, 0} | rest]})
+    run(%{st | goals: [{goal, h + 1, mod}, {{:"$nth", ref, n, h}, 0, mod} | rest]})
   end
 
   defp nth_exit(ref, n, h, rest, st) do
@@ -949,63 +1031,133 @@ defmodule PrologEx do
     end
   end
 
-  defp call_pred(goal, rest, st) do
-    key = Compiler.key(goal)
-    args = Compiler.args_of(goal)
-
+  # Aufruf eines Prädikats im Kontextmodul mod. Schnellweg: in mod selbst
+  # definiert (ein Map-Zugriff); sonst Auflösung über locate/4.
+  defp call_pred(goal, mod, rest, st) do
+    {name, args} = name_args(goal)
+    arity = length(args)
     db = current_db()
 
-    case Map.fetch(db, key) do
+    case Map.fetch(db, {mod, name, arity}) do
       {:ok, {:pred, _, _, _, _} = pred} ->
-        try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
+        try_clauses(goal, args, candidates(pred, args, st.subst), rest, mod, st)
 
-      {:ok, stale} ->
-        # nach assert: einmal kompilieren/indexieren und zurückschreiben
-        pred = materialize(stale)
-        put_db(Map.put(db, key, pred))
-        try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
+      {:ok, _stale} ->
+        call_located(
+          {:db, mod, Map.fetch!(db, {mod, name, arity})},
+          goal,
+          name,
+          args,
+          mod,
+          rest,
+          st
+        )
 
       :error ->
-        case PrologEx.Builtins.lookup(key) do
-          {:det, fun, _} ->
-            case guarded(fn -> fun.(args, ctx(st)) end) do
-              {:ok, r} -> apply_result(r, rest, st)
-              {:thrown, ball} -> throw_ball(ball, st)
-            end
+        found =
+          case PrologEx.Builtins.protected_entry(name, arity) do
+            nil -> locate(db, mod, name, arity)
+            entry -> {:builtin, "system", entry}
+          end
 
-          {:nondet, fun, _} ->
-            case guarded(fn -> fun.(args, ctx(st)) end) do
-              {:ok, r} -> start_solutions(r, rest, st)
-              {:thrown, ball} -> throw_ball(ball, st)
-            end
+        call_located(found, goal, name, args, mod, rest, st)
+    end
+  end
 
-          {:prolog, pred, _} ->
-            try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
+  defp call_located(found, goal, name, args, mod, rest, st) do
+    arity = length(args)
 
-          nil ->
-            {name, arity} = key
+    case found do
+      {:db, m, pred} ->
+        pred =
+          case pred do
+            {:pred, _, _, _, _} ->
+              pred
 
-            case PrologEx.Flags.get("unknown") do
-              {:atom, "fail"} ->
-                backtrack(st)
+            stale ->
+              # nach assert: einmal kompilieren/indexieren und zurückschreiben
+              p = materialize(stale)
+              update_db(&Map.put(&1, {m, name, arity}, p))
+              p
+          end
 
-              {:atom, "warning"} ->
-                IO.puts(:stderr, "Warnung: unbekanntes Prädikat #{name}/#{arity}")
-                backtrack(st)
+        args = qualify(args, Map.get(current_db(), {:meta, m, name, arity}), m, mod, st.subst)
+        try_clauses(goal, args, candidates(pred, args, st.subst), rest, m, st)
 
-              _error ->
-                throw_error(st, fn ->
-                  PrologEx.Error.existence!("procedure", PrologEx.Error.indicator(name, arity))
-                end)
-            end
+      {:builtin, m, {:prolog, pred, _}} ->
+        args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
+        try_clauses(goal, args, candidates(pred, args, st.subst), rest, m, st)
+
+      {:builtin, m, {kind, fun, _}} ->
+        args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
+        # {:call, ziel} aus system läuft im Kontext des Aufrufers
+        call_mod = if m == "system", do: mod, else: m
+
+        case guarded(fn -> fun.(args, ctx(st, mod)) end) do
+          {:ok, r} when kind == :det -> apply_result(r, call_mod, rest, st)
+          {:ok, r} -> start_solutions(r, call_mod, rest, st)
+          {:thrown, ball} -> throw_ball(ball, st)
+        end
+
+      {:autoload, lib} ->
+        # wie SWI: in das aufrufende Modul importieren, dann aufrufen
+        update_db(&Map.put(&1, {:import, mod, name, arity}, lib))
+        call_located(locate(current_db(), mod, name, arity), goal, name, args, mod, rest, st)
+
+      :none ->
+        case PrologEx.Flags.get("unknown") do
+          {:atom, "fail"} ->
+            backtrack(st)
+
+          {:atom, "warning"} ->
+            IO.puts(:stderr, "Warnung: unbekanntes Prädikat #{qualified_name(mod, name, arity)}")
+            backtrack(st)
+
+          _error ->
+            pi = PrologEx.Error.indicator(name, arity)
+            pi = if mod == "user", do: pi, else: mk(":", [a(mod), pi])
+            throw_error(st, fn -> PrologEx.Error.existence!("procedure", pi) end)
         end
     end
   end
 
-  defp ctx(st), do: %{subst: st.subst, db: current_db()}
+  defp qualified_name("user", name, arity), do: "#{name}/#{arity}"
+  defp qualified_name(mod, name, arity), do: "#{mod}:#{name}/#{arity}"
+
+  defp name_args({:struct, f, args}), do: {f, args}
+  defp name_args({:atom, f}), do: {f, []}
+  defp name_args([]), do: {"[]", []}
+  defp name_args([h | t]), do: {".", [h, t]}
+  defp name_args(other), do: {Compiler.key(other), []}
+
+  # meta_predicate: Meta-Argumente (0..9, ^, //, :) mit dem Kontextmodul
+  # des Aufrufers qualifizieren, wenn das Prädikat in einem anderen Modul
+  # liegt (wie SWI). Schon qualifizierte bleiben, wie sie sind.
+  defp qualify(args, nil, _m, _mod, _subst), do: args
+  defp qualify(args, _specs, m, m, _subst), do: args
+
+  defp qualify(args, specs, _m, mod, subst) do
+    Enum.zip_with(args, specs, fn arg, spec ->
+      if meta_spec?(spec) and not qualified?(arg, subst),
+        do: mk(":", [a(mod), arg]),
+        else: arg
+    end)
+  end
+
+  @doc false
+  def meta_spec?(spec), do: is_integer(spec) or spec in ["^", "//", ":"]
+
+  defp qualified?(t, subst) do
+    case walk(t, subst) do
+      {tag, ":", [_, _]} when tag in [:struct, :gstruct] -> true
+      _ -> false
+    end
+  end
+
+  defp ctx(st, mod), do: %{subst: st.subst, db: current_db(), module: mod}
 
   # Ergebnis eines Builtins (siehe PrologEx.Builtin) umsetzen
-  defp apply_result(result, rest, st) do
+  defp apply_result(result, mod, rest, st) do
     case result do
       r when r in [:ok, true] ->
         run(%{st | goals: rest})
@@ -1021,7 +1173,7 @@ defmodule PrologEx do
         end
 
       {:call, goal} ->
-        run(%{st | goals: [{goal, st.height} | rest]})
+        run(%{st | goals: [{goal, st.height, mod} | rest]})
 
       other ->
         raise "Builtin lieferte ungültiges Ergebnis: #{inspect(other)}"
@@ -1043,34 +1195,34 @@ defmodule PrologEx do
   #     Backtracking berechnet; das Builtin entscheidet selbst, wann [r]
   #     (letzte Lösung, kein Choice Point) kommt
   #   * sonstige Aufzählung (Stream, Range): lazy über :suspend
-  defp start_solutions(thunk, rest, st) when is_function(thunk, 0) do
+  defp start_solutions(thunk, mod, rest, st) when is_function(thunk, 0) do
     case guarded(thunk) do
-      {:ok, r} -> start_solutions(r, rest, st)
+      {:ok, r} -> start_solutions(r, mod, rest, st)
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end
 
-  defp start_solutions([], _rest, st), do: backtrack(st)
-  defp start_solutions([r], rest, st), do: apply_result(r, rest, st)
+  defp start_solutions([], _mod, _rest, st), do: backtrack(st)
+  defp start_solutions([r], mod, rest, st), do: apply_result(r, mod, rest, st)
 
-  defp start_solutions([r | more], rest, st) do
-    st = push(st, {:solutions_list, more, rest, st.subst, st.answer})
-    apply_result(r, rest, st)
+  defp start_solutions([r | more], mod, rest, st) do
+    st = push(st, {:solutions_list, more, mod, rest, st.subst, st.answer})
+    apply_result(r, mod, rest, st)
   end
 
-  defp start_solutions(enum, rest, st) do
+  defp start_solutions(enum, mod, rest, st) do
     case guarded(fn -> Enumerable.reduce(enum, {:cont, nil}, fn x, _ -> {:suspend, x} end) end) do
-      {:ok, r} -> next_solution(r, rest, st)
+      {:ok, r} -> next_solution(r, mod, rest, st)
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end
 
-  defp next_solution({:suspended, r, cont}, rest, st) do
-    st = push(st, {:solutions, cont, rest, st.subst, st.answer})
-    apply_result(r, rest, st)
+  defp next_solution({:suspended, r, cont}, mod, rest, st) do
+    st = push(st, {:solutions, cont, mod, rest, st.subst, st.answer})
+    apply_result(r, mod, rest, st)
   end
 
-  defp next_solution(_done_or_halted, _rest, st), do: backtrack(st)
+  defp next_solution(_done_or_halted, _mod, _rest, st), do: backtrack(st)
 
   defp report_time(us0) do
     secs = (System.monotonic_time(:microsecond) - us0) / 1_000_000
@@ -1080,8 +1232,8 @@ defmodule PrologEx do
   # Unter-Maschine für findall & Co.: eigener Ziel- und Choice-Point-Stack;
   # das Template steht in der Antwortliste, damit die Kompaktierung seine
   # Bindungen mitführt. Cut im Ziel ist lokal (Barriere 0).
-  defp sub_machine(t, g, st) do
-    %{st | goals: [{g, 0}], cps: [], height: 0, answer: [{"$template", t}]}
+  defp sub_machine(t, g, mod, st) do
+    %{st | goals: [{g, 0, mod}], cps: [], height: 0, answer: [{"$template", t}]}
   end
 
   # Lösungen einsammeln: höchstens n (oder :infinity). Ergebnis
@@ -1121,13 +1273,14 @@ defmodule PrologEx do
   # in der Bedingung ist lokal). Hat C Erfolg, schneidet $cut_to alles ab
   # der Höhe vor E weg – also E und alle Alternativen von C. T und E sind
   # für den Cut transparent (Barriere des umgebenden Prädikats).
-  defp if_then_else(c, t, e, cutb, rest, st) do
+  defp if_then_else(c, t, e, cutb, mod, rest, st) do
     h = st.height
-    st = push(st, {:alt, {e, cutb}, rest, st.subst, st.answer})
-    run(%{st | goals: [{c, h + 1}, {{:"$cut_to", h}, 0}, {t, cutb} | rest]})
+    st = push(st, {:alt, {e, cutb, mod}, rest, st.subst, st.answer})
+    run(%{st | goals: [{c, h + 1, mod}, {{:"$cut_to", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
   defp add_args(g, []), do: g
+  defp add_args({:struct, ":", [m, g]}, extra), do: mk(":", [m, add_args(unmark_top(g), extra)])
   defp add_args({:atom, f}, extra), do: mk(f, extra)
   defp add_args({:struct, f, args}, extra), do: mk(f, args ++ extra)
   defp add_args({:var, _}, _), do: PrologEx.Error.instantiation!()
@@ -1135,23 +1288,24 @@ defmodule PrologEx do
 
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.
-  defp try_clauses(_goal, _args, [], _rest, st), do: backtrack(st)
+  defp try_clauses(_goal, _args, [], _rest, _mod, st), do: backtrack(st)
 
-  defp try_clauses(goal, args, [cl | more], rest, st) do
+  # mod: Modul, in dem das Prädikat definiert ist (Kontext für den Rumpf)
+  defp try_clauses(goal, args, [cl | more], rest, mod, st) do
     {:clause, _key, nslots, pats, nfresh, body} = cl
     env = :erlang.make_tuple(nslots, nil)
 
     # guarded: mit occurs_check=error kann die Kopfunifikation werfen
     case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var) end) do
-      {:ok, m} -> clause_matched(m, goal, args, more, rest, nfresh, body, st)
+      {:ok, matched} -> clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end
 
-  defp clause_matched(m, goal, args, more, rest, nfresh, body, st) do
-    case m do
+  defp clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st) do
+    case matched do
       :error ->
-        try_clauses(goal, args, more, rest, st)
+        try_clauses(goal, args, more, rest, mod, st)
 
       {:ok, env, s1, nv} ->
         barrier = st.height
@@ -1160,9 +1314,9 @@ defmodule PrologEx do
         st =
           if more == [],
             do: st,
-            else: push(st, {:clauses, goal, args, more, rest, st.subst, st.answer})
+            else: push(st, {:clauses, goal, args, more, rest, mod, st.subst, st.answer})
 
-        goals = inst_goals(body, env, nv, barrier, rest)
+        goals = inst_goals(body, env, nv, barrier, mod, rest)
         run(%{st | goals: goals, subst: s1, next_var: nv + nfresh})
     end
   end
@@ -1178,17 +1332,17 @@ defmodule PrologEx do
       {:alt, goal, rest, subst, answer} ->
         run(%{st | goals: [goal | rest], subst: subst, answer: answer})
 
-      {:clauses, goal, args, more, rest, subst, answer} ->
-        try_clauses(goal, args, more, rest, %{st | subst: subst, answer: answer})
+      {:clauses, goal, args, more, rest, mod, subst, answer} ->
+        try_clauses(goal, args, more, rest, mod, %{st | subst: subst, answer: answer})
 
-      {:solutions_list, more, rest, subst, answer} ->
-        start_solutions(more, rest, %{st | subst: subst, answer: answer})
+      {:solutions_list, more, mod, rest, subst, answer} ->
+        start_solutions(more, mod, rest, %{st | subst: subst, answer: answer})
 
-      {:solutions, cont, rest, subst, answer} ->
+      {:solutions, cont, mod, rest, subst, answer} ->
         st = %{st | subst: subst, answer: answer}
 
         case guarded(fn -> cont.({:cont, nil}) end) do
-          {:ok, r} -> next_solution(r, rest, st)
+          {:ok, r} -> next_solution(r, mod, rest, st)
           {:thrown, ball} -> throw_ball(ball, st)
         end
 
@@ -1208,7 +1362,7 @@ defmodule PrologEx do
         backtrack(%{st | subst: subst, answer: answer})
 
       # G von catch/3 erschöpft
-      {:catch, _id, _c, _r, _rest, _subst, _answer} ->
+      {:catch, _id, _c, _r, _rest, _mod, _subst, _answer} ->
         backtrack(st)
 
       # zurück in G: der Rahmen fängt wieder
@@ -1249,14 +1403,14 @@ defmodule PrologEx do
 
   defp unwind(ball, [], _h, _st), do: PrologEx.Error.throw!(ball)
 
-  defp unwind(ball, [{:catch, id, c, r, rest, subst, answer} | below], h, st) do
+  defp unwind(ball, [{:catch, id, c, r, rest, mod, subst, answer} | below], h, st) do
     if MapSet.member?(st.catch_off, id) do
       unwind(ball, below, h - 1, st)
     else
       case unify(c, ball, subst) do
         {:ok, s} ->
           st = %{st | cps: below, height: h - 1, subst: s, answer: answer}
-          run(%{st | goals: [{r, h - 1} | rest]})
+          run(%{st | goals: [{r, h - 1, mod} | rest]})
 
         :error ->
           unwind(ball, below, h - 1, st)
@@ -1284,9 +1438,9 @@ defmodule PrologEx do
 
   defp maybe_compact(st) do
     {goals, {memo, size}} =
-      Enum.map_reduce(st.goals, {%{}, 0}, fn {g, cutb}, acc ->
+      Enum.map_reduce(st.goals, {%{}, 0}, fn {g, cutb, mod}, acc ->
         {g, acc} = compact(g, st.subst, acc)
-        {{g, cutb}, acc}
+        {{g, cutb, mod}, acc}
       end)
 
     {answer, {_memo, size}} =
@@ -1481,7 +1635,7 @@ defmodule PrologEx do
       |> Enum.reject(fn {:var, n} -> is_binary(n) and String.starts_with?(n, "_") end)
       |> Enum.map(fn {:var, n} = var -> {n, var} end)
 
-    start = new_state(db, [{goal, 0}], answer, opts)
+    start = new_state(db, [{goal, 0, Keyword.get(opts, :module, "user")}], answer, opts)
 
     Stream.unfold({:start, start}, fn
       :halt ->
@@ -1550,7 +1704,7 @@ defmodule PrologEx do
   def first_with_stats(db, goal, opts \\ []) do
     put_db(db)
 
-    case run(new_state(db, [{goal, 0}], [], opts)) do
+    case run(new_state(db, [{goal, 0, "user"}], [], opts)) do
       {:sol, st} -> {:ok, %{bindings: map_size(st.subst), choicepoints: st.height}}
       :done -> false
     end

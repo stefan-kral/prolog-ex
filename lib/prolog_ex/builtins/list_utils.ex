@@ -19,7 +19,7 @@ defmodule PrologEx.Builtins.ListUtils do
   Nur in Prolog: `nextto/3`, `subtract/3`, `intersection/3`, `union/3`,
   `include/3`, `exclude/3`, `partition/4`, `foldl/4,5,6`.
   """
-  use PrologEx.Builtin
+  use PrologEx.Builtin, module: "lists"
   alias PrologEx.Builtins.Lists
   alias PrologEx.Order
 
@@ -208,16 +208,16 @@ defmodule PrologEx.Builtins.ListUtils do
       m1,
       e,
       d,
-      p,
+      _p,
       i,
-      i1,
-      ex,
-      ex1,
-      g,
-      v0,
-      v,
-      v1,
-      z,
+      _i1,
+      _ex,
+      _ex1,
+      _g,
+      _v0,
+      _v,
+      _v1,
+      _z,
       zs,
       b,
       rs,
@@ -301,7 +301,35 @@ defmodule PrologEx.Builtins.ListUtils do
       rule(s("intersection", [[w | t], l, r]), [s("intersection", [t, l, r])]),
       rule(s("union", [[], l, l]), [a("!")]),
       rule(s("union", [[h | t], l, r]), [s("memberchk", [h, l]), a("!"), s("union", [t, l, r])]),
-      rule(s("union", [[h | t], l, [h | r]]), [s("union", [t, l, r])]),
+      rule(s("union", [[h | t], l, [h | r]]), [s("union", [t, l, r])])
+    ]
+    |> then(&%{"lists" => &1, "apply" => apply_library()})
+  end
+
+  @doc false
+  def meta do
+    [
+      {"apply", "include", [1, "+", "-"]},
+      {"apply", "exclude", [1, "+", "-"]},
+      {"apply", "partition", [1, "+", "-", "-"]},
+      {"apply", "foldl", [3, "+", "+", "-"]},
+      {"apply", "foldl", [4, "+", "+", "+", "-"]},
+      {"apply", "foldl", [5, "+", "+", "+", "+", "-"]}
+    ]
+  end
+
+  defp apply_library do
+    import PrologEx, only: [s: 2, v: 1, fact: 1, rule: 2]
+
+    [x, xs, l, i, i1, ex, ex1, g, v0, vv, v1, y, ys, z, zs, h, t, p] =
+      Enum.map(~w(X Xs L I I1 Ex Ex1 G V0 V V1 Y Ys Z Zs H T P), &PrologEx.v/1)
+
+    w = v("_")
+    ite = fn c, a, b -> s(";", [s("->", [c, a]), b]) end
+    conj = fn gs -> PrologEx.conj(gs) end
+    v = vv
+
+    [
       # include/3, exclude/3, partition/4 (Liste vorn: Indexierung)
       rule(s("include", [p, l, i]), [s("$include", [l, p, i])]),
       fact(s("$include", [[], w, []])),

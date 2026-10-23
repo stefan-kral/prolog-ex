@@ -34,6 +34,7 @@ defmodule PrologEx.Error do
   defp show(t) do
     case PrologEx.unmark(t) do
       {:struct, "/", [{:atom, n}, ar]} when is_integer(ar) -> "#{n}/#{ar}"
+      {:struct, ":", [{:atom, m}, x]} -> "#{m}:" <> show(x)
       {:struct, f, args} -> f <> "(" <> Enum.map_join(args, ", ", &show/1) <> ")"
       other -> PrologEx.format(other)
     end

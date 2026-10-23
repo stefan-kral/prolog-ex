@@ -174,7 +174,9 @@ defmodule PrologEx.LibraryTest do
         args = if :rand.uniform(2) == 1, do: [proper, a2, a3], else: [a1, a2, proper]
 
         hybrid = db() |> query(s("append", args)) |> Enum.take(6) |> norm()
-        classic = db() |> query(s("$append", args)) |> Enum.take(6) |> norm()
+
+        classic =
+          db() |> query(s(":", [a("lists"), s("$append", args)])) |> Enum.take(6) |> norm()
 
         assert hybrid == classic,
                "verschieden für append(#{Enum.map_join(args, ", ", &format/1)})"
@@ -307,8 +309,8 @@ defmodule PrologEx.LibraryTest do
 
     test "listing(append/3) zeigt das klassische Hilfsprädikat" do
       out = capture_io(fn -> all(s("listing", [s("/", [a("append"), 3])])) end)
-      assert out =~ "% append/3: eingebaut, in Elixir realisiert"
-      assert out =~ "$append([H | T], L, [H | R]) :-"
+      assert out =~ "% lists:append/3: eingebaut, in Elixir realisiert"
+      assert out =~ "lists:$append([H | T], L, [H | R]) :-"
     end
   end
 
@@ -355,7 +357,10 @@ defmodule PrologEx.LibraryTest do
         l = if :rand.uniform(4) == 1, do: list(items, v("T")), else: list(items)
         x = Enum.random([@x, 1, a("a"), s("f", [2]), v("A")])
         hybrid = db() |> query(s("member", [x, l])) |> Enum.take(6) |> norm()
-        classic = db() |> query(s("$member", [x, l])) |> Enum.take(6) |> norm()
+
+        classic =
+          db() |> query(s(":", [a("lists"), s("$member", [x, l])])) |> Enum.take(6) |> norm()
+
         assert hybrid == classic, "verschieden für member(#{format(x)}, #{format(l)})"
       end
     end
@@ -424,13 +429,13 @@ defmodule PrologEx.LibraryTest do
       out = capture_io(fn -> all(s("listing", [a("numlist")])) end)
 
       assert out ==
-               "numlist(N, L) :-\n    numlist(1, N, L).\n\n" <>
-                 "% numlist/3: eingebaut, in Elixir realisiert (PrologEx.Builtins.Lists)\n"
+               "lists:numlist(N, L) :-\n    numlist(1, N, L).\n\n" <>
+                 "% lists:numlist/3: eingebaut, in Elixir realisiert (PrologEx.Builtins.Lists)\n"
 
       # Hilfsprädikate explizit verlangt: werden gezeigt; listing/0 zeigt
       # nur Benutzerprädikate
       out = capture_io(fn -> all(s("listing", [a("$append")])) end)
-      assert out =~ "$append([], L, L)."
+      assert out =~ "lists:$append([], L, L)."
       out = capture_io(fn -> all(a("listing")) end)
       refute out =~ "numlist"
     end
@@ -443,7 +448,7 @@ defmodule PrologEx.LibraryTest do
   end
 
   test "Builtin-Tabelle und Schutz" do
-    assert {"functor", 3} in PrologEx.Builtins.keys()
+    assert {"functor", 3} in PrologEx.Builtins.keys("system")
     assert PrologEx.Builtins.protected?({"functor", 3})
     assert PrologEx.Builtins.protected?({",", 2})
     refute PrologEx.Builtins.protected?({"append", 3})

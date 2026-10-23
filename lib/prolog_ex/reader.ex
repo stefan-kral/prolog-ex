@@ -36,6 +36,45 @@ defmodule PrologEx.Reader do
 
   def stop(reader), do: GenServer.stop(reader)
 
+  @doc """
+  Datei zum schrittweisen Lesen öffnen (oben auf den Dateistapel des
+  Readers): `:ok` oder `{:error, meldung}`. Danach `next_chunk/1`, bis
+  `:eof` kommt.
+  """
+  def open_file(reader, path), do: GenServer.call(reader, {:open, path}, @timeout + 1000)
+
+  @doc """
+  Terme der obersten offenen Datei bis einschließlich der nächsten
+  Direktive: `{ergebnisse, :pause | :eof}`. Bei `:pause` ist die Direktive
+  das letzte Ergebnis; sie kann ausgeführt werden (auch mit weiteren
+  open_file/next_chunk), bevor es weitergeht – Operatoren, die sie
+  definiert, gelten dann schon für den Rest der Datei.
+  """
+  def next_chunk(reader), do: GenServer.call(reader, :next, @timeout + 1000)
+
+  @doc """
+  Reader der Sitzung (für consult/1, use_module/1 aus Prolog heraus).
+  Der Toplevel setzt ihn mit `put_current/1`; fehlt er, wird einer
+  gestartet und im Prozess gemerkt.
+  """
+  def current do
+    case Process.get(:prolog_ex_reader) do
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: pid, else: start_current()
+
+      _ ->
+        start_current()
+    end
+  end
+
+  def put_current(pid), do: Process.put(:prolog_ex_reader, pid)
+
+  defp start_current do
+    {:ok, pid} = start_link()
+    put_current(pid)
+    pid
+  end
+
   @doc "Setzt double_quotes im Reader (codes, chars, atom)"
   def set_double_quotes(reader, value) when value in ["codes", "chars", "atom"] do
     read_terms(reader, ":- set_prolog_flag(double_quotes, #{value}).\n")
@@ -109,6 +148,31 @@ defmodule PrologEx.Reader do
     end
   end
 
+  def handle_call({:open, path}, _from, st) do
+    Port.command(st.port, "'$open'(#{quote_atom(path)}).\n")
+
+    case collect_until(st.port, st.buf, [], &(&1 in [:opened] or match?({:error, _}, &1))) do
+      {:ok, [:opened], buf} -> {:reply, :ok, %{st | buf: buf}}
+      {:ok, [{:error, msg}], buf} -> {:reply, {:error, msg}, %{st | buf: buf}}
+      {:timeout, _} -> {:reply, {:error, "Reader antwortet nicht"}, restart(st)}
+    end
+  end
+
+  def handle_call(:next, _from, st) do
+    Port.command(st.port, "'$next'.\n")
+
+    case collect_until(st.port, st.buf, [], &(&1 in [:pause, :file_end])) do
+      {:ok, results, buf} ->
+        {last, items} = List.pop_at(results, -1)
+        status = if last == :pause, do: :pause, else: :eof
+        {:reply, {Enum.map(items, &fix_file_line/1), status}, %{st | buf: buf}}
+
+      {:timeout, results} ->
+        err = {:error, "Reader antwortet nicht – neu gestartet"}
+        {:reply, {results ++ [err], :eof}, restart(st)}
+    end
+  end
+
   @impl true
   def handle_info({port, {:exit_status, _}}, %{port: port} = st),
     do: {:noreply, fresh(st)}
@@ -116,6 +180,38 @@ defmodule PrologEx.Reader do
   def handle_info(_msg, st), do: {:noreply, st}
 
   defp fresh(st), do: %{st | port: open_port(), batch: 0, buf: "", lines: 0}
+
+  defp restart(st) do
+    Port.close(st.port)
+    fresh(st)
+  end
+
+  defp quote_atom(name),
+    do: "'" <> String.replace(String.replace(name, "\\", "\\\\"), "'", "''") <> "'"
+
+  # Antworten sammeln, bis eine `stop?` erfüllt (die kommt mit zurück)
+  defp collect_until(port, buf, acc, stop?) do
+    receive do
+      {^port, {:data, {:noeol, chunk}}} ->
+        collect_until(port, buf <> chunk, acc, stop?)
+
+      {^port, {:data, {:eol, chunk}}} ->
+        result = decode(buf <> chunk)
+        acc = [result | acc]
+
+        if stop?.(result),
+          do: {:ok, Enum.reverse(acc), ""},
+          else: collect_until(port, "", acc, stop?)
+    after
+      @timeout -> {:timeout, Enum.reverse(acc)}
+    end
+  end
+
+  # Syntaxfehler aus Dateien: gprolog nennt "pfad:zeile"
+  defp fix_file_line({:error, msg}),
+    do: {:error, Regex.replace(~r/^(Syntaxfehler: )\S+:(\d+)/, msg, "\\1Zeile \\2")}
+
+  defp fix_file_line(other), do: other
 
   defp count_newlines(s), do: length(:binary.matches(s, "\n"))
 
@@ -159,6 +255,9 @@ defmodule PrologEx.Reader do
 
       {:ok, {:atom, "eof"}} ->
         :eof
+
+      {:ok, {:atom, a}} when a in ["opened", "pause", "file_end"] ->
+        String.to_atom(a)
 
       {:ok, {tag, "term", [t, vs]}} when tag in [:struct, :gstruct] ->
         {t, names} = Canonical.rename_vars(t, vs)

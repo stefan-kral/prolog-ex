@@ -69,15 +69,33 @@ defmodule PrologEx.Builtin do
     * `nondet: true` – siehe oben
     * `helpers: [{"$name", stelligkeit}, ...]` – Hilfsprädikate, die das
       Builtin über `{:call, ...}` aufruft; `listing` zeigt sie mit an
+    * `module: "lists"` – Prolog-Modul dieses Builtins (Standard: das bei
+      `use PrologEx.Builtin, module: ...` angegebene, sonst `"system"`).
+      Ein `{:call, ziel}` aus einem system-Builtin läuft im Kontextmodul
+      des Aufrufers, aus einem Bibliotheks-Builtin in dessen Modul.
     * `protected: false` – das Prädikat darf vom Benutzer neu definiert
       werden (Bibliotheksprädikate wie append/3). Standard: geschützt, eine
       Klausel dafür in consult ergibt `permission_error`.
   """
 
-  defmacro __using__(_opts) do
+  defmacro __using__(opts) do
+    pmod = Keyword.get(opts, :module, "system")
+
     quote do
       import PrologEx.Builtin,
-        only: [defbuiltin: 3, defbuiltin: 4, deref: 1, resolve: 1, db: 0, subst: 0]
+        only: [
+          defbuiltin: 3,
+          defbuiltin: 4,
+          deref: 1,
+          resolve: 1,
+          db: 0,
+          subst: 0,
+          context_module: 0
+        ]
+
+      @prolog_module unquote(pmod)
+      @doc false
+      def __prolog_module__, do: @prolog_module
 
       import PrologEx,
         only: [a: 1, v: 1, mk: 2, list: 1, list: 2, cons: 2, uncons: 1, format: 1]
@@ -110,11 +128,13 @@ defmodule PrologEx.Builtin do
     kind = if Keyword.get(opts, :nondet, false), do: :nondet, else: :det
     protected = Keyword.get(opts, :protected, true)
     helpers = Keyword.get(opts, :helpers, [])
+    pmod = Keyword.get(opts, :module)
     ctx = Macro.var(:ctx, nil)
 
     quote do
       @prolog_builtins {{unquote(name), unquote(arity)}, unquote(kind),
-                        &(__MODULE__.unquote(fun) / 2), unquote(protected), unquote(helpers)}
+                        &(__MODULE__.unquote(fun) / 2), unquote(protected), unquote(helpers),
+                        unquote(pmod) || @prolog_module}
 
       @doc false
       def unquote(fun)(unquote(args), unquote(ctx)) do
@@ -131,6 +151,9 @@ defmodule PrologEx.Builtin do
     do: quote(do: PrologEx.resolve(unquote(t), var!(ctx).subst))
 
   defmacro db, do: quote(do: var!(ctx).db)
+
+  @doc "Kontextmodul des Aufrufers (für assert, clause, ... ohne M:)"
+  defmacro context_module, do: quote(do: var!(ctx).module)
   defmacro subst, do: quote(do: var!(ctx).subst)
 
   defmodule Helpers do

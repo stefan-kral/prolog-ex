@@ -88,6 +88,32 @@ und fangbar. Nicht Gefangenes meldet der Toplevel als `Fehler: …`.
 Noch nicht: Ausgabe in
 Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
 
+## Module
+
+Flache Module wie in SWI (ein Baum der Tiefe 1 unter `user`/`system`):
+
+```prolog
+:- module(geo, [flaeche/2, op(700, xfx, ===>)]).
+:- use_module(library(lists)).
+:- meta_predicate zweimal(0).
+```
+
+  * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
+    `library(apply)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
+    `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
+    `current_module/1`, `strip_module/3`; `clause/2`, `retract/1`,
+    `dynamic/1`, `listing/1`, `current_predicate/1` mit `M:`.
+  * Auflösung eines Aufrufs in Modul `m`: in `m` definiert → nach `m`
+    importiert → `user` → `system` → Autoload aus `lists`/`apply` (der Import
+    landet in `m`). Eigene Definitionen gehen Bibliotheksprädikaten vor.
+  * Rümpfe laufen im Modul, in dem das Prädikat definiert ist;
+    Meta-Argumente (`0..9`, `^`, `//`, `:`) werden beim Aufruf mit dem
+    Kontextmodul qualifiziert. Prädikate von `system` sind geschützt.
+  * Dateien werden schrittweise gelesen: Operatoren aus der Exportliste
+    eines mit `use_module` geladenen Moduls gelten schon für den Rest der
+    ladenden Datei. Operatoren sind global (nicht modul-lokal).
+  * Relative Pfade in einer Datei gelten ab deren Ordner.
+
 ## Eigene Builtins in Elixir
 
 Ein Modul mit `use PrologEx.Builtin` anlegen und in `PrologEx.Builtins`

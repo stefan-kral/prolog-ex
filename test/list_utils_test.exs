@@ -10,10 +10,10 @@ defmodule PrologEx.ListUtilsTest do
     prog = """
     add(X, A0, A) :- A is A0 + X.
     add2(X, Y, A0, A) :- A is A0 + X * Y.
-    ref_max_list([H|T], R) :- '$max_list'(T, H, R).
-    ref_min_list([H|T], R) :- '$min_list'(T, H, R).
-    ref_max_member(R, [H|T]) :- '$max_member'(T, H, R).
-    ref_min_member(R, [H|T]) :- '$min_member'(T, H, R).
+    ref_max_list([H|T], R) :- lists:'$max_list'(T, H, R).
+    ref_min_list([H|T], R) :- lists:'$min_list'(T, H, R).
+    ref_max_member(R, [H|T]) :- lists:'$max_member'(T, H, R).
+    ref_min_member(R, [H|T]) :- lists:'$min_member'(T, H, R).
     ref_memberchk(X, L) :- member(X, L), !.
     """
 
@@ -123,7 +123,7 @@ defmodule PrologEx.ListUtilsTest do
     end
 
     assert show.("reverse([Y, 2], R).") == "R = [2, Y]"
-    assert show.("'$reverse'([Y, 2], R, [], R).") == "R = [2, Y]"
+    assert show.("lists:'$reverse'([Y, 2], R, [], R).") == "R = [2, Y]"
     assert show.("X = Y, Y = Z.") == "X = Y, Y = Z"
     assert show.("Y = X.") == "Y = X"
     assert show.("X = f(A), A = B.") == "A = B, X = f(B)"
@@ -144,11 +144,11 @@ defmodule PrologEx.ListUtilsTest do
       it = "[" <> Enum.join(ints, ", ") <> "]"
 
       pairs = [
-        {"last(#{lt}, R)", "'$last'(#{lt}, R)"},
-        {"reverse(#{lt}, R)", "'$reverse'(#{lt}, R, [], R)"},
-        {"delete(#{lt}, f(_), R)", "'$delete'(#{lt}, f(_), R)"},
-        {"delete(#{lt}, 2, R)", "'$delete'(#{lt}, 2, R)"},
-        {"sum_list(#{it}, R)", "'$sum_list'(#{it}, 0, R)"},
+        {"last(#{lt}, R)", "lists:'$last'(#{lt}, R)"},
+        {"reverse(#{lt}, R)", "lists:'$reverse'(#{lt}, R, [], R)"},
+        {"delete(#{lt}, f(_), R)", "lists:'$delete'(#{lt}, f(_), R)"},
+        {"delete(#{lt}, 2, R)", "lists:'$delete'(#{lt}, 2, R)"},
+        {"sum_list(#{it}, R)", "lists:'$sum_list'(#{it}, 0, R)"},
         {"max_list(#{it}, R)", "ref_max_list(#{it}, R)"},
         {"min_list(#{it}, R)", "ref_min_list(#{it}, R)"},
         {"max_member(R, #{lt})", "ref_max_member(R, #{lt})"},

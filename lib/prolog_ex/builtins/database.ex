@@ -16,27 +16,27 @@ defmodule PrologEx.Builtins.Database do
   alias PrologEx.Compiler
 
   defbuiltin "assert", [c] do
-    add(c, :z, subst())
+    add(c, :z, subst(), context_module())
   end
 
   defbuiltin "assertz", [c] do
-    add(c, :z, subst())
+    add(c, :z, subst(), context_module())
   end
 
   defbuiltin "asserta", [c] do
-    add(c, :a, subst())
+    add(c, :a, subst(), context_module())
   end
 
   # retract(C): entfernt die erste passende Klausel; beim Backtracking die
   # nächste. Deterministisch, wenn keine weitere passt.
   defbuiltin "retract", [c], nondet: true do
     s = subst()
-    {h, b} = split(c, s)
+    {m, h, b} = split(c, s, context_module())
 
     key =
       case PrologEx.walk(h, s) do
         {:var, _} -> PrologEx.Error.instantiation!()
-        hh -> Compiler.key(hh)
+        hh -> mkey(m, hh)
       end
 
     case Map.fetch(PrologEx.current_db(), key) do
@@ -52,16 +52,17 @@ defmodule PrologEx.Builtins.Database do
 
   # retractall(H): entfernt alle Klauseln, deren Kopf zu H passt; legt ein
   # unbekanntes Prädikat als dynamisch an
-  defbuiltin "retractall", [h] do
+  defbuiltin "retractall", [h0] do
     s = subst()
+    {m, h} = PrologEx.Builtins.Modules.strip(h0, context_module(), s)
 
     head =
-      case PrologEx.walk(h, s) do
+      case h do
         {:var, _} -> PrologEx.Error.instantiation!()
         hh -> hh
       end
 
-    key = Compiler.key(head)
+    key = mkey(m, head)
     db = PrologEx.current_db()
 
     case Map.fetch(db, key) do
@@ -85,7 +86,7 @@ defmodule PrologEx.Builtins.Database do
 
   # dynamic(Spec) als Ziel: name/arity, Folge (a/1, b/2) oder Liste
   defbuiltin "dynamic", [spec] do
-    keys = specs(resolve(spec))
+    keys = PrologEx.Builtins.Modules.indicators(resolve(spec), context_module())
     Enum.each(keys, &check_modifiable!/1)
     db = PrologEx.current_db()
 
@@ -99,24 +100,13 @@ defmodule PrologEx.Builtins.Database do
 
   # ---------------------------------------------------------------------
 
-  defp specs({:var, _}), do: PrologEx.Error.instantiation!()
-  defp specs({tag, ",", [a, b]}) when tag in [:struct, :gstruct], do: specs(a) ++ specs(b)
-
-  defp specs({tag, "/", [{:atom, n}, ar]}) when tag in [:struct, :gstruct] and is_integer(ar),
-    do: [{n, ar}]
-
-  defp specs([]), do: []
-  defp specs([h | t]), do: specs(h) ++ specs(t)
-  defp specs({:glist, _} = l), do: specs(PrologEx.unmark(l))
-  defp specs(t), do: PrologEx.Error.type!("predicate_indicator", t)
-
-  defp add(c, where, s) do
-    {h, b} = split(c, s)
+  defp add(c, where, s, ctx) do
+    {m, h, b} = split(c, s, ctx)
 
     key =
       case PrologEx.walk(h, s) do
         {:var, _} -> PrologEx.Error.instantiation!()
-        hh -> Compiler.key(hh)
+        hh -> mkey(m, hh)
       end
 
     # Rumpf muss aufrufbar sein (Variablen werden zu call/1)
@@ -144,18 +134,40 @@ defmodule PrologEx.Builtins.Database do
           PrologEx.pred_from_entries([])
       end
 
-    db = db |> PrologEx.declare(key) |> Map.put(key, PrologEx.assert_entry(pred, entry, where))
+    {m, n, ar} = key
+
+    db =
+      db
+      |> PrologEx.declare(key)
+      |> Map.put(key, PrologEx.assert_entry(pred, entry, where))
+      |> Map.delete({:import, m, n, ar})
+
     PrologEx.put_db(db)
     :ok
   end
 
-  # (H :- B) oder H (Rumpf true)
-  defp split(c, s) do
-    case PrologEx.unmark_top(PrologEx.walk(c, s)) do
-      {:var, _} -> PrologEx.Error.instantiation!()
-      {:struct, ":-", [h, b]} -> {h, b}
-      h -> {h, a("true")}
+  # (H :- B) oder H (Rumpf true), jeweils mit Modul: M:(H :- B) gilt ganz
+  # in M; bei (M:H :- B) läuft der Rumpf im Kontextmodul (wie SWI).
+  # Ergebnis {modul, kopf, rumpf}
+  defp split(c, s, ctx) do
+    {m, c} = PrologEx.Builtins.Modules.strip(c, ctx, s)
+
+    {h, b} =
+      case PrologEx.unmark_top(c) do
+        {:var, _} -> PrologEx.Error.instantiation!()
+        {:struct, ":-", [h, b]} -> {h, b}
+        h -> {h, a("true")}
+      end
+
+    case PrologEx.Builtins.Modules.strip(h, m, s) do
+      {^m, h} -> {m, h, b}
+      {hm, h} -> {hm, h, mk(":", [a(m), b])}
     end
+  end
+
+  defp mkey(m, head) do
+    {n, ar} = Compiler.key(head)
+    {m, n, ar}
   end
 
   defp retract_from(:none, _key, _h, _b, _s), do: []
@@ -209,8 +221,8 @@ defmodule PrologEx.Builtins.Database do
   # Steuerkonstrukte und geschützte Builtins sind tabu; nicht geschützte
   # Builtins (append/3, ...) darf man wie beim consult durch eigene
   # Klauseln ersetzen
-  defp check_modifiable!(key) do
-    if PrologEx.Builtins.protected?(key), do: permission!(key)
+  defp check_modifiable!({_m, n, ar} = key) do
+    if PrologEx.Builtins.protected?({n, ar}), do: permission!(key)
   end
 
   # bestehendes Prädikat: nur dynamische dürfen sich ändern
@@ -219,13 +231,11 @@ defmodule PrologEx.Builtins.Database do
     unless PrologEx.dynamic?(PrologEx.current_db(), key), do: permission!(key)
   end
 
-  defp permission!({name, arity}),
-    do:
-      PrologEx.Error.permission!(
-        "modify",
-        "static_procedure",
-        PrologEx.Error.indicator(name, arity)
-      )
+  defp permission!({m, name, arity}) do
+    pi = PrologEx.Error.indicator(name, arity)
+    pi = if m == "user", do: pi, else: mk(":", [a(m), pi])
+    PrologEx.Error.permission!("modify", "static_procedure", pi)
+  end
 
   # Variablen in Reihenfolge des ersten Auftretens A, B, ..., Z, A1, ...
   defp nice_vars(t) do

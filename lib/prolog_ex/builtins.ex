@@ -1,14 +1,24 @@
 defmodule PrologEx.Builtins do
   @moduledoc """
-  Registry aller Builtins. Neue Module mit `use PrologEx.Builtin` hier in
-  `@modules` eintragen. Bibliotheksprädikate in Prolog liefert ein Modul
-  über `library/0` (Liste von Klauseln); sie werden beim Übersetzen
-  kompiliert.
+  Registry aller Builtins, nach Prolog-Modul.
 
-  Die Maschine fragt die Tabelle nur, wenn ein Prädikat NICHT in der
-  Benutzer-Datenbank steht – Benutzerprädikate kosten dadurch nichts
-  extra, und nicht geschützte Builtins (append/3, ...) lassen sich durch
-  eigene Definitionen ersetzen.
+  Neue Elixir-Module mit `use PrologEx.Builtin` (optional
+  `module: "lists"`, Standard `"system"`) hier in `@modules` eintragen;
+  einzelne Builtins können mit `defbuiltin ..., module: "..."` abweichen.
+  Bibliotheksprädikate in Prolog liefert ein Modul über `library/0`
+  (Liste von Klauseln, im Modul des Elixir-Moduls) oder als
+  `%{"modul" => klauseln}`; sie werden beim Übersetzen kompiliert.
+  `meta/0` liefert meta_predicate-Deklarationen `{modul, name, specs}`.
+
+  ## Module
+
+    * `system` – Steuerkonstrukte und eingebaute Prädikate; überall
+      sichtbar. Geschützt (außer `protected: false`): kein Modul darf sie
+      neu definieren.
+    * Bibliotheksmodule (`lists`, `apply`) – exportieren alle ihre
+      Prädikate außer `$...`-Hilfsprädikaten. Sichtbar nach `use_module`
+      oder per Autoload beim ersten Aufruf (wie SWI). Eigene Definitionen
+      im aufrufenden Modul gehen vor.
   """
 
   @modules [
@@ -18,55 +28,109 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.ListUtils,
     PrologEx.Builtins.Order,
     PrologEx.Builtins.System,
-    PrologEx.Builtins.Database
+    PrologEx.Builtins.Database,
+    PrologEx.Builtins.Modules
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
-  # ausführt (siehe PrologEx.step/4); hier nur für den Schutz in consult.
-  @engine ~w(true/0 fail/0 !/0 ,/2 ;/2 ->/2 call/1 call/2 call/3 call/4 call/5 call/6
-             call/7 call/8 call_nth/2 findall/3 findall/4
+  # ausführt (siehe PrologEx.step/5); hier für den Schutz und die
+  # meta_predicate-Angaben.
+  @engine ~w(true/0 fail/0 false/0 !/0 ,/2 ;/2 ->/2 :/2 call/1 call/2 call/3 call/4 call/5 call/6
+             call/7 call/8 call_nth/2 findall/3 findall/4 catch/3 throw/1
              findnsols/4 findnsols/5 countall/2 not/1 \\+/1 =/2 is/2 </2 >/2 >=/2 =</2 =:=/2 =\\=/2 time/1)
+          |> Enum.map(fn s ->
+            [n, a] = Regex.run(~r{^(.*)/(\d+)$}, s, capture: :all_but_first)
+            {n, String.to_integer(a)}
+          end)
 
   @table (for mod <- @modules,
-              {key, kind, fun, protected, _helpers} <- mod.__builtins__(),
+              {key, kind, fun, protected, _helpers, pmod} <- mod.__builtins__(),
               into: %{} do
-            {key, {kind, fun, protected}}
+            {name, arity} = key
+            {{pmod, name, arity}, {kind, fun, protected}}
           end)
 
   @helpers (for mod <- @modules,
-                {key, _, _, _, helpers} <- mod.__builtins__(),
+                {{name, arity}, _, _, _, helpers, pmod} <- mod.__builtins__(),
                 helpers != [],
                 into: %{} do
-              {key, helpers}
+              {{pmod, name, arity}, helpers}
             end)
 
   @library (for mod <- @modules,
                 function_exported?(mod, :library, 0),
-                {key, pred} <- PrologEx.consult(mod.library()),
+                {pmod, clauses} <-
+                  (case mod.library() do
+                     %{} = per_module -> per_module
+                     clauses -> [{mod.__prolog_module__(), clauses}]
+                   end),
+                {{name, arity}, pred} <- PrologEx.build_preds(clauses),
                 into: %{} do
-              # nur interne Hilfsprädikate ($...) sind geschützt
-              {key, {:prolog, pred, String.starts_with?(elem(key, 0), "$")}}
+              # in system sind nur die $-Hilfsprädikate geschützt
+              {{pmod, name, arity},
+               {:prolog, pred, pmod == "system" and String.starts_with?(name, "$")}}
             end)
 
   @all Map.merge(@table, @library)
 
-  @protected for({key, {_, _, true}} <- @all, into: MapSet.new(), do: key)
-             |> MapSet.union(
-               MapSet.new(@engine, fn s ->
-                 [n, a] = String.split(s, "/", parts: 2) |> then(fn [n, a] -> [n, a] end)
-                 {n, String.to_integer(a)}
-               end)
-             )
+  @meta (for mod <- @modules,
+             function_exported?(mod, :meta, 0),
+             {pmod, name, specs} <- mod.meta(),
+             into: %{} do
+           {{pmod, name, length(specs)}, specs}
+         end)
 
-  @doc "`{:det | :nondet, fun, protected?}`, `{:prolog, pred, true}` oder nil"
-  def lookup(key), do: Map.get(@all, key)
+  # system: geschützt sind die als geschützt markierten und die der Maschine
+  @protected for({{"system", n, a}, {_, _, true}} <- @all, into: MapSet.new(), do: {n, a})
+             |> MapSet.union(MapSet.new(@engine))
+
+  @system_keys (for({"system", n, a} <- Map.keys(@all), do: {n, a}) ++ @engine)
+               |> MapSet.new()
+
+  # Bibliotheksmodule und ihre Exporte (ohne $-Hilfsprädikate)
+  @exports (for {{m, n, a}, _} <- @all,
+                m != "system",
+                not String.starts_with?(n, "$"),
+                reduce: %{} do
+              acc -> Map.update(acc, m, MapSet.new([{n, a}]), &MapSet.put(&1, {n, a}))
+            end)
+
+  @autoload for {m, keys} <- @exports, k <- keys, into: %{}, do: {k, m}
+
+  # geschützte system-Builtins direkt nach {name, arity}: kein Modul kann
+  # sie überdecken, die Auflösung ist also immer dieselbe (Schnellweg)
+  @protected_entries for {{"system", n, ar}, {_, _, true} = e} <- @all,
+                         into: %{},
+                         do: {{n, ar}, e}
+
+  @doc "Eintrag eines geschützten system-Builtins (oder nil)"
+  def protected_entry(name, arity), do: Map.get(@protected_entries, {name, arity})
+
+  @doc "`{:det | :nondet, fun, protected?}`, `{:prolog, pred, protected?}` oder nil"
+  def lookup(module, name, arity), do: Map.get(@all, {module, name, arity})
 
   @doc "Von einem Elixir-Builtin angegebene Hilfsprädikate (Option helpers:)"
-  def helpers(key), do: Map.get(@helpers, key, [])
+  def helpers(module, name, arity), do: Map.get(@helpers, {module, name, arity}, [])
 
-  @doc "Darf der Benutzer dieses Prädikat nicht definieren?"
-  def protected?(key), do: MapSet.member?(@protected, key)
+  @doc "Darf der Benutzer dieses Prädikat (in keinem Modul) definieren?"
+  def protected?({name, arity}), do: MapSet.member?(@protected, {name, arity})
 
-  @doc "Alle Builtins als `{name, stelligkeit}`, sortiert"
-  def keys, do: @all |> Map.keys() |> Enum.sort()
+  @doc "Ist `{name, arity}` ein Prädikat von system (inkl. Steuerkonstrukte)?"
+  def system?({name, arity}), do: MapSet.member?(@system_keys, {name, arity})
+
+  @doc "meta_predicate-Angaben eines Bibliotheksprädikats (oder nil)"
+  def meta(module, name, arity), do: Map.get(@meta, {module, name, arity})
+
+  @doc "Bibliotheksmodule"
+  def library_modules, do: Map.keys(@exports) |> Enum.sort()
+
+  @doc "Exporte eines Bibliotheksmoduls (MapSet von {name, arity}) oder nil"
+  def exports(module), do: Map.get(@exports, module)
+
+  @doc "Bibliotheksmodul, das `{name, arity}` exportiert (für Autoload), oder nil"
+  def autoload(key), do: Map.get(@autoload, key)
+
+  @doc "Alle Builtins eines Moduls als `{name, arity}`, sortiert"
+  def keys(module),
+    do: for({^module, n, a} <- Map.keys(@all), do: {n, a}) |> Enum.sort()
 end
