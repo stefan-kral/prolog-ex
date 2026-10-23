@@ -15,7 +15,7 @@ defmodule PrologEx.Builtins do
     * `system` – Steuerkonstrukte und eingebaute Prädikate; überall
       sichtbar. Geschützt (außer `protected: false`): kein Modul darf sie
       neu definieren.
-    * Bibliotheksmodule (`lists`, `apply`) – exportieren alle ihre
+    * Bibliotheksmodule (`lists`, `apply`, `random`) – exportieren alle ihre
       Prädikate außer `$...`-Hilfsprädikaten. Sichtbar nur nach `use_module(library(...))`
       (kein Autoload, wie SICStus). Eigene Definitionen im importierenden
       Modul gehen vor.
@@ -30,7 +30,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.System,
     PrologEx.Builtins.Database,
     PrologEx.Builtins.Modules,
-    PrologEx.Builtins.Coroutining
+    PrologEx.Builtins.Coroutining,
+    PrologEx.Builtins.Random
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst

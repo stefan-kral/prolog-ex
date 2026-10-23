@@ -88,6 +88,18 @@ und fangbar. Nicht Gefangenes meldet der Toplevel als `Fehler: …`.
 Noch nicht: Ausgabe in
 Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
 
+## Zufall: `library(random)`
+
+Wie SICStus: `random/1` (Float in [0,1)), `random/3` (Ganzzahlen: L =< X < U,
+sonst Float), `random_member/2`, `random_select/3` (auch Einfügen),
+`random_subseq/3`, `random_permutation/2`, `randseq/3` (K verschiedene
+Zahlen aus 1..N in zufälliger Reihenfolge – `randseq(N, N, L)` ist ein
+gemischtes `numlist(1, N, L)`), `randset/3` (dasselbe sortiert),
+`getrand/1`/`setrand/1`; dazu aus SWI `random_between/3` (inklusive H) und
+`set_random(seed(N))`. Generator: Erlangs `exsss`, Zustand je Sitzung,
+anfangs zufällig; `set_random(seed(N))` macht Läufe reproduzierbar.
+`randseq(1000000, 1000000, L)` dauert etwa 1 s.
+
 ## Coroutining
 
 `freeze/2`, `frozen/2`, `dif/2`, `when/2` (Bedingungen `nonvar/1`,
@@ -118,7 +130,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 ```
 
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
-    `library(apply)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
+    `library(apply)`, `library(random)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
     SICStus, dazu `number_of_clauses/1`); `clause/2`, `retract/1`,
