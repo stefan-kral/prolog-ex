@@ -1,7 +1,16 @@
 defmodule PrologEx.Builtins.Lists do
   @moduledoc """
-  Listenprädikate: append/3, length/2, numlist/2,3 (alle vom Benutzer
-  überschreibbar), dazu die Hilfsfunktion `skip_list/2`.
+  Listenprädikate: append/3, length/2, member/2, numlist/2,3, between/3
+  (alle vom Benutzer überschreibbar), dazu die Hilfsfunktion `skip_list/2`.
+
+  ## member/2, between/3
+
+  Lösungen als lazy Liste (siehe `PrologEx.Builtin`): die nächste Lösung
+  entsteht erst beim Backtracking, und nach der letzten bleibt kein Choice
+  Point. member/2 läuft die Listenzellen entlang; trifft es auf einen
+  ungebundenen Rest, übernimmt die klassische Definition `$member/2`
+  (erzeugt dann wie üblich `[X|_]`, `[_,X|_]`, ...). between/3 erlaubt
+  `inf`/`infinite` als obere Grenze; ist X gebunden, wird nur geprüft.
 
   ## numlist/3, numlist/2
 
@@ -39,7 +48,9 @@ defmodule PrologEx.Builtins.Lists do
     [
       fact(s("$append", [[], l, l])),
       rule(s("$append", [[h | t], l, [h | r]]), [s("$append", [t, l, r])]),
-      rule(s("numlist", [n, l]), [s("numlist", [1, n, l])])
+      rule(s("numlist", [n, l]), [s("numlist", [1, n, l])]),
+      fact(s("$member", [h, [h | v("_")]])),
+      rule(s("$member", [h, [v("_") | t]]), [s("$member", [h, t])])
     ]
   end
 
@@ -57,6 +68,26 @@ defmodule PrologEx.Builtins.Lists do
       {{:var, _}, _} -> raise "instantiation_error"
       {_, {:var, _}} -> raise "instantiation_error"
       {a, b} -> raise "type_error(integer, #{format(if is_integer(a), do: b, else: a)})"
+    end
+  end
+
+  defbuiltin "member", [x, l], nondet: true, protected: false, helpers: [{"$member", 2}] do
+    member_cells(x, deref(l), subst())
+  end
+
+  defbuiltin "between", [lo, hi, x], nondet: true, protected: false do
+    l = int_arg(deref(lo))
+
+    h =
+      case deref(hi) do
+        {:atom, inf} when inf in ["inf", "infinite"] -> :inf
+        other -> int_arg(other)
+      end
+
+    case deref(x) do
+      n when is_integer(n) -> if n >= l and (h == :inf or n <= h), do: [:ok], else: []
+      {:var, _} -> between_from(l, h, x)
+      other -> raise "type_error(integer, #{format(other)})"
     end
   end
 
@@ -147,6 +178,39 @@ defmodule PrologEx.Builtins.Lists do
   end
 
   defp join({:items, items}, y, _subst), do: PrologEx.list(items, y)
+
+  # member/2: eine Lösung pro Zelle; ist der Rest [], ist es die letzte
+  # Weiter geht es nur, wenn der Rest eine Liste oder ungebunden ist;
+  # sonst ([] oder z. B. [a|b]) ist dies die letzte Lösung
+  defp member_cells(x, [h | t], s) do
+    case PrologEx.walk(t, s) do
+      next when is_list(next) and next != [] ->
+        [{:unify, [{x, h}]} | fn -> member_cells(x, next, s) end]
+
+      {tag, _} = next when tag in [:glist, :var] ->
+        [{:unify, [{x, h}]} | fn -> member_cells(x, next, s) end]
+
+      _end ->
+        [{:unify, [{x, h}]}]
+    end
+  end
+
+  defp member_cells(x, {:glist, cells}, _s), do: member_raw(x, cells)
+  defp member_cells(x, {:var, _} = rest, _s), do: [{:call, mk("$member", [x, rest])}]
+  defp member_cells(_x, _not_a_list, _s), do: []
+
+  # innerhalb einer glist: rohe Zellen, keine Variablen
+  defp member_raw(x, [h | [_ | _] = t]), do: [{:unify, [{x, h}]} | fn -> member_raw(x, t) end]
+  defp member_raw(x, [h | _end]), do: [{:unify, [{x, h}]}]
+
+  # between/3: L, L+1, ..., H; bei H = :inf unendlich (Integer < Atom)
+  defp between_from(l, h, _x) when h != :inf and l > h, do: []
+  defp between_from(h, h, x), do: [{:unify, [{x, h}]}]
+  defp between_from(l, h, x), do: [{:unify, [{x, l}]} | fn -> between_from(l + 1, h, x) end]
+
+  defp int_arg(n) when is_integer(n), do: n
+  defp int_arg({:var, _}), do: raise("instantiation_error")
+  defp int_arg(other), do: raise("type_error(integer, #{format(other)})")
 
   defp fresh_list(0), do: []
   defp fresh_list(k), do: Enum.map(1..k, fn _ -> fresh_var() end)

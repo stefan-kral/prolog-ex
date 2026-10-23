@@ -312,6 +312,90 @@ defmodule PrologEx.LibraryTest do
     end
   end
 
+  defp more_solutions(goal), do: db() |> solutions(goal) |> Enum.map(&elem(&1, 1))
+
+  describe "member/2" do
+    test "zählt Elemente auf, letzte Lösung ohne Choice Point" do
+      assert all(s("member", [@x, list([a("a"), a("b"), a("c")])])) == ["X = a", "X = b", "X = c"]
+
+      assert more_solutions(s("member", [@x, list([a("a"), a("b"), a("c")])])) == [
+               true,
+               true,
+               false
+             ]
+
+      assert more_solutions(s("member", [a("c"), list([a("a"), a("b"), a("c")])])) == [false]
+      assert more_solutions(s("member", [@x, list([a("a")], a("b"))])) == [false]
+      assert all(s("member", [@x, list([])])) == []
+      assert all(s("member", [@x, a("foo")])) == []
+    end
+
+    test "Teilunifikation, ground und nicht-ground Listen" do
+      l = list([s("g", [1]), s("f", [2]), s("f", [@z])])
+      assert all(s("member", [s("f", [@y]), l])) == ["Y = 2", "Y = Z"]
+      assert all(s("member", [@x, list([@y, 1])])) == ["X = Y", "X = 1"]
+    end
+
+    test "offene Liste: klassische Erzeugung" do
+      [a1, a2, a3] = db() |> query(s("member", [@x, list([a("a")], @t)])) |> Enum.take(3)
+      assert a1 == %{"X" => a("a"), "T" => @t}
+      assert [{:var, "X"} | {:var, _}] = a2["T"]
+      assert [{:var, _}, {:var, "X"} | {:var, _}] = a3["T"]
+    end
+
+    test "gleich wie die klassische Definition" do
+      :rand.seed(:exsss, {3, 1, 4})
+
+      for _ <- 1..500 do
+        items =
+          for _ <- 1..:rand.uniform(5)//1,
+              do: Enum.random([1, 2, a("a"), v("A"), s("f", [v("B")])])
+
+        items = Enum.drop(items, 1)
+        l = if :rand.uniform(4) == 1, do: list(items, v("T")), else: list(items)
+        x = Enum.random([@x, 1, a("a"), s("f", [2]), v("A")])
+        hybrid = db() |> query(s("member", [x, l])) |> Enum.take(6) |> norm()
+        classic = db() |> query(s("$member", [x, l])) |> Enum.take(6) |> norm()
+        assert hybrid == classic, "verschieden für member(#{format(x)}, #{format(l)})"
+      end
+    end
+  end
+
+  describe "between/3" do
+    test "zählt auf, letzte Lösung ohne Choice Point" do
+      assert all(s("between", [1, 3, @x])) == ["X = 1", "X = 2", "X = 3"]
+      assert more_solutions(s("between", [1, 3, @x])) == [true, true, false]
+      assert all(s("between", [2, 2, @x])) == ["X = 2"]
+      assert all(s("between", [3, 1, @x])) == []
+      assert all(s("between", [-2, 0, @x])) == ["X = -2", "X = -1", "X = 0"]
+    end
+
+    test "prüft bei gebundenem X" do
+      assert more_solutions(s("between", [1, 3, 2])) == [false]
+      assert all(s("between", [1, 3, 5])) == []
+      assert all(s("between", [1, a("inf"), 10 ** 30])) == ["true"]
+    end
+
+    test "unendlich mit inf / infinite, lazy" do
+      assert db() |> query(s("between", [1, a("inf"), @x])) |> Enum.take(3) |> Enum.map(& &1["X"]) ==
+               [1, 2, 3]
+
+      assert db() |> query(s("between", [5, a("infinite"), @x])) |> Enum.take(1) == [%{"X" => 5}]
+
+      {us, [_]} =
+        :timer.tc(fn -> db() |> query(s("between", [1, 10 ** 12, @x])) |> Enum.take(1) end)
+
+      assert us < 100_000
+    end
+
+    test "Fehler" do
+      error(s("between", [@n, 3, @x]))
+      error(s("between", [1, @n, @x]))
+      error(s("between", [1, a("a"), @x]))
+      error(s("between", [1, 3, a("a")]))
+    end
+  end
+
   describe "numlist/2,3" do
     test "baut Listen" do
       assert all(s("numlist", [1, 5, @l])) == ["L = [1, 2, 3, 4, 5]"]
