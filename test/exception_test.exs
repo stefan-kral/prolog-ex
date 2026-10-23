@@ -6,6 +6,8 @@ defmodule PrologEx.ExceptionTest do
   @moduletag :gprolog
 
   @prog """
+  :- use_module(library(lists)).
+  :- use_module(library(apply)).
   p(1). p(2). p(3).
   tief(0) :- throw(unten).
   tief(N) :- N1 is N - 1, tief(N1).

@@ -12,6 +12,8 @@ defmodule PrologEx.DatabaseTest do
   end
 
   @prog """
+  :- use_module(library(lists)).
+  :- use_module(library(apply)).
   :- dynamic counter/1, leer/0.
   counter(0).
   inc :- retract(counter(N)), N1 is N + 1, assertz(counter(N1)).

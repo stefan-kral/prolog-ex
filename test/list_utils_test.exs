@@ -8,6 +8,8 @@ defmodule PrologEx.ListUtilsTest do
     {:ok, r} = Reader.start_link()
 
     prog = """
+    :- use_module(library(lists)).
+    :- use_module(library(apply)).
     add(X, A0, A) :- A is A0 + X.
     add2(X, Y, A0, A) :- A is A0 + X * Y.
     ref_max_list([H|T], R) :- lists:'$max_list'(T, H, R).

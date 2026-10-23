@@ -16,9 +16,9 @@ defmodule PrologEx.Builtins do
       sichtbar. Geschützt (außer `protected: false`): kein Modul darf sie
       neu definieren.
     * Bibliotheksmodule (`lists`, `apply`) – exportieren alle ihre
-      Prädikate außer `$...`-Hilfsprädikaten. Sichtbar nach `use_module`
-      oder per Autoload beim ersten Aufruf (wie SWI). Eigene Definitionen
-      im aufrufenden Modul gehen vor.
+      Prädikate außer `$...`-Hilfsprädikaten. Sichtbar nur nach `use_module(library(...))`
+      (kein Autoload, wie SICStus). Eigene Definitionen im importierenden
+      Modul gehen vor.
   """
 
   @modules [
@@ -95,8 +95,6 @@ defmodule PrologEx.Builtins do
               acc -> Map.update(acc, m, MapSet.new([{n, a}]), &MapSet.put(&1, {n, a}))
             end)
 
-  @autoload for {m, keys} <- @exports, k <- keys, into: %{}, do: {k, m}
-
   # geschützte system-Builtins direkt nach {name, arity}: kein Modul kann
   # sie überdecken, die Auflösung ist also immer dieselbe (Schnellweg)
   @protected_entries for {{"system", n, ar}, {_, _, true} = e} <- @all,
@@ -126,9 +124,6 @@ defmodule PrologEx.Builtins do
 
   @doc "Exporte eines Bibliotheksmoduls (MapSet von {name, arity}) oder nil"
   def exports(module), do: Map.get(@exports, module)
-
-  @doc "Bibliotheksmodul, das `{name, arity}` exportiert (für Autoload), oder nil"
-  def autoload(key), do: Map.get(@autoload, key)
 
   @doc "Alle Builtins eines Moduls als `{name, arity}`, sortiert"
   def keys(module),

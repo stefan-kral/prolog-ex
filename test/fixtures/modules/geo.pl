@@ -1,5 +1,6 @@
 :- module(geo, [flaeche/2, quadrat/2, op(700, xfx, ===>), zaehle/1, tick/0]).
 :- use_module(library(lists)).
+:- use_module(library(apply)).
 :- dynamic zaehler/1.
 
 zaehler(0).

@@ -7,6 +7,8 @@ defmodule PrologEx.PermutationTest do
 
   # klassische Definition wie in SWI als Referenz
   @ref """
+  :- use_module(library(lists)).
+  :- use_module(library(apply)).
   ref_perm([], []).
   ref_perm(L, [F|P]) :- ref_sel(F, L, R), ref_perm(R, P).
   ref_sel(X, [X|T], T).

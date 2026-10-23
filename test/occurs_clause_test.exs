@@ -1,5 +1,6 @@
 defmodule PrologEx.OccursClauseTest do
   use ExUnit.Case, async: true
+  import PrologEx.TestLibs
   import PrologEx
 
   @x v("X")
@@ -27,7 +28,9 @@ defmodule PrologEx.OccursClauseTest do
   defp all(goal, opts \\ []),
     do: db() |> query(goal, opts) |> Enum.take(20) |> Enum.map(&format_answer/1)
 
-  defp error(goal), do: assert_raise(PrologEx.Error, fn -> Enum.take(query(db(), goal), 1) end)
+  defp error(goal, db \\ db()),
+    do: assert_raise(PrologEx.Error, fn -> Enum.take(query(db, goal), 1) end)
+
   defp oc(mode, goal), do: s(",", [s("set_prolog_flag", [a("occurs_check"), a(mode)]), goal])
 
   # Gelingt das Ziel? Ohne Aufbereiten der Antwort – entstünde (fälschlich)
@@ -217,8 +220,13 @@ defmodule PrologEx.OccursClauseTest do
     end
 
     test "Bibliotheksprädikate in Prolog: ja; Elixir, Steuerkonstrukte, $-Prädikate: nein" do
-      assert [_] = db() |> query(s("clause", [s("numlist", [@n, @a]), @b])) |> Enum.take(1)
-      error(s("clause", [s("append", [@x, @y, @z]), @b]))
+      # nur nach use_module(library(lists)) sichtbar
+      assert [] = db() |> query(s("clause", [s("numlist", [@n, @a]), @b])) |> Enum.take(1)
+
+      assert [_] =
+               db() |> libs() |> query(s("clause", [s("numlist", [@n, @a]), @b])) |> Enum.take(1)
+
+      error(s("clause", [s("append", [@x, @y, @z]), @b]), libs(db()))
       error(s("clause", [s("call", [@x]), @b]))
       error(s("clause", [s(":", [a("lists"), s("$select3", [@x, @y, @z, @a])]), @b]))
     end

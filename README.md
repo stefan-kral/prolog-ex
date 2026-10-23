@@ -104,8 +104,10 @@ Flache Module wie in SWI (ein Baum der Tiefe 1 unter `user`/`system`):
     `current_module/1`, `strip_module/3`; `clause/2`, `retract/1`,
     `dynamic/1`, `listing/1`, `current_predicate/1` mit `M:`.
   * Auflösung eines Aufrufs in Modul `m`: in `m` definiert → nach `m`
-    importiert → `user` → `system` → Autoload aus `lists`/`apply` (der Import
-    landet in `m`). Eigene Definitionen gehen Bibliotheksprädikaten vor.
+    importiert → `user` → `system`. Kein Autoload (wie SICStus):
+    Bibliotheksprädikate wie `append/3`, `member/2`, `maplist/2..8` gibt es
+    nur nach `:- use_module(library(lists)).` bzw. `library(apply)` – auch
+    im Toplevel. Eigene Definitionen gehen Importen vor.
   * Rümpfe laufen im Modul, in dem das Prädikat definiert ist;
     Meta-Argumente (`0..9`, `^`, `//`, `:`) werden beim Aufruf mit dem
     Kontextmodul qualifiziert. Prädikate von `system` sind geschützt.

@@ -29,7 +29,7 @@ defmodule PrologEx.Listing do
       if spec == :all do
         []
       else
-        # sichtbare Bibliotheksprädikate (importiert, user, system, Autoload)
+        # sichtbare Bibliotheksprädikate (importiert, user, system)
         for lib <- ["system" | PrologEx.Builtins.library_modules()],
             {n, ar} <- PrologEx.Builtins.keys(lib),
             matches?({n, ar}, spec),
@@ -59,7 +59,6 @@ defmodule PrologEx.Listing do
   defp visible_from?(db, module, lib, n, ar) do
     case PrologEx.locate(db, module, n, ar) do
       {:builtin, ^lib, _} -> true
-      {:autoload, ^lib} -> true
       _ -> String.starts_with?(n, "$")
     end
   end

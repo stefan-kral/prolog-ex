@@ -103,12 +103,6 @@ defmodule PrologEx.Builtins.System do
       {:builtin, lm, _elixir} ->
         private.(lm)
 
-      {:autoload, lib} ->
-        case Builtins.lookup(lib, name, arity) do
-          {:prolog, pred, _} -> PrologEx.pred_source(pred)
-          _ -> private.(lib)
-        end
-
       :none ->
         if Builtins.system?({name, arity}), do: private.("system"), else: []
     end

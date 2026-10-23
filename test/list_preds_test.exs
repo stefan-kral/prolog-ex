@@ -1,5 +1,6 @@
 defmodule PrologEx.ListPredsTest do
   use ExUnit.Case, async: true
+  import PrologEx.TestLibs
   import PrologEx
 
   @x v("X")
@@ -33,6 +34,7 @@ defmodule PrologEx.ListPredsTest do
       rule(s("sel_c", [e, [h | t], [h | r]]), [s("sel_c", [e, t, r])]),
       fact(s("dummy", [r]))
     ])
+    |> libs()
   end
 
   defp all(goal, n \\ 20), do: db() |> query(goal) |> Enum.take(n) |> Enum.map(&format_answer/1)
@@ -236,7 +238,7 @@ defmodule PrologEx.ListPredsTest do
     end
 
     test "maplist/8 ruft call/8" do
-      db = consult([fact(s("seven", Enum.map(1..7, fn k -> v("A#{k}") end)))])
+      db = consult([fact(s("seven", Enum.map(1..7, fn k -> v("A#{k}") end)))]) |> libs()
       ls = for k <- 1..7, do: list([k, k])
       assert db |> query(s("maplist", [a("seven") | ls])) |> Enum.take(1) == [%{}]
     end

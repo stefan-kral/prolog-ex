@@ -131,13 +131,8 @@ defmodule PrologEx.Builtins.Modules do
           {:ok, ^m} ->
             :same
 
-          # Bibliotheksimporte (auch per Autoload) sind schwach: ein eigenes
-          # Modul überdeckt sie
           {:ok, other} ->
-            if other in PrologEx.Builtins.library_modules(),
-              do: :ok,
-              else:
-                {:warn, "#{n}/#{ar} ist schon aus #{other} in #{ctx} importiert, #{m} ignoriert"}
+            {:warn, "#{n}/#{ar} ist schon aus #{other} in #{ctx} importiert, #{m} ignoriert"}
         end
     end
   end

@@ -1,5 +1,6 @@
 defmodule PrologEx.LibraryTest do
   use ExUnit.Case, async: true
+  import PrologEx.TestLibs
   import PrologEx
   import ExUnit.CaptureIO
 
@@ -10,7 +11,7 @@ defmodule PrologEx.LibraryTest do
   @l v("L")
   @t v("T")
 
-  defp db, do: consult([fact(s("p", [1]))])
+  defp db, do: consult([fact(s("p", [1]))]) |> libs()
 
   defp all(goal, limit \\ 20),
     do: db() |> query(goal) |> Enum.take(limit) |> Enum.map(&format_answer/1)
@@ -184,7 +185,7 @@ defmodule PrologEx.LibraryTest do
     end
 
     test "kann vom Benutzer ersetzt werden" do
-      db = consult([fact(s("append", [a("mein"), a("eigenes"), a("append")]))])
+      db = consult([fact(s("append", [a("mein"), a("eigenes"), a("append")]))]) |> libs()
 
       assert db |> query(s("append", [@x, @y, @z])) |> Enum.map(&format_answer/1) ==
                ["X = mein, Y = eigenes, Z = append"]

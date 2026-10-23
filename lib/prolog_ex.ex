@@ -304,7 +304,7 @@ defmodule PrologEx do
   #
   #   {modul, name, arity}         => prädikat
   #   :dynamic                     => MapSet der dynamischen {modul, name, arity}
-  #   {:import, modul, name, arity} => Quellmodul (use_module, Autoload)
+  #   {:import, modul, name, arity} => Quellmodul (use_module)
   #   {:module, modul}             => %{exports: MapSet, file: pfad | nil}
   #   {:meta, modul, name, arity}  => meta_predicate-Angaben
   #   {:file, pfad}                => Modul der geladenen Datei
@@ -382,25 +382,35 @@ defmodule PrologEx do
   Wo ist name/arity, aufgerufen in Modul `mod`, definiert? (wie SWI)
 
     1. in `mod` selbst (Datenbank oder Bibliotheks-Builtin von `mod`)
-    2. von `mod` importiert (use_module, Autoload)
+    2. von `mod` importiert (use_module)
     3. in `user` (Schritte 1–2), wenn `mod` ein anderes Modul ist
     4. in `system`
-    5. Autoload aus einem Bibliotheksmodul
+
+  Kein Autoload (wie SICStus): Bibliotheksprädikate (lists, apply) gibt es
+  nur nach `use_module(library(...))`. Das Ergebnis hängt so nur vom
+  aktuellen Inhalt der Datenbank ab, nicht von der Aufrufgeschichte.
 
   Ergebnis: `{:db, modul, prädikat}`, `{:builtin, modul, eintrag}`
-  (siehe `PrologEx.Builtins.lookup/3`), `{:autoload, bibliothek}` oder
-  `:none`.
+  (siehe `PrologEx.Builtins.lookup/3`) oder `:none`.
   """
   def locate(db, mod, name, arity) do
     with :none <- visible(db, mod, name, arity),
          :none <-
-           if(mod in ["user", "system"], do: :none, else: visible(db, "user", name, arity)),
-         :none <- local(db, "system", name, arity) do
-      case PrologEx.Builtins.autoload({name, arity}) do
-        nil -> :none
-        lib -> {:autoload, lib}
-      end
+           if(mod in ["user", "system"], do: :none, else: visible(db, "user", name, arity)) do
+      local(db, "system", name, arity)
     end
+  end
+
+  @doc """
+  Alle Exporte des Bibliotheksmoduls `lib` in Modul `into` importieren
+  (wie `use_module(library(lib))`; für Elixir-Aufrufer und Tests).
+  """
+  def use_library(db, lib, into \\ "user") do
+    exports = PrologEx.Builtins.exports(lib) || raise ArgumentError, "keine Bibliothek: #{lib}"
+
+    Enum.reduce(exports, db, fn {n, a}, db ->
+      if Map.has_key?(db, {into, n, a}), do: db, else: Map.put(db, {:import, into, n, a}, lib)
+    end)
   end
 
   # lokal oder importiert
@@ -1098,11 +1108,6 @@ defmodule PrologEx do
           {:ok, r} -> start_solutions(r, call_mod, rest, st)
           {:thrown, ball} -> throw_ball(ball, st)
         end
-
-      {:autoload, lib} ->
-        # wie SWI: in das aufrufende Modul importieren, dann aufrufen
-        update_db(&Map.put(&1, {:import, mod, name, arity}, lib))
-        call_located(locate(current_db(), mod, name, arity), goal, name, args, mod, rest, st)
 
       :none ->
         case PrologEx.Flags.get("unknown") do

@@ -49,7 +49,7 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "geo:pfeil(===>(A, B)).") == ["A = a, B = b"]
   end
 
-  test "Rümpfe laufen im Definitionsmodul; Default-Import aus user, Autoload", c do
+  test "Rümpfe laufen im Definitionsmodul; Default-Import aus user, kein Autoload", c do
     load("haupt.pl")
     # geo:benutzt_user/1 ruft hilfe/1: nicht in geo -> user (wie SWI)
     assert ask(c, "geo:benutzt_user(X).") == ["X = user"]
@@ -58,11 +58,16 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "geo:benutzt_lists([1, 2, 3], X).") == ["X = 3"]
     # M:Kopf :- Rumpf in einer user-Datei: Rumpf läuft in user
     assert ask(c, "meta:von_haupt(X).") == ["X = user"]
-    # Autoload importiert in das aufrufende Modul, nicht nach user
+    # kein Autoload (wie SICStus): auto hat lists nicht importiert, sieht
+    # last/2 aber über user (Default-Import), weil haupt.pl es importiert
     load("auto.pl")
     assert ask(c, "letztes([1, 2], X).") == ["X = 2"]
-    assert ask(c, "current_predicate(auto:last/2).") == ["true"]
-    assert ask(c, "current_predicate(user:last/2).") == []
+    assert ask(c, "current_predicate(auto:last/2).") == []
+    # ohne Import in user: nicht sichtbar
+    PrologEx.put_db(%{})
+    load("auto.pl")
+    assert err(c, "letztes([1, 2], X).") =~ "existence_error(procedure, auto:last/2)"
+    assert err(c, "append([], [], X).") =~ "existence_error(procedure, append/3)"
   end
 
   test "dynamische Prädikate gehören ihrem Modul", c do
@@ -120,9 +125,13 @@ defmodule PrologEx.ModuleTest do
       end)
 
     assert out =~ "schon aus geo"
-    # ein Bibliotheksimport (Autoload) ist schwach: eigenes Modul gewinnt
-    assert ask(c, "last([1], X).") == ["X = 1"]
-    assert ask(c, "use_module('#{@dir}/eigene_liste'), last([1], X).") == ["X = eigenes"]
+    # auch gegenüber einem Bibliotheksimport bleibt der erste
+    out =
+      capture_io(:stderr, fn ->
+        assert ask(c, "use_module('#{@dir}/eigene_liste'), last([1], X).") == ["X = 1"]
+      end)
+
+    assert out =~ "schon aus lists"
   end
 
   test "eigene Definitionen gehen Bibliothek und Import vor", c do
