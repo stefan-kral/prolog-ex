@@ -90,7 +90,7 @@ Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
 
 ## Module
 
-Flache Module wie in SWI (ein Baum der Tiefe 1 unter `user`/`system`):
+Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
 ```prolog
 :- module(geo, [flaeche/2, op(700, xfx, ===>)]).
@@ -103,8 +103,9 @@ Flache Module wie in SWI (ein Baum der Tiefe 1 unter `user`/`system`):
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1`, `strip_module/3`; `clause/2`, `retract/1`,
     `dynamic/1`, `listing/1`, `current_predicate/1` mit `M:`.
-  * Auflösung eines Aufrufs in Modul `m`: in `m` definiert → nach `m`
-    importiert → `user` → `system`. Kein Autoload (wie SICStus):
+  * Auflösung eines Aufrufs in Modul `m` wie SICStus: in `m` definiert →
+    nach `m` importiert → `system`. Kein Rückgriff auf `user` (sonst
+    `user:foo` schreiben) und kein Autoload:
     Bibliotheksprädikate wie `append/3`, `member/2`, `maplist/2..8` gibt es
     nur nach `:- use_module(library(lists)).` bzw. `library(apply)` – auch
     im Toplevel. Eigene Definitionen gehen Importen vor.

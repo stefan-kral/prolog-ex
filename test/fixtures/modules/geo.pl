@@ -11,5 +11,6 @@ mal(X, Y, Z) :- Z is X * Y.                 % privat
 pfeil(a ===> b).
 tick :- retract(zaehler(N)), N1 is N + 1, assertz(zaehler(N1)).
 zaehle(N) :- zaehler(N).
-benutzt_user(X) :- hilfe(X).                % hilfe/1 steht in user
+benutzt_user(X) :- hilfe(X).                % hilfe/1 steht in user: unsichtbar
+benutzt_user_q(X) :- user:hilfe(X).         % so geht es
 benutzt_lists(L, X) :- last(L, X).

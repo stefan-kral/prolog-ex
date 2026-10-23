@@ -379,24 +379,22 @@ defmodule PrologEx do
   defp pkey({_m, _n, _a} = k), do: k
 
   @doc """
-  Wo ist name/arity, aufgerufen in Modul `mod`, definiert? (wie SWI)
+  Wo ist name/arity, aufgerufen in Modul `mod`, definiert? (wie SICStus)
 
     1. in `mod` selbst (Datenbank oder Bibliotheks-Builtin von `mod`)
     2. von `mod` importiert (use_module)
-    3. in `user` (Schritte 1–2), wenn `mod` ein anderes Modul ist
-    4. in `system`
+    3. in `system`
 
-  Kein Autoload (wie SICStus): Bibliotheksprädikate (lists, apply) gibt es
-  nur nach `use_module(library(...))`. Das Ergebnis hängt so nur vom
+  Sonst nirgends: kein Rückgriff auf `user` und kein Autoload. Was ein
+  Modul aus `user` oder einer Bibliothek braucht, muss es importieren oder
+  qualifiziert aufrufen (`user:foo`). Das Ergebnis hängt so nur vom
   aktuellen Inhalt der Datenbank ab, nicht von der Aufrufgeschichte.
 
   Ergebnis: `{:db, modul, prädikat}`, `{:builtin, modul, eintrag}`
   (siehe `PrologEx.Builtins.lookup/3`) oder `:none`.
   """
   def locate(db, mod, name, arity) do
-    with :none <- visible(db, mod, name, arity),
-         :none <-
-           if(mod in ["user", "system"], do: :none, else: visible(db, "user", name, arity)) do
+    with :none <- visible(db, mod, name, arity) do
       local(db, "system", name, arity)
     end
   end

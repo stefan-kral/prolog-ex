@@ -49,24 +49,24 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "geo:pfeil(===>(A, B)).") == ["A = a, B = b"]
   end
 
-  test "Rümpfe laufen im Definitionsmodul; Default-Import aus user, kein Autoload", c do
+  test "Rümpfe laufen im Definitionsmodul; Sichtbarkeit wie SICStus", c do
     load("haupt.pl")
-    # geo:benutzt_user/1 ruft hilfe/1: nicht in geo -> user (wie SWI)
-    assert ask(c, "geo:benutzt_user(X).") == ["X = user"]
+    # geo:benutzt_user/1 ruft hilfe/1, das nur in user steht: unsichtbar
+    assert err(c, "geo:benutzt_user(X).") =~ "existence_error(procedure, geo:hilfe/1)"
+    assert ask(c, "geo:benutzt_user_q(X).") == ["X = user"]
     # in meta gibt es ein eigenes hilfe/1
     assert ask(c, "meta:hilfe(X).") == ["X = meta"]
     assert ask(c, "geo:benutzt_lists([1, 2, 3], X).") == ["X = 3"]
     # M:Kopf :- Rumpf in einer user-Datei: Rumpf läuft in user
     assert ask(c, "meta:von_haupt(X).") == ["X = user"]
-    # kein Autoload (wie SICStus): auto hat lists nicht importiert, sieht
-    # last/2 aber über user (Default-Import), weil haupt.pl es importiert
-    load("auto.pl")
-    assert ask(c, "letztes([1, 2], X).") == ["X = 2"]
-    assert ask(c, "current_predicate(auto:last/2).") == []
-    # ohne Import in user: nicht sichtbar
-    PrologEx.put_db(%{})
+    # kein Autoload, kein Rückgriff auf user: auto hat lists nicht
+    # importiert und sieht last/2 nicht, obwohl user es importiert hat
     load("auto.pl")
     assert err(c, "letztes([1, 2], X).") =~ "existence_error(procedure, auto:last/2)"
+    assert ask(c, "current_predicate(auto:last/2).") == []
+    assert ask(c, "last([1, 2], X).") == ["X = 2"]
+    # ohne Import auch in user nicht
+    PrologEx.put_db(%{})
     assert err(c, "append([], [], X).") =~ "existence_error(procedure, append/3)"
   end
 
