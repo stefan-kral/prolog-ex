@@ -63,6 +63,9 @@ defmodule PrologEx.Builtins.Lists do
       ]),
       fact(s("$same_length", [[], []])),
       rule(s("$same_length", [[v("_") | t], [v("_") | l]]), [s("$same_length", [t, l])]),
+      # permutation/2 ohne Schnellweg (wie SWI)
+      fact(s("$perm", [[], []])),
+      rule(s("$perm", [l, [h | t]]), [s("select", [h, l, r]), s("$perm", [r, t])]),
       fact(s("$member", [h, [h | v("_")]])),
       rule(s("$member", [h, [v("_") | t]]), [s("$member", [h, t])])
     ] ++ maplist_library()
@@ -102,6 +105,108 @@ defmodule PrologEx.Builtins.Lists do
       :partial -> {:call, mk("$append", [x, y, z])}
     end
   end
+
+  # permutation(Xs, Ys) wie in SWI (gleiche Reihenfolge der Lösungen).
+  # Schnellweg: Xs ist eine echte Liste und Ys ungebunden – dann werden die
+  # Permutationen direkt erzeugt (lazy, lexikographisch nach Position, die
+  # letzte deterministisch). Sonst Prolog über select/3, das bei bekanntem
+  # Ys früh abschneidet.
+  defbuiltin "permutation", [xs, ys], nondet: true, protected: false, helpers: [{"$perm", 2}] do
+    s = subst()
+    {nx, tx} = skip_list(xs, s)
+    {ny, ty} = skip_list(ys, s)
+
+    case {tx, ty} do
+      {[], {:var, _}} when ny == 0 ->
+        elems = xs |> items(s) |> List.to_tuple()
+        perm_stream(elems, List.to_tuple(Enum.to_list(0..(nx - 1)//1)), ys)
+
+      # umgekehrt: Xs ungebunden. SWI legt das k-te Element von Ys an die
+      # σ(k)-te Stelle, σ lexikographisch – also σ aufzählen und invers
+      # einsetzen
+      {{:var, _}, []} when nx == 0 ->
+        elems = ys |> items(s) |> List.to_tuple()
+        perm_stream_inv(elems, List.to_tuple(Enum.to_list(0..(ny - 1)//1)), xs)
+
+      {[], []} ->
+        if nx == ny, do: [{:call, mk("$perm", [xs, ys])}], else: []
+
+      {{:var, _}, []} ->
+        [{:call, mk(",", [mk("length", [xs, ny]), mk("$perm", [xs, ys])])}]
+
+      {[], {:var, _}} ->
+        [{:call, mk(",", [mk("length", [ys, nx]), mk("$perm", [xs, ys])])}]
+
+      {{:var, _}, {:var, _}} ->
+        n = fresh_var()
+
+        [
+          {:call,
+           mk(",", [
+             mk("length", [xs, n]),
+             mk(",", [mk("length", [ys, n]), mk("$perm", [xs, ys])])
+           ])}
+        ]
+
+      {{:var, _}, _} ->
+        raise "type_error(list, #{format(resolve(ys))})"
+
+      _ ->
+        raise "type_error(list, #{format(resolve(xs))})"
+    end
+  end
+
+  defp perm_stream(elems, idx, ys) do
+    perm = for i <- Tuple.to_list(idx), do: elem(elems, i)
+    res = {:unify, [{ys, PrologEx.list(perm, [])}]}
+
+    case next_perm(idx) do
+      :none -> [res]
+      nxt -> [res | fn -> perm_stream(elems, nxt, ys) end]
+    end
+  end
+
+  defp perm_stream_inv(elems, pos, xs) do
+    n = tuple_size(pos)
+
+    perm =
+      Enum.reduce(0..(n - 1)//1, pos, fn k, acc -> put_elem(acc, elem(pos, k), elem(elems, k)) end)
+
+    res = {:unify, [{xs, PrologEx.list(Tuple.to_list(perm), [])}]}
+
+    case next_perm(pos) do
+      :none -> [res]
+      nxt -> [res | fn -> perm_stream_inv(elems, nxt, xs) end]
+    end
+  end
+
+  # nächste Permutation in lexikographischer Ordnung (Tupel von Indizes)
+  @doc false
+  def next_perm(t) do
+    n = tuple_size(t)
+
+    case pivot(t, n - 2) do
+      -1 ->
+        :none
+
+      i ->
+        j = successor(t, i, n - 1)
+        t = t |> put_elem(i, elem(t, j)) |> put_elem(j, elem(t, i))
+        reverse_from(t, i + 1, n - 1)
+    end
+  end
+
+  defp pivot(_t, i) when i < 0, do: -1
+  defp pivot(t, i) when elem(t, i) < elem(t, i + 1), do: i
+  defp pivot(t, i), do: pivot(t, i - 1)
+
+  defp successor(t, i, j) when elem(t, j) > elem(t, i), do: j
+  defp successor(t, i, j), do: successor(t, i, j - 1)
+
+  defp reverse_from(t, a, b) when a < b,
+    do: t |> put_elem(a, elem(t, b)) |> put_elem(b, elem(t, a)) |> reverse_from(a + 1, b - 1)
+
+  defp reverse_from(t, _a, _b), do: t
 
   defbuiltin "numlist", [lo, hi, l], protected: false do
     case {deref(lo), deref(hi)} do
