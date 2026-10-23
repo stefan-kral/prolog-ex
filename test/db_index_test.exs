@@ -22,7 +22,7 @@ defmodule PrologEx.DbIndexTest do
     :rand.seed(:exsss, {7, 8, 9})
 
     for _ <- 1..@runs do
-      start = for _ <- 1..(:rand.uniform(6) - 1), do: gen_entry()
+      start = for _ <- 1..(:rand.uniform(6) - 1)//1, do: gen_entry()
 
       Enum.reduce(1..:rand.uniform(25), pred_from_entries(start), fn _, pred ->
         pred =
