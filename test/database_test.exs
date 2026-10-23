@@ -117,7 +117,7 @@ defmodule PrologEx.DatabaseTest do
       db = load(r)
 
       assert [ans] = ask(r, db, "assertz((h(X) :- X > 1, write(x))), retract((h(Y) :- B)).")
-      assert ans =~ ~r/^B = ,\(>\((_\w+), 1\), write\(x\)\), Y = \1$/
+      assert ans == "B = ,(>(Y, 1), write(x))"
 
       assert ask(
                r,

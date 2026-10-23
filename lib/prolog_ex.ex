@@ -1323,6 +1323,44 @@ defmodule PrologEx do
     if st.height > 0, do: {{ans, true}, {:retry, st}}, else: {{ans, false}, :halt}
   end
 
+  # Ungebundene Variablen in Antworten benennen wie SWI: Anfragevariablen,
+  # die auf dieselbe ungebundene Variable zeigen, bilden eine Kette
+  # "X = Y, Y = Z" (in Anfragereihenfolge), und die Variable selbst heißt
+  # wie die letzte (Z). Aus "R = [2, _G2], Y = _G2" wird so "R = [2, Y]".
+  # Die Richtung von Var-Var-Bindungen spielt für die Ausgabe keine Rolle.
+  defp name_fresh(ans) do
+    # ans: [{name, term}] in Anfragereihenfolge
+    groups =
+      ans
+      |> Enum.filter(&match?({_, {:var, _}}, &1))
+      |> Enum.group_by(fn {_, {:var, v}} -> v end, &elem(&1, 0))
+
+    if Enum.all?(groups, fn {v, ns} -> ns == [v] end) do
+      ans
+    else
+      renames = Map.new(groups, fn {v, ns} -> {v, List.last(ns)} end)
+
+      chain =
+        for {_, ns} <- groups,
+            {n, next} <- Enum.zip(ns, tl(ns) ++ [List.last(ns)]),
+            into: %{},
+            do: {n, {:var, next}}
+
+      Enum.map(ans, fn {n, t} -> {n, Map.get(chain, n) || rename_free(t, renames)} end)
+    end
+  end
+
+  defp rename_free({:var, v} = x, m) do
+    case Map.fetch(m, v) do
+      {:ok, n} -> {:var, n}
+      :error -> x
+    end
+  end
+
+  defp rename_free({:struct, f, args}, m), do: {:struct, f, Enum.map(args, &rename_free(&1, m))}
+  defp rename_free([h | t], m), do: [rename_free(h, m) | rename_free(t, m)]
+  defp rename_free(t, _m), do: t
+
   # Für Messungen: erste Lösung plus Zustandsgrößen
   def first_with_stats(db, goal, opts \\ []) do
     put_db(db)
@@ -1331,6 +1369,11 @@ defmodule PrologEx do
       {:sol, st} -> {:ok, %{bindings: map_size(st.subst), choicepoints: st.height}}
       :done -> false
     end
+  end
+
+  @doc "Namen der Anfragevariablen in Reihenfolge ihres Auftretens"
+  def query_var_names(goal) do
+    for {:var, n} <- goal |> query_vars() |> Enum.uniq(), is_binary(n), do: n
   end
 
   defp query_vars({:var, _} = var), do: [var]
@@ -1372,8 +1415,19 @@ defmodule PrologEx do
   end
 
   # Wie SWI: ungebundene Anfragevariablen (X = X) werden nicht gezeigt
-  def format_answer(ans) do
-    case Enum.reject(ans, fn {k, t} -> t == {:var, k} end) do
+  # `order`: Namen in Anfragereihenfolge (für Variablenketten wie SWI);
+  # ohne Angabe alphabetisch. Die Ausgabe ist alphabetisch sortiert.
+  def format_answer(ans, order \\ nil) do
+    order = order || Map.keys(ans) |> Enum.sort()
+
+    named =
+      order
+      |> Enum.filter(&Map.has_key?(ans, &1))
+      |> Enum.map(&{&1, Map.fetch!(ans, &1)})
+      |> name_fresh()
+      |> Enum.sort()
+
+    case Enum.reject(named, fn {k, t} -> t == {:var, k} end) do
       [] -> "true"
       shown -> Enum.map_join(shown, ", ", fn {k, t} -> "#{k} = #{format(t)}" end)
     end

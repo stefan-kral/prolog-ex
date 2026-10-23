@@ -150,7 +150,7 @@ defmodule PrologEx.Toplevel do
     answers = PrologEx.solutions(st.db, goal)
 
     try do
-      show(answers, mode)
+      show(answers, mode, PrologEx.query_var_names(goal))
     rescue
       e in RuntimeError -> IO.puts("Fehler: #{e.message}")
     end
@@ -161,25 +161,25 @@ defmodule PrologEx.Toplevel do
   end
 
   # -g Ziele: still ausführen, nur Fehlschlag melden
-  defp show(answers, :goal) do
+  defp show(answers, :goal, _order) do
     if Enum.take(answers, 1) == [], do: IO.puts(:stderr, "Warnung: Ziel gescheitert")
   end
 
-  defp show(answers, _mode) do
+  defp show(answers, _mode, order) do
     answers
     |> Enumerable.reduce({:cont, nil}, fn x, _ -> {:suspend, x} end)
-    |> show_next()
+    |> show_next(order)
   end
 
   # Nächste Lösung zeigen; die Suche wird FORTGESETZT (nicht neu gestartet),
   # Seiteneffekte früherer Lösungen wiederholen sich also nicht. Nur nach
   # ";" fragen, wenn noch Choice Points da sind (wie SWI).
-  defp show_next({:suspended, {ans, more?}, cont}) do
-    text = PrologEx.format_answer(ans)
+  defp show_next({:suspended, {ans, more?}, cont}, order) do
+    text = PrologEx.format_answer(ans, order)
 
     if more? do
       case IO.gets(text <> " ") do
-        ";" <> _ -> show_next(cont.({:cont, nil}))
+        ";" <> _ -> show_next(cont.({:cont, nil}), order)
         _ -> IO.puts(".")
       end
     else
@@ -187,7 +187,7 @@ defmodule PrologEx.Toplevel do
     end
   end
 
-  defp show_next(_done), do: IO.puts("false.")
+  defp show_next(_done, _order), do: IO.puts("false.")
 
   defp prolog_list([]), do: []
   defp prolog_list([h | t]), do: [h | prolog_list(t)]
