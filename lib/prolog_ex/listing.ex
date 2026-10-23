@@ -48,8 +48,7 @@ defmodule PrologEx.Listing do
   defp helper_closure([], seen), do: seen
 
   defp helper_closure([key | rest], seen) do
-    new =
-      for k <- called_helpers(key), not MapSet.member?(seen, k), uniq: true, do: k
+    new = for k <- called_helpers(key), not MapSet.member?(seen, k), uniq: true, do: k
 
     helper_closure(new ++ rest, MapSet.union(seen, MapSet.new(new)))
   end

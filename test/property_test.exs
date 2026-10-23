@@ -110,13 +110,13 @@ defmodule PrologEx.PropertyTest do
   end
 
   defp ref_bind(var, t, s),
-    do: if(occurs?(var, t, s), do: :occurs, else: {:ok, Map.put(s, var, t)})
+    do: if(ref_occurs?(var, t, s), do: :occurs, else: {:ok, Map.put(s, var, t)})
 
-  defp occurs?(var, t, s) do
+  defp ref_occurs?(var, t, s) do
     case ref_walk(t, s) do
       ^var -> true
-      {:struct, _, args} -> Enum.any?(args, &occurs?(var, &1, s))
-      [h | tl] -> occurs?(var, h, s) or occurs?(var, tl, s)
+      {:struct, _, args} -> Enum.any?(args, &ref_occurs?(var, &1, s))
+      [h | tl] -> ref_occurs?(var, h, s) or ref_occurs?(var, tl, s)
       _ -> false
     end
   end

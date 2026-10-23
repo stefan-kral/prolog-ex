@@ -59,7 +59,8 @@ Laden ersetzt Prädikate), `,` `;` `->` `\\+` `!` `call/N` `time/1`,
 Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`, `select/3`,
 `same_length/2`, `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
 `findall/3,4`, `findnsols/4,5`, `arg/3`, `copy_term/2`,
-`current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`),
+`current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
+`occurs_check`), `unify_with_occurs_check/2`, `clause/2`, `current_predicate/1`,
 `false/0`, `repeat/0,1`, `numlist/2,3`, `write/1` `nl/0` `listing/0,1` `halt/0,1`.
 
 Noch nicht: `assert`/`retract`, `catch`/`throw`, Ausgabe in

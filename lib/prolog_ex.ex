@@ -140,6 +140,50 @@ defmodule PrologEx do
   # der Hook für Attributvariablen (Coroutining) hinein.
   def bind({:var, _} = var, t, subst), do: Map.put(subst, var, t)
 
+  # ---------------------------------------------------------------------
+  # Occurs-Check (Flag occurs_check = false | true | error)
+  #
+  # bind_checked/3 ist die Bindung für alle Stellen, an denen die Variable
+  # im gebundenen Term vorkommen KÖNNTE: allgemeine Unifikation und Write-
+  # Modus im Klauselkopf. (Bindung an Konstanten oder markierte ground
+  # Terme im Kopf braucht keinen Check und nimmt bind/3.)
+  # Der Modus liegt unter einem eigenen Schlüssel im Prozess: bei false
+  # kostet das ein Process.get je Bindung.
+  # ---------------------------------------------------------------------
+
+  @occurs_key :prolog_ex_occurs_check
+
+  @doc false
+  def occurs_key, do: @occurs_key
+
+  def bind_checked(var, t, subst) do
+    case Process.get(@occurs_key) do
+      nil ->
+        {:ok, bind(var, t, subst)}
+
+      mode ->
+        if occurs?(var, t, subst) do
+          if mode == :error,
+            do: raise("occurs_check(#{format(var)}, #{format(resolve(t, subst))})"),
+            else: :error
+        else
+          {:ok, bind(var, t, subst)}
+        end
+    end
+  end
+
+  @doc "Kommt die (ungebundene) Variable var in t vor?"
+  def occurs?(var, t, subst) do
+    case walk(t, subst) do
+      ^var -> true
+      m when is_marked(m) -> false
+      {:struct, _, args} -> Enum.any?(args, &occurs?(var, &1, subst))
+      # Listenrest per Tail Call: keine Rekursionstiefe entlang der Liste
+      [h | tl] -> occurs?(var, h, subst) or occurs?(var, tl, subst)
+      _ -> false
+    end
+  end
+
   def unify(x, y, subst) do
     x = walk(x, subst)
     y = walk(y, subst)
@@ -147,9 +191,20 @@ defmodule PrologEx do
     cond do
       # strikt: 1 und 1.0 sind verschiedene Terme (Elixirs == hält sie für gleich)
       x === y -> {:ok, subst}
-      match?({:var, _}, x) -> {:ok, bind(x, y, subst)}
-      match?({:var, _}, y) -> {:ok, bind(y, x, subst)}
+      match?({:var, _}, x) -> bind_checked(x, y, subst)
+      match?({:var, _}, y) -> bind_checked(y, x, subst)
       true -> unify_struct(x, y, subst)
+    end
+  end
+
+  @doc "Unifikation immer mit Occurs-Check (unabhängig vom Flag)"
+  def unify_with_occurs_check(x, y, subst) do
+    old = Process.put(@occurs_key, true)
+
+    try do
+      unify(x, y, subst)
+    after
+      if old, do: Process.put(@occurs_key, old), else: Process.delete(@occurs_key)
     end
   end
 
@@ -360,8 +415,14 @@ defmodule PrologEx do
         end
 
       {:var, _} = v ->
+        # Write-Modus: der gebaute Term kann Slot-Inhalte enthalten, also
+        # ggf. mit Occurs-Check binden
         {term, env, nv} = build(p, env, nv)
-        {:ok, env, bind(v, term, s), nv}
+
+        case bind_checked(v, term, s) do
+          {:ok, s} -> {:ok, env, s, nv}
+          :error -> :error
+        end
 
       _ ->
         :error
@@ -374,8 +435,14 @@ defmodule PrologEx do
         match_args(ps, args, env, s, nv)
 
       {:var, _} = v ->
+        # Write-Modus: der gebaute Term kann Slot-Inhalte enthalten, also
+        # ggf. mit Occurs-Check binden
         {term, env, nv} = build(p, env, nv)
-        {:ok, env, bind(v, term, s), nv}
+
+        case bind_checked(v, term, s) do
+          {:ok, s} -> {:ok, env, s, nv}
+          :error -> :error
+        end
 
       _ ->
         :error

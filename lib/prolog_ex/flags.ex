@@ -23,7 +23,7 @@ defmodule PrologEx.Flags do
     "integer_rounding_function" => {:toward_zero, :read_only},
     "double_quotes" => {:chars, [:chars, :codes, :atom]},
     "unknown" => {:error, [:error, :fail, :warning]},
-    "occurs_check" => {false, :read_only},
+    "occurs_check" => {false, [false, true, :error]},
     "debug" => {false, [true, false]},
     "last_call_optimisation" => {true, :read_only},
     "dialect" => {:prolog_ex, :read_only},
@@ -61,12 +61,28 @@ defmodule PrologEx.Flags do
           do: raise("domain_error(flag_value, #{name}+#{PrologEx.format(value)})")
 
         Process.put(@key, Map.put(Process.get(@key, %{}), name, value))
+        apply_side_effect(name, value)
         :ok
     end
   end
 
   @doc "Alle Flags auf Standardwerte zurücksetzen (für Tests)"
-  def reset, do: Process.delete(@key)
+  def reset do
+    Process.delete(@key)
+    Process.delete(PrologEx.occurs_key())
+  end
+
+  # occurs_check: eigener Prozessschlüssel, damit bind_checked/3 schnell ist
+  defp apply_side_effect("occurs_check", {:atom, "false"}),
+    do: Process.delete(PrologEx.occurs_key())
+
+  defp apply_side_effect("occurs_check", {:atom, "true"}),
+    do: Process.put(PrologEx.occurs_key(), true)
+
+  defp apply_side_effect("occurs_check", {:atom, "error"}),
+    do: Process.put(PrologEx.occurs_key(), :error)
+
+  defp apply_side_effect(_, _), do: :ok
 
   defp term(v) when is_atom(v), do: a(Atom.to_string(v))
   defp term(v), do: v

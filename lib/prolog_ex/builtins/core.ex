@@ -55,6 +55,15 @@ defmodule PrologEx.Builtins.Core do
     end
   end
 
+  defbuiltin "unify_with_occurs_check", [x, y] do
+    # gelingt die Unifikation mit Occurs-Check, liefert die gewöhnliche
+    # Unifikation dieselben Bindungen (gleicher Algorithmus)
+    case PrologEx.unify_with_occurs_check(x, y, subst()) do
+      {:ok, _} -> {:unify, [{x, y}]}
+      :error -> :fail
+    end
+  end
+
   defbuiltin "\\=", [x, y] do
     case PrologEx.unify(x, y, subst()) do
       {:ok, _} -> :fail
