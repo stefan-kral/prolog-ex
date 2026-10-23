@@ -574,8 +574,15 @@ defmodule PrologEx do
     end
   end
 
-  # Nichtdeterministische Builtins: Listen direkt (kein Choice Point für das
-  # letzte Element), sonst lazy über Enumerable mit :suspend
+  # Nichtdeterministische Builtins:
+  #   * Liste: direkt, kein Choice Point für das letzte Element
+  #   * lazy Liste [r | fn -> rest end]: der Rest wird erst beim
+  #     Backtracking berechnet; das Builtin entscheidet selbst, wann [r]
+  #     (letzte Lösung, kein Choice Point) kommt
+  #   * sonstige Aufzählung (Stream, Range): lazy über :suspend
+  defp start_solutions(thunk, rest, st) when is_function(thunk, 0),
+    do: start_solutions(thunk.(), rest, st)
+
   defp start_solutions([], _rest, st), do: backtrack(st)
   defp start_solutions([r], rest, st), do: apply_result(r, rest, st)
 

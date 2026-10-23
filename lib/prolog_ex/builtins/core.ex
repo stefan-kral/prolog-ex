@@ -6,11 +6,13 @@ defmodule PrologEx.Builtins.Core do
     :fail
   end
 
-  # repeat/0: unendlich viele Lösungen, lazy – jedes Backtracking holt die
-  # nächste aus dem Stream (konstanter Speicher in Fehlschlag-Schleifen)
+  # repeat/0: unendlich viele Lösungen als lazy Liste – jedes Backtracking
+  # holt die nächste (konstanter Speicher in Fehlschlag-Schleifen)
   defbuiltin "repeat", [], nondet: true do
-    Stream.repeatedly(fn -> :ok end)
+    repeat_forever()
   end
+
+  defp repeat_forever, do: [:ok | &repeat_forever/0]
 
   # repeat/1 ist in Prolog definiert (siehe library/0); hier nur die Prüfung
   defbuiltin "$must_be_integer", [x] do
@@ -21,18 +23,22 @@ defmodule PrologEx.Builtins.Core do
     end
   end
 
-  @doc false
-  # repeat(N): genau N Lösungen; nach der letzten bleibt kein Choice Point
-  def library do
-    import PrologEx, only: [s: 2, v: 1, a: 1, fact: 1, rule: 2]
-    [n, m] = [v("N"), v("M")]
+  # $repeat(N), N >= 1: genau N Lösungen als lazy Liste – der Rest wird
+  # erst beim Backtracking erzeugt, nach der letzten bleibt kein Choice Point
+  defbuiltin "$repeat", [n], nondet: true do
+    repeat_n(deref(n))
+  end
 
-    [
-      rule(s("repeat", [n]), [s("$must_be_integer", [n]), s(">", [n, 0]), s("$repeat", [n])]),
-      rule(s("$repeat", [1]), [a("!")]),
-      fact(s("$repeat", [v("_")])),
-      rule(s("$repeat", [n]), [s("is", [m, s("-", [n, 1])]), s("$repeat", [m])])
-    ]
+  defp repeat_n(1), do: [:ok]
+  defp repeat_n(n), do: [:ok | fn -> repeat_n(n - 1) end]
+
+  @doc false
+  # repeat(N): Prüfung in Prolog, Aufzählung in Elixir ($repeat/1)
+  def library do
+    import PrologEx, only: [s: 2, v: 1, rule: 2]
+    n = v("N")
+
+    [rule(s("repeat", [n]), [s("$must_be_integer", [n]), s(">", [n, 0]), s("$repeat", [n])])]
   end
 
   defbuiltin "\\=", [x, y] do

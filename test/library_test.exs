@@ -265,6 +265,13 @@ defmodule PrologEx.LibraryTest do
       assert more.(s("repeat", [-2])) == []
     end
 
+    test "repeat/1 ist lazy: riesiges N kostet bis zur ersten Lösung nichts" do
+      {us, [_]} =
+        :timer.tc(fn -> db() |> query(s("repeat", [1_000_000_000_000])) |> Enum.take(1) end)
+
+      assert us < 100_000
+    end
+
     test "repeat/1: Fehler" do
       error(s("repeat", [@n]))
       error(s("repeat", [a("a")]))
@@ -295,7 +302,7 @@ defmodule PrologEx.LibraryTest do
                "% repeat/0: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
                  "repeat(N) :-\n    $must_be_integer(N),\n    >(N, 0),\n    $repeat(N).\n\n" <>
                  "% $must_be_integer/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
-                 "$repeat(1) :-\n    !.\n$repeat(_).\n$repeat(N) :-\n    is(M, -(N, 1)),\n    $repeat(M).\n"
+                 "% $repeat/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n"
     end
 
     test "listing(append/3) zeigt das klassische Hilfsprädikat" do

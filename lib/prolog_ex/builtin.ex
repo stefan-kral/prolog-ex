@@ -29,10 +29,25 @@ defmodule PrologEx.Builtin do
     * `{:call, ziel}`             – weiter mit einem Prolog-Ziel (Cut darin
                                     ist lokal, wie bei call/1)
 
-  Mit `nondet: true` liefert der Rumpf eine Aufzählung (Liste, Stream,
-  Range) solcher Ergebnisse. Jedes Element ist eine Lösung; beim
-  Backtracking wird das nächste geholt – lazy, Streams dürfen also unendlich
-  sein. Bei Listen wird für das letzte Element kein Choice Point angelegt.
+  Mit `nondet: true` liefert der Rumpf eine Aufzählung solcher Ergebnisse.
+  Jedes Element ist eine Lösung; beim Backtracking wird das nächste geholt.
+
+    * Liste `[r1, r2, ...]` – für das letzte Element kein Choice Point
+    * lazy Liste `[r | fn -> rest end]` – der Rest (wieder eine Liste oder
+      lazy Liste) wird erst beim Backtracking berechnet. So entscheidet das
+      Builtin selbst, wann die letzte Lösung `[r]` kommt: lazy UND ohne
+      übrigen Choice Point. Das ist die schnellste Form.
+    * Stream, Range, ... – lazy, auch unendlich; nach der letzten Lösung
+      bleibt aber ein Choice Point, bis erneut gefragt wird
+
+  Beispiel:
+
+      defbuiltin "$repeat", [n], nondet: true do
+        repeat_n(deref(n))
+      end
+
+      defp repeat_n(1), do: [:ok]
+      defp repeat_n(n), do: [:ok | fn -> repeat_n(n - 1) end]
 
   ## Hilfen im Rumpf
 
