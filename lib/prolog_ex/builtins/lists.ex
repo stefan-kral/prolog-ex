@@ -41,7 +41,7 @@ defmodule PrologEx.Builtins.Lists do
   @doc false
   def library do
     import PrologEx, only: [s: 2, v: 1, fact: 1, rule: 2]
-    [h, t, l, r] = Enum.map(~w(H T L R), &v/1)
+    [h, t, l, r, x, h2, i, i0, i1, e] = Enum.map(~w(H T L R X H2 I I0 I1 E), &v/1)
 
     n = v("N")
 
@@ -49,8 +49,50 @@ defmodule PrologEx.Builtins.Lists do
       fact(s("$append", [[], l, l])),
       rule(s("$append", [[h | t], l, [h | r]]), [s("$append", [t, l, r])]),
       rule(s("numlist", [n, l]), [s("numlist", [1, n, l])]),
+      # select/3 wie in SWI: der Listenrest steht vorn im Hilfsprädikat, die
+      # Indexierung macht das letzte Element deterministisch; der Rest R
+      # wird schrittweise aufgebaut und geteilt (O(1) je Lösung)
+      rule(s("select", [x, [h | t], r]), [s("$select3", [t, h, x, r])]),
+      fact(s("$select3", [t, h, h, t])),
+      rule(s("$select3", [[h2 | t], h, x, [h | r]]), [s("$select3", [t, h2, x, r])]),
+      # nth0/4, nth1/4 bei offenem Index: ebenso
+      fact(s("$nth4", [t, h, i, i, h, t])),
+      rule(s("$nth4", [[h2 | t], h, i0, i, e, [h | r]]), [
+        s("is", [i1, s("+", [i0, 1])]),
+        s("$nth4", [t, h2, i1, i, e, r])
+      ]),
+      fact(s("$same_length", [[], []])),
+      rule(s("$same_length", [[v("_") | t], [v("_") | l]]), [s("$same_length", [t, l])]),
       fact(s("$member", [h, [h | v("_")]])),
       rule(s("$member", [h, [v("_") | t]]), [s("$member", [h, t])])
+    ] ++ maplist_library()
+  end
+
+  # maplist(G, L1, ..., Ln), n = 1..7:
+  #   maplist(G, L1, ..., Ln) :- '$maplist'(L1, ..., Ln, G).
+  #   '$maplist'([], ..., [], _).
+  #   '$maplist'([X1|T1], ..., [Xn|Tn], G) :- call(G, X1, ..., Xn), '$maplist'(T1, ..., Tn, G).
+  # Die Listen stehen vorn, damit die Indexierung nach dem ersten Argument
+  # greift: bei fertiger erster Liste bleibt kein Choice Point.
+  defp maplist_library do
+    g = PrologEx.v("G")
+
+    for n <- 1..7, clause <- maplist_clauses(n, g), do: clause
+  end
+
+  defp maplist_clauses(n, g) do
+    import PrologEx, only: [s: 2, v: 1, fact: 1, rule: 2]
+    ls = for k <- 1..n, do: v("L#{k}")
+    xs = for k <- 1..n, do: v("X#{k}")
+    ts = for k <- 1..n, do: v("T#{k}")
+
+    [
+      rule(s("maplist", [g | ls]), [s("$maplist", ls ++ [g])]),
+      fact(s("$maplist", List.duplicate([], n) ++ [v("_")])),
+      rule(
+        s("$maplist", Enum.zip_with(xs, ts, fn x, t -> [x | t] end) ++ [g]),
+        [s("call", [g | xs]), s("$maplist", ts ++ [g])]
+      )
     ]
   end
 
@@ -89,6 +131,40 @@ defmodule PrologEx.Builtins.Lists do
       {:var, _} -> between_from(l, h, x)
       other -> raise "type_error(integer, #{format(other)})"
     end
+  end
+
+  # same_length(A, B): gleich lange Listen; ist eine fertig, wird die
+  # andere mit frischen Variablen aufgefüllt (deterministisch)
+  defbuiltin "same_length", [la, lb], protected: false, helpers: [{"$same_length", 2}] do
+    s = subst()
+    {na, ra} = skip_list(la, s)
+    {nb, rb} = skip_list(lb, s)
+
+    case {ra, rb} do
+      {[], []} -> na == nb
+      {[], {:var, _}} -> nb <= na and {:unify, [{rb, fresh_list(na - nb)}]}
+      {{:var, _}, []} -> na <= nb and {:unify, [{ra, fresh_list(nb - na)}]}
+      {{:var, _}, {:var, _}} -> {:call, mk("$same_length", [la, lb])}
+      _ -> false
+    end
+  end
+
+  # nth0(I, L, E), nth1(I, L, E): E ist das I-te Element (ab 0 bzw. 1)
+  # nth0(I, L, E, R), nth1(I, L, E, R): dazu R = L ohne dieses Element
+  defbuiltin "nth0", [i, l, e], nondet: true, protected: false do
+    nth(0, i, l, e, nil, subst())
+  end
+
+  defbuiltin "nth1", [i, l, e], nondet: true, protected: false do
+    nth(1, i, l, e, nil, subst())
+  end
+
+  defbuiltin "nth0", [i, l, e, r], nondet: true, protected: false, helpers: [{"$nth4", 6}] do
+    nth(0, i, l, e, r, subst())
+  end
+
+  defbuiltin "nth1", [i, l, e, r], nondet: true, protected: false, helpers: [{"$nth4", 6}] do
+    nth(1, i, l, e, r, subst())
   end
 
   defbuiltin "length", [l, len], nondet: true, protected: false do
@@ -202,6 +278,88 @@ defmodule PrologEx.Builtins.Lists do
   # innerhalb einer glist: rohe Zellen, keine Variablen
   defp member_raw(x, [h | [_ | _] = t]), do: [{:unify, [{x, h}]} | fn -> member_raw(x, t) end]
   defp member_raw(x, [h | _end]), do: [{:unify, [{x, h}]}]
+
+  # --- Zellen durchlaufen ----------------------------------------------
+  # {:cons, kopf, rest} | :end ([] oder keine Liste) | {:open, variable}
+  defp cell(t, s) do
+    t = PrologEx.walk(t, s)
+
+    case uncons(t) do
+      {:cons, h, tl} -> {:cons, h, tl}
+      :empty -> :end
+      :other -> if match?({:var, _}, t), do: {:open, t}, else: :end
+    end
+  end
+
+  # geht es nach dieser Zelle noch weiter (Zelle oder offener Rest)?
+  defp more?(t, s), do: cell(t, s) != :end
+
+  # nth: base 0 oder 1; r = nil (nth/3) oder Restliste (nth/4)
+  defp nth(base, i, l, e, r, s) do
+    case PrologEx.walk(i, s) do
+      k when is_integer(k) and k >= base -> nth_at(k - base, l, e, r, [], 0, s)
+      k when is_integer(k) -> []
+      {:var, _} when r == nil -> nth_enum(base, i, l, e, nil, [], 0, s)
+      # nth/4 mit offenem Index: in Prolog ($nth4), damit der Rest geteilt wird
+      {:var, _} -> [{:call, nth4_goal(base, i, l, e, r)}]
+      other -> raise "type_error(integer, #{format(other)})"
+    end
+  end
+
+  defp nth4_goal(base, i, l, e, r) do
+    h = fresh_var()
+    t = fresh_var()
+    mk(",", [mk("=", [l, cons(h, t)]), mk("$nth4", [t, h, base, i, e, r])])
+  end
+
+  # Index bekannt: deterministisch
+  defp nth_at(idx, l, e, r, pre, j, s) do
+    case cell(l, s) do
+      {:cons, h, tl} when j == idx ->
+        [{:unify, [{e, h}] ++ rest_pair(r, pre, [], tl)}]
+
+      {:cons, h, tl} ->
+        nth_at(idx, tl, e, r, [h | pre], j + 1, s)
+
+      {:open, tail} ->
+        # offene Liste: bis zum Index mit frischen Variablen auffüllen
+        fill = fresh_list(idx - j)
+        ft = fresh_var()
+        [{:unify, [{tail, PrologEx.list(fill ++ [e], ft)}] ++ rest_pair(r, pre, fill, ft)}]
+
+      :end ->
+        []
+    end
+  end
+
+  # Index offen: alle Positionen lazy aufzählen
+  defp nth_enum(base, i, l, e, r, pre, j, s) do
+    case cell(l, s) do
+      {:cons, h, tl} ->
+        res = {:unify, [{i, j + base}, {e, h}] ++ rest_pair(r, pre, [], tl)}
+
+        if more?(tl, s),
+          do: [res | fn -> nth_enum(base, i, tl, e, r, [h | pre], j + 1, s) end],
+          else: [res]
+
+      {:open, tail} ->
+        # offene Liste: E an Position j, j+1, ... erzeugen; bei nth/4 mit
+        # fertiger Restliste ist die Zahl der Positionen begrenzt
+        nth_open(base, i, tail, e, j, 0)
+
+      :end ->
+        []
+    end
+  end
+
+  defp nth_open(base, i, tail, e, j, k) do
+    res = {:unify, [{tail, PrologEx.list(fresh_list(k) ++ [e], fresh_var())}, {i, j + k + base}]}
+    [res | fn -> nth_open(base, i, tail, e, j, k + 1) end]
+  end
+
+  # Restliste für nth/4: Präfix ++ Füllung ++ Rest
+  defp rest_pair(nil, _pre, _fill, _tail), do: []
+  defp rest_pair(r, pre, fill, tail), do: [{r, PrologEx.list(Enum.reverse(pre, fill), tail)}]
 
   # between/3: L, L+1, ..., H; bei H = :inf unendlich (Integer < Atom)
   defp between_from(l, h, _x) when h != :inf and l > h, do: []

@@ -56,7 +56,8 @@ Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`), Direktiven (`op/3`,
 Laden ersetzt Prädikate), `,` `;` `->` `\\+` `!` `call/N` `time/1`,
 `=` `\\=` `==` `\\==`, Standardordnung (`@<` `@>` `@=<` `@>=` `compare/3`,
 `sort/2` `msort/2` `keysort/2`), `term_variables/2`, `subsumes_term/2`, `is` und Vergleiche (Ganzzahlen beliebiger Größe,
-Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`,
+Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`, `select/3`,
+`same_length/2`, `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
 `false/0`, `repeat/0,1`, `numlist/2,3`, `write/1` `nl/0` `listing/0,1` `halt/0,1`.
 
 Noch nicht: `assert`/`retract`, `catch`/`throw`, Ausgabe in

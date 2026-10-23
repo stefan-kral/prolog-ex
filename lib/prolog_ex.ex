@@ -412,7 +412,9 @@ defmodule PrologEx do
             next_var: 0,
             answer: [],
             threshold: @min_threshold,
-            min_threshold: @min_threshold
+            min_threshold: @min_threshold,
+            # Zähler für call_nth/2: überstehen Backtracking (nicht in subst)
+            counters: %{}
 
   defp run(st) do
     st = maybe_compact(st)
@@ -512,6 +514,62 @@ defmodule PrologEx do
     if st.height == h + 1,
       do: run(%{st | goals: rest, cps: tl(st.cps), height: h}),
       else: run(%{st | goals: rest})
+  end
+
+  # call_nth(G, N): zählt die Lösungen von G mit einem Zähler, den
+  # Backtracking NICHT zurücksetzt (st.counters). Ist N eine Zahl, wird bei
+  # der N-ten Lösung abgeschnitten (deterministisch). Ein Choice Point unter G
+  # räumt den Zähler auf, wenn G erschöpft ist; hinterlässt G bei Erfolg
+  # keine Choice Points, wird er gleich entfernt (wie bei time/1).
+  defp step({:struct, "call_nth", [g, n]}, _cutb, rest, st) do
+    case walk(n, st.subst) do
+      {:var, _} -> :ok
+      k when is_integer(k) and k >= 1 -> :ok
+      k when is_integer(k) -> raise "domain_error(not_less_than_one, #{k})"
+      other -> raise "type_error(integer, #{format(other)})"
+    end
+
+    ref = make_ref()
+    h = st.height
+    st = %{st | counters: Map.put(st.counters, ref, 0)}
+    st = push(st, {:nth_cleanup, ref, st.subst, st.answer})
+    goal = unmark_top(walk(g, st.subst))
+    run(%{st | goals: [{goal, h + 1}, {{:"$nth", ref, n, h}, 0} | rest]})
+  end
+
+  defp step({:"$nth", ref, n, h}, _cutb, rest, st) do
+    c = Map.fetch!(st.counters, ref) + 1
+    st = %{st | counters: Map.put(st.counters, ref, c)}
+
+    case walk(n, st.subst) do
+      k when is_integer(k) and c < k ->
+        backtrack(st)
+
+      k when is_integer(k) ->
+        # N-te Lösung: alles ab G abschneiden, Zähler entfernen
+        cps = Enum.drop(st.cps, st.height - h)
+        run(%{st | goals: rest, cps: cps, height: h, counters: Map.delete(st.counters, ref)})
+
+      _ ->
+        case unify(n, c, st.subst) do
+          :error ->
+            backtrack(st)
+
+          {:ok, s} ->
+            st = %{st | subst: s}
+
+            if st.height == h + 1,
+              do:
+                run(%{
+                  st
+                  | goals: rest,
+                    cps: tl(st.cps),
+                    height: h,
+                    counters: Map.delete(st.counters, ref)
+                }),
+              else: run(%{st | goals: rest})
+        end
+    end
   end
 
   # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
@@ -672,6 +730,9 @@ defmodule PrologEx do
       {:solutions, cont, rest, subst, answer} ->
         cont.({:cont, nil}) |> next_solution(rest, %{st | subst: subst, answer: answer})
 
+      {:nth_cleanup, ref, subst, answer} ->
+        backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
+
       {:time_fail, t0, subst, answer} ->
         report_time(t0)
         backtrack(%{st | subst: subst, answer: answer})
@@ -707,7 +768,19 @@ defmodule PrologEx do
         {{n, t}, acc}
       end)
 
-    %{st | goals: goals, answer: answer, subst: %{}, threshold: max(st.min_threshold, 2 * size)}
+    # Zähler von call_nth/2, deren Aufräum-Choice-Point (z. B. durch einen
+    # Cut) verschwunden ist, werden nie mehr gebraucht
+    live = for {:nth_cleanup, ref, _, _} <- st.cps, do: ref
+    counters = Map.take(st.counters, live)
+
+    %{
+      st
+      | goals: goals,
+        answer: answer,
+        subst: %{},
+        counters: counters,
+        threshold: max(st.min_threshold, 2 * size)
+    }
   end
 
   defp compact(t, subst, acc) do
@@ -718,6 +791,12 @@ defmodule PrologEx do
   # Ergebnis: {Term, {memo, nicht_ground_größe}, verändert?, ground?}
   # Unveränderte Teilterme werden nicht kopiert, sondern geteilt.
   defp compact3(t, _subst, acc) when is_marked(t), do: {t, acc, false, true}
+
+  # Markierung von call_nth/2: das Argument N kann eine Variable sein
+  defp compact3({:"$nth", ref, n, h}, subst, acc) do
+    {n2, acc, changed, _} = compact3(n, subst, acc)
+    {{:"$nth", ref, n2, h}, acc, changed, false}
+  end
 
   defp compact3({:var, _} = var, subst, {memo, size} = acc) do
     case Map.fetch(memo, var) do

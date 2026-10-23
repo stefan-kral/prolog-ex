@@ -41,6 +41,20 @@ defmodule PrologEx.Builtins.Core do
     [rule(s("repeat", [n]), [s("$must_be_integer", [n]), s(">", [n, 0]), s("$repeat", [n])])]
   end
 
+  # succ(X, Y): Y = X + 1 für natürliche Zahlen (in beide Richtungen)
+  defbuiltin "succ", [x, y] do
+    case {deref(x), deref(y)} do
+      {a, _} when is_integer(a) and a >= 0 -> {:unify, [{y, a + 1}]}
+      {a, _} when is_integer(a) -> raise "type_error(not_less_than_zero, #{a})"
+      {{:var, _}, 0} -> :fail
+      {{:var, _}, b} when is_integer(b) and b > 0 -> {:unify, [{x, b - 1}]}
+      {{:var, _}, b} when is_integer(b) -> raise "type_error(not_less_than_zero, #{b})"
+      {{:var, _}, {:var, _}} -> raise "instantiation_error"
+      {{:var, _}, b} -> raise "type_error(integer, #{format(b)})"
+      {a, _} -> raise "type_error(integer, #{format(a)})"
+    end
+  end
+
   defbuiltin "\\=", [x, y] do
     case PrologEx.unify(x, y, subst()) do
       {:ok, _} -> :fail
