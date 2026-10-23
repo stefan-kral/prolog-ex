@@ -1,0 +1,74 @@
+defmodule PrologEx.DCG do
+  @moduledoc """
+  Übersetzung von DCG-Regeln (`Kopf --> Rumpf`) in normale Klauseln.
+
+      greeting --> [hallo], name.      % wird zu
+      greeting(S0, S) :- S0 = [hallo|S1], name(S1, S).
+
+  Unterstützt: Terminallisten (auch Strings, da `double_quotes=chars`),
+  Nichtterminale, `,`, `;`, `|`, `->`, `\\+`, `{}`/1, `!`, `[]`,
+  `call//N` und Variablen (über `phrase/3`). Pushback (`H, PB --> B`)
+  fehlt noch.
+  """
+
+  import PrologEx, only: [mk: 2, list: 2, a: 1, unmark: 1, uncons: 1]
+
+  @doc "Übersetzt `{kopf, rumpf}` einer DCG-Regel in `{kopf, rumpf}` einer Klausel."
+  def rule(head, body) do
+    s0 = fresh()
+    s = fresh()
+    {add_args(unmark(head), s0, s), body(body, s0, s)}
+  end
+
+  @doc "Übersetzt einen DCG-Rumpf mit Eingabe `s0` und Rest `s`."
+  def body(b, s0, s), do: tr(unmark(b), s0, s)
+
+  defp tr({:var, _} = v, s0, s), do: mk("phrase", [v, s0, s])
+
+  defp tr({:struct, ",", [x, y]}, s0, s) do
+    mid = fresh()
+    mk(",", [tr(x, s0, mid), tr(y, mid, s)])
+  end
+
+  defp tr({:struct, op, [x, y]}, s0, s) when op in [";", "|"] do
+    mk(";", [tr(x, s0, s), tr(y, s0, s)])
+  end
+
+  defp tr({:struct, "->", [c, t]}, s0, s) do
+    mid = fresh()
+    mk("->", [tr(c, s0, mid), tr(t, mid, s)])
+  end
+
+  defp tr({:struct, "\\+", [x]}, s0, s) do
+    mk(",", [mk("\\+", [tr(x, s0, fresh())]), mk("=", [s0, s])])
+  end
+
+  defp tr({:struct, "{}", [g]}, s0, s), do: mk(",", [g, mk("=", [s0, s])])
+  defp tr({:atom, "{}"}, s0, s), do: mk("=", [s0, s])
+  defp tr({:atom, "!"}, s0, s), do: mk(",", [a("!"), mk("=", [s0, s])])
+  defp tr([], s0, s), do: mk("=", [s0, s])
+  defp tr({:struct, "call", args}, s0, s), do: mk("call", args ++ [s0, s])
+
+  defp tr([_ | _] = l, s0, s) do
+    case terminals(l, []) do
+      {:ok, items} -> mk("=", [s0, list(items, s)])
+      :error -> raise "type_error(list, #{PrologEx.format(l)})"
+    end
+  end
+
+  defp tr(nt, s0, s), do: add_args(nt, s0, s)
+
+  defp terminals(l, acc) do
+    case uncons(l) do
+      :empty -> {:ok, Enum.reverse(acc)}
+      {:cons, h, t} -> terminals(t, [h | acc])
+      :other -> :error
+    end
+  end
+
+  defp add_args({:atom, f}, s0, s), do: mk(f, [s0, s])
+  defp add_args({:struct, f, args}, s0, s), do: mk(f, args ++ [s0, s])
+  defp add_args(t, _, _), do: raise("type_error(callable, #{PrologEx.format(t)})")
+
+  defp fresh, do: {:var, "_S#{System.unique_integer([:positive])}"}
+end

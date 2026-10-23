@@ -27,7 +27,7 @@ defmodule PrologEx do
   #   {:var, "X"}                Variable aus der Anfrage
   #   {:var, 42}                 frische Variable
   #   {:atom, "foo"}             Atom – bewusst KEIN Elixir-Atom!
-  #   integer                    Zahl
+  #   integer, float             Zahl
   #   {:struct, "f", [args]}     Struktur f(args...), Stelligkeit >= 1
   #   []                         das Atom '[]'
   #   [h | t]                    die Struktur '.'(h, t)
@@ -53,7 +53,7 @@ defmodule PrologEx do
 
   # atomar oder markiert = sicher ground, ohne hineinzuschauen
   defguard is_known_ground(t)
-           when is_integer(t) or t == [] or is_marked(t) or
+           when is_number(t) or t == [] or is_marked(t) or
                   (is_tuple(t) and elem(t, 0) == :atom)
 
   def v(name), do: {:var, name}
@@ -206,26 +206,39 @@ defmodule PrologEx do
 
   # ---------------------------------------------------------------------
   # Datenbank
-  #   %{{name, arity} => {:pred, alle, nach_schlüssel, nur_var_klauseln}}
+  #   %{{name, arity} => {:pred, alle, nach_schlüssel, nur_var_klauseln, quelle}}
+  # quelle: die Klauseln als Terme ({kopf, rumpf}) für listing/clause
   # nach_schlüssel: für jeden Erstargument-Schlüssel die passenden
   # Klauseln (inkl. derer mit Variable an erster Stelle) in Originalreihenfolge.
   # ---------------------------------------------------------------------
 
   alias PrologEx.Compiler
 
-  def consult(clauses) do
-    clauses
-    |> Enum.map(fn {head, _} = cl -> {Compiler.key(head), Compiler.compile_clause(cl)} end)
-    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Map.new(fn {k, cls} -> {k, build_pred(cls)} end)
+  def consult(clauses), do: consult(%{}, clauses)
+
+  @doc """
+  Fügt Klauseln hinzu. Jedes Prädikat, das in `clauses` vorkommt, ERSETZT
+  eine bestehende Definition (Reconsult-Semantik); andere bleiben erhalten.
+  """
+  def consult(db, clauses) do
+    new =
+      clauses
+      |> Enum.group_by(fn {head, _} -> Compiler.key(head) end)
+      |> Map.new(fn {k, cls} -> {k, build_pred(cls)} end)
+
+    Map.merge(db, new)
   end
 
-  defp build_pred(cls) do
+  @doc "Deklariert ein Prädikat ohne Klauseln (Aufrufe scheitern statt Fehler)."
+  def declare(db, key), do: Map.put_new(db, key, build_pred([]))
+
+  defp build_pred(source) do
+    cls = Enum.map(source, &Compiler.compile_clause/1)
     keys = cls |> Enum.map(&elem(&1, 1)) |> Enum.reject(&(&1 == :any)) |> Enum.uniq()
 
     by_key = Map.new(keys, fn k -> {k, Enum.filter(cls, &(elem(&1, 1) in [k, :any]))} end)
 
-    {:pred, cls, by_key, Enum.filter(cls, &(elem(&1, 1) == :any))}
+    {:pred, cls, by_key, Enum.filter(cls, &(elem(&1, 1) == :any)), source}
   end
 
   # Hauptfunktor als Indexschlüssel; :any = Variable (passt auf alles)
@@ -239,7 +252,7 @@ defmodule PrologEx do
 
   defp candidates(db, goal, args, subst) do
     case Map.fetch(db, Compiler.key(goal)) do
-      {:ok, {:pred, all, by_key, var_only}} ->
+      {:ok, {:pred, all, by_key, var_only, _source}} ->
         case args do
           [] ->
             all
@@ -252,7 +265,8 @@ defmodule PrologEx do
         end
 
       :error ->
-        raise "existence_error: #{inspect(Compiler.key(goal))}"
+        {name, arity} = Compiler.key(goal)
+        raise "existence_error(procedure, #{name}/#{arity}) – unbekanntes Prädikat"
     end
   end
 
@@ -427,9 +441,86 @@ defmodule PrologEx do
     do: run(%{st | goals: [{g1, cutb}, {g2, cutb} | rest]})
 
   defp step({:struct, ";", [g1, g2]}, cutb, rest, st) do
-    st = push(st, {:alt, {g2, cutb}, rest, st.subst, st.answer})
-    run(%{st | goals: [{g1, cutb} | rest]})
+    case unmark_top(walk(g1, st.subst)) do
+      {:struct, "->", [c, t]} ->
+        if_then_else(c, t, g2, cutb, rest, st)
+
+      _ ->
+        st = push(st, {:alt, {g2, cutb}, rest, st.subst, st.answer})
+        run(%{st | goals: [{g1, cutb} | rest]})
+    end
   end
+
+  defp step({:struct, "->", [c, t]}, cutb, rest, st),
+    do: if_then_else(c, t, {:atom, "fail"}, cutb, rest, st)
+
+  # Interne Markierung: Choice Points bis zur Höhe h abschneiden
+  defp step({:"$cut_to", h}, _cutb, rest, st) do
+    cps = Enum.drop(st.cps, st.height - h)
+    run(%{st | goals: rest, cps: cps, height: h})
+  end
+
+  # call/1: Cut darin ist lokal (Barriere = aktuelle Höhe)
+  defp step({:struct, "call", [g | extra]}, _cutb, rest, st) do
+    goal = add_args(unmark_top(walk(g, st.subst)), extra)
+    run(%{st | goals: [{goal, st.height} | rest]})
+  end
+
+  defp step({:struct, "not", [g]}, cutb, rest, st),
+    do: step({:struct, "\\+", [g]}, cutb, rest, st)
+
+  defp step({:struct, "\\=", [x, y]}, _cutb, rest, st) do
+    case unify(x, y, st.subst) do
+      {:ok, _} -> backtrack(st)
+      :error -> run(%{st | goals: rest})
+    end
+  end
+
+  defp step({:struct, op, [x, y]}, _cutb, rest, st) when op in ["==", "\\=="] do
+    same = resolve(x, st.subst) == resolve(y, st.subst)
+    if same == (op == "=="), do: run(%{st | goals: rest}), else: backtrack(st)
+  end
+
+  defp step({:struct, type, [x]}, _cutb, rest, st)
+       when type in ~w(var nonvar atom number integer float atomic compound callable is_list) do
+    if type_check(type, walk(x, st.subst), st.subst),
+      do: run(%{st | goals: rest}),
+      else: backtrack(st)
+  end
+
+  defp step({:struct, w, [x]}, _cutb, rest, st) when w in ["write", "print", "writeq"] do
+    IO.write(format(resolve(x, st.subst)))
+    run(%{st | goals: rest})
+  end
+
+  defp step({:atom, "nl"}, _cutb, rest, st) do
+    IO.write("\n")
+    run(%{st | goals: rest})
+  end
+
+  defp step({:atom, "listing"}, _cutb, rest, st) do
+    IO.write(PrologEx.Listing.listing(st.db, :all))
+    run(%{st | goals: rest})
+  end
+
+  defp step({:struct, "listing", [spec]}, _cutb, rest, st) do
+    IO.write(PrologEx.Listing.listing(st.db, resolve(spec, st.subst)))
+    run(%{st | goals: rest})
+  end
+
+  # phrase(G, L) / phrase(G, L, R): Nichtterminal G mit 2 Zusatzargumenten
+  defp step({:struct, "phrase", [g, l]}, cutb, rest, st),
+    do: step({:struct, "phrase", [g, l, []]}, cutb, rest, st)
+
+  defp step({:struct, "phrase", [g, l, r]}, _cutb, rest, st) do
+    goal = PrologEx.DCG.body(resolve(g, st.subst), l, r)
+    run(%{st | goals: [{goal, st.height} | rest]})
+  end
+
+  defp step({:atom, "halt"}, _cutb, _rest, _st), do: throw({:prolog_halt, 0})
+
+  defp step({:struct, "halt", [code]}, _cutb, _rest, st),
+    do: throw({:prolog_halt, eval(code, st.subst)})
 
   defp step({:struct, "=", [x, y]}, _cutb, rest, st) do
     case unify(x, y, st.subst) do
@@ -466,6 +557,45 @@ defmodule PrologEx do
     args = Compiler.args_of(goal)
     try_clauses(goal, args, candidates(st.db, goal, args, st.subst), rest, st)
   end
+
+  # (C -> T ; E): Choice Point für E, dann C mit eigener Cut-Barriere (Cut
+  # in der Bedingung ist lokal). Hat C Erfolg, schneidet $cut_to alles ab
+  # der Höhe vor E weg – also E und alle Alternativen von C. T und E sind
+  # für den Cut transparent (Barriere des umgebenden Prädikats).
+  defp if_then_else(c, t, e, cutb, rest, st) do
+    h = st.height
+    st = push(st, {:alt, {e, cutb}, rest, st.subst, st.answer})
+    run(%{st | goals: [{c, h + 1}, {{:"$cut_to", h}, 0}, {t, cutb} | rest]})
+  end
+
+  defp add_args(g, []), do: g
+  defp add_args({:atom, f}, extra), do: mk(f, extra)
+  defp add_args({:struct, f, args}, extra), do: mk(f, args ++ extra)
+  defp add_args({:var, _}, _), do: raise("instantiation_error")
+  defp add_args(g, _), do: raise("type_error(callable, #{format(g)})")
+
+  defp type_check("var", t, _), do: match?({:var, _}, t)
+  defp type_check("nonvar", t, _), do: not match?({:var, _}, t)
+  defp type_check("atom", t, _), do: t == [] or match?({:atom, _}, t)
+  defp type_check("number", t, _), do: is_number(t)
+  defp type_check("integer", t, _), do: is_integer(t)
+  defp type_check("float", t, _), do: is_float(t)
+  defp type_check("atomic", t, _), do: is_number(t) or t == [] or match?({:atom, _}, t)
+  defp type_check("compound", t, _), do: compound?(t)
+  defp type_check("callable", t, _), do: compound?(t) or t == [] or match?({:atom, _}, t)
+
+  defp type_check("is_list", t, s) do
+    case uncons(t) do
+      :empty -> true
+      {:cons, _, tl} -> type_check("is_list", walk(tl, s), s)
+      :other -> false
+    end
+  end
+
+  defp compound?(t),
+    do:
+      (is_list(t) and t != []) or match?({tag, _, _} when tag in [:struct, :gstruct], t) or
+        match?({:glist, _}, t)
 
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.
@@ -602,16 +732,54 @@ defmodule PrologEx do
 
   defp eval(t, subst) do
     case unmark_top(walk(t, subst)) do
-      n when is_integer(n) -> n
-      {:struct, "+", [x, y]} -> eval(x, subst) + eval(y, subst)
-      {:struct, "-", [x, y]} -> eval(x, subst) - eval(y, subst)
-      {:struct, "*", [x, y]} -> eval(x, subst) * eval(y, subst)
-      {:struct, "//", [x, y]} -> div(eval(x, subst), eval(y, subst))
-      {:struct, "mod", [x, y]} -> Integer.mod(eval(x, subst), eval(y, subst))
+      n when is_number(n) -> n
+      {:struct, op, [x, y]} -> arith(op, eval(x, subst), eval(y, subst))
+      {:struct, op, [x]} -> arith(op, eval(x, subst))
+      {:atom, "pi"} -> :math.pi()
+      {:atom, "e"} -> :math.exp(1)
+      {:atom, "max_tagged_integer"} -> 576_460_752_303_423_487
       {:var, _} -> raise "instantiation_error"
       other -> raise "type_error(evaluable, #{format(other)})"
     end
   end
+
+  defp arith("+", x, y), do: x + y
+  defp arith("-", x, y), do: x - y
+  defp arith("*", x, y), do: x * y
+
+  defp arith("/", x, y) when is_integer(x) and is_integer(y) do
+    if y != 0 and rem(x, y) == 0, do: div(x, y), else: x / y
+  end
+
+  defp arith("/", x, y), do: x / y
+  defp arith("//", x, y), do: div(x, y)
+  defp arith("mod", x, y), do: Integer.mod(x, y)
+  defp arith("rem", x, y), do: rem(x, y)
+  defp arith("min", x, y), do: min(x, y)
+  defp arith("max", x, y), do: max(x, y)
+  defp arith("**", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: Integer.pow(x, y)
+  defp arith("**", x, y), do: :math.pow(x, y)
+  defp arith("^", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: Integer.pow(x, y)
+  defp arith(">>", x, y), do: Bitwise.bsr(x, y)
+  defp arith("<<", x, y), do: Bitwise.bsl(x, y)
+  defp arith("/\\", x, y), do: Bitwise.band(x, y)
+  defp arith("\\/", x, y), do: Bitwise.bor(x, y)
+  defp arith("xor", x, y), do: Bitwise.bxor(x, y)
+  defp arith(op, _, _), do: raise("type_error(evaluable, #{op}/2)")
+
+  defp arith("-", x), do: -x
+  defp arith("+", x), do: x
+  defp arith("abs", x), do: abs(x)
+  defp arith("sign", x) when is_integer(x), do: if(x > 0, do: 1, else: if(x < 0, do: -1, else: 0))
+  defp arith("sqrt", x), do: :math.sqrt(x)
+  defp arith("float", x), do: x * 1.0
+  defp arith("integer", x), do: round(x)
+  defp arith("truncate", x), do: trunc(x)
+  defp arith("round", x), do: round(x)
+  defp arith("floor", x), do: floor(x)
+  defp arith("ceiling", x), do: ceil(x)
+  defp arith("\\", x), do: Bitwise.bnot(x)
+  defp arith(op, _), do: raise("type_error(evaluable, #{op}/1)")
 
   defp compare("<", x, y), do: x < y
   defp compare(">", x, y), do: x > y
@@ -628,11 +796,20 @@ defmodule PrologEx do
   #   compact_threshold: Mindestschwelle für die Kompaktierung (Standard
   #   #{@min_threshold}); 1 = bei jedem Schritt kompaktieren (für Tests)
   def query(db, goal, opts \\ []) do
+    db |> solutions(goal, opts) |> Stream.map(&elem(&1, 0))
+  end
+
+  @doc """
+  Wie `query/3`, aber jede Lösung als `{antwort, weitere_möglich?}`.
+  `weitere_möglich?` ist false, wenn keine Choice Points mehr existieren –
+  dann gibt es sicher keine weitere Lösung (der Toplevel fragt nicht nach).
+  """
+  def solutions(db, goal, opts \\ []) do
     answer =
       goal
       |> query_vars()
       |> Enum.uniq()
-      |> Enum.reject(&(&1 == {:var, "_"}))
+      |> Enum.reject(fn {:var, n} -> is_binary(n) and String.starts_with?(n, "_") end)
       |> Enum.map(fn {:var, n} = var -> {n, var} end)
 
     start = new_state(db, [{goal, 0}], answer, opts)
@@ -658,7 +835,7 @@ defmodule PrologEx do
 
   defp emit({:sol, st}) do
     ans = Map.new(st.answer, fn {n, t} -> {n, resolve(t, st.subst)} end)
-    {ans, {:retry, st}}
+    if st.height > 0, do: {{ans, true}, {:retry, st}}, else: {{ans, false}, :halt}
   end
 
   # Für Messungen: erste Lösung plus Zustandsgrößen
@@ -682,6 +859,7 @@ defmodule PrologEx do
   def format({:var, n}), do: n
   def format({:atom, n}), do: n
   def format(n) when is_integer(n), do: Integer.to_string(n)
+  def format(f) when is_float(f), do: Float.to_string(f)
   def format([]), do: "[]"
   def format([_ | _] = l), do: "[" <> format_list(l) <> "]"
   def format({:glist, l}), do: "[" <> format_list(l) <> "]"
