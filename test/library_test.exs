@@ -288,10 +288,20 @@ defmodule PrologEx.LibraryTest do
       assert bytes < 5_000_000, "Speicher wächst: #{bytes} Bytes"
     end
 
-    test "listing zeigt repeat/1 als Prolog, repeat/0 als Elixir" do
+    test "listing zeigt repeat/1 samt Hilfsprädikaten, repeat/0 als Elixir" do
       out = capture_io(fn -> all(s("listing", [a("repeat")])) end)
-      assert out =~ "% repeat/0: eingebaut, in Elixir realisiert"
-      assert out =~ "repeat(N) :-"
+
+      assert out ==
+               "% repeat/0: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
+                 "repeat(N) :-\n    $must_be_integer(N),\n    >(N, 0),\n    $repeat(N).\n\n" <>
+                 "% $must_be_integer/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
+                 "$repeat(1) :-\n    !.\n$repeat(_).\n$repeat(N) :-\n    is(M, -(N, 1)),\n    $repeat(M).\n"
+    end
+
+    test "listing(append/3) zeigt das klassische Hilfsprädikat" do
+      out = capture_io(fn -> all(s("listing", [s("/", [a("append"), 3])])) end)
+      assert out =~ "% append/3: eingebaut, in Elixir realisiert"
+      assert out =~ "$append([H | T], L, [H | R]) :-"
     end
   end
 
@@ -326,10 +336,10 @@ defmodule PrologEx.LibraryTest do
                "numlist(N, L) :-\n    numlist(1, N, L).\n\n" <>
                  "% numlist/3: eingebaut, in Elixir realisiert (PrologEx.Builtins.Lists)\n"
 
-      # interne Hilfsprädikate ($append) bleiben verborgen, listing/0 zeigt
+      # Hilfsprädikate explizit verlangt: werden gezeigt; listing/0 zeigt
       # nur Benutzerprädikate
       out = capture_io(fn -> all(s("listing", [a("$append")])) end)
-      assert out == ""
+      assert out =~ "$append([], L, L)."
       out = capture_io(fn -> all(a("listing")) end)
       refute out =~ "numlist"
     end

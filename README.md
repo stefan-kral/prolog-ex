@@ -89,7 +89,10 @@ end
 Details in der Moduldoku von `PrologEx.Builtin`. Builtins sind gegen
 Neudefinition geschützt, außer mit `protected: false` (so bei `append/3`
 und `length/2`). Bibliotheksprädikate in Prolog liefert ein Modul über
-`library/0` (siehe `PrologEx.Builtins.Lists`).
+`library/0` (siehe `PrologEx.Builtins.Lists`). Ruft ein Elixir-Builtin
+Hilfsprädikate über `{:call, ...}` auf, gibt es sie mit
+`helpers: [{"$name", n}]` an; `listing` zeigt sie dann mit an (bei
+Prolog-Bibliotheksprädikaten werden sie aus dem Quelltext ermittelt).
 
 `append/3` ist hybrid: mit fertigem erstem Argument rechnet es direkt in
 Elixir (deterministisch, bei ground Listen über `++`), sonst läuft die

@@ -50,6 +50,8 @@ defmodule PrologEx.Builtin do
   ## Optionen
 
     * `nondet: true` – siehe oben
+    * `helpers: [{"$name", stelligkeit}, ...]` – Hilfsprädikate, die das
+      Builtin über `{:call, ...}` aufruft; `listing` zeigt sie mit an
     * `protected: false` – das Prädikat darf vom Benutzer neu definiert
       werden (Bibliotheksprädikate wie append/3). Standard: geschützt, eine
       Klausel dafür in consult ergibt `permission_error`.
@@ -90,11 +92,12 @@ defmodule PrologEx.Builtin do
     fun = :"bi #{name}/#{arity}"
     kind = if Keyword.get(opts, :nondet, false), do: :nondet, else: :det
     protected = Keyword.get(opts, :protected, true)
+    helpers = Keyword.get(opts, :helpers, [])
     ctx = Macro.var(:ctx, nil)
 
     quote do
       @prolog_builtins {{unquote(name), unquote(arity)}, unquote(kind),
-                        &(__MODULE__.unquote(fun) / 2), unquote(protected)}
+                        &(__MODULE__.unquote(fun) / 2), unquote(protected), unquote(helpers)}
 
       @doc false
       def unquote(fun)(unquote(args), unquote(ctx)) do

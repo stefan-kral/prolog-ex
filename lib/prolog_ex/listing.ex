@@ -24,19 +24,64 @@ defmodule PrologEx.Listing do
     library =
       if spec == :all,
         do: [],
-        else:
-          for(
-            key <- PrologEx.Builtins.keys(),
-            matches?(key, spec),
-            not Map.has_key?(db, key),
-            not String.starts_with?(elem(key, 0), "$"),
-            do: {key, {:builtin, PrologEx.Builtins.lookup(key)}}
-          )
+        else: for(key <- PrologEx.Builtins.keys(), matches?(key, spec), do: key)
 
-    (user ++ library)
-    |> Enum.sort_by(fn {key, _} -> key end)
+    library = library |> Enum.reject(&Map.has_key?(db, &1)) |> with_helpers()
+
+    lib_entries = Enum.map(library, &{&1, {:builtin, PrologEx.Builtins.lookup(&1)}})
+
+    Enum.sort_by(user, fn {key, _} -> key end)
+    |> Kernel.++(lib_entries)
     |> Enum.map_join("\n", fn {key, pred} -> pred_text(key, pred) end)
   end
+
+  # Gewünschte Bibliotheksprädikate (ohne $-Hilfsprädikate, außer explizit
+  # verlangt), danach alle von ihnen – auch indirekt – aufgerufenen
+  # Hilfsprädikate ($...), jeweils sortiert
+  defp with_helpers(keys) do
+    {named, helpers} = Enum.split_with(keys, &(not helper?(&1)))
+    named = if named == [], do: helpers, else: named
+    found = helper_closure(named, MapSet.new(named))
+    Enum.sort(named) ++ (found |> MapSet.difference(MapSet.new(named)) |> Enum.sort())
+  end
+
+  defp helper_closure([], seen), do: seen
+
+  defp helper_closure([key | rest], seen) do
+    new =
+      for k <- called_helpers(key), not MapSet.member?(seen, k), uniq: true, do: k
+
+    helper_closure(new ++ rest, MapSet.union(seen, MapSet.new(new)))
+  end
+
+  defp called_helpers(key) do
+    case PrologEx.Builtins.lookup(key) do
+      {:prolog, {:pred, _, _, _, source}, _} ->
+        for {_head, body} <- source,
+            g <- called_goals(unmark(body)),
+            k = goal_key(g),
+            k != nil and helper?(k) and PrologEx.Builtins.lookup(k) != nil,
+            do: k
+
+      _ ->
+        PrologEx.Builtins.helpers(key)
+    end
+  end
+
+  # Ziele in Steuerkonstrukten aufsammeln
+  defp called_goals({:struct, op, [a, b]}) when op in [",", ";", "->"],
+    do: called_goals(a) ++ called_goals(b)
+
+  defp called_goals({:struct, op, [g]}) when op in ["\\+", "not", "call", "time"],
+    do: called_goals(g) ++ [{:struct, op, [g]}]
+
+  defp called_goals(g), do: [g]
+
+  defp goal_key({:atom, n}), do: {n, 0}
+  defp goal_key({:struct, f, args}), do: {f, length(args)}
+  defp goal_key(_), do: nil
+
+  defp helper?({name, _}), do: String.starts_with?(name, "$")
 
   defp matches?({_name, _arity}, :all), do: true
   defp matches?({name, _}, {:atom, name}), do: true

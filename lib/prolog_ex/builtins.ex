@@ -19,10 +19,17 @@ defmodule PrologEx.Builtins do
              call/7 call/8 not/1 \\+/1 =/2 is/2 </2 >/2 >=/2 =</2 =:=/2 =\\=/2 time/1)
 
   @table (for mod <- @modules,
-              {key, kind, fun, protected} <- mod.__builtins__(),
+              {key, kind, fun, protected, _helpers} <- mod.__builtins__(),
               into: %{} do
             {key, {kind, fun, protected}}
           end)
+
+  @helpers (for mod <- @modules,
+                {key, _, _, _, helpers} <- mod.__builtins__(),
+                helpers != [],
+                into: %{} do
+              {key, helpers}
+            end)
 
   @library (for mod <- @modules,
                 function_exported?(mod, :library, 0),
@@ -44,6 +51,9 @@ defmodule PrologEx.Builtins do
 
   @doc "`{:det | :nondet, fun, protected?}`, `{:prolog, pred, true}` oder nil"
   def lookup(key), do: Map.get(@all, key)
+
+  @doc "Von einem Elixir-Builtin angegebene Hilfsprädikate (Option helpers:)"
+  def helpers(key), do: Map.get(@helpers, key, [])
 
   @doc "Darf der Benutzer dieses Prädikat nicht definieren?"
   def protected?(key), do: MapSet.member?(@protected, key)

@@ -43,7 +43,7 @@ defmodule PrologEx.Builtins.Lists do
     ]
   end
 
-  defbuiltin "append", [x, y, z], protected: false do
+  defbuiltin "append", [x, y, z], protected: false, helpers: [{"$append", 3}] do
     case prefix(x, subst()) do
       {:ok, front} -> {:unify, [{z, join(front, y, subst())}]}
       :partial -> {:call, mk("$append", [x, y, z])}
