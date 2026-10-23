@@ -27,6 +27,13 @@ mix prolog examples/demo.pl -g main -q   # laden, main ausführen, Ende
 cat prog.pl | mix prolog - -g main   # Programm von stdin
 ```
 
+Zeilenbearbeitung und Verlauf (↑/↓, Ctrl-R, …) bekommt man mit
+[rlwrap](https://github.com/hanslub42/rlwrap) (`brew install rlwrap`):
+
+```sh
+rlwrap mix prolog
+```
+
 Im Toplevel:
 
 ```

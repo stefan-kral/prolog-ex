@@ -13,6 +13,9 @@ defmodule Mix.Tasks.Prolog do
   Im Toplevel lädt `[user].` Klauseln von der Tastatur (Ende mit
   `end_of_file.` oder Ctrl-D), `[datei].` lädt eine Datei.
 
+  Zeilenbearbeitung und Verlauf: `rlwrap mix prolog` (rlwrap installieren,
+  z. B. `brew install rlwrap`).
+
   Benötigt den gprolog-Reader; fehlt er, wird er mit
   `mix prolog.build_reader` übersetzt (dafür muss `gplc` im PATH sein oder
   über `GPLC=...` angegeben werden).
