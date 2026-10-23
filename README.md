@@ -58,7 +58,7 @@ Laden ersetzt Prädikate), `,` `;` `->` `\\+` `!` `call/N` `time/1`,
 `sort/2` `msort/2` `keysort/2`), `term_variables/2`, `subsumes_term/2`, `is` und Vergleiche (Ganzzahlen beliebiger Größe,
 Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`, `select/3`,
 `same_length/2`, `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
-`findall/3,4`, `findnsols/4,5`, `arg/3`, `copy_term/2`,
+`findall/3,4`, `findnsols/4,5`, `countall/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
 `occurs_check`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
 `current_predicate/1`, `assert/1` `asserta/1` `assertz/1` `retract/1`

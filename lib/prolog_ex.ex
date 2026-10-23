@@ -749,6 +749,20 @@ defmodule PrologEx do
     end
   end
 
+  # countall(G, N): Anzahl der Lösungen von G, ohne sie zu sammeln
+  # (konstanter Speicher, anders als findall + length)
+  defp step({:struct, "countall", [g, n]}, _cutb, rest, st) do
+    case walk(n, st.subst) do
+      x when is_integer(x) or (is_tuple(x) and elem(x, 0) == :var) -> :ok
+      x -> raise "type_error(integer, #{format(x)})"
+    end
+
+    case unify(n, count(run(sub_machine([], g, st)), 0), st.subst) do
+      {:ok, s} -> run(%{st | goals: rest, subst: s})
+      :error -> backtrack(st)
+    end
+  end
+
   # findnsols(N, T, G, L) / findnsols(N, T, G, L, Rest) (wie SWI): jeweils
   # höchstens N Lösungen; beim Backtracking die nächsten N. Die Unter-
   # Maschine wird dazu im Choice Point aufbewahrt und fortgesetzt. Ist ein
@@ -985,16 +999,22 @@ defmodule PrologEx do
 
   # Lösungen einsammeln: höchstens n (oder :infinity). Ergebnis
   # {kopien, :done} oder {kopien, {:more, zustand}} zum Fortsetzen.
-  defp collect(:done, _n, acc), do: {Enum.reverse(acc), :done}
+  defp collect(result, n, acc), do: collect(result, n, acc, 0)
 
-  defp collect({:sol, s}, n, acc) do
+  defp collect(:done, _n, acc, _k), do: {Enum.reverse(acc), :done}
+
+  defp collect({:sol, s}, n, acc, k) do
     [{_, t}] = s.answer
     acc = [copy_fresh(t, s.subst) | acc]
+    k = k + 1
 
-    if n != :infinity and length(acc) >= n,
+    if n != :infinity and k >= n,
       do: {Enum.reverse(acc), {:more, s}},
-      else: collect(backtrack(s), n, acc)
+      else: collect(backtrack(s), n, acc, k)
   end
+
+  defp count(:done, k), do: k
+  defp count({:sol, s}, k), do: count(backtrack(s), k + 1)
 
   defp findnsols_chunk(result, k, l, tail, rest, st) do
     {items, cont} = collect(result, k, [])

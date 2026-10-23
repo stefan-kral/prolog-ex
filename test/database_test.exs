@@ -239,6 +239,43 @@ defmodule PrologEx.DatabaseTest do
     end
   end
 
+  describe "countall/2" do
+    test "zählt Lösungen", %{reader: r} do
+      db = load(r)
+      assert ask(r, db, "countall(member(_, [a, b, c]), N).") == ["N = 3"]
+      assert ask(r, db, "countall(fail, N).") == ["N = 0"]
+      assert ask(r, db, "countall(between(1, 5, _), 5).") == ["true"]
+      assert ask(r, db, "countall(between(1, 5, _), 4).") == []
+      # Cut ist lokal, Bindungen aus dem Ziel bleiben nicht
+      assert ask(r, db, "countall((member(X, [1, 2, 3]), !), N).") == ["N = 1"]
+      assert err(r, db, "countall(true, a).") =~ "type_error(integer, a)"
+      assert err(r, db, "countall(_, N).") =~ "instantiation_error"
+    end
+
+    test "Seiteneffekte bleiben, Datenbank-Änderungen auch", %{reader: r} do
+      db = load(r)
+      assert ask(r, db, "countall(inc, N), counter(C).") == ["C = 1, N = 1"]
+    end
+
+    test "große Anzahlen ohne Sammeln, findnsols nicht mehr quadratisch", %{reader: r} do
+      db = load(r)
+      {t, ["N = 300000"]} = :timer.tc(fn -> ask(r, db, "countall(between(1, 300000, _), N).") end)
+      assert t < 3_000_000
+
+      # vorher: length/1 je Lösung im Sammler, 200000 → 34 s
+      {t, ["true"]} =
+        :timer.tc(fn ->
+          ask(
+            r,
+            db,
+            "\\+ \\+ (findnsols(100000, x, between(1, 100000, _), L), !, length(L, 100000))."
+          )
+        end)
+
+      assert t < 3_000_000
+    end
+  end
+
   describe "call/2..8" do
     test "Argumente werden angehängt", %{reader: r} do
       db = load(r)
