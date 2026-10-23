@@ -55,7 +55,7 @@ defmodule PrologEx.Builtins.Order do
     s = subst()
     items = proper_list!(l, s)
     check_partial_list!(sorted, s)
-    {:unify, [{sorted, list(Order.dedup(Order.sort(items, s), s))}]}
+    {:unify, [{sorted, list(Order.sort_unique(items, s))}]}
   end
 
   # msort/2: sortiert, Duplikate bleiben
@@ -81,12 +81,7 @@ defmodule PrologEx.Builtins.Order do
         end
       end)
 
-    result =
-      keyed
-      |> Enum.sort(fn {k1, _}, {k2, _} -> Order.compare(k1, k2, s) != :gt end)
-      |> Enum.map(&elem(&1, 1))
-
-    {:unify, [{sorted, list(result)}]}
+    {:unify, [{sorted, list(Order.keysort(keyed, s))}]}
   end
 
   # term_variables(T, Vs): Variablen von T, Tiefensuche von links, ohne

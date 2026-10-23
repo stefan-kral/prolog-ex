@@ -182,6 +182,59 @@ defmodule PrologEx.OrderTest do
       end
     end
 
+    # Referenz: das ursprüngliche Sortieren über compare/3
+    defp ref_sort(l), do: Enum.sort(l, &(Order.compare(&1, &2, %{}) != :gt))
+
+    defp ref_dedup([x, y | r]),
+      do:
+        if(Order.compare(x, y, %{}) == :eq,
+          do: ref_dedup([x | r]),
+          else: [x | ref_dedup([y | r])]
+        )
+
+    defp ref_dedup(l), do: l
+
+    defp gen_list do
+      n = :rand.uniform(30) - 1
+
+      case :rand.uniform(5) do
+        # einheitlich: Integer, Zahlen (mit Gleichständen 1/1.0, 0.0/-0.0), Atome
+        1 -> for _ <- 1..n//1, do: Enum.random([0, 1, 2, -3, 10 ** 20])
+        2 -> for _ <- 1..n//1, do: Enum.random([0, 1, 1.0, 0.0, -0.0, 2.5, 2, 10 ** 20, 1.0e20])
+        3 -> for _ <- 1..n//1, do: Enum.random([a("a"), a("b"), a("ä"), a("A")])
+        _ -> for _ <- 1..n//1, do: gen(3)
+      end
+    end
+
+    test "schnelles Sortieren = Sortieren über compare/3" do
+      :rand.seed(:exsss, {5, 5, 5})
+
+      for _ <- 1..3000 do
+        l = gen_list()
+        # gleich im Sinne von compare/3 (Darstellung darf abweichen, z. B. markiert)
+        same = fn xs, ys ->
+          length(xs) == length(ys) and
+            Enum.all?(Enum.zip(xs, ys), fn {x, y} -> Order.compare(x, y, %{}) == :eq end)
+        end
+
+        assert same.(Order.sort(l, %{}), ref_sort(l)), "msort: #{inspect(l)}"
+        assert same.(Order.sort_unique(l, %{}), ref_dedup(ref_sort(l))), "sort: #{inspect(l)}"
+      end
+    end
+
+    test "keysort ist stabil, auch mit Schnellweg" do
+      :rand.seed(:exsss, {6, 6, 6})
+
+      for _ <- 1..1000 do
+        keys = gen_list()
+        pairs = Enum.with_index(keys, fn k, i -> {k, i} end)
+        got = Order.keysort(pairs, %{})
+        # stabil: bei gleichen Schlüsseln bleibt die Reihenfolge der Indizes
+        expected = Enum.sort(pairs, fn {k1, _}, {k2, _} -> Order.compare(k1, k2, %{}) != :gt end)
+        assert got == Enum.map(expected, &elem(&1, 1))
+      end
+    end
+
     test "== genau dann, wenn identisch (strikt)" do
       :rand.seed(:exsss, {8, 2, 8})
 
