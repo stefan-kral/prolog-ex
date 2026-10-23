@@ -136,9 +136,85 @@ defmodule PrologEx do
 
   def walk(t, _subst), do: t
 
-  # Einzige Stelle, an der Variablen gebunden werden. Hier kommt später
-  # der Hook für Attributvariablen (Coroutining) hinein.
+  # Einzige Stelle, an der Variablen gebunden werden. Eine attributierte
+  # Variable ({:var, {:attv, id}}) wird zusätzlich unter :wake vermerkt; die
+  # Maschine weckt danach ihre Ziele (siehe after_unify/2). Für normale
+  # Variablen kostet das nichts (Mustervergleich auf den Namen).
+  def bind({:var, {:attv, _}} = var, t, subst),
+    do: subst |> Map.put(var, t) |> Map.update(:wake, [var], &[var | &1])
+
   def bind({:var, _} = var, t, subst), do: Map.put(subst, var, t)
+
+  # ---------------------------------------------------------------------
+  # Attributierte Variablen
+  #
+  # Eine Variable bekommt Attribute, indem sie an eine frische attributierte
+  # Variable {:var, {:attv, id}} gebunden wird. Die Attribute stehen in der
+  # Substitution unter {:attrs, id} als %{modul => Prolog-Term}; damit
+  # überstehen sie Backtracking wie jede Bindung. Für alle anderen Teile
+  # des Systems ist eine attributierte Variable eine normale ungebundene
+  # Variable.
+  #
+  # Coroutining (freeze, dif, when) nutzt das Attribut "$susp": eine
+  # Prolog-Liste von '$s'(Done, Weckziel, Restziel). Wird die Variable
+  # gebunden, laufen die Weckziele aller Einträge mit ungebundenem Done.
+  # ---------------------------------------------------------------------
+
+  @doc "Ist die (dereferenzierte) Variable attributiert?"
+  def attv?({:var, {:attv, _}}), do: true
+  def attv?(_), do: false
+
+  @doc "Attribute einer Variablen (dereferenziert): Map modul => Term"
+  def get_attrs(var, subst) do
+    case walk(var, subst) do
+      {:var, {:attv, id}} -> Map.get(subst, {:attrs, id}, %{})
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  Attribut `module` der ungebundenen Variable `var` setzen. Eine normale
+  Variable wird dazu an eine neue attributierte gebunden (ohne Wecken).
+  Ergebnis: neue Substitution.
+  """
+  def put_attr(subst, var, module, value) do
+    case walk(var, subst) do
+      {:var, {:attv, id}} ->
+        Map.update(subst, {:attrs, id}, %{module => value}, &Map.put(&1, module, value))
+
+      {:var, _} = v ->
+        id = System.unique_integer([:positive])
+        subst |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{module => value})
+    end
+  end
+
+  @doc "Suspension '$s'(Done, Weckziel, Restziel) an alle Variablen hängen"
+  def suspend(subst, vars, susp) do
+    Enum.reduce(vars, subst, fn v, s ->
+      old = get_attrs(v, s) |> Map.get("$susp", [])
+      put_attr(s, v, "$susp", append_term(old, susp))
+    end)
+  end
+
+  defp append_term([], x), do: [x]
+  defp append_term([h | t], x), do: [h | append_term(t, x)]
+  defp append_term({:glist, _} = l, x), do: append_term(unmark(l), x)
+
+  @doc "Aktive Suspensionen ('$s'-Terme mit ungebundenem Done) einer Variablen"
+  def suspensions(var, subst) do
+    var
+    |> get_attrs(subst)
+    |> Map.get("$susp", [])
+    |> prolog_items()
+    |> Enum.filter(fn s ->
+      {_, "$s", [done, _, _]} = unmark_top(s)
+      match?({:var, _}, walk(done, subst))
+    end)
+  end
+
+  defp prolog_items([]), do: []
+  defp prolog_items([h | t]), do: [h | prolog_items(t)]
+  defp prolog_items({:glist, l}), do: prolog_items(unmark({:glist, l}))
 
   # ---------------------------------------------------------------------
   # Occurs-Check (Flag occurs_check = false | true | error)
@@ -190,10 +266,21 @@ defmodule PrologEx do
 
     cond do
       # strikt: 1 und 1.0 sind verschiedene Terme (Elixirs == hält sie für gleich)
-      x === y -> {:ok, subst}
-      match?({:var, _}, x) -> bind_checked(x, y, subst)
-      match?({:var, _}, y) -> bind_checked(y, x, subst)
-      true -> unify_struct(x, y, subst)
+      x === y ->
+        {:ok, subst}
+
+      # normale Variable an attributierte binden, nicht umgekehrt (kein Wecken)
+      match?({:var, {:attv, _}}, x) and match?({:var, _}, y) and not attv?(y) ->
+        bind_checked(y, x, subst)
+
+      match?({:var, _}, x) ->
+        bind_checked(x, y, subst)
+
+      match?({:var, _}, y) ->
+        bind_checked(y, x, subst)
+
+      true ->
+        unify_struct(x, y, subst)
     end
   end
 
@@ -753,9 +840,12 @@ defmodule PrologEx do
             # catch/3-Rahmen, deren Ziel gerade verlassen ist (siehe catch/3)
             catch_off: MapSet.new()
 
-  defp run(st) do
-    st = maybe_compact(st)
+  # (vor dem Wecken nicht kompaktieren: $wake braucht die Attribute der
+  # eben gebundenen Variablen)
+  defp run(%{goals: [{{:"$wake", _}, _, _} | _]} = st), do: run_step(st)
+  defp run(st), do: run_step(maybe_compact(st))
 
+  defp run_step(st) do
     case st.goals do
       [] -> {:sol, st}
       [{goal, cutb, mod} | rest] -> step(unmark_top(walk(goal, st.subst)), cutb, mod, rest, st)
@@ -804,7 +894,7 @@ defmodule PrologEx do
 
   defp step({:struct, "=", [x, y]}, _cutb, _mod, rest, st) do
     case guarded(fn -> unify(x, y, st.subst) end) do
-      {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
+      {:ok, {:ok, s1}} -> cont(st, s1, rest)
       {:ok, :error} -> backtrack(st)
       {:thrown, ball} -> throw_ball(ball, st)
     end
@@ -828,7 +918,7 @@ defmodule PrologEx do
     case guarded(fn -> collect(run(sub_machine(t, g, mod, st)), :infinity, []) end) do
       {:ok, {items, :done}} ->
         case unify(l, list(items, tail), st.subst) do
-          {:ok, s} -> run(%{st | goals: rest, subst: s})
+          {:ok, s} -> cont(st, s, rest)
           :error -> backtrack(st)
         end
 
@@ -853,7 +943,7 @@ defmodule PrologEx do
     case counted do
       {:ok, k} ->
         case unify(n, k, st.subst) do
-          {:ok, s} -> run(%{st | goals: rest, subst: s})
+          {:ok, s} -> cont(st, s, rest)
           :error -> backtrack(st)
         end
 
@@ -892,7 +982,7 @@ defmodule PrologEx do
 
   defp step({:struct, "is", [x, expr]}, _cutb, _mod, rest, st) do
     case guarded(fn -> unify(x, eval(expr, st.subst), st.subst) end) do
-      {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
+      {:ok, {:ok, s1}} -> cont(st, s1, rest)
       {:ok, :error} -> backtrack(st)
       {:thrown, ball} -> throw_ball(ball, st)
     end
@@ -912,6 +1002,10 @@ defmodule PrologEx do
 
   defp step(n, _cutb, _mod, _rest, st) when is_number(n),
     do: throw_error(st, fn -> PrologEx.Error.type!("callable", n) end)
+
+  # Weckziele attributierter Variablen (siehe after_unify/2)
+  defp step({:"$wake", attvs}, _cutb, _mod, rest, st),
+    do: run(%{st | goals: wake_goals(attvs, st) ++ rest})
 
   # M:G – G im Modul M ausführen (transparent für den Cut)
   defp step({:struct, ":", [m, g]}, cutb, _mod, rest, st) do
@@ -1023,6 +1117,7 @@ defmodule PrologEx do
             backtrack(st)
 
           {:ok, s} ->
+            {s, rest} = after_unify(s, rest)
             st = %{st | subst: s}
 
             if st.height == h + 1,
@@ -1159,6 +1254,29 @@ defmodule PrologEx do
 
   defp ctx(st, mod), do: %{subst: st.subst, db: current_db(), module: mod}
 
+  # Nach einer erfolgreichen Unifikation weitermachen. Wurden dabei
+  # attributierte Variablen gebunden (:wake), laufen deren Weckziele vor
+  # dem Rest (wie SICStus: am nächsten Aufruf-Port).
+  defp cont(st, s, goals) do
+    {s, goals} = after_unify(s, goals)
+    run(%{st | goals: goals, subst: s})
+  end
+
+  defp after_unify(%{wake: ws} = s, goals),
+    do: {Map.delete(s, :wake), [{{:"$wake", Enum.reverse(ws)}, 0, "system"} | goals]}
+
+  defp after_unify(s, goals), do: {s, goals}
+
+  # Weckziele der gebundenen attributierten Variablen, in der Reihenfolge,
+  # in der sie angehängt wurden; jedes wie call/1 (Cut lokal)
+  defp wake_goals(attvs, st) do
+    for {:var, {:attv, id}} <- attvs,
+        susp <- prolog_items(Map.get(Map.get(st.subst, {:attrs, id}, %{}), "$susp", [])),
+        {_, "$s", [done, wake, _residual]} = unmark_top(susp),
+        match?({:var, _}, walk(done, st.subst)),
+        do: {wake, st.height, "system"}
+  end
+
   # Ergebnis eines Builtins (siehe PrologEx.Builtin) umsetzen
   defp apply_result(result, mod, rest, st) do
     case result do
@@ -1170,13 +1288,17 @@ defmodule PrologEx do
 
       {:unify, pairs} ->
         case guarded(fn -> unify_pairs(pairs, st.subst) end) do
-          {:ok, {:ok, s}} -> run(%{st | goals: rest, subst: s})
+          {:ok, {:ok, s}} -> cont(st, s, rest)
           {:ok, :error} -> backtrack(st)
           {:thrown, ball} -> throw_ball(ball, st)
         end
 
       {:call, goal} ->
         run(%{st | goals: [{goal, st.height, mod} | rest]})
+
+      # neue Substitution (z. B. Attribute gesetzt: freeze, dif, when)
+      {:subst, s} ->
+        cont(st, s, rest)
 
       other ->
         raise "Builtin lieferte ungültiges Ergebnis: #{inspect(other)}"
@@ -1267,7 +1389,7 @@ defmodule PrologEx do
       end
 
     case unify(l, list(items, tail), st.subst) do
-      {:ok, s} -> run(%{st | goals: rest, subst: s})
+      {:ok, s} -> cont(st, s, rest)
       :error -> backtrack(st)
     end
   end
@@ -1320,7 +1442,7 @@ defmodule PrologEx do
             else: push(st, {:clauses, goal, args, more, rest, mod, st.subst, st.answer})
 
         goals = inst_goals(body, env, nv, barrier, mod, rest)
-        run(%{st | goals: goals, subst: s1, next_var: nv + nfresh})
+        cont(%{st | next_var: nv + nfresh}, s1, goals)
     end
   end
 
@@ -1412,8 +1534,8 @@ defmodule PrologEx do
     else
       case unify(c, ball, subst) do
         {:ok, s} ->
-          st = %{st | cps: below, height: h - 1, subst: s, answer: answer}
-          run(%{st | goals: [{r, h - 1, mod} | rest]})
+          st = %{st | cps: below, height: h - 1, answer: answer}
+          cont(st, s, [{r, h - 1, mod} | rest])
 
         :error ->
           unwind(ball, below, h - 1, st)
@@ -1446,11 +1568,15 @@ defmodule PrologEx do
         {{g, cutb, mod}, acc}
       end)
 
-    {answer, {_memo, size}} =
+    {answer, {memo, size}} =
       Enum.map_reduce(st.answer, {memo, size}, fn {n, t}, acc ->
         {t, acc} = compact(t, st.subst, acc)
         {{n, t}, acc}
       end)
+
+    # Attribute der noch lebenden attributierten Variablen mitnehmen (sie
+    # können selbst wieder solche enthalten)
+    {attrs, size} = compact_attrs(attvs_in(memo), MapSet.new(), %{}, {memo, size}, st.subst)
 
     # Zähler von call_nth/2, deren Aufräum-Choice-Point (z. B. durch einen
     # Cut) verschwunden ist, werden nie mehr gebraucht
@@ -1461,10 +1587,45 @@ defmodule PrologEx do
       st
       | goals: goals,
         answer: answer,
-        subst: %{},
+        subst: attrs,
         counters: counters,
         threshold: max(st.min_threshold, 2 * size)
     }
+  end
+
+  defp term_attvs({:var, {:attv, id}}, acc), do: [id | acc]
+  defp term_attvs({:struct, _, args}, acc), do: Enum.reduce(args, acc, &term_attvs/2)
+  defp term_attvs([h | t], acc), do: term_attvs(t, term_attvs(h, acc))
+  defp term_attvs(_, acc), do: acc
+
+  defp attvs_in(memo) do
+    for {_var, {{:var, {:attv, id}}, _}} <- memo, uniq: true, do: id
+  end
+
+  defp compact_attrs([], _done, out, {_memo, size}, _subst), do: {out, size}
+
+  defp compact_attrs([id | ids], done, out, acc, subst) do
+    if MapSet.member?(done, id) or not Map.has_key?(subst, {:attrs, id}) do
+      compact_attrs(ids, MapSet.put(done, id), out, acc, subst)
+    else
+      {attrs, {memo, _} = acc} =
+        Enum.reduce(Map.fetch!(subst, {:attrs, id}), {%{}, acc}, fn {m, t}, {as, acc} ->
+          {t, acc} = compact(t, subst, acc)
+          {Map.put(as, m, t), acc}
+        end)
+
+      _ = memo
+      # attributierte Variablen in den (kompaktierten) Attributen selbst
+      new = Enum.flat_map(attrs, fn {_m, t} -> term_attvs(t, []) end)
+
+      compact_attrs(
+        new ++ ids,
+        MapSet.put(done, id),
+        Map.put(out, {:attrs, id}, attrs),
+        acc,
+        subst
+      )
+    end
   end
 
   defp compact(t, subst, acc) do
@@ -1662,7 +1823,46 @@ defmodule PrologEx do
 
   defp emit({:sol, st}) do
     ans = Map.new(st.answer, fn {n, t} -> {n, resolve(t, st.subst)} end)
+
+    # Restziele (freeze, dif, when) der in der Antwort vorkommenden
+    # attributierten Variablen, wie im SWI/SICStus-Toplevel
+    ans =
+      case residual_goals(Map.values(ans), st.subst) do
+        [] -> ans
+        goals -> Map.put(ans, "$residual", goals)
+      end
+
     if st.height > 0, do: {{ans, true}, {:retry, st}}, else: {{ans, false}, :halt}
+  end
+
+  defp residual_goals(terms, subst) do
+    ids = Enum.flat_map(terms, &term_attvs(&1, [])) |> Enum.reverse()
+    residuals(ids, MapSet.new(), MapSet.new(), [], subst)
+  end
+
+  defp residuals([], _seen, _dones, acc, _subst), do: Enum.reverse(acc)
+
+  defp residuals([id | ids], seen, dones, acc, subst) do
+    if MapSet.member?(seen, id) do
+      residuals(ids, seen, dones, acc, subst)
+    else
+      {acc, dones, more} =
+        Enum.reduce(suspensions({:var, {:attv, id}}, subst), {acc, dones, []}, fn susp,
+                                                                                  {acc, dones,
+                                                                                   more} ->
+          {_, "$s", [done, _wake, res]} = unmark_top(susp)
+          done = walk(done, subst)
+
+          if MapSet.member?(dones, done) do
+            {acc, dones, more}
+          else
+            res = resolve(res, subst)
+            {[res | acc], MapSet.put(dones, done), more ++ Enum.reverse(term_attvs(res, []))}
+          end
+        end)
+
+      residuals(ids ++ more, MapSet.put(seen, id), dones, acc, subst)
+    end
   end
 
   # Ungebundene Variablen in Antworten benennen wie SWI: Anfragevariablen,
@@ -1670,7 +1870,7 @@ defmodule PrologEx do
   # "X = Y, Y = Z" (in Anfragereihenfolge), und die Variable selbst heißt
   # wie die letzte (Z). Aus "R = [2, _G2], Y = _G2" wird so "R = [2, Y]".
   # Die Richtung von Var-Var-Bindungen spielt für die Ausgabe keine Rolle.
-  defp name_fresh(ans) do
+  defp name_fresh_r(ans) do
     # ans: [{name, term}] in Anfragereihenfolge
     groups =
       ans
@@ -1678,7 +1878,7 @@ defmodule PrologEx do
       |> Enum.group_by(fn {_, {:var, v}} -> v end, &elem(&1, 0))
 
     if Enum.all?(groups, fn {v, ns} -> ns == [v] end) do
-      ans
+      {ans, %{}}
     else
       renames = Map.new(groups, fn {v, ns} -> {v, List.last(ns)} end)
 
@@ -1688,7 +1888,7 @@ defmodule PrologEx do
             into: %{},
             do: {n, {:var, next}}
 
-      Enum.map(ans, fn {n, t} -> {n, Map.get(chain, n) || rename_free(t, renames)} end)
+      {Enum.map(ans, fn {n, t} -> {n, Map.get(chain, n) || rename_free(t, renames)} end), renames}
     end
   end
 
@@ -1733,6 +1933,7 @@ defmodule PrologEx do
 
   defp fmt({:var, n}) when is_integer(n), do: ["_G", Integer.to_string(n)]
   defp fmt({:var, n}) when is_binary(n), do: n
+  defp fmt({:var, {:attv, id}}), do: ["_V", Integer.to_string(id)]
   defp fmt({:var, n}), do: inspect(n)
   defp fmt({:atom, n}), do: n
   defp fmt(n) when is_integer(n), do: Integer.to_string(n)
@@ -1760,18 +1961,31 @@ defmodule PrologEx do
   # `order`: Namen in Anfragereihenfolge (für Variablenketten wie SWI);
   # ohne Angabe alphabetisch. Die Ausgabe ist alphabetisch sortiert.
   def format_answer(ans, order \\ nil) do
+    {residual, ans} = Map.pop(ans, "$residual", [])
     order = order || Map.keys(ans) |> Enum.sort()
 
-    named =
+    {named, renames} =
       order
       |> Enum.filter(&Map.has_key?(ans, &1))
       |> Enum.map(&{&1, Map.fetch!(ans, &1)})
-      |> name_fresh()
-      |> Enum.sort()
+      |> name_fresh_r()
 
-    case Enum.reject(named, fn {k, t} -> t == {:var, k} end) do
+    bindings =
+      named
+      |> Enum.sort()
+      |> Enum.reject(fn {k, t} -> t == {:var, k} end)
+      |> Enum.map(fn {k, t} -> "#{k} = #{format(t)}" end)
+
+    goals = Enum.map(residual, &(&1 |> rename_free(renames) |> strip_user() |> format()))
+
+    case bindings ++ goals do
       [] -> "true"
-      shown -> Enum.map_join(shown, ", ", fn {k, t} -> "#{k} = #{format(t)}" end)
+      shown -> Enum.join(shown, ", ")
     end
   end
+
+  # user:G in Restzielen wie SWI ohne Modul zeigen
+  defp strip_user({:struct, ":", [{:atom, "user"}, g]}), do: strip_user(g)
+  defp strip_user({:struct, f, args}), do: {:struct, f, Enum.map(args, &strip_user/1)}
+  defp strip_user(t), do: t
 end

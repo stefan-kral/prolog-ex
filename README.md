@@ -88,6 +88,25 @@ und fangbar. Nicht Gefangenes meldet der Toplevel als `Fehler: …`.
 Noch nicht: Ausgabe in
 Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
 
+## Coroutining
+
+`freeze/2`, `frozen/2`, `dif/2`, `when/2` (Bedingungen `nonvar/1`,
+`ground/1`, `?=/2`, `,`, `;`), dazu `?=/2` und `ground/1`. Verzögerte Ziele
+laufen, sobald eine ihrer Variablen gebunden wird – vor dem nächsten Ziel,
+auch nach Bindungen im Klauselkopf oder in Builtins. Offene Bedingungen
+zeigt der Toplevel als Restziele:
+
+```
+?- dif(f(X, Y), f(1, 2)), X = 1.
+X = 1, dif(f(1, Y), f(1, 2)).
+```
+
+Grundlage sind attributierte Variablen (`PrologEx.put_attr/4`): Attribute
+stehen in der Substitution und überstehen damit Backtracking; normale
+Variablen kosten nichts extra. Eine öffentliche Schnittstelle im
+SICStus-Stil (`put_atts/get_atts`, `verify_attributes/3`) kommt später.
+`copy_term/2` und `findall/3` kopieren Attribute (noch) nicht mit.
+
 ## Module
 
 Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
