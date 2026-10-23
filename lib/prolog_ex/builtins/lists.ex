@@ -149,10 +149,10 @@ defmodule PrologEx.Builtins.Lists do
         ]
 
       {{:var, _}, _} ->
-        raise "type_error(list, #{format(resolve(ys))})"
+        PrologEx.Error.type!("list", resolve(ys))
 
       _ ->
-        raise "type_error(list, #{format(resolve(xs))})"
+        PrologEx.Error.type!("list", resolve(xs))
     end
   end
 
@@ -212,9 +212,9 @@ defmodule PrologEx.Builtins.Lists do
     case {deref(lo), deref(hi)} do
       {a, b} when is_integer(a) and is_integer(b) and a > b -> :fail
       {a, b} when is_integer(a) and is_integer(b) -> {:unify, [{l, {:glist, Enum.to_list(a..b)}}]}
-      {{:var, _}, _} -> raise "instantiation_error"
-      {_, {:var, _}} -> raise "instantiation_error"
-      {a, b} -> raise "type_error(integer, #{format(if is_integer(a), do: b, else: a)})"
+      {{:var, _}, _} -> PrologEx.Error.instantiation!()
+      {_, {:var, _}} -> PrologEx.Error.instantiation!()
+      {a, b} -> PrologEx.Error.type!("integer", if(is_integer(a), do: b, else: a))
     end
   end
 
@@ -234,7 +234,7 @@ defmodule PrologEx.Builtins.Lists do
     case deref(x) do
       n when is_integer(n) -> if n >= l and (h == :inf or n <= h), do: [:ok], else: []
       {:var, _} -> between_from(l, h, x)
-      other -> raise "type_error(integer, #{format(other)})"
+      other -> PrologEx.Error.type!("integer", other)
     end
   end
 
@@ -288,7 +288,7 @@ defmodule PrologEx.Builtins.Lists do
             []
 
           k when is_integer(k) ->
-            raise "domain_error(not_less_than_zero, #{k})"
+            PrologEx.Error.domain!("not_less_than_zero", k)
 
           {:var, _} ->
             Stream.map(Stream.iterate(0, &(&1 + 1)), fn i ->
@@ -296,11 +296,11 @@ defmodule PrologEx.Builtins.Lists do
             end)
 
           other ->
-            raise "type_error(integer, #{format(other)})"
+            PrologEx.Error.type!("integer", other)
         end
 
       _ ->
-        raise "type_error(list, #{format(resolve(l))})"
+        PrologEx.Error.type!("list", resolve(l))
     end
   end
 
@@ -407,7 +407,7 @@ defmodule PrologEx.Builtins.Lists do
       {:var, _} when r == nil -> nth_enum(base, i, l, e, nil, [], 0, s)
       # nth/4 mit offenem Index: in Prolog ($nth4), damit der Rest geteilt wird
       {:var, _} -> [{:call, nth4_goal(base, i, l, e, r)}]
-      other -> raise "type_error(integer, #{format(other)})"
+      other -> PrologEx.Error.type!("integer", other)
     end
   end
 
@@ -472,8 +472,8 @@ defmodule PrologEx.Builtins.Lists do
   defp between_from(l, h, x), do: [{:unify, [{x, l}]} | fn -> between_from(l + 1, h, x) end]
 
   defp int_arg(n) when is_integer(n), do: n
-  defp int_arg({:var, _}), do: raise("instantiation_error")
-  defp int_arg(other), do: raise("type_error(integer, #{format(other)})")
+  defp int_arg({:var, _}), do: PrologEx.Error.instantiation!()
+  defp int_arg(other), do: PrologEx.Error.type!("integer", other)
 
   defp fresh_list(0), do: []
   defp fresh_list(k), do: Enum.map(1..k, fn _ -> fresh_var() end)

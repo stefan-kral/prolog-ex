@@ -33,7 +33,7 @@ defmodule PrologEx.ListUtilsTest do
   defp det?(c, text),
     do: c.db |> PrologEx.solutions(goal(c, text)) |> Enum.map(&elem(&1, 1)) == [false]
 
-  defp err(c, text), do: assert_raise(RuntimeError, fn -> ask(c, text) end).message
+  defp err(c, text), do: Exception.message(assert_raise(PrologEx.Error, fn -> ask(c, text) end))
 
   test "last/2, reverse/2, proper_length/2", c do
     assert ask(c, "last([1, 2, 3], X).") == ["X = 3"]

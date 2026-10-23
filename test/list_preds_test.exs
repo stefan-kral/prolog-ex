@@ -38,7 +38,7 @@ defmodule PrologEx.ListPredsTest do
   defp all(goal, n \\ 20), do: db() |> query(goal) |> Enum.take(n) |> Enum.map(&format_answer/1)
   defp more(goal), do: db() |> solutions(goal) |> Enum.take(20) |> Enum.map(&elem(&1, 1))
 
-  defp error(goal), do: assert_raise(RuntimeError, fn -> Enum.take(query(db(), goal), 1) end)
+  defp error(goal), do: assert_raise(PrologEx.Error, fn -> Enum.take(query(db(), goal), 1) end)
 
   # Antworten als Varianten vergleichen
   defp norm(answers) do

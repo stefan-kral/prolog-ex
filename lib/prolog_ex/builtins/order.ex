@@ -35,9 +35,9 @@ defmodule PrologEx.Builtins.Order do
     case deref(order) do
       {:var, _} -> :ok
       {:atom, o} when o in ["<", "=", ">"] -> :ok
-      {:atom, _} = o -> raise "domain_error(order, #{format(o)})"
-      [] -> raise "domain_error(order, [])"
-      other -> raise "type_error(atom, #{format(resolve(other))})"
+      {:atom, _} = o -> PrologEx.Error.domain!("order", o)
+      [] -> PrologEx.Error.domain!("order", [])
+      other -> PrologEx.Error.type!("atom", resolve(other))
     end
 
     sym =
@@ -76,8 +76,8 @@ defmodule PrologEx.Builtins.Order do
       Enum.map(items, fn item ->
         case PrologEx.unmark_top(PrologEx.walk(item, s)) do
           {:struct, "-", [k, _v]} -> {k, item}
-          {:var, _} -> raise "instantiation_error"
-          other -> raise "type_error(pair, #{format(PrologEx.resolve(other, s))})"
+          {:var, _} -> PrologEx.Error.instantiation!()
+          other -> PrologEx.Error.type!("pair", PrologEx.resolve(other, s))
         end
       end)
 
@@ -178,8 +178,8 @@ defmodule PrologEx.Builtins.Order do
   defp proper_list!(l, s) do
     case Lists.skip_list(l, s) do
       {_, []} -> Lists.items(l, s)
-      {_, {:var, _}} -> raise "instantiation_error"
-      _ -> raise "type_error(list, #{format(PrologEx.resolve(l, s))})"
+      {_, {:var, _}} -> PrologEx.Error.instantiation!()
+      _ -> PrologEx.Error.type!("list", PrologEx.resolve(l, s))
     end
   end
 
@@ -188,7 +188,7 @@ defmodule PrologEx.Builtins.Order do
     case Lists.skip_list(l, s) do
       {_, []} -> :ok
       {_, {:var, _}} -> :ok
-      _ -> raise "type_error(list, #{format(PrologEx.resolve(l, s))})"
+      _ -> PrologEx.Error.type!("list", PrologEx.resolve(l, s))
     end
   end
 end

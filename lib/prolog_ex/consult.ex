@@ -43,7 +43,7 @@ defmodule PrologEx.Consult do
       fact -> add_clause({fact, PrologEx.a("true")}, st)
     end
   rescue
-    e in RuntimeError -> msg(st, "Fehler: #{e.message}")
+    e in [RuntimeError, PrologEx.Error] -> msg(st, "Fehler: #{Exception.message(e)}")
   end
 
   defp add_clause({head, _} = cl, st) do
@@ -51,7 +51,12 @@ defmodule PrologEx.Consult do
 
     if PrologEx.Builtins.protected?(key) do
       {name, arity} = key
-      raise "permission_error(modify, static_procedure, #{name}/#{arity})"
+
+      PrologEx.Error.permission!(
+        "modify",
+        "static_procedure",
+        PrologEx.Error.indicator(name, arity)
+      )
     end
 
     case Map.fetch(st.pending, key) do
@@ -90,7 +95,8 @@ defmodule PrologEx.Consult do
       [] -> msg(st, "Warnung: #{what} gescheitert: #{PrologEx.format(g)}")
     end
   rescue
-    e in RuntimeError -> msg(st, "Fehler in #{what} #{PrologEx.format(g)}: #{e.message}")
+    e in [RuntimeError, PrologEx.Error] ->
+      msg(st, "Fehler in #{what} #{PrologEx.format(g)}: #{Exception.message(e)}")
   end
 
   # foo/1, (foo/1, bar/2) oder [foo/1, bar/2]
@@ -98,7 +104,7 @@ defmodule PrologEx.Consult do
   defp specs({:struct, "/", [{:atom, n}, ar]}) when is_integer(ar), do: [{n, ar}]
   defp specs([h | t]), do: specs(h) ++ specs(t)
   defp specs([]), do: []
-  defp specs(other), do: raise("type_error(predicate_indicator, #{PrologEx.format(other)})")
+  defp specs(other), do: PrologEx.Error.type!("predicate_indicator", other)
 
   defp msg(st, m), do: %{st | msgs: [m | st.msgs]}
 end

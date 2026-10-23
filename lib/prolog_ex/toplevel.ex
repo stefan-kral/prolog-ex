@@ -152,7 +152,7 @@ defmodule PrologEx.Toplevel do
     try do
       show(answers, mode, PrologEx.query_var_names(goal))
     rescue
-      e in RuntimeError -> IO.puts("Fehler: #{e.message}")
+      e in [RuntimeError, PrologEx.Error] -> IO.puts("Fehler: #{Exception.message(e)}")
     end
 
     if mode != :goal, do: IO.puts("")

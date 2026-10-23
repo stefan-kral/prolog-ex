@@ -35,7 +35,7 @@ defmodule PrologEx.Builtins.Database do
 
     key =
       case PrologEx.walk(h, s) do
-        {:var, _} -> raise "instantiation_error"
+        {:var, _} -> PrologEx.Error.instantiation!()
         hh -> Compiler.key(hh)
       end
 
@@ -57,7 +57,7 @@ defmodule PrologEx.Builtins.Database do
 
     head =
       case PrologEx.walk(h, s) do
-        {:var, _} -> raise "instantiation_error"
+        {:var, _} -> PrologEx.Error.instantiation!()
         hh -> hh
       end
 
@@ -99,7 +99,7 @@ defmodule PrologEx.Builtins.Database do
 
   # ---------------------------------------------------------------------
 
-  defp specs({:var, _}), do: raise("instantiation_error")
+  defp specs({:var, _}), do: PrologEx.Error.instantiation!()
   defp specs({tag, ",", [a, b]}) when tag in [:struct, :gstruct], do: specs(a) ++ specs(b)
 
   defp specs({tag, "/", [{:atom, n}, ar]}) when tag in [:struct, :gstruct] and is_integer(ar),
@@ -108,14 +108,14 @@ defmodule PrologEx.Builtins.Database do
   defp specs([]), do: []
   defp specs([h | t]), do: specs(h) ++ specs(t)
   defp specs({:glist, _} = l), do: specs(PrologEx.unmark(l))
-  defp specs(t), do: raise("type_error(predicate_indicator, #{PrologEx.format(t)})")
+  defp specs(t), do: PrologEx.Error.type!("predicate_indicator", t)
 
   defp add(c, where, s) do
     {h, b} = split(c, s)
 
     key =
       case PrologEx.walk(h, s) do
-        {:var, _} -> raise "instantiation_error"
+        {:var, _} -> PrologEx.Error.instantiation!()
         hh -> Compiler.key(hh)
       end
 
@@ -152,7 +152,7 @@ defmodule PrologEx.Builtins.Database do
   # (H :- B) oder H (Rumpf true)
   defp split(c, s) do
     case PrologEx.unmark_top(PrologEx.walk(c, s)) do
-      {:var, _} -> raise "instantiation_error"
+      {:var, _} -> PrologEx.Error.instantiation!()
       {:struct, ":-", [h, b]} -> {h, b}
       h -> {h, a("true")}
     end
@@ -220,7 +220,12 @@ defmodule PrologEx.Builtins.Database do
   end
 
   defp permission!({name, arity}),
-    do: raise("permission_error(modify, static_procedure, #{name}/#{arity})")
+    do:
+      PrologEx.Error.permission!(
+        "modify",
+        "static_procedure",
+        PrologEx.Error.indicator(name, arity)
+      )
 
   # Variablen in Reihenfolge des ersten Auftretens A, B, ..., Z, A1, ...
   defp nice_vars(t) do

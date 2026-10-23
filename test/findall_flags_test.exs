@@ -24,7 +24,7 @@ defmodule PrologEx.FindallFlagsTest do
     do: db() |> query(goal, opts) |> Enum.take(20) |> Enum.map(&format_answer/1)
 
   defp more(goal), do: db() |> solutions(goal) |> Enum.take(20) |> Enum.map(&elem(&1, 1))
-  defp error(goal), do: assert_raise(RuntimeError, fn -> Enum.take(query(db(), goal), 1) end)
+  defp error(goal), do: assert_raise(PrologEx.Error, fn -> Enum.take(query(db(), goal), 1) end)
   defp first(goal), do: db() |> query(goal) |> Enum.take(1) |> hd()
 
   describe "findall/3,4" do

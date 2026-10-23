@@ -16,7 +16,7 @@ defmodule PrologEx.LibraryTest do
     do: db() |> query(goal) |> Enum.take(limit) |> Enum.map(&format_answer/1)
 
   defp error(goal) do
-    assert_raise RuntimeError, fn -> Enum.take(query(db(), goal), 1) end
+    assert_raise PrologEx.Error, fn -> Enum.take(query(db(), goal), 1) end
   end
 
   # Antworten als Varianten vergleichbar machen: alle Variablen (Anfrage-

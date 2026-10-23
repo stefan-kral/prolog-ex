@@ -14,7 +14,7 @@ defmodule PrologEx.OrderTest do
   defp ok?(goal), do: all(goal) != []
 
   defp error(goal) do
-    assert_raise RuntimeError, fn -> Enum.take(query(db(), goal), 1) end
+    assert_raise PrologEx.Error, fn -> Enum.take(query(db(), goal), 1) end
   end
 
   describe "Gleichheit ist strikt" do

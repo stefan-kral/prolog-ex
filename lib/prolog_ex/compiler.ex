@@ -66,7 +66,7 @@ defmodule PrologEx.Compiler do
   def key({:atom, f}), do: {f, 0}
   def key([]), do: {"[]", 0}
   def key([_ | _]), do: {".", 2}
-  def key(t), do: raise("type_error(callable, #{PrologEx.format(t)})")
+  def key(t), do: PrologEx.Error.type!("callable", t)
 
   def args_of({:struct, _, args}), do: args
   def args_of({:gstruct, _, args}), do: args

@@ -36,8 +36,8 @@ defmodule PrologEx.DatabaseTest do
   defp sols(r, db, text), do: db |> PrologEx.solutions(goal(r, text)) |> Enum.to_list()
 
   defp err(r, db, text) do
-    e = assert_raise(RuntimeError, fn -> ask(r, db, text) end)
-    e.message
+    e = assert_raise(PrologEx.Error, fn -> ask(r, db, text) end)
+    Exception.message(e)
   end
 
   describe "assert" do

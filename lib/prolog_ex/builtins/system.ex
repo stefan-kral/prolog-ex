@@ -11,7 +11,7 @@ defmodule PrologEx.Builtins.System do
   defbuiltin "clause", [h, b], nondet: true do
     head =
       case deref(h) do
-        {:var, _} -> raise "instantiation_error"
+        {:var, _} -> PrologEx.Error.instantiation!()
         hh -> hh
       end
 
@@ -38,10 +38,10 @@ defmodule PrologEx.Builtins.System do
         ar = deref(arity)
 
         unless match?({:var, _}, nm) or match?({:atom, _}, nm) or nm == [],
-          do: raise("type_error(predicate_indicator, #{format(resolve(pi))})")
+          do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
 
         unless match?({:var, _}, ar) or is_integer(ar),
-          do: raise("type_error(predicate_indicator, #{format(resolve(pi))})")
+          do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
 
         for {n, k} <- keys,
             match?({:var, _}, nm) or a(n) == nm,
@@ -49,7 +49,7 @@ defmodule PrologEx.Builtins.System do
             do: {:unify, [{name, a(n)}, {arity, k}]}
 
       other ->
-        raise "type_error(predicate_indicator, #{format(resolve(other))})"
+        PrologEx.Error.type!("predicate_indicator", resolve(other))
     end
   end
 
@@ -64,16 +64,30 @@ defmodule PrologEx.Builtins.System do
         case Builtins.lookup(key) do
           {:prolog, pred, _} ->
             if String.starts_with?(name, "$"),
-              do: raise("permission_error(access, private_procedure, #{name}/#{arity})"),
+              do:
+                PrologEx.Error.permission!(
+                  "access",
+                  "private_procedure",
+                  PrologEx.Error.indicator(name, arity)
+                ),
               else: PrologEx.pred_source(pred)
 
           nil ->
             if Builtins.protected?(key),
-              do: raise("permission_error(access, private_procedure, #{name}/#{arity})"),
+              do:
+                PrologEx.Error.permission!(
+                  "access",
+                  "private_procedure",
+                  PrologEx.Error.indicator(name, arity)
+                ),
               else: []
 
           _elixir ->
-            raise "permission_error(access, private_procedure, #{name}/#{arity})"
+            PrologEx.Error.permission!(
+              "access",
+              "private_procedure",
+              PrologEx.Error.indicator(name, arity)
+            )
         end
     end
   end
@@ -99,21 +113,21 @@ defmodule PrologEx.Builtins.System do
 
       {:atom, name} ->
         case Flags.get(name) do
-          nil -> raise "domain_error(prolog_flag, #{name})"
+          nil -> PrologEx.Error.domain!("prolog_flag", a(name))
           v -> [{:unify, [{value, v}]}]
         end
 
       other ->
-        raise "type_error(atom, #{format(resolve(other))})"
+        PrologEx.Error.type!("atom", resolve(other))
     end
   end
 
   defbuiltin "set_prolog_flag", [flag, value] do
     case {deref(flag), deref(value)} do
-      {{:var, _}, _} -> raise "instantiation_error"
-      {_, {:var, _}} -> raise "instantiation_error"
+      {{:var, _}, _} -> PrologEx.Error.instantiation!()
+      {_, {:var, _}} -> PrologEx.Error.instantiation!()
       {{:atom, name}, v} -> Flags.set(name, resolve(v))
-      {other, _} -> raise "type_error(atom, #{format(resolve(other))})"
+      {other, _} -> PrologEx.Error.type!("atom", resolve(other))
     end
   end
 end

@@ -18,8 +18,8 @@ defmodule PrologEx.Builtins.Core do
   defbuiltin "$must_be_integer", [x] do
     case deref(x) do
       n when is_integer(n) -> :ok
-      {:var, _} -> raise "instantiation_error"
-      other -> raise "type_error(integer, #{format(other)})"
+      {:var, _} -> PrologEx.Error.instantiation!()
+      other -> PrologEx.Error.type!("integer", other)
     end
   end
 
@@ -45,13 +45,13 @@ defmodule PrologEx.Builtins.Core do
   defbuiltin "succ", [x, y] do
     case {deref(x), deref(y)} do
       {a, _} when is_integer(a) and a >= 0 -> {:unify, [{y, a + 1}]}
-      {a, _} when is_integer(a) -> raise "type_error(not_less_than_zero, #{a})"
+      {a, _} when is_integer(a) -> PrologEx.Error.type!("not_less_than_zero", a)
       {{:var, _}, 0} -> :fail
       {{:var, _}, b} when is_integer(b) and b > 0 -> {:unify, [{x, b - 1}]}
-      {{:var, _}, b} when is_integer(b) -> raise "type_error(not_less_than_zero, #{b})"
-      {{:var, _}, {:var, _}} -> raise "instantiation_error"
-      {{:var, _}, b} -> raise "type_error(integer, #{format(b)})"
-      {a, _} -> raise "type_error(integer, #{format(a)})"
+      {{:var, _}, b} when is_integer(b) -> PrologEx.Error.type!("not_less_than_zero", b)
+      {{:var, _}, {:var, _}} -> PrologEx.Error.instantiation!()
+      {{:var, _}, b} -> PrologEx.Error.type!("integer", b)
+      {a, _} -> PrologEx.Error.type!("integer", a)
     end
   end
 
@@ -181,8 +181,8 @@ defmodule PrologEx.Builtins.Core do
   defbuiltin "halt", [code] do
     case deref(code) do
       n when is_integer(n) -> throw({:prolog_halt, n})
-      {:var, _} -> raise "instantiation_error"
-      other -> raise "type_error(integer, #{format(other)})"
+      {:var, _} -> PrologEx.Error.instantiation!()
+      other -> PrologEx.Error.type!("integer", other)
     end
   end
 end

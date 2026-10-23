@@ -52,7 +52,7 @@ defmodule PrologEx.DCG do
   defp tr([_ | _] = l, s0, s) do
     case terminals(l, []) do
       {:ok, items} -> mk("=", [s0, list(items, s)])
-      :error -> raise "type_error(list, #{PrologEx.format(l)})"
+      :error -> PrologEx.Error.type!("list", l)
     end
   end
 
@@ -68,7 +68,7 @@ defmodule PrologEx.DCG do
 
   defp add_args({:atom, f}, s0, s), do: mk(f, [s0, s])
   defp add_args({:struct, f, args}, s0, s), do: mk(f, args ++ [s0, s])
-  defp add_args(t, _, _), do: raise("type_error(callable, #{PrologEx.format(t)})")
+  defp add_args(t, _, _), do: PrologEx.Error.type!("callable", t)
 
   defp fresh, do: {:var, "_S#{System.unique_integer([:positive])}"}
 end

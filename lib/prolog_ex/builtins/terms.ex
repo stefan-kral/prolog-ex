@@ -55,24 +55,24 @@ defmodule PrologEx.Builtins.Terms do
 
         cond do
           match?({:var, _}, n) or match?({:var, _}, ar) ->
-            raise "instantiation_error"
+            PrologEx.Error.instantiation!()
 
           not is_integer(ar) ->
-            raise "type_error(integer, #{format(ar)})"
+            PrologEx.Error.type!("integer", ar)
 
           ar < 0 ->
-            raise "domain_error(not_less_than_zero, #{ar})"
+            PrologEx.Error.domain!("not_less_than_zero", ar)
 
           ar == 0 and (is_number(n) or Core.atom?(n)) ->
             {:unify, [{t, n}]}
 
           ar == 0 ->
-            raise "type_error(atomic, #{format(n)})"
+            PrologEx.Error.type!("atomic", n)
 
           not Core.atom?(n) ->
             if Core.compound?(n),
-              do: raise("type_error(atomic, #{format(n)})"),
-              else: raise("type_error(atom, #{format(n)})")
+              do: PrologEx.Error.type!("atomic", n),
+              else: PrologEx.Error.type!("atom", n)
 
           true ->
             {:unify, [{t, mk(atom_name(n), Enum.map(1..ar, fn _ -> fresh_var() end))}]}
@@ -89,12 +89,12 @@ defmodule PrologEx.Builtins.Terms do
     args =
       case deref(t) do
         {:var, _} ->
-          raise "instantiation_error"
+          PrologEx.Error.instantiation!()
 
         tt ->
           if Core.compound?(tt),
             do: elem(parts(tt), 1),
-            else: raise("type_error(compound, #{format(resolve(tt))})")
+            else: PrologEx.Error.type!("compound", resolve(tt))
       end
 
     case deref(n) do
@@ -105,13 +105,13 @@ defmodule PrologEx.Builtins.Terms do
         []
 
       k when is_integer(k) ->
-        raise "domain_error(not_less_than_zero, #{k})"
+        PrologEx.Error.domain!("not_less_than_zero", k)
 
       {:var, _} ->
         arg_enum(n, x, args, 1)
 
       other ->
-        raise "type_error(integer, #{format(resolve(other))})"
+        PrologEx.Error.type!("integer", resolve(other))
     end
   end
 
@@ -129,30 +129,30 @@ defmodule PrologEx.Builtins.Terms do
             n = deref(n)
 
             cond do
-              match?({:var, _}, n) -> raise "instantiation_error"
-              Core.compound?(n) -> raise "type_error(atomic, #{format(n)})"
+              match?({:var, _}, n) -> PrologEx.Error.instantiation!()
+              Core.compound?(n) -> PrologEx.Error.type!("atomic", n)
               true -> {:unify, [{t, n}]}
             end
 
           {:ok, [n | args]} ->
             case deref(n) do
               {:var, _} ->
-                raise "instantiation_error"
+                PrologEx.Error.instantiation!()
 
               nn ->
                 if Core.atom?(nn),
                   do: {:unify, [{t, mk(atom_name(nn), args)}]},
-                  else: raise("type_error(atom, #{format(nn)})")
+                  else: PrologEx.Error.type!("atom", nn)
             end
 
           {:ok, []} ->
-            raise "domain_error(non_empty_list, [])"
+            PrologEx.Error.domain!("non_empty_list", [])
 
           :partial ->
-            raise "instantiation_error"
+            PrologEx.Error.instantiation!()
 
           :not_list ->
-            raise "type_error(list, #{format(resolve(l))})"
+            PrologEx.Error.type!("list", resolve(l))
         end
 
       tt ->

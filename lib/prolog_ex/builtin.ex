@@ -9,7 +9,7 @@ defmodule PrologEx.Builtin do
         defbuiltin "atom_length", [x, len] do
           case deref(x) do
             {:atom, name} -> {:unify, [{len, String.length(name)}]}
-            {:var, _} -> raise "instantiation_error"
+            {:var, _} -> PrologEx.Error.instantiation!()
           end
         end
 
@@ -59,8 +59,10 @@ defmodule PrologEx.Builtin do
     * importiert: `a/1`, `v/1`, `mk/2`, `list/1,2`, `cons/2`, `uncons/1`,
       `format/1` aus `PrologEx`
 
-  Fehler: `raise "type_error(...)"` usw. bricht die Anfrage mit dieser
-  Meldung ab.
+  Fehler: über `PrologEx.Error`, z. B. `PrologEx.Error.type!("list", t)`
+  oder `PrologEx.Error.instantiation!()`. Das wirft den ISO-Fehlerterm
+  `error(type_error(list, T), _)`, den `catch/3` fangen kann. Variablen im
+  Kulprit dürfen gebunden sein, die Maschine löst ihn auf.
 
   ## Optionen
 

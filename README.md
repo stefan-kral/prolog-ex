@@ -80,7 +80,12 @@ Zahlen im Quelltext: Zifferngruppen wie in SWI (`1_000_000`, nach `_` darf
 Leerraum folgen) und Ganzzahl-Literale beliebiger Größe; beides schreibt
 `PrologEx.NumberSyntax` vor dem gprolog-Reader um.
 
-Noch nicht: `catch`/`throw`, Ausgabe in
+Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
+`error(Formal, Kontext)` (`type_error`, `instantiation_error`,
+`existence_error`, `permission_error`, `domain_error`, `evaluation_error`, …)
+und fangbar. Nicht Gefangenes meldet der Toplevel als `Fehler: …`.
+
+Noch nicht: Ausgabe in
 Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
 
 ## Eigene Builtins in Elixir

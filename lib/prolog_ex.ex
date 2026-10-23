@@ -164,7 +164,7 @@ defmodule PrologEx do
       mode ->
         if occurs?(var, t, subst) do
           if mode == :error,
-            do: raise("occurs_check(#{format(var)}, #{format(resolve(t, subst))})"),
+            do: PrologEx.Error.error!(mk("occurs_check", [var, t])),
             else: :error
         else
           {:ok, bind(var, t, subst)}
@@ -669,7 +669,9 @@ defmodule PrologEx do
             threshold: @min_threshold,
             min_threshold: @min_threshold,
             # Zähler für call_nth/2: überstehen Backtracking (nicht in subst)
-            counters: %{}
+            counters: %{},
+            # catch/3-Rahmen, deren Ziel gerade verlassen ist (siehe catch/3)
+            catch_off: MapSet.new()
 
   defp run(st) do
     st = maybe_compact(st)
@@ -721,17 +723,19 @@ defmodule PrologEx do
     do: step({:struct, "\\+", [g]}, cutb, rest, st)
 
   defp step({:struct, "=", [x, y]}, _cutb, rest, st) do
-    case unify(x, y, st.subst) do
-      {:ok, s1} -> run(%{st | goals: rest, subst: s1})
-      :error -> backtrack(st)
+    case guarded(fn -> unify(x, y, st.subst) end) do
+      {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
+      {:ok, :error} -> backtrack(st)
+      {:thrown, ball} -> throw_ball(ball, st)
     end
   end
 
   # Negation: eigener Lauf mit leerem Choice-Point-Stack (Cut darin ist lokal)
   defp step({:struct, "\\+", [g]}, _cutb, rest, st) do
-    case run(%{st | goals: [{g, 0}], cps: [], height: 0, answer: []}) do
-      {:sol, _} -> backtrack(st)
-      :done -> run(%{st | goals: rest})
+    case guarded(fn -> run(%{st | goals: [{g, 0}], cps: [], height: 0, answer: []}) end) do
+      {:ok, {:sol, _}} -> backtrack(st)
+      {:ok, :done} -> run(%{st | goals: rest})
+      {:thrown, ball} -> throw_ball(ball, st)
     end
   end
 
@@ -741,25 +745,40 @@ defmodule PrologEx do
     do: step({:struct, "findall", [t, g, l, []]}, cutb, rest, st)
 
   defp step({:struct, "findall", [t, g, l, tail]}, _cutb, rest, st) do
-    {items, :done} = collect(run(sub_machine(t, g, st)), :infinity, [])
+    case guarded(fn -> collect(run(sub_machine(t, g, st)), :infinity, []) end) do
+      {:ok, {items, :done}} ->
+        case unify(l, list(items, tail), st.subst) do
+          {:ok, s} -> run(%{st | goals: rest, subst: s})
+          :error -> backtrack(st)
+        end
 
-    case unify(l, list(items, tail), st.subst) do
-      {:ok, s} -> run(%{st | goals: rest, subst: s})
-      :error -> backtrack(st)
+      {:thrown, ball} ->
+        throw_ball(ball, st)
     end
   end
 
   # countall(G, N): Anzahl der Lösungen von G, ohne sie zu sammeln
   # (konstanter Speicher, anders als findall + length)
   defp step({:struct, "countall", [g, n]}, _cutb, rest, st) do
-    case walk(n, st.subst) do
-      x when is_integer(x) or (is_tuple(x) and elem(x, 0) == :var) -> :ok
-      x -> raise "type_error(integer, #{format(x)})"
-    end
+    counted =
+      guarded(fn ->
+        case walk(n, st.subst) do
+          x when is_integer(x) or (is_tuple(x) and elem(x, 0) == :var) -> :ok
+          x -> PrologEx.Error.type!("integer", x)
+        end
 
-    case unify(n, count(run(sub_machine([], g, st)), 0), st.subst) do
-      {:ok, s} -> run(%{st | goals: rest, subst: s})
-      :error -> backtrack(st)
+        count(run(sub_machine([], g, st)), 0)
+      end)
+
+    case counted do
+      {:ok, k} ->
+        case unify(n, k, st.subst) do
+          {:ok, s} -> run(%{st | goals: rest, subst: s})
+          :error -> backtrack(st)
+        end
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
     end
   end
 
@@ -772,32 +791,73 @@ defmodule PrologEx do
     do: step({:struct, "findnsols", [n, t, g, l, []]}, cutb, rest, st)
 
   defp step({:struct, "findnsols", [n, t, g, l, tail]}, _cutb, rest, st) do
-    k =
-      case walk(n, st.subst) do
-        k when is_integer(k) and k >= 1 -> k
-        k when is_integer(k) -> raise "domain_error(not_less_than_one, #{k})"
-        {:var, _} -> raise "instantiation_error"
-        other -> raise "type_error(integer, #{format(other)})"
-      end
+    chunk =
+      guarded(fn ->
+        k =
+          case walk(n, st.subst) do
+            k when is_integer(k) and k >= 1 -> k
+            k when is_integer(k) -> PrologEx.Error.domain!("not_less_than_one", k)
+            {:var, _} -> PrologEx.Error.instantiation!()
+            other -> PrologEx.Error.type!("integer", other)
+          end
 
-    findnsols_chunk(run(sub_machine(t, g, st)), k, l, tail, rest, st)
+        {k, collect(run(sub_machine(t, g, st)), k, [])}
+      end)
+
+    case chunk do
+      {:ok, {k, collected}} -> findnsols_chunk(collected, k, l, tail, rest, st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
   end
 
   defp step({:struct, "is", [x, expr]}, _cutb, rest, st) do
-    case unify(x, eval(expr, st.subst), st.subst) do
-      {:ok, s1} -> run(%{st | goals: rest, subst: s1})
-      :error -> backtrack(st)
+    case guarded(fn -> unify(x, eval(expr, st.subst), st.subst) end) do
+      {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
+      {:ok, :error} -> backtrack(st)
+      {:thrown, ball} -> throw_ball(ball, st)
     end
   end
 
   defp step({:struct, op, [x, y]}, _cutb, rest, st)
        when op in ["<", ">", ">=", "=<", "=:=", "=\\="] do
-    if compare(op, eval(x, st.subst), eval(y, st.subst)),
-      do: run(%{st | goals: rest}),
-      else: backtrack(st)
+    case guarded(fn -> compare(op, eval(x, st.subst), eval(y, st.subst)) end) do
+      {:ok, true} -> run(%{st | goals: rest})
+      {:ok, false} -> backtrack(st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
   end
 
-  defp step({:var, _}, _cutb, _rest, _st), do: raise("instantiation_error")
+  defp step({:var, _}, _cutb, _rest, st), do: throw_error(st, &PrologEx.Error.instantiation!/0)
+
+  defp step(n, _cutb, _rest, st) when is_number(n),
+    do: throw_error(st, fn -> PrologEx.Error.type!("callable", n) end)
+
+  # catch(G, C, R): Rahmen als Choice Point unter G. Verlässt G ohne eigene
+  # Choice Points, wird der Rahmen entfernt; sonst bleibt er liegen, ist
+  # aber inaktiv (catch_off), bis Backtracking wieder in G hineinführt –
+  # eine Ausnahme NACH catch/3 wird so nicht von ihm gefangen.
+  defp step({:struct, "catch", [g, c, r]}, _cutb, rest, st) do
+    id = make_ref()
+    h = st.height
+    st = push(st, {:catch, id, c, r, rest, st.subst, st.answer})
+    run(%{st | goals: [{g, h + 1}, {{:"$catch_exit", id, h}, 0} | rest]})
+  end
+
+  defp step({:"$catch_exit", id, h}, _cutb, rest, st) do
+    if st.height == h + 1,
+      do: run(%{st | goals: rest, cps: tl(st.cps), height: h}),
+      else:
+        run(
+          push(%{st | goals: rest, catch_off: MapSet.put(st.catch_off, id)}, {:catch_reenter, id})
+        )
+  end
+
+  defp step({:struct, "throw", [b]}, _cutb, _rest, st) do
+    case walk(b, st.subst) do
+      {:var, _} -> throw_error(st, &PrologEx.Error.instantiation!/0)
+      _ -> throw_ball(b, st)
+    end
+  end
 
   # time(G): wie call/1, meldet danach die verstrichene Zeit. Ein Choice
   # Point direkt unter G meldet auch einen Fehlschlag. Hat G bei Erfolg
@@ -824,14 +884,28 @@ defmodule PrologEx do
   # der N-ten Lösung abgeschnitten (deterministisch). Ein Choice Point unter G
   # räumt den Zähler auf, wenn G erschöpft ist; hinterlässt G bei Erfolg
   # keine Choice Points, wird er gleich entfernt (wie bei time/1).
-  defp step({:struct, "call_nth", [g, n]}, _cutb, rest, st) do
+  defp step({:struct, "call_nth", [g, n]}, cutb, rest, st) do
     case walk(n, st.subst) do
-      {:var, _} -> :ok
-      k when is_integer(k) and k >= 1 -> :ok
-      k when is_integer(k) -> raise "domain_error(not_less_than_one, #{k})"
-      other -> raise "type_error(integer, #{format(other)})"
-    end
+      {:var, _} ->
+        call_nth(g, n, cutb, rest, st)
 
+      k when is_integer(k) and k >= 1 ->
+        call_nth(g, n, cutb, rest, st)
+
+      k when is_integer(k) ->
+        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_one", k) end)
+
+      other ->
+        throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
+    end
+  end
+
+  defp step({:"$nth", ref, n, h}, _cutb, rest, st), do: nth_exit(ref, n, h, rest, st)
+
+  # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
+  defp step(goal, _cutb, rest, st), do: call_pred(goal, rest, st)
+
+  defp call_nth(g, n, _cutb, rest, st) do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, 0)}
@@ -840,7 +914,7 @@ defmodule PrologEx do
     run(%{st | goals: [{goal, h + 1}, {{:"$nth", ref, n, h}, 0} | rest]})
   end
 
-  defp step({:"$nth", ref, n, h}, _cutb, rest, st) do
+  defp nth_exit(ref, n, h, rest, st) do
     c = Map.fetch!(st.counters, ref) + 1
     st = %{st | counters: Map.put(st.counters, ref, c)}
 
@@ -875,8 +949,7 @@ defmodule PrologEx do
     end
   end
 
-  # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
-  defp step(goal, _cutb, rest, st) do
+  defp call_pred(goal, rest, st) do
     key = Compiler.key(goal)
     args = Compiler.args_of(goal)
 
@@ -895,10 +968,16 @@ defmodule PrologEx do
       :error ->
         case PrologEx.Builtins.lookup(key) do
           {:det, fun, _} ->
-            apply_result(fun.(args, ctx(st)), rest, st)
+            case guarded(fn -> fun.(args, ctx(st)) end) do
+              {:ok, r} -> apply_result(r, rest, st)
+              {:thrown, ball} -> throw_ball(ball, st)
+            end
 
           {:nondet, fun, _} ->
-            start_solutions(fun.(args, ctx(st)), rest, st)
+            case guarded(fn -> fun.(args, ctx(st)) end) do
+              {:ok, r} -> start_solutions(r, rest, st)
+              {:thrown, ball} -> throw_ball(ball, st)
+            end
 
           {:prolog, pred, _} ->
             try_clauses(goal, args, candidates(pred, args, st.subst), rest, st)
@@ -915,7 +994,9 @@ defmodule PrologEx do
                 backtrack(st)
 
               _error ->
-                raise "existence_error(procedure, #{name}/#{arity}) – unbekanntes Prädikat"
+                throw_error(st, fn ->
+                  PrologEx.Error.existence!("procedure", PrologEx.Error.indicator(name, arity))
+                end)
             end
         end
     end
@@ -933,9 +1014,10 @@ defmodule PrologEx do
         backtrack(st)
 
       {:unify, pairs} ->
-        case unify_pairs(pairs, st.subst) do
-          {:ok, s} -> run(%{st | goals: rest, subst: s})
-          :error -> backtrack(st)
+        case guarded(fn -> unify_pairs(pairs, st.subst) end) do
+          {:ok, {:ok, s}} -> run(%{st | goals: rest, subst: s})
+          {:ok, :error} -> backtrack(st)
+          {:thrown, ball} -> throw_ball(ball, st)
         end
 
       {:call, goal} ->
@@ -961,8 +1043,12 @@ defmodule PrologEx do
   #     Backtracking berechnet; das Builtin entscheidet selbst, wann [r]
   #     (letzte Lösung, kein Choice Point) kommt
   #   * sonstige Aufzählung (Stream, Range): lazy über :suspend
-  defp start_solutions(thunk, rest, st) when is_function(thunk, 0),
-    do: start_solutions(thunk.(), rest, st)
+  defp start_solutions(thunk, rest, st) when is_function(thunk, 0) do
+    case guarded(thunk) do
+      {:ok, r} -> start_solutions(r, rest, st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
 
   defp start_solutions([], _rest, st), do: backtrack(st)
   defp start_solutions([r], rest, st), do: apply_result(r, rest, st)
@@ -973,9 +1059,10 @@ defmodule PrologEx do
   end
 
   defp start_solutions(enum, rest, st) do
-    enum
-    |> Enumerable.reduce({:cont, nil}, fn x, _ -> {:suspend, x} end)
-    |> next_solution(rest, st)
+    case guarded(fn -> Enumerable.reduce(enum, {:cont, nil}, fn x, _ -> {:suspend, x} end) end) do
+      {:ok, r} -> next_solution(r, rest, st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
   end
 
   defp next_solution({:suspended, r, cont}, rest, st) do
@@ -1016,9 +1103,8 @@ defmodule PrologEx do
   defp count(:done, k), do: k
   defp count({:sol, s}, k), do: count(backtrack(s), k + 1)
 
-  defp findnsols_chunk(result, k, l, tail, rest, st) do
-    {items, cont} = collect(result, k, [])
-
+  # collected: {kopien, :done | {:more, unter_maschine}} (siehe collect/3)
+  defp findnsols_chunk({items, cont}, k, l, tail, rest, st) do
     st =
       case cont do
         {:more, sub} -> push(st, {:findnsols, sub, k, l, tail, rest, st.subst, st.answer})
@@ -1044,8 +1130,8 @@ defmodule PrologEx do
   defp add_args(g, []), do: g
   defp add_args({:atom, f}, extra), do: mk(f, extra)
   defp add_args({:struct, f, args}, extra), do: mk(f, args ++ extra)
-  defp add_args({:var, _}, _), do: raise("instantiation_error")
-  defp add_args(g, _), do: raise("type_error(callable, #{format(g)})")
+  defp add_args({:var, _}, _), do: PrologEx.Error.instantiation!()
+  defp add_args(g, _), do: PrologEx.Error.type!("callable", g)
 
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.
@@ -1055,7 +1141,15 @@ defmodule PrologEx do
     {:clause, _key, nslots, pats, nfresh, body} = cl
     env = :erlang.make_tuple(nslots, nil)
 
-    case match_args(pats, args, env, st.subst, st.next_var) do
+    # guarded: mit occurs_check=error kann die Kopfunifikation werfen
+    case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var) end) do
+      {:ok, m} -> clause_matched(m, goal, args, more, rest, nfresh, body, st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
+
+  defp clause_matched(m, goal, args, more, rest, nfresh, body, st) do
+    case m do
       :error ->
         try_clauses(goal, args, more, rest, st)
 
@@ -1091,10 +1185,20 @@ defmodule PrologEx do
         start_solutions(more, rest, %{st | subst: subst, answer: answer})
 
       {:solutions, cont, rest, subst, answer} ->
-        cont.({:cont, nil}) |> next_solution(rest, %{st | subst: subst, answer: answer})
+        st = %{st | subst: subst, answer: answer}
+
+        case guarded(fn -> cont.({:cont, nil}) end) do
+          {:ok, r} -> next_solution(r, rest, st)
+          {:thrown, ball} -> throw_ball(ball, st)
+        end
 
       {:findnsols, sub, k, l, tail, rest, subst, answer} ->
-        findnsols_chunk(backtrack(sub), k, l, tail, rest, %{st | subst: subst, answer: answer})
+        st = %{st | subst: subst, answer: answer}
+
+        case guarded(fn -> collect(backtrack(sub), k, []) end) do
+          {:ok, collected} -> findnsols_chunk(collected, k, l, tail, rest, st)
+          {:thrown, ball} -> throw_ball(ball, st)
+        end
 
       {:nth_cleanup, ref, subst, answer} ->
         backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
@@ -1102,8 +1206,65 @@ defmodule PrologEx do
       {:time_fail, t0, subst, answer} ->
         report_time(t0)
         backtrack(%{st | subst: subst, answer: answer})
+
+      # G von catch/3 erschöpft
+      {:catch, _id, _c, _r, _rest, _subst, _answer} ->
+        backtrack(st)
+
+      # zurück in G: der Rahmen fängt wieder
+      {:catch_reenter, id} ->
+        backtrack(%{st | catch_off: MapSet.delete(st.catch_off, id)})
     end
   end
+
+  # ---------------------------------------------------------------------
+  # Ausnahmen
+  #
+  # Fehler entstehen in Builtins und in der Arithmetik als Elixir-Ausnahme
+  # PrologEx.Error. Die Maschine fängt sie an jeder Stelle, an der sie
+  # entstehen können (guarded/1, nicht um run/1 herum – das bleibt
+  # endrekursiv), und wirft sie als Prolog-Ball weiter (throw_ball/2).
+  # ---------------------------------------------------------------------
+
+  defp guarded(fun) do
+    {:ok, fun.()}
+  rescue
+    e in PrologEx.Error -> {:thrown, e.term}
+  end
+
+  # Fehler aus einer Funktion, die immer wirft (z. B. Error.type!/2)
+  defp throw_error(st, raiser) do
+    {:thrown, ball} = guarded(raiser)
+    throw_ball(ball, st)
+  end
+
+  # Ball auflösen und kopieren (ISO), dann den innersten aktiven
+  # catch/3-Rahmen suchen, dessen Catcher passt. Alles darüber wird
+  # verworfen; der Rahmen selbst auch. Ohne passenden Rahmen geht die
+  # Ausnahme an den Aufrufer (Toplevel, umgebende Unter-Maschine).
+  defp throw_ball(ball, st) do
+    ball = copy_fresh(ball, st.subst)
+    unwind(ball, st.cps, st.height, st)
+  end
+
+  defp unwind(ball, [], _h, _st), do: PrologEx.Error.throw!(ball)
+
+  defp unwind(ball, [{:catch, id, c, r, rest, subst, answer} | below], h, st) do
+    if MapSet.member?(st.catch_off, id) do
+      unwind(ball, below, h - 1, st)
+    else
+      case unify(c, ball, subst) do
+        {:ok, s} ->
+          st = %{st | cps: below, height: h - 1, subst: s, answer: answer}
+          run(%{st | goals: [{r, h - 1} | rest]})
+
+        :error ->
+          unwind(ball, below, h - 1, st)
+      end
+    end
+  end
+
+  defp unwind(ball, [_ | below], h, st), do: unwind(ball, below, h - 1, st)
 
   # ---------------------------------------------------------------------
   # Kompaktierung der Substitution
@@ -1216,15 +1377,39 @@ defmodule PrologEx do
 
   defp eval(t, subst) do
     case unmark_top(walk(t, subst)) do
-      n when is_number(n) -> n
-      {:struct, op, [x, y]} -> arith(op, eval(x, subst), eval(y, subst))
-      {:struct, op, [x]} -> arith(op, eval(x, subst))
-      {:atom, "pi"} -> :math.pi()
-      {:atom, "e"} -> :math.exp(1)
-      {:atom, "max_tagged_integer"} -> 576_460_752_303_423_487
-      {:var, _} -> raise "instantiation_error"
-      other -> raise "type_error(evaluable, #{format(other)})"
+      n when is_number(n) ->
+        n
+
+      {:struct, op, [x, y]} ->
+        arith(op, eval(x, subst), eval(y, subst))
+
+      {:struct, op, [x]} ->
+        arith(op, eval(x, subst))
+
+      {:atom, "pi"} ->
+        :math.pi()
+
+      {:atom, "e"} ->
+        :math.exp(1)
+
+      {:atom, "max_tagged_integer"} ->
+        576_460_752_303_423_487
+
+      {:var, _} ->
+        PrologEx.Error.instantiation!()
+
+      {:atom, n} ->
+        PrologEx.Error.type!("evaluable", PrologEx.Error.indicator(n, 0))
+
+      {:struct, f, args} ->
+        PrologEx.Error.type!("evaluable", PrologEx.Error.indicator(f, length(args)))
+
+      other ->
+        PrologEx.Error.type!("evaluable", other)
     end
+  rescue
+    # Division durch 0 u. ä. aus der BEAM (vollständig in Punkt "Evaluables")
+    ArithmeticError -> PrologEx.Error.evaluation!("undefined")
   end
 
   defp arith("+", x, y), do: x + y
@@ -1249,7 +1434,7 @@ defmodule PrologEx do
   defp arith("/\\", x, y), do: Bitwise.band(x, y)
   defp arith("\\/", x, y), do: Bitwise.bor(x, y)
   defp arith("xor", x, y), do: Bitwise.bxor(x, y)
-  defp arith(op, _, _), do: raise("type_error(evaluable, #{op}/2)")
+  defp arith(op, _, _), do: PrologEx.Error.type!("evaluable", PrologEx.Error.indicator(op, 2))
 
   defp arith("-", x), do: -x
   defp arith("+", x), do: x
@@ -1263,7 +1448,7 @@ defmodule PrologEx do
   defp arith("floor", x), do: floor(x)
   defp arith("ceiling", x), do: ceil(x)
   defp arith("\\", x), do: Bitwise.bnot(x)
-  defp arith(op, _), do: raise("type_error(evaluable, #{op}/1)")
+  defp arith(op, _), do: PrologEx.Error.type!("evaluable", PrologEx.Error.indicator(op, 1))
 
   defp compare("<", x, y), do: x < y
   defp compare(">", x, y), do: x > y

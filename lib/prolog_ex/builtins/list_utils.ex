@@ -105,8 +105,8 @@ defmodule PrologEx.Builtins.ListUtils do
 
       :partial ->
         case Lists.skip_list(l, s) do
-          {_, {:var, _}} -> raise "instantiation_error"
-          _ -> raise "type_error(list, #{format(resolve(l))})"
+          {_, {:var, _}} -> PrologEx.Error.instantiation!()
+          _ -> PrologEx.Error.type!("list", resolve(l))
         end
     end
   end

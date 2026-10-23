@@ -51,14 +51,14 @@ defmodule PrologEx.Flags do
   def set(name, value) do
     case Map.fetch(@flags, name) do
       :error ->
-        raise "domain_error(prolog_flag, #{name})"
+        PrologEx.Error.domain!("prolog_flag", PrologEx.a(name))
 
       {:ok, {_, :read_only}} ->
-        raise "permission_error(modify, flag, #{name})"
+        PrologEx.Error.permission!("modify", "flag", PrologEx.a(name))
 
       {:ok, {_, allowed}} ->
         unless Enum.any?(allowed, &(term(&1) == value)),
-          do: raise("domain_error(flag_value, #{name}+#{PrologEx.format(value)})")
+          do: PrologEx.Error.domain!("flag_value", PrologEx.mk("+", [PrologEx.a(name), value]))
 
         Process.put(@key, Map.put(Process.get(@key, %{}), name, value))
         apply_side_effect(name, value)
