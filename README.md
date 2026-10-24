@@ -66,7 +66,10 @@ Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`
 `proper_length/2`, `sum_list/2`, `max_list/2`, `min_list/2`, `max_member/2`,
 `min_member/2`, `delete/3`, `list_to_set/2`, `nextto/3`, `subtract/3`,
 `intersection/3`, `union/3`, `include/3`, `exclude/3`, `partition/4`, `foldl/4..6`,
-`same_length/2`, `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
+`same_length/2`, aus SICStus' `library(lists)`: `one_longer/2`,
+`shorter_list/2`, `keys_and_values/3`, `transpose/2` (rechteckig, in beide
+Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
+`partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}), `chain/2`, `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
 `findall/3,4`, `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
 `V^G`; Gruppen nach Zeugen sortiert wie SICStus/SWI), `=@=/2`, `\=@=/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,

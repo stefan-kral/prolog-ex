@@ -32,6 +32,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Terms,
     PrologEx.Builtins.Lists,
     PrologEx.Builtins.ListUtils,
+    PrologEx.Builtins.ListMore,
     PrologEx.Builtins.Order,
     PrologEx.Builtins.System,
     PrologEx.Builtins.Database,
