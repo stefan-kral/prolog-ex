@@ -108,6 +108,26 @@ gemischtes `numlist(1, N, L)`), `randset/3` (dasselbe sortiert),
 anfangs zufällig; `set_random(seed(N))` macht Läufe reproduzierbar.
 `randseq(1000000, 1000000, L)` dauert etwa 1 s.
 
+## Globale Werte: `library(blackboard)`, `library(mutables)`
+
+Wie SICStus (dort eingebaut, hier nach `use_module`):
+
+  * `bb_put(:Key, +T)`, `bb_get(:Key, ?T)`, `bb_delete(:Key, ?T)`,
+    `bb_update(:Key, ?Old, ?New)` – Werte je Modul (Key ein Atom oder eine
+    Ganzzahl, auch `M:Key`), als Kopie gespeichert, nicht backtrackbar.
+  * `create_mutable(+W, -M)`, `get_mutable(?W, +M)`, `update_mutable(+W, +M)`,
+    `mutable(@M)` – backtrackbare Zuweisung: Backtracking stellt den alten
+    Wert her. Der Wert ist das versteckte Attribut einer Variablen, eine
+    Änderung also ein Eintrag in der Substitution. Der Toplevel zeigt ein
+    Mutable als `'$mutable'(Wert)`.
+
+## Zeitmessung: `statistics/2`
+
+`statistics(K, [T, D])` mit `K` = `runtime` (auch `total_runtime`,
+`process_cputime`: CPU-Zeit der VM in ms), `walltime` (ms) oder
+`real_time` (Sekunden seit 1970); `D` ist der Abstand zum letzten Aufruf
+mit demselben Schlüssel.
+
 ## Coroutining
 
 `freeze/2`, `frozen/2`, `dif/2`, `when/2` (Bedingungen `nonvar/1`,
@@ -162,7 +182,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 ```
 
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
-    `library(apply)`, `library(random)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
+    `library(apply)`, `library(random)`, `library(atts)`,
+    `library(blackboard)`, `library(mutables)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
     SICStus, dazu `number_of_clauses/1`); `clause/2`, `retract/1`,

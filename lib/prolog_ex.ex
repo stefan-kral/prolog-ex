@@ -1993,7 +1993,10 @@ defmodule PrologEx do
   defp emit(:done), do: nil
 
   defp emit({:sol, st}) do
-    ans = Map.new(st.answer, fn {n, t} -> {n, resolve(t, st.subst)} end)
+    ans =
+      Map.new(st.answer, fn {n, t} ->
+        {n, t |> resolve(st.subst) |> PrologEx.Builtins.Mutables.show(st.subst)}
+      end)
 
     # Restziele (freeze, dif, when) der in der Antwort vorkommenden
     # attributierten Variablen, wie im SWI/SICStus-Toplevel
