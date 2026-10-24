@@ -886,6 +886,14 @@ defmodule PrologEx do
   defp inst({:t_list, h, t}, env, base), do: cons(inst(h, env, base), inst(t, env, base))
   defp inst({:t_struct, f, args}, env, base), do: mk_struct(f, inst_args(args, env, base))
 
+  # übersetzte Arithmetik (siehe PrologEx.Compiler): nur das Ziel, nicht
+  # den Ausdruck bauen
+  defp inst({:t_arith, :is, out, code, leaves}, env, base),
+    do: {:struct, "$is", [inst(out, env, base), {:arith, code} | inst_args(leaves, env, base)]}
+
+  defp inst({:t_arith, :cmp, nil, code, leaves}, env, base),
+    do: {:struct, "$cmp", [{:arith, code} | inst_args(leaves, env, base)]}
+
   defp inst_args([], _env, _base), do: []
   defp inst_args([a | as], env, base), do: [inst(a, env, base) | inst_args(as, env, base)]
 
@@ -1096,6 +1104,29 @@ defmodule PrologEx do
     case guarded(fn -> unify(x, eval(expr, st.subst), st.subst) end) do
       {:ok, {:ok, s1}} -> cont(st, s1, rest)
       {:ok, :error} -> backtrack(st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
+
+  # übersetztes is/2 bzw. übersetzter Vergleich (siehe inst/3)
+  defp step({:struct, "$is", [x, {:arith, code} | leaves]}, _cutb, _mod, rest, st) do
+    case guarded(fn ->
+           unify(x, PrologEx.Arith.run(code, List.to_tuple(leaves), st.subst), st.subst)
+         end) do
+      {:ok, {:ok, s1}} -> cont(st, s1, rest)
+      {:ok, :error} -> backtrack(st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
+
+  defp step({:struct, "$cmp", [{:arith, {:cmp, op, a, b}} | leaves]}, _cutb, _mod, rest, st) do
+    l = List.to_tuple(leaves)
+
+    case guarded(fn ->
+           compare(op, PrologEx.Arith.run(a, l, st.subst), PrologEx.Arith.run(b, l, st.subst))
+         end) do
+      {:ok, true} -> run(%{st | goals: rest})
+      {:ok, false} -> backtrack(st)
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end

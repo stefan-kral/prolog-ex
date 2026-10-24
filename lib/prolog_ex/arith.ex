@@ -44,6 +44,7 @@ defmodule PrologEx.Arith do
       `evaluation_error(float_overflow)`
     * `I ^ N` mit Ganzzahlen, N < 0 und I nicht 1 oder -1:
       `type_error(float, I)` (ISO Cor. 2)
+    * Ganzzahl zu groß für die BEAM (`1 << 10^12`): `resource_error(memory)`
 
   `/` auf Ganzzahlen gibt eine Ganzzahl, wenn die Division aufgeht, sonst
   einen Float (wie SWI). `round`, `truncate`, `floor`, `ceiling` und
@@ -62,6 +63,8 @@ defmodule PrologEx.Arith do
   rescue
     # was die Prüfungen unten nicht abfangen (sollte nicht vorkommen)
     ArithmeticError -> undefined()
+    # Ganzzahl zu groß für die BEAM (z. B. 1 << 10^12)
+    SystemLimitError -> Error.resource!("memory")
   end
 
   defp ev(t, s) do
@@ -87,6 +90,61 @@ defmodule PrologEx.Arith do
       _ -> ev(x, s)
     end
   end
+
+  # --- übersetzte Ausdrücke (siehe PrologEx.Compiler, is/2 im Rumpf) -------
+  #
+  # Der Compiler übersetzt den Ausdruck eines is/2- oder Vergleichsziels
+  # im Klauselrumpf in einen Baum:
+  #   {:num, n}             Zahl
+  #   {:op0, name}          Konstante (pi, random, ...)
+  #   {:op1, name, a}       einstellig
+  #   {:op2, name, a, b}    zweistellig
+  #   {:leaf, i}            i-tes Blatt (Variable, unbekannter Funktor, Liste):
+  #                         zur Laufzeit wie bisher mit eval/2
+  # Die Reihenfolge der Auswertung (links vor rechts, Tiefe zuerst) und
+  # damit die Fehler sind dieselben wie bei eval/2.
+
+  @ops0 ~w(pi e epsilon max_tagged_integer min_tagged_integer random random_float
+           cputime realtime)
+  @ops1 ~w(+ - \\ abs acos acosh acot asin asinh atan atanh ceiling cos cosh cot exp
+           float float_fractional_part float_integer_part floor integer log log2 lsb
+           msb popcount random random_float round sign sin sinh sqrt succ tan tanh
+           truncate)
+  @ops2 ~w(* ** + - / // /\\ << >> \\/ ^ atan atan2 copysign div gcd log max min
+           mod plus rem xor)
+  # nicht falten (Wert ändert sich)
+  @impure ~w(random random_float cputime realtime)
+
+  @doc false
+  def op?(name, 0), do: name in @ops0
+  def op?(name, 1), do: name in @ops1
+  def op?(name, 2), do: name in @ops2
+  def op?(_, _), do: false
+
+  @doc false
+  def impure?(name), do: name in @impure
+
+  @doc false
+  # Wert eines übersetzten Ausdrucks; leaves: Tupel der Blatt-Terme
+  def run(code, leaves, s) do
+    rn(code, leaves, s)
+  rescue
+    ArithmeticError -> undefined()
+    SystemLimitError -> Error.resource!("memory")
+  end
+
+  defp rn({:num, n}, _l, _s), do: n
+
+  defp rn({:leaf, i}, l, s) do
+    case walk(elem(l, i), s) do
+      n when is_number(n) -> n
+      t -> ev(t, s)
+    end
+  end
+
+  defp rn({:op2, op, a, b}, l, s), do: eval2(op, rn(a, l, s), rn(b, l, s))
+  defp rn({:op1, op, a}, l, s), do: eval1(op, rn(a, l, s))
+  defp rn({:op0, name}, _l, _s), do: eval0(name)
 
   # --- Konstanten ---------------------------------------------------------
 

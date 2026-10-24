@@ -37,6 +37,18 @@ defmodule PrologEx.Compiler do
       {:t_slot, slot} | {:t_fresh, j} | {:t_lit, term}
       {:t_list, h, t} | {:t_struct, f, [args]}
 
+  Arithmetik: ein Ziel `X is Ausdruck` oder ein Vergleich (`=:=`, `<`, ...)
+  auf oberster Ebene des Rumpfs wird zu
+
+      {:t_arith, :is, out_template, code, [leaf_templates]}
+      {:t_arith, :cmp, nil, {:cmp, op, code_a, code_b}, [leaf_templates]}
+
+  mit einem Codebaum für den Ausdruck (siehe `PrologEx.Arith.run/3`); zur
+  Laufzeit wird dann nur das Ziel `'$is'(X, Code, Blätter...)` bzw.
+  `'$cmp'(Code, Blätter...)` gebaut, nicht der Ausdruck. Teilausdrücke
+  ohne Blätter werden beim Übersetzen ausgerechnet, wenn das fehlerfrei geht
+  und sie nichts Unreines (`random`, `cputime`, ...) enthalten.
+
   Der Rumpf wird erst instanziiert, wenn der Kopf gepasst hat.
   Konjunktionen auf oberster Ebene sind bereits zu einer Zielliste
   abgeflacht, `true` entfällt.
@@ -54,7 +66,7 @@ defmodule PrologEx.Compiler do
     st = %{slots: %{}, fresh: %{}, counts: counts}
 
     {pats, st} = Enum.map_reduce(args_of(head), st, &head_pat/2)
-    {tmpls, st} = Enum.map_reduce(flatten_conj(body), st, &body_tmpl/2)
+    {tmpls, st} = Enum.map_reduce(flatten_conj(body), st, &goal_tmpl/2)
 
     {:clause, index_key_of(pats), map_size(st.slots), pats, map_size(st.fresh), tmpls}
   end
@@ -152,6 +164,103 @@ defmodule PrologEx.Compiler do
   defp index_key_of([{:struct, f, n, _} | _]), do: {f, n}
 
   # --- Rumpf ------------------------------------------------------------
+
+  @cmp_ops ~w(=:= =\\= < > =< >=)
+
+  # Ziel auf oberster Ebene: Arithmetik übersetzen, sonst Template
+  defp goal_tmpl({:struct, "is", [out, expr]} = g, st) do
+    {code, {leaves, st1}} = acode(expr, {[], st})
+
+    if trivial?(code) do
+      body_tmpl(g, st)
+    else
+      {out_t, st1} = body_tmpl(out, st1)
+      {{:t_arith, :is, out_t, fold(code), Enum.reverse(leaves)}, st1}
+    end
+  end
+
+  defp goal_tmpl({:struct, op, [a, b]} = g, st) when op in @cmp_ops do
+    {ca, acc} = acode(a, {[], st})
+    {cb, {leaves, st1}} = acode(b, acc)
+
+    # keine Seite mit Operator: wie bisher (nichts zu gewinnen)
+    if trivial?(ca) and trivial?(cb),
+      do: body_tmpl(g, st),
+      else: {{:t_arith, :cmp, nil, fold({:cmp, op, ca, cb}), Enum.reverse(leaves)}, st1}
+  end
+
+  defp goal_tmpl(g, st), do: body_tmpl(g, st)
+
+  defp trivial?({:leaf, _}), do: true
+  defp trivial?({:num, _}), do: true
+  defp trivial?(_), do: false
+
+  # Codebaum eines Ausdrucks; acc = {Blatt-Templates umgekehrt, st}
+  defp acode(n, acc) when is_number(n), do: {{:num, n}, acc}
+  # markierte (ground) Teilterme, z. B. aus assertz
+  defp acode({:gstruct, f, args}, acc), do: acode({:struct, f, args}, acc)
+
+  defp acode({:struct, op, [a, b]} = t, acc) do
+    if PrologEx.Arith.op?(op, 2) do
+      {ca, acc} = acode(a, acc)
+      {cb, acc} = acode(b, acc)
+      {{:op2, op, ca, cb}, acc}
+    else
+      leaf(t, acc)
+    end
+  end
+
+  defp acode({:struct, op, [a]} = t, acc) do
+    if PrologEx.Arith.op?(op, 1) do
+      {ca, acc} = acode(a, acc)
+      {{:op1, op, ca}, acc}
+    else
+      leaf(t, acc)
+    end
+  end
+
+  defp acode({:atom, name} = t, acc) do
+    if PrologEx.Arith.op?(name, 0), do: {{:op0, name}, acc}, else: leaf(t, acc)
+  end
+
+  defp acode(t, acc), do: leaf(t, acc)
+
+  # Blatt: zur Laufzeit mit eval/2 (Variable, unbekannter Funktor, Liste, ...)
+  defp leaf(t, {leaves, st}) do
+    {tmpl, st} = body_tmpl(t, st)
+    {{:leaf, length(leaves)}, {[tmpl | leaves], st}}
+  end
+
+  # Teilbäume ohne Blätter ausrechnen, wenn das fehlerfrei geht
+  defp fold({:op2, op, a, b}), do: try_fold({:op2, op, fold(a), fold(b)})
+  defp fold({:op1, op, a}), do: try_fold({:op1, op, fold(a)})
+  defp fold({:op0, _} = c), do: try_fold(c)
+  defp fold({:cmp, op, a, b}), do: {:cmp, op, fold(a), fold(b)}
+  defp fold(c), do: c
+
+  defp try_fold(code) do
+    if pure_const?(code) do
+      try do
+        {:num, PrologEx.Arith.run(code, {}, %{})}
+      rescue
+        _ -> code
+      end
+    else
+      code
+    end
+  end
+
+  defp pure_const?({:num, _}), do: true
+  defp pure_const?({:op0, name}), do: not PrologEx.Arith.impure?(name)
+  defp pure_const?({:op1, op, a}), do: not PrologEx.Arith.impure?(op) and pure_const?(a)
+  # Potenzen und Schieben nur mit kleinem rechten Operanden (sonst kann
+  # schon das Laden lange dauern – die Klausel läuft vielleicht nie)
+  defp pure_const?({:op2, op, a, {:num, n}}) when op in ["**", "^", "<<"],
+    do: abs(n) <= 64 and pure_const?(a)
+
+  defp pure_const?({:op2, op, _a, _b}) when op in ["**", "^", "<<"], do: false
+  defp pure_const?({:op2, _, a, b}), do: pure_const?(a) and pure_const?(b)
+  defp pure_const?(_), do: false
 
   defp body_tmpl({:var, "_"}, st), do: new_fresh({:anon, map_size(st.fresh)}, st)
 

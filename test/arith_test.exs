@@ -192,6 +192,7 @@ defmodule PrologEx.ArithTest do
     assert ev(c, "cosh(1000)") == {:error, "evaluation_error(float_overflow)"}
     assert ev(c, "1.0e308 * 10") == {:error, "evaluation_error(float_overflow)"}
     assert ev(c, "log(1, 5)") == {:error, "evaluation_error(zero_divisor)"}
+    assert ev(c, "1 << (10 ^ 12)") == {:error, "resource_error(memory)"}
   end
 
   test "Fehler: ungebunden, nicht auswertbar", c do

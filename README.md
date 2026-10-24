@@ -66,7 +66,10 @@ Floats; alle ISO-Funktionen dazu die üblichen aus SWI/SICStus: `sin` … `atanh
 `exp`, `log/1,2`, `log2`, `atan/2`, `atan2`, `copysign`, `div`, `gcd`, `msb`,
 `lsb`, `popcount`, `xor`, `float_integer_part`, `random/1`, `random_float`,
 `cputime`, `realtime`, `epsilon`, …; Fehler nach ISO wie
-`evaluation_error(zero_divisor)`, siehe `PrologEx.Arith`), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`, `select/3`, `permutation/2`, `memberchk/2`, `last/2`, `reverse/2`,
+`evaluation_error(zero_divisor)`, siehe `PrologEx.Arith`; `is/2` und
+Vergleiche im Klauselrumpf übersetzt der Compiler in einen Codebaum, statt
+den Ausdruck bei jedem Aufruf als Term zu bauen – 4–13 % schneller,
+gleiche Werte und Fehler), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`, `select/3`, `permutation/2`, `memberchk/2`, `last/2`, `reverse/2`,
 `proper_length/2`, `sum_list/2`, `max_list/2`, `min_list/2`, `max_member/2`,
 `min_member/2`, `delete/3`, `list_to_set/2`, `nextto/3`, `subtract/3`,
 `intersection/3`, `union/3`, `include/3`, `exclude/3`, `partition/4`, `foldl/4..6`,
