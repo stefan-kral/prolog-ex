@@ -2,11 +2,11 @@ defmodule PrologEx.Builtin do
   @moduledoc """
   Schnittstelle für Builtin-Prädikate in Elixir.
 
-      defmodule PrologEx.Builtins.Atoms do
+      defmodule PrologEx.Builtins.MyBuiltins do
         use PrologEx.Builtin
 
         # deterministisch
-        defbuiltin "atom_length", [x, len] do
+        defbuiltin "my_atom_length", [x, len] do
           case deref(x) do
             {:atom, name} -> {:unify, [{len, String.length(name)}]}
             {:var, _} -> PrologEx.Error.instantiation!()

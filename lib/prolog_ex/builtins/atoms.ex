@@ -1,6 +1,28 @@
 defmodule PrologEx.Builtins.Atoms do
   @moduledoc """
-  Zahlen und Zeichen: `number_chars/2`, `number_codes/2` (ISO).
+  Atome, Zahlen und Zeichen (ISO 8.16): `atom_length/2`, `atom_concat/3`,
+  `sub_atom/5`, `atom_chars/2`, `atom_codes/2`, `char_code/2`,
+  `number_chars/2`, `number_codes/2`, dazu `atom_number/2` (SWI).
+
+  Wie ISO (und SICStus) streng getypt: wo ein Atom verlangt ist, ergibt
+  eine Zahl `type_error(atom, …)` (SWI wäre großzügiger). `[]` zählt als
+  Atom `'[]'`. Längen und Positionen zählen Zeichen (Unicode-Codepoints),
+  nicht Bytes.
+
+  `atom_chars(A, L)` / `atom_codes(A, L)`: Ist L eine vollständige Liste,
+  wird daraus das Atom gebaut und mit A unifiziert; sonst muss A ein Atom
+  sein. Die Elemente von L werden immer geprüft (type_error(character, …)
+  bzw. representation_error), wie bei number_chars nach Cor.2.
+
+  `atom_concat/3` und `sub_atom/5` zählen nichtdeterministisch auf, in der
+  ISO-Reihenfolge (B aufsteigend, dann L aufsteigend); die letzte Lösung
+  hinterlässt keinen Choice Point. Ist `Sub` bei sub_atom/5 gebunden, wird
+  direkt nach Vorkommen gesucht (überlappend).
+
+  `atom_number(A, N)`: A ein Atom → als Zahl lesen, scheitert, wenn es
+  keine ist; A ungebunden → N muss eine Zahl sein.
+
+  ## number_chars, number_codes
 
   `number_chars(N, L)`:
 
@@ -24,6 +46,329 @@ defmodule PrologEx.Builtins.Atoms do
   use PrologEx.Builtin
   alias PrologEx.Builtins.Lists
   alias PrologEx.Error
+
+  # ---------------------------------------------------------------------
+  # atom_length, atom_chars, atom_codes, char_code, atom_number
+  # ---------------------------------------------------------------------
+
+  defbuiltin "atom_length", [x, len] do
+    name = atom_name!(deref(x), :required)
+
+    case deref(len) do
+      {:var, _} -> :ok
+      n when is_integer(n) and n >= 0 -> :ok
+      n when is_integer(n) -> Error.domain!("not_less_than_zero", n)
+      other -> Error.type!("integer", other)
+    end
+
+    {:unify, [{len, cp_length(name)}]}
+  end
+
+  defbuiltin "atom_chars", [x, l] do
+    atom_text(x, l, subst(), :chars)
+  end
+
+  defbuiltin "atom_codes", [x, l] do
+    atom_text(x, l, subst(), :codes)
+  end
+
+  defbuiltin "char_code", [c, code] do
+    case deref(c) do
+      {:var, _} ->
+        case deref(code) do
+          {:var, _} ->
+            Error.instantiation!()
+
+          n when is_integer(n) ->
+            check_elem(n, :codes)
+            {:unify, [{c, a(<<n::utf8>>)}]}
+
+          other ->
+            Error.type!("integer", other)
+        end
+
+      cc ->
+        check_elem(cc, :chars)
+
+        case deref(code) do
+          {:var, _} -> :ok
+          n when is_integer(n) -> check_elem(n, :codes)
+          other -> Error.type!("integer", other)
+        end
+
+        <<n::utf8>> = atom_name!(cc, :required)
+        {:unify, [{code, n}]}
+    end
+  end
+
+  defbuiltin "atom_number", [x, n] do
+    case deref(x) do
+      {:var, _} ->
+        case deref(n) do
+          {:var, _} -> Error.instantiation!()
+          num when is_number(num) -> {:unify, [{x, a(number_string(num))}]}
+          other -> Error.type!("number", other)
+        end
+
+      xx ->
+        case parse_number(atom_name!(xx, :required)) do
+          {:ok, num} -> {:unify, [{n, num}]}
+          :error -> :fail
+        end
+    end
+  end
+
+  defp atom_text(x, l, s, kind) do
+    name = atom_name!(PrologEx.walk(x, s), :optional)
+
+    case text(l, s, kind) do
+      {:ok, str} -> {:unify, [{x, a(str)}]}
+      :partial when name != nil -> {:unify, [{l, encode(name, kind)}]}
+      :partial -> Error.instantiation!()
+    end
+  end
+
+  # Name eines Atoms; :optional: Variable ergibt nil, :required: Fehler
+  defp atom_name!([], _), do: "[]"
+  defp atom_name!({:atom, name}, _), do: name
+  defp atom_name!({:var, _}, :optional), do: nil
+  defp atom_name!({:var, _}, :required), do: Error.instantiation!()
+  defp atom_name!(other, _), do: Error.type!("atom", other)
+
+  # Atom-Argument, das ungebunden sein darf (atom_concat, sub_atom)
+  defp opt_atom!(t), do: atom_name!(t, :optional)
+
+  defp cp_length(name) do
+    if ascii?(name), do: byte_size(name), else: length(String.to_charlist(name))
+  end
+
+  defp ascii?(name), do: not String.match?(name, ~r/[^\x00-\x7f]/)
+
+  # ---------------------------------------------------------------------
+  # atom_concat/3
+  # ---------------------------------------------------------------------
+
+  defbuiltin "atom_concat", [x, y, z], nondet: true do
+    a1 = opt_atom!(deref(x))
+    a2 = opt_atom!(deref(y))
+    a3 = opt_atom!(deref(z))
+
+    cond do
+      a1 != nil and a2 != nil ->
+        [{:unify, [{z, a(a1 <> a2)}]}]
+
+      a3 == nil ->
+        Error.instantiation!()
+
+      a1 != nil ->
+        if String.starts_with?(a3, a1),
+          do: [{:unify, [{y, a(binary_part(a3, byte_size(a1), byte_size(a3) - byte_size(a1)))}]}],
+          else: []
+
+      a2 != nil ->
+        if String.ends_with?(a3, a2),
+          do: [{:unify, [{x, a(binary_part(a3, 0, byte_size(a3) - byte_size(a2)))}]}],
+          else: []
+
+      true ->
+        splits(a3, 0, x, y)
+    end
+  end
+
+  # alle Zerlegungen an Zeichengrenzen, ab Byte-Position i
+  defp splits(name, i, x, y) do
+    r =
+      {:unify,
+       [{x, a(binary_part(name, 0, i))}, {y, a(binary_part(name, i, byte_size(name) - i))}]}
+
+    case binary_part(name, i, byte_size(name) - i) do
+      "" -> [r]
+      <<c::utf8, _::binary>> -> [r | fn -> splits(name, i + byte_size(<<c::utf8>>), x, y) end]
+    end
+  end
+
+  # ---------------------------------------------------------------------
+  # sub_atom/5
+  # ---------------------------------------------------------------------
+
+  defbuiltin "sub_atom", [x, b, l, af, sub], nondet: true do
+    name = atom_name!(deref(x), :required)
+    bb = opt_int!(deref(b))
+    ll = opt_int!(deref(l))
+    aa = opt_int!(deref(af))
+    sa = opt_atom!(deref(sub))
+
+    at = text_index(name)
+    n = at.len
+    out = {b, l, af, sub}
+
+    cond do
+      Enum.any?([bb, ll, aa], &(&1 != nil and &1 < 0)) ->
+        []
+
+      sa == "" and ll not in [nil, 0] ->
+        []
+
+      sa == "" ->
+        # leeres Sub: an jeder Position (wie Sub ungebunden mit L = 0)
+        lookahead(
+          fn st -> enum_next(n, bb, 0, aa, st) end,
+          enum_first(n, bb, 0, aa),
+          &emit_sub(at, &1, out)
+        )
+
+      sa != nil ->
+        m = cp_length(sa)
+
+        cond do
+          m > n -> []
+          ll != nil and ll != m -> []
+          bb != nil -> check_at(at, bb, m, aa, sa, out)
+          aa != nil -> check_at(at, n - m - aa, m, aa, sa, out)
+          true -> occurrences(at, sa, out)
+        end
+
+      true ->
+        first = enum_first(n, bb, ll, aa)
+        lookahead(fn st -> enum_next(n, bb, ll, aa, st) end, first, &emit_sub(at, &1, out))
+    end
+  end
+
+  defp opt_int!({:var, _}), do: nil
+  defp opt_int!(n) when is_integer(n), do: n
+  defp opt_int!(other), do: Error.type!("integer", other)
+
+  # Zugriff auf Zeichenpositionen: bei ASCII Byte = Zeichen, sonst ein
+  # Tupel der Byte-Offsets (Index i -> Byte-Offset von Zeichen i, plus Ende)
+  defp text_index(name) do
+    if ascii?(name) do
+      %{name: name, len: byte_size(name), offs: nil}
+    else
+      offs = offsets(name, 0, [0]) |> Enum.reverse() |> List.to_tuple()
+      %{name: name, len: tuple_size(offs) - 1, offs: offs}
+    end
+  end
+
+  defp offsets(<<c::utf8, rest::binary>>, pos, acc) do
+    pos = pos + byte_size(<<c::utf8>>)
+    offsets(rest, pos, [pos | acc])
+  end
+
+  defp offsets(<<>>, _pos, acc), do: acc
+
+  defp off(%{offs: nil}, i), do: i
+  defp off(%{offs: o}, i), do: elem(o, i)
+
+  defp slice(at, b, l) do
+    from = off(at, b)
+    binary_part(at.name, from, off(at, b + l) - from)
+  end
+
+  # Byte-Offset -> Zeichenindex (nur für Offsets an Zeichengrenzen)
+  defp index_of(%{offs: nil}, byte), do: byte
+  defp index_of(%{offs: o}, byte), do: bsearch(o, byte, 0, tuple_size(o) - 1)
+
+  defp bsearch(o, byte, lo, hi) do
+    mid = div(lo + hi, 2)
+
+    case elem(o, mid) do
+      ^byte -> mid
+      v when v < byte -> bsearch(o, byte, mid + 1, hi)
+      _ -> bsearch(o, byte, lo, mid - 1)
+    end
+  end
+
+  defp emit_sub(at, {bi, li}, {b, l, af, sub}),
+    do: {:unify, [{b, bi}, {l, li}, {af, at.len - bi - li}, {sub, a(slice(at, bi, li))}]}
+
+  defp check_at(at, bi, m, aa, sa, out) do
+    if bi >= 0 and bi + m <= at.len and (aa == nil or at.len - bi - m == aa) and
+         slice(at, bi, m) == sa,
+       do: [emit_sub(at, {bi, m}, out)],
+       else: []
+  end
+
+  # alle (auch überlappenden) Vorkommen von sa, über :binary.match
+  defp occurrences(at, sa, out) do
+    m = cp_length(sa)
+    first = next_occurrence(at, sa, 0)
+    lookahead(&next_occurrence(at, sa, &1), first, fn {bi, _} -> emit_sub(at, {bi, m}, out) end)
+  end
+
+  # nächstes Vorkommen ab Byte-Position pos: {{b, nächste_pos}, zustand}
+  defp next_occurrence(at, sa, pos) do
+    size = byte_size(at.name)
+
+    if pos > size do
+      nil
+    else
+      case :binary.match(at.name, sa, scope: {pos, size - pos}) do
+        :nomatch -> nil
+        {p, _} -> next_after(at, p)
+      end
+    end
+  end
+
+  defp next_after(at, p) do
+    bi = index_of(at, p)
+    # überlappend: weiter ab dem nächsten Zeichen
+    step = off(at, bi + 1) - p
+    {{bi, p + step}, p + step}
+  end
+
+  # sub_atom ohne Sub: Paare {B, L}, B aufsteigend, dann L aufsteigend
+  defp enum_first(n, bb, ll, aa) do
+    b0 =
+      cond do
+        bb != nil -> bb
+        ll != nil and aa != nil -> n - ll - aa
+        true -> 0
+      end
+
+    valid_from(n, bb, ll, aa, b0, l_min(n, ll, aa, b0))
+  end
+
+  defp enum_next(n, bb, ll, aa, {b, l}), do: valid_from(n, bb, ll, aa, b, l + 1)
+
+  defp l_min(n, ll, aa, b) do
+    cond do
+      ll != nil -> ll
+      aa != nil -> n - b - aa
+      true -> 0
+    end
+  end
+
+  # erstes gültiges Paar ab (b, l): {{b, l}, {b, l}} oder nil
+  defp valid_from(n, bb, ll, aa, b, l) do
+    cond do
+      b > n or (bb != nil and b != bb) or b < 0 ->
+        nil
+
+      l < 0 or b + l > n or (ll != nil and l != ll) or (aa != nil and n - b - l != aa) ->
+        # nächstes B (wenn B frei ist)
+        if bb != nil or (ll != nil and aa != nil),
+          do: nil,
+          else: valid_from(n, bb, ll, aa, b + 1, l_min(n, ll, aa, b + 1))
+
+      true ->
+        {{b, l}, {b, l}}
+    end
+  end
+
+  # Lazy Lösungsliste mit einer Lösung Vorlauf: die letzte ohne Choice Point.
+  # next.(zustand) -> {lösung, zustand} | nil
+  defp lookahead(_next, nil, _emit), do: []
+
+  defp lookahead(next, {sol, st}, emit) do
+    case next.(st) do
+      nil -> [emit.(sol)]
+      more -> [emit.(sol) | fn -> lookahead(next, more, emit) end]
+    end
+  end
+
+  # ---------------------------------------------------------------------
+  # number_chars, number_codes
+  # ---------------------------------------------------------------------
 
   defbuiltin "number_chars", [n, l] do
     number_text(n, l, subst(), :chars)

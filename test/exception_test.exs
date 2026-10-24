@@ -67,8 +67,8 @@ defmodule PrologEx.ExceptionTest do
              "C = x, T = integer"
            ]
 
-    assert ask(c, "catch(atom_length(abc, N), error(existence_error(procedure, PI), _), true).") ==
-             ["PI = /(atom_length, 2)"]
+    assert ask(c, "catch(atom_lenght(abc, N), error(existence_error(procedure, PI), _), true).") ==
+             ["PI = /(atom_lenght, 2)"]
 
     assert ask(c, "catch(call(1), error(E, _), true).") == ["E = type_error(callable, 1)"]
     assert ask(c, "catch(G, error(E, _), true).") == ["E = instantiation_error"]
@@ -80,9 +80,9 @@ defmodule PrologEx.ExceptionTest do
     # Kulprit mit gebundenen Variablen wird aufgelöst
     assert ask(
              c,
-             "X = f(Y), Y = 2, catch(atom_codes(X, _), error(existence_error(_, _), _), true)."
+             "X = f(Y), Y = 2, catch(atom_codes(X, _), error(type_error(atom, C), _), true)."
            ) ==
-             ["X = f(2), Y = 2"]
+             ["C = f(2), X = f(2), Y = 2"]
   end
 
   test "catch/3 ist transparent für Choice Points, aber nur während G läuft", c do
