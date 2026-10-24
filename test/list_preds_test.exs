@@ -170,15 +170,15 @@ defmodule PrologEx.ListPredsTest do
     test "Modi" do
       assert all(s("same_length", [list([1, 2]), list([a("a"), a("b")])])) == ["true"]
       assert all(s("same_length", [list([1, 2]), list([a("a")])])) == []
-      assert all(s("same_length", [list([1, 2]), @l])) |> hd() =~ ~r/^L = \[_B\d+, _B\d+\]$/
+      assert all(s("same_length", [list([1, 2]), @l])) |> hd() =~ ~r/^L = \[_A, _B\]$/
 
       assert all(s("same_length", [list([a("a")], @t), list([1, 2, 3])])) |> hd() =~
-               ~r/^T = \[_B\d+, _B\d+\]$/
+               ~r/^T = \[_A, _B\]$/
 
       assert more(s("same_length", [list([1, 2]), @l])) == [false]
 
       assert all(s("same_length", [list([1, 2, 3]), list([a("a")], @t)])) |> hd() =~
-               ~r/^T = \[_B\d+, _B\d+\]$/
+               ~r/^T = \[_A, _B\]$/
 
       assert length(all(s("same_length", [@l, @r]), 3)) == 3
     end
@@ -202,7 +202,7 @@ defmodule PrologEx.ListPredsTest do
                ["I = 0, L = \"xab\"", "I = 1, L = \"axb\"", "I = 2, L = \"abx\""]
 
       assert all(s("nth0", [3, list([a("a")], @t), a("x")])) |> hd() =~
-               ~r/^T = \[_B\d+, _B\d+, x\|_B\d+\]$/
+               ~r/^T = \[_A, _B, x\|_C\]$/
 
       error(s("nth0", [a("a"), abc, @e]))
     end

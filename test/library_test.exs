@@ -72,7 +72,7 @@ defmodule PrologEx.LibraryTest do
       assert a1 != a2
       assert all(s("functor", [@t, a("foo"), 0])) == ["T = foo"]
       assert all(s("functor", [@t, 7, 0])) == ["T = 7"]
-      assert all(s("functor", [@t, a("."), 2])) |> hd() =~ ~r/^T = \[_B\d+\|_B\d+\]$/
+      assert all(s("functor", [@t, a("."), 2])) |> hd() =~ ~r/^T = \[_A\|_B\]$/
     end
 
     test "prüft" do
@@ -203,14 +203,14 @@ defmodule PrologEx.LibraryTest do
     test "Liste erzeugen bei bekannter Länge" do
       [ans] = db() |> query(s("length", [@l, 2])) |> Enum.take(1)
       assert [{:var, _}, {:var, _}] = ans["L"]
-      assert all(s("length", [list([a("a")], @t), 3])) |> hd() =~ ~r/^T = \[_B\d+, _B\d+\]$/
+      assert all(s("length", [list([a("a")], @t), 3])) |> hd() =~ ~r/^T = \[_A, _B\]$/
       assert all(s("length", [list([a("a"), a("b")], @t), 1])) == []
     end
 
     test "beides offen: zählt lazy auf" do
       answers = db() |> query(s("length", [@l, @n])) |> Enum.take(3) |> Enum.map(&format_answer/1)
       assert Enum.at(answers, 0) == "L = [], N = 0"
-      assert Enum.at(answers, 2) =~ ~r/^L = \[_B\d+, _B\d+\], N = 2$/
+      assert Enum.at(answers, 2) =~ ~r/^L = \[_A, _B\], N = 2$/
       [{_, more?}] = db() |> solutions(s("length", [list([1, 2]), @n])) |> Enum.take(1)
       refute more?
     end

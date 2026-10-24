@@ -47,15 +47,15 @@ defmodule PrologEx.BagofTest do
       assert ask(c, "bagof(X, (X = Y ; X = Z), S).") == ["S = [Y, Z]"]
       assert ask(c, "bagof(X, fail, S).") == []
       assert ask(c, "bagof(X, Y^((X = 1, Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [1, 2]"]
-      assert ask(c, "bagof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [1, _, 2]"]
+      assert ask(c, "bagof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [1, _A, 2]"]
     end
 
     test "freie Variablen: eine Lösung je Gruppe, nach Zeugen sortiert", c do
       assert ask(c, "bagof(1, (Y = 1 ; Y = 2), L).") == ["L = [1], Y = 1 ;", "L = [1], Y = 2"]
-      assert ask(c, "bagof(f(X, Y), (X = a ; Y = b), L).") == ["L = [f(a, _), f(_, b)]"]
+      assert ask(c, "bagof(f(X, Y), (X = a ; Y = b), L).") == ["L = [f(a, _A), f(_B, b)]"]
 
       assert ask(c, "bagof(X, (X = Y ; X = Z ; Y = 1), S).") ==
-               ["S = [Y, Z] ;", "S = [_], Y = 1"]
+               ["S = [Y, Z] ;", "S = [_A], Y = 1"]
 
       # nach Zeuge sortiert (ISO nähme b zuerst)
       assert ask(c, "bagof(X, member(X-Y, [1-b, 2-a, 3-b]), L).") ==
@@ -71,8 +71,8 @@ defmodule PrologEx.BagofTest do
       # sortiert: f(_1, b) < f(_2, a) < f(_3, b) (Variablen nach Alter);
       # f(_1, b) und f(_3, b) sind Varianten
       assert ask(c, "bagof(T, pf(W, T), L).") == [
-               "L = [1, 3], W = f(_, b) ;",
-               "L = [2], W = f(_, a)"
+               "L = [1, 3], W = f(_A, b) ;",
+               "L = [2], W = f(_A, a)"
              ]
     end
 
@@ -116,8 +116,8 @@ defmodule PrologEx.BagofTest do
       assert ask(c, "setof(X, (X = 2 ; X = 2), S).") == ["S = [2]"]
       assert ask(c, "setof(X, fail, S).") == []
       assert ask(c, "setof(1, (Y = 2 ; Y = 1), L).") == ["L = [1], Y = 1 ;", "L = [1], Y = 2"]
-      assert ask(c, "setof(f(X, Y), X = Y, L).") == ["L = [f(_, _)]"]
-      assert ask(c, "setof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [_, 1, 2]"]
+      assert ask(c, "setof(f(X, Y), X = Y, L).") == ["L = [f(_A, _A)]"]
+      assert ask(c, "setof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [_A, 1, 2]"]
     end
 
     test "Beispiel age/2", c do
@@ -148,7 +148,7 @@ defmodule PrologEx.BagofTest do
       # Variablen: Varianten, eine Gruppe; die Unifikation der Zeugen macht
       # V1 = V2, sortiert bleibt also ein Element
       assert ask(c, "setof(T, Z^K^(member(K, [1, 2]), copy_term(f(Z)-Z, W-T)), L).") ==
-               ["L = [_], W = f(_)"]
+               ["L = [_A], W = f(_A)"]
 
       assert ask(
                c,

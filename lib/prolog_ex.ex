@@ -2253,6 +2253,12 @@ defmodule PrologEx do
     # wie writeq; Zeichenlisten als "..." bei double_quotes=chars (wie Scryer)
     opts = PrologEx.Writer.answer_opts()
     {residual, ans} = Map.pop(ans, "$residual", [])
+
+    # Namen aus der Anfrage behalten ihren Namen und werden nicht vergeben –
+    # auch _X, die (wie bei SWI) nicht angezeigt werden; anonyme _ (vom
+    # Reader _123 genannt) gelten als frisch
+    reserved = Enum.reject(order || [], &Regex.match?(~r/^_\d+$/, &1)) ++ Map.keys(ans)
+
     order = order || Map.keys(ans) |> Enum.sort()
 
     {named, renames} =
@@ -2261,24 +2267,71 @@ defmodule PrologEx do
       |> Enum.map(&{&1, Map.fetch!(ans, &1)})
       |> name_fresh_r()
 
-    bindings =
-      named
-      |> Enum.sort()
-      |> Enum.reject(fn {k, t} -> t == {:var, k} end)
-      # rechts von =/2 (700, xfx): höchstens 699, Operator-Atome in Klammern
-      |> Enum.map(fn {k, t} -> "#{k} = #{format(t, opts ++ [priority: 699, operand: true])}" end)
+    shown = named |> Enum.sort() |> Enum.reject(fn {k, t} -> t == {:var, k} end)
+    goal_terms = Enum.map(residual, &(&1 |> rename_free(renames) |> strip_user()))
 
-    goals =
-      Enum.map(
-        residual,
-        &(&1 |> rename_free(renames) |> strip_user() |> format(opts ++ [priority: 999]))
-      )
+    # frische Variablen (nicht aus der Anfrage) als _A, _B, ... in
+    # Reihenfolge des Auftretens, wie SICStus
+    opts =
+      opts ++
+        [variable_names: fresh_names(Enum.map(shown, &elem(&1, 1)) ++ goal_terms, reserved)]
+
+    bindings =
+      Enum.map(shown, fn {k, t} ->
+        # rechts von =/2 (700, xfx): höchstens 699, Operator-Atome in Klammern
+        "#{k} = #{format(t, opts ++ [priority: 699, operand: true])}"
+      end)
+
+    goals = Enum.map(goal_terms, &format(&1, opts ++ [priority: 999]))
 
     case bindings ++ goals do
       [] -> "true"
       shown -> Enum.join(shown, ", ")
     end
   end
+
+  # Namen für Variablen, die nicht aus der Anfrage stammen: _A, ..., _Z,
+  # _AA, _AB, ... in Reihenfolge des ersten Auftretens; Namen, die die
+  # Anfrage selbst benutzt, werden übersprungen
+  defp fresh_names(terms, query_names) do
+    query = MapSet.new(query_names)
+
+    {vars, _} =
+      Enum.reduce(terms, {[], MapSet.new()}, fn t, acc -> answer_vars(t, query, acc) end)
+
+    {names, _} =
+      vars
+      |> Enum.reverse()
+      |> Enum.map_reduce(0, fn v, i ->
+        {name, i} = next_fresh_name(i, query)
+        {{v, name}, i + 1}
+      end)
+
+    Map.new(names)
+  end
+
+  defp answer_vars({:var, n} = v, query, {acc, seen} = all) do
+    cond do
+      is_binary(n) and MapSet.member?(query, n) -> all
+      MapSet.member?(seen, v) -> all
+      true -> {[v | acc], MapSet.put(seen, v)}
+    end
+  end
+
+  defp answer_vars({tag, _, args}, query, acc) when tag in [:struct, :gstruct],
+    do: Enum.reduce(args, acc, &answer_vars(&1, query, &2))
+
+  defp answer_vars([h | t], query, acc), do: answer_vars(t, query, answer_vars(h, query, acc))
+  defp answer_vars(_, _query, acc), do: acc
+
+  defp next_fresh_name(i, query) do
+    name = "_" <> letters(i)
+    if MapSet.member?(query, name), do: next_fresh_name(i + 1, query), else: {name, i}
+  end
+
+  # 0 -> A, 25 -> Z, 26 -> AA, 27 -> AB, ... (bijektiv zur Basis 26)
+  defp letters(i) when i < 26, do: <<?A + i>>
+  defp letters(i), do: letters(div(i, 26) - 1) <> <<?A + rem(i, 26)>>
 
   # user:G in Restzielen wie SWI ohne Modul zeigen
   defp strip_user({:struct, ":", [{:atom, "user"}, g]}), do: strip_user(g)

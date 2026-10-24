@@ -69,7 +69,7 @@ defmodule PrologEx.CompactTest do
   end
 
   test "Elemente nach und nach gebunden, Rest offen", c do
-    assert both(c, "length(L, 4), L = [_, _|R], seta(R).") == ["L = [_F0, _F1, a, a], R = \"aa\""]
+    assert both(c, "length(L, 4), L = [_, _|R], seta(R).") == ["L = [_A, _B, a, a], R = \"aa\""]
 
     assert both(c, "length(L, 30000), seta(L), last(L, X), length(L, N), msort(L, [a|_]).")
            |> hd() =~ ", N = 30000, X = a"
@@ -84,6 +84,6 @@ defmodule PrologEx.CompactTest do
   test "attributierte Variablen in langen Listen bleiben erhalten", c do
     [answer] = both(c, "length(L, 5000), L = [X|_], freeze(X, true), last(L, Y), frozen(X, G).")
     assert answer =~ "G = freeze(X, user:true)"
-    assert String.ends_with?(answer, ", _F4997, Y], freeze(X, true)")
+    assert String.ends_with?(answer, ", _GJF, Y], freeze(X, true)")
   end
 end

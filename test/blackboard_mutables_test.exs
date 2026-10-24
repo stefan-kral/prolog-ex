@@ -58,7 +58,7 @@ defmodule PrologEx.BlackboardMutablesTest do
 
     test "gespeichert wird eine Kopie (Variablen frisch, Sharing erhalten)", c do
       assert ask(c, "bb_put(k, f(X, Y, X)), X = 1.") == ["X = 1"]
-      assert norm(ask(c, "bb_get(k, T).")) == ["T = f(_, _, _)"]
+      assert norm(ask(c, "bb_get(k, T).")) == ["T = f(_A, _B, _A)"]
       assert ask(c, "bb_get(k, f(A, B, C)), A == C, A \\== B.") |> length() == 1
       # bb_update speichert New mit den Bindungen aus Old
       assert ask(c, "bb_put(n, 1), bb_update(n, X, s(X)), bb_get(n, V).") ==
@@ -142,7 +142,7 @@ defmodule PrologEx.BlackboardMutablesTest do
                ["A = '$mutable'(2), B = '$mutable'('$mutable'(2))"]
 
       [answer] = ask(c, "create_mutable(0, M), update_mutable(f(M), M).")
-      assert answer =~ ~r/^M = '\$mutable'\(f\('\$mutable'\(_V\d+\)\)\)$/
+      assert answer == "M = '$mutable'(f('$mutable'(_A)))"
 
       assert ask(c, "create_mutable(1, M), L = [a|M].") ==
                ["L = [a|'$mutable'(1)], M = '$mutable'(1)"]

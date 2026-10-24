@@ -120,6 +120,10 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     `write_canonical`).
   * Zeichenlisten bei `double_quotes=chars` wie Scryer als `"..."`
     (`number_chars(123, X)` → `X = "123"`).
+  * Frische Variablen in Antworten (nicht aus der Anfrage) heißen wie bei
+    SICStus `_A`, `_B`, …, `_Z`, `_AA`, … – je Antwort neu, in Reihenfolge
+    des Auftretens, auch in Restzielen; Namen aus der Anfrage werden nicht
+    vergeben (`length(As, N)` → `As = [_A, _B], N = 2`).
   * Antworten und `listing` setzen Leerzeichen nach Kommas (`f(a, b)`,
     `[a, b|T]`) wie SWI; `writeq` schreibt kompakt (`f(a,b)`) wie ISO.
   * `write_term/2`: `quoted/1`, `ignore_ops/1`, `numbervars/1`,
