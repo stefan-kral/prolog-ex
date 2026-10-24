@@ -43,6 +43,8 @@ main :-
                   module_transparent, table, attribute]),
     % Variante (wie SWI)
     op(700, xfx, [=@=, \=@=]),
+    % ISO Cor. 2 (wie SWI)
+    op(400, yfx, xor),
     loop.
 
 loop :-

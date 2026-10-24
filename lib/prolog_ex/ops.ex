@@ -16,7 +16,7 @@ defmodule PrologEx.Ops do
   @key :prolog_ex_ops
 
   # gprolog 1.4/1.5 und priv/gprolog/reader.pl (dynamic, ..., attribute,
-  # =@=, \\=@=)
+  # =@=, \\=@=, xor)
   @default_list [
     {1200, "xfx", "-->"},
     {1200, "fx", ":-"},
@@ -89,6 +89,7 @@ defmodule PrologEx.Ops do
     {400, "yfx", "div"},
     {400, "yfx", "mod"},
     {400, "yfx", "rem"},
+    {400, "yfx", "xor"},
     {200, "xfx", "**"},
     {200, "fy", "+"},
     {200, "fy", "-"},

@@ -172,7 +172,10 @@ defmodule PrologEx.Builtins.Random do
     end
   end
 
-  defp draw(fun) do
+  @doc false
+  # eine Zufallszahl aus dem Generator der Sitzung (auch für is/2: random/1,
+  # random_float)
+  def draw(fun) do
     {x, s} = fun.(state())
     Process.put(@key, s)
     x
