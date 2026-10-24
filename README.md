@@ -71,7 +71,7 @@ Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
 `occurs_check`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
 `current_predicate/1`, `assert/1` `asserta/1` `assertz/1` `retract/1`
-`retractall/1` `dynamic/1`, `number_chars/2`, `number_codes/2` (ISO; Leerraum und Kommentare davor erlaubt, `0x`/`0o`/`0b`/`0'c`, Zifferngruppen),
+`retractall/1` `abolish/1` `dynamic/1`, `number_chars/2`, `number_codes/2` (ISO; Leerraum und Kommentare davor erlaubt, `0x`/`0o`/`0b`/`0'c`, Zifferngruppen),
 `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_chars/2`, `atom_codes/2`,
 `char_code/2` (ISO, streng getypt, zählen Zeichen statt Bytes), `atom_number/2`,
 `op/3`, `current_op/3` (ISO; Operatoren sind global und gelten ab dem nächsten

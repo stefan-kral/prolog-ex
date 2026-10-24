@@ -1,7 +1,7 @@
 defmodule PrologEx.Builtins.Database do
   @moduledoc """
   Veränderliche Datenbank: assert/1, asserta/1, assertz/1, retract/1,
-  retractall/1 (siehe auch `PrologEx` – Abschnitt Datenbank).
+  retractall/1, abolish/1 (siehe auch `PrologEx` – Abschnitt Datenbank).
 
     * Durch assert entstehende Prädikate sind dynamisch; geladene
       Prädikate sind statisch, außer mit `:- dynamic`. Änderungen an
@@ -83,6 +83,69 @@ defmodule PrologEx.Builtins.Database do
 
     :ok
   end
+
+  # abolish(Name/Arity), auch M:Name/Arity (ISO 8.9.4): entfernt ein
+  # dynamisches Prädikat ganz – Klauseln und Eigenschaften (danach ist es
+  # unbekannt, anders als nach retractall/1). Ein unbekanntes Prädikat ist
+  # kein Fehler; statische (geladene, eingebaute, aus Bibliotheken
+  # importierte) ergeben permission_error(modify, static_procedure, PI).
+  # Laufende Aufrufe behalten ihren Schnappschuss (logical update view).
+  defbuiltin "abolish", [pi] do
+    s = subst()
+    {m, spec} = PrologEx.Builtins.Modules.strip(pi, context_module(), s)
+    {name, arity} = abolish_indicator!(spec, s)
+    key = {m, name, arity}
+    check_modifiable!(key)
+    db = PrologEx.current_db()
+
+    cond do
+      Map.has_key?(db, key) ->
+        check_dynamic!(key)
+
+        db =
+          db
+          |> Map.delete(key)
+          |> Map.delete({:meta, m, name, arity})
+          |> Map.update(:dynamic, MapSet.new(), &MapSet.delete(&1, key))
+
+        PrologEx.put_db(db)
+
+      # eingebaut oder aus einer Bibliothek sichtbar: statisch. (Aus einem
+      # anderen Benutzermodul importiert: hier unbekannt, wie bei retract/1.)
+      match?({:builtin, _, _}, PrologEx.locate(db, m, name, arity)) ->
+        permission!(key)
+
+      true ->
+        :ok
+    end
+
+    :ok
+  end
+
+  defp abolish_indicator!(spec, s) do
+    case PrologEx.unmark_top(spec) do
+      {:var, _} ->
+        PrologEx.Error.instantiation!()
+
+      {:struct, "/", [n, ar]} ->
+        n = PrologEx.walk(n, s)
+        ar = PrologEx.walk(ar, s)
+
+        cond do
+          match?({:var, _}, n) or match?({:var, _}, ar) -> PrologEx.Error.instantiation!()
+          not (match?({:atom, _}, n) or n == []) -> PrologEx.Error.type!("atom", n)
+          not is_integer(ar) -> PrologEx.Error.type!("integer", PrologEx.resolve(ar, s))
+          ar < 0 -> PrologEx.Error.domain!("not_less_than_zero", ar)
+          true -> {atom_name(n), ar}
+        end
+
+      other ->
+        PrologEx.Error.type!("predicate_indicator", PrologEx.resolve(other, s))
+    end
+  end
+
+  defp atom_name([]), do: "[]"
+  defp atom_name({:atom, n}), do: n
 
   # dynamic(Spec) als Ziel: name/arity, Folge (a/1, b/2) oder Liste
   defbuiltin "dynamic", [spec] do

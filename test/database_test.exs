@@ -153,6 +153,88 @@ defmodule PrologEx.DatabaseTest do
     end
   end
 
+  describe "abolish/1" do
+    test "entfernt ein dynamisches Prädikat ganz (anders als retractall)", %{reader: r} do
+      db = load(r)
+
+      # nach retractall: leer, aber noch dynamisch – nach abolish: unbekannt
+      assert ask(
+               r,
+               db,
+               "retractall(counter(_)), \\+ counter(_), predicate_property(counter(_), dynamic)."
+             ) ==
+               ["true"]
+
+      assert err(r, db, "abolish(counter/1), counter(_).") =~
+               "existence_error(procedure, counter/1)"
+
+      assert ask(r, db, "assertz(z(1)), abolish(z/1), \\+ predicate_property(z(_), _).") ==
+               ["true"]
+
+      # neu angelegt ist es wieder dynamisch
+      assert ask(r, db, "assertz(z(1)), abolish(z/1), assertz(z(2)), findall(X, z(X), L).") ==
+               ["L = [2]"]
+
+      # mit Modul
+      assert err(r, db, "assertz(m:q(1)), abolish(m:q/1), m:q(_).") =~
+               "existence_error(procedure, m:q/1)"
+
+      assert ask(r, db, "assertz(m:q(1)), m:abolish(q/1), \\+ predicate_property(m:q(_), _).") ==
+               ["true"]
+    end
+
+    test "auch die dynamic-Eigenschaft ist weg: neu geladen ist es statisch", %{reader: r} do
+      db = load(r)
+      assert ask(r, db, "abolish(counter/1).") == ["true"]
+      {db, []} = Consult.load(PrologEx.current_db(), Reader.read_terms(r, "counter(7).\n"))
+      assert ask(r, db, "counter(X).") == ["X = 7"]
+
+      assert err(r, db, "assertz(counter(8)).") =~
+               "permission_error(modify, static_procedure, counter/1)"
+    end
+
+    test "unbekannt: kein Fehler", %{reader: r} do
+      db = load(r)
+      assert ask(r, db, "abolish(gibtsnicht/3).") == ["true"]
+      assert ask(r, db, "abolish(leer/0), abolish(leer/0).") == ["true"]
+    end
+
+    test "logical update view: ein laufender Aufruf behält seine Klauseln", %{reader: r} do
+      db = load(r)
+
+      assert ask(r, db, "assertz(w(1)), assertz(w(2)), findall(X, (w(X), abolish(w/1)), L).") ==
+               ["L = [1, 2]"]
+    end
+
+    test "Fehler wie ISO", %{reader: r} do
+      db = load(r)
+
+      for {goal, e} <- [
+            {"abolish(_)", "instantiation_error"},
+            {"abolish(foo/_)", "instantiation_error"},
+            {"abolish(_/1)", "instantiation_error"},
+            {"abolish(foo)", "type_error(predicate_indicator, foo)"},
+            {"abolish(foo(1))", "type_error(predicate_indicator, foo(1))"},
+            {"abolish(1/1)", "type_error(atom, 1)"},
+            {"abolish(foo/a)", "type_error(integer, a)"},
+            {"abolish(foo/(-1))", "domain_error(not_less_than_zero, -1)"},
+            # geladen, also statisch
+            {"abolish(statisch/1)", "permission_error(modify, static_procedure, statisch/1)"},
+            # eingebaut und aus einer Bibliothek importiert
+            {"abolish(abolish/1)", "permission_error(modify, static_procedure, abolish/1)"},
+            {"abolish(atom_length/2)",
+             "permission_error(modify, static_procedure, atom_length/2)"},
+            {"abolish(append/3)", "permission_error(modify, static_procedure, append/3)"},
+            {"abolish(m:foo/_)", "instantiation_error"}
+          ] do
+        assert err(r, db, goal <> ".") =~ e, goal
+      end
+
+      # statisch bleibt unverändert
+      assert ask(r, db, "statisch(X).") == ["X = a"]
+    end
+  end
+
   describe "retractall und dynamic" do
     test "retractall entfernt passende Köpfe", %{reader: r} do
       db = load(r)
