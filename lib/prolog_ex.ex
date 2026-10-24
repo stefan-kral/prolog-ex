@@ -1769,8 +1769,23 @@ defmodule PrologEx do
 
       :error ->
         case walk(var, subst) do
+          # freie, nicht attributierte Variable: kein Memo nötig (attvs_in
+          # sucht im Memo nur nach attributierten)
+          {:var, n} = free when not is_tuple(n) ->
+            {free, acc, free != var, false}
+
           {:var, _} = free ->
             {free, {Map.put(memo, var, {free, false}), size}, free != var, false}
+
+          # atomar: nichts zu teilen, kein Memo
+          atomic when not is_tuple(atomic) and not is_list(atomic) ->
+            {atomic, acc, true, true}
+
+          {:atom, _} = atomic ->
+            {atomic, acc, true, true}
+
+          [] ->
+            {[], acc, true, true}
 
           bound ->
             {t, {memo, size}, _ch, g} = compact3(bound, subst, {memo, size})
@@ -1795,18 +1810,55 @@ defmodule PrologEx do
     end
   end
 
-  defp compact3([h | t] = l, subst, acc) do
-    {h2, acc, ch, gh} = compact3(h, subst, acc)
-    {t2, {memo, size} = acc, ct, gt} = compact3(t, subst, acc)
-
-    cond do
-      gh and gt -> {cons(h2, t2), acc, true, true}
-      ch or ct -> {[h2 | t2], {memo, size + 1}, true, false}
-      true -> {l, {memo, size + 1}, false, false}
-    end
+  # Listen: den Rücken iterativ ablaufen (auch über gebundene
+  # Rest-Variablen), dann von hinten neu aufbauen. Rekursion über den Rest
+  # hieße einen Stack so tief wie die Liste – und jede GC durchsucht den
+  # ganzen Stack (bei 400 000 Zellen ein Mehrfaches der eigentlichen Arbeit).
+  defp compact3([_ | _] = l, subst, acc) do
+    {spine, tail, acc} = compact_spine(l, subst, acc, [])
+    {t2, acc, ct, gt} = compact3(tail, subst, acc)
+    compact_rebuild(spine, t2, acc, ct, gt)
   end
 
   defp compact3(t, _subst, acc), do: {t, acc, false, true}
+
+  # Köpfe der Reihe nach kompaktieren; Einträge {:cell, zelle, h2, ch, gh}
+  # oder {:link, var} (gebundene Rest-Variable, wird beim Aufbau memoisiert)
+  defp compact_spine([h | t] = l, subst, acc, spine) do
+    {h2, acc, ch, gh} = compact3(h, subst, acc)
+    spine = [{:cell, l, h2, ch, gh} | spine]
+
+    case t do
+      [_ | _] ->
+        compact_spine(t, subst, acc, spine)
+
+      {:var, _} = var ->
+        {memo, _} = acc
+
+        with :error <- Map.fetch(memo, var),
+             [_ | _] = next <- walk(var, subst) do
+          compact_spine(next, subst, acc, [{:link, var} | spine])
+        else
+          _ -> {spine, t, acc}
+        end
+
+      _ ->
+        {spine, t, acc}
+    end
+  end
+
+  defp compact_rebuild([], t, acc, ch, g), do: {t, acc, ch, g}
+
+  defp compact_rebuild([{:link, var} | rest], t, {memo, size}, _ch, g),
+    do: compact_rebuild(rest, t, {Map.put(memo, var, {t, g}), size}, true, g)
+
+  defp compact_rebuild([{:cell, l, h2, ch, gh} | rest], t2, {memo, size} = acc, ct, gt) do
+    cond do
+      gh and gt -> compact_rebuild(rest, cons(h2, t2), acc, true, true)
+      ch or ct -> compact_rebuild(rest, [h2 | t2], {memo, size + 1}, true, false)
+      true -> compact_rebuild(rest, l, {memo, size + 1}, false, false)
+    end
+  end
 
   # ---------------------------------------------------------------------
   # Arithmetik
