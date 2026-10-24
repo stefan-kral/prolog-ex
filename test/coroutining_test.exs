@@ -12,6 +12,7 @@ defmodule PrologEx.CoroutiningTest do
   zaehle(0) :- !.
   zaehle(N) :- N1 is N - 1, zaehle(N1).
   ausgabe(X) :- write(X), nl.
+  gross(f(a, [1, 2], g(b))).
   """
 
   setup_all do
@@ -192,14 +193,16 @@ defmodule PrologEx.CoroutiningTest do
   end
 
   describe "dif/2: Wecken in der Maschine" do
-    test "Reihenfolge gegenüber anderen Weckzielen bleibt", c do
-      # freeze zuerst angehängt: läuft vor dem scheiternden dif
-      assert out(c, "freeze(X, write(f)), dif(X, a), X = a.") == "f"
-      # dif zuerst: scheitert, bevor freeze läuft
+    test "Reihenfolge gegenüber anderen Weckzielen", c do
+      # dif mit einem ground Wert (Ausschlussmenge): immer zuerst geprüft
+      assert out(c, "freeze(X, write(f)), dif(X, a), X = a.") == ""
       assert out(c, "dif(X, a), freeze(X, write(f)), X = a.") == ""
-      # dif, freeze, dif: zweites dif nach der Ausgabe
-      assert out(c, "dif(X, b), freeze(X, write(f)), dif(X, a), X = a.") == "f"
-      assert out(c, "dif(X, a), freeze(X, write(f)), dif(X, b), X = a.") == ""
+      assert out(c, "dif(X, b), freeze(X, write(f)), dif(X, a), X = a.") == ""
+      assert out(c, "freeze(X, write(f)), dif(X, a), X = b.") == "f"
+      # sonst in der Reihenfolge des Anhängens
+      assert out(c, "freeze(X, write(f)), dif(X, f(Y)), X = f(Y).") == "f"
+      assert out(c, "dif(X, f(Y)), freeze(X, write(f)), X = f(Y).") == ""
+      assert out(c, "dif(X, f(Z)), freeze(X, write(f)), dif(X, g(Y)), X = g(Y).") == "f"
     end
 
     test "eine Bedingung an mehreren Variablen: einmal geprüft", c do
@@ -228,6 +231,72 @@ defmodule PrologEx.CoroutiningTest do
                "freeze(X, zaehle(3000)), dif(X, a), dif(X, Y), X = b, zaehle(3000), Y = c.",
                compact_threshold: 1
              ) == ["X = b, Y = c"]
+    end
+  end
+
+  describe "dif/2: Ausschlussmengen (ground Werte)" do
+    test "binden an ground Werte", c do
+      assert ask(c, "dif(X, a), dif(X, b), X = c.") == ["X = c"]
+      assert ask(c, "dif(X, a), dif(X, b), X = a.") == []
+      assert ask(c, "dif(X, a), dif(X, b), X = b.") == []
+      # 1 und 1.0 sind verschiedene Terme
+      assert ask(c, "dif(X, 1), X = 1.0.") == ["X = 1.0"]
+      assert ask(c, "dif(X, 1), X = 1.") == []
+      # zusammengesetzte Werte, auch markierte aus Klauseln
+      assert ask(c, "dif(X, f(a, [1, 2], g(b))), gross(X).") == []
+      assert ask(c, "gross(T), dif(X, T), X = f(a, [1, 2], g(b)).") == []
+
+      assert ask(c, "dif(X, f(a, [1, 2], g(b))), X = f(a, [1, 2], g(c)).") ==
+               ["X = f(a, [1, 2], g(c))"]
+    end
+
+    test "Restziele: einmal je Wert, in Reihenfolge", c do
+      assert ask(c, "dif(X, b), dif(X, a), dif(X, b).") == ["dif(X, b), dif(X, a)"]
+      assert ask(c, "dif(X, a), frozen(X, G).") |> hd() =~ "G = dif(X, a)"
+      assert ask(c, "dif(X, a), dif(X, a), frozen(X, G).") == ["G = dif(X, a), dif(X, a)"]
+      assert ask(c, "dif(X, a), copy_term(X, C, B).") |> hd() =~ "B = dif(C, a)"
+
+      assert ask(c, "dif(X, a), freeze(X, true), frozen(X, G).") |> hd() =~
+               "G = (dif(X, a), freeze(X, user:true))"
+    end
+
+    test "Variable an Variable: die Menge geht über", c do
+      assert ask(c, "dif(X, a), dif(Y, b), X = Y.") == ["X = Y, dif(Y, b), dif(Y, a)"]
+      assert ask(c, "dif(X, a), dif(Y, b), X = Y, Y = a.") == []
+      assert ask(c, "dif(X, a), dif(Y, b), X = Y, X = b.") == []
+      assert ask(c, "dif(X, a), dif(Y, b), X = Y, X = c.") == ["X = c, Y = c"]
+      assert ask(c, "dif(X, a), X = Y, Y = a.") == []
+      assert ask(c, "dif(X, a), Y = X, Y = a.") == []
+    end
+
+    test "Bindung an einen Term mit Variablen", c do
+      assert ask(c, "dif(X, f(a)), dif(X, g(b)), X = f(Z).") == ["X = f(Z), dif(Z, a)"]
+      assert ask(c, "dif(X, f(a)), dif(X, g(b)), X = f(Z), Z = a.") == []
+      assert ask(c, "dif(X, [a, b]), X = [a|T].") == ["X = [a|T], dif(T, \"b\")"]
+      assert ask(c, "dif(X, [a, b]), X = [a|T], T = [b].") == []
+      assert ask(c, "dif(X, f(a, b)), X = f(Y, Z).") == ["X = f(Y, Z), dif(f(Y, Z), f(a, b))"]
+      assert ask(c, "dif(X, f(a, b)), X = f(Y, Z), Y = a.") == ["X = f(a, Z), Y = a, dif(Z, b)"]
+    end
+
+    test "aus offenen dif wird eine Ausschlussmenge", c do
+      assert ask(c, "dif(X, Y), Y = a.") == ["Y = a, dif(X, a)"]
+      assert ask(c, "dif(X, Y), Y = a, X = a.") == []
+      assert ask(c, "dif(f(X), f(Y)), Y = a, X = b.") == ["X = b, Y = a"]
+    end
+
+    test "übersteht die Kompaktierung", c do
+      assert ask(c, "dif(X, a), zaehle(3000), X = a.", compact_threshold: 1) == []
+
+      assert ask(c, "dif(X, a), dif(Y, b), zaehle(3000), X = Y, zaehle(3000), Y = b.",
+               compact_threshold: 1
+             ) == []
+
+      assert ask(c, "dif(X, a), zaehle(3000), X = c.", compact_threshold: 1) == ["X = c"]
+    end
+
+    test "viele Werte an einer Variablen", c do
+      assert ask(c, "numlist(1, 20000, L), maplist(dif(X), L), X = 20000.") == []
+      assert ask(c, "numlist(1, 20000, L), maplist(dif(X), L), X = 0.") |> length() == 1
     end
   end
 end

@@ -1148,6 +1148,14 @@ defmodule PrologEx do
     end
   end
 
+  # Ausschlussmenge einer gebundenen Variablen prüfen (siehe wake_goals/2)
+  defp step({:struct, "$difset_check", [x, data]}, _cutb, _mod, rest, st) do
+    case PrologEx.Builtins.Coroutining.check_excluded(x, data, st.subst) do
+      {:ok, s} -> run(%{st | subst: s, goals: rest})
+      :fail -> backtrack(st)
+    end
+  end
+
   # geweckte dif-Bedingungen (siehe wake_goals/2): je Eintrag mit noch
   # ungebundenem Done dieses binden und dif neu stellen
   defp step({:struct, "$difs", [difs]}, _cutb, _mod, rest, st) do
@@ -1494,7 +1502,17 @@ defmodule PrologEx do
   # Maschine direkt prüft – statt vier Inferenzen je dif in Prolog. Die
   # Reihenfolge gegenüber anderen Weckzielen bleibt dieselbe. (Ein
   # gewöhnlicher Term, damit die Kompaktierung seine Variablen sieht.)
-  defp wake_goals(attvs, st), do: susp_goals(suspensions_of(attvs, st.subst), st.subst, st.height)
+  # (Ausschlussmengen zuerst: ihre Daten gleich mitnehmen – bis das Ziel
+  # läuft, kann die Kompaktierung die Attribute gebundener Variablen
+  # verworfen haben)
+  defp wake_goals(attvs, st) do
+    excl =
+      for {:var, {:attv, id}} = v <- attvs,
+          %{"$difset" => data} <- [Map.get(st.subst, {:attrs, id}, %{})],
+          do: {mk("$difset_check", [v, data]), 0, "system"}
+
+    excl ++ susp_goals(suspensions_of(attvs, st.subst), st.subst, st.height)
+  end
 
   defp suspensions_of(attvs, subst) do
     for {:var, {:attv, id}} <- attvs,
@@ -1510,8 +1528,22 @@ defmodule PrologEx do
 
   defp wake_difs([], _orig, s), do: {s, []}
 
-  defp wake_difs([{:var, {:attv, id}} | attvs], orig, s) do
-    case Map.get(orig, {:attrs, id}, %{}) |> susp_items() |> lead_difs(s) do
+  defp wake_difs([{:var, {:attv, id}} = v | attvs], orig, s) do
+    attrs = Map.get(orig, {:attrs, id}, %{})
+
+    checked =
+      case attrs do
+        %{"$difset" => data} -> PrologEx.Builtins.Coroutining.check_excluded(v, data, s)
+        _ -> {:ok, s}
+      end
+
+    with {:ok, s} <- checked do
+      wake_susps(attrs, attvs, orig, s)
+    end
+  end
+
+  defp wake_susps(attrs, attvs, orig, s) do
+    case attrs |> susp_items() |> lead_difs(s) do
       {:ok, s} -> wake_difs(attvs, orig, s)
       {:later, s, later} -> {s, later ++ suspensions_of(attvs, orig)}
       :fail -> :fail

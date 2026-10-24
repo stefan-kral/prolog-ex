@@ -17,6 +17,11 @@ defmodule PrologEx.Builtins.Coroutining do
   den dann passenden Variablen. Das hält die Logik einfach und korrekt;
   dif/2 prüft dabei den ganzen Term neu.
 
+  dif/2 mit einer Front Variable = ground Wert benutzt stattdessen die
+  Ausschlussmenge der Variablen (Attribut "$difset", siehe exclude/3,
+  check_excluded/3); geweckte dif-Bedingungen prüft die Maschine selbst
+  (PrologEx: wake_difs, '$difs', '$difset_check').
+
   Restziele (`frozen/2`, Antworten im Toplevel) sind die Restziel-Teile
   der aktiven Einträge: `freeze(X, M:G)`, `dif(X, Y)`, `when(C, M:G)`.
   """
@@ -44,10 +49,13 @@ defmodule PrologEx.Builtins.Coroutining do
     goals =
       case deref(v) do
         {:var, _} = var ->
-          for s <- PrologEx.suspensions(var, subst()) do
-            {_, "$s", [_, _, residual]} = PrologEx.unmark_top(s)
-            residual
-          end
+          excluded = for c <- excluded(var, subst()), do: mk("dif", [var, c])
+
+          excluded ++
+            for s <- PrologEx.suspensions(var, subst()) do
+              {_, "$s", [_, _, residual]} = PrologEx.unmark_top(s)
+              residual
+            end
 
         _ ->
           []
@@ -99,12 +107,82 @@ defmodule PrologEx.Builtins.Coroutining do
       :identical ->
         :fail
 
+      {:maybe, [v], [{v, c}]} ->
+        # Front aus einem Paar Variable = ground Term: in die
+        # Ausschlussmenge der Variablen (siehe exclude/3)
+        if Order.variables(c, s) == [],
+          do: {:ok, exclude(s, v, PrologEx.resolve(c, s))},
+          else: {:ok, suspend_dif(s, [v], [{v, c}])}
+
       {:maybe, vars, pairs} ->
-        # nur die Front merken: die Paare des Unifikators (siehe Moduldoku)
-        {l, r} = frontier(pairs)
-        done = fresh_var()
-        susp = s3(done, mk("$dif_retry", [done, l, r]), mk("dif", [l, r]))
-        {:ok, PrologEx.suspend(s, vars, susp)}
+        {:ok, suspend_dif(s, vars, pairs)}
+    end
+  end
+
+  # nur die Front merken: die Paare des Unifikators (siehe Moduldoku)
+  defp suspend_dif(s, vars, pairs) do
+    {l, r} = frontier(pairs)
+    done = fresh_var()
+    susp = s3(done, mk("$dif_retry", [done, l, r]), mk("dif", [l, r]))
+    PrologEx.suspend(s, vars, susp)
+  end
+
+  # --- Ausschlussmengen ---------------------------------------------------
+  #
+  # dif(V, c) mit ungebundenem V und ground c steht nicht als Suspension an
+  # V, sondern als Element einer Menge im Attribut "$difset" von V:
+  # {:difset, MapSet der Werte, Werte in umgekehrter Reihenfolge des
+  # Hinzufügens}. Die Werte sind kanonisch (resolve/2: ohne Markierungen,
+  # ohne gebundene Variablen) und ground – die Kompaktierung lässt das
+  # Attribut also unverändert. Wird V gebunden (check_excluded/3):
+  #   - an einen ground Wert: ein Nachschlagen in der Menge, O(log k)
+  #   - an eine Variable W: die Menge geht an W über
+  #   - an einen anderen Term: dif(Wert, c) für jedes c, wie bisher
+  # Statt k Weckziele für k dif-Bedingungen also eine Prüfung.
+
+  @doc false
+  def exclude(s, v, c) do
+    case PrologEx.get_attrs(v, s) |> Map.get("$difset") do
+      nil ->
+        PrologEx.put_attr(s, v, "$difset", {:difset, MapSet.new([c]), [c]})
+
+      {:difset, set, rev} ->
+        if MapSet.member?(set, c),
+          do: s,
+          else: PrologEx.put_attr(s, v, "$difset", {:difset, MapSet.put(set, c), [c | rev]})
+    end
+  end
+
+  @doc false
+  # Werte der Ausschlussmenge der Variablen v, in Reihenfolge des Hinzufügens
+  def excluded(v, s) do
+    case PrologEx.get_attrs(v, s) |> Map.get("$difset") do
+      nil -> []
+      {:difset, _, rev} -> Enum.reverse(rev)
+    end
+  end
+
+  @doc false
+  # Die Variable mit der Ausschlussmenge data ist jetzt x (gebunden oder
+  # eine andere Variable): :fail oder {:ok, s}
+  def check_excluded(x, {:difset, set, rev}, s) do
+    case PrologEx.walk(x, s) do
+      {:var, _} = w ->
+        {:ok, rev |> Enum.reverse() |> Enum.reduce(s, &exclude(&2, w, &1))}
+
+      val ->
+        if Order.variables(val, s) == [] do
+          if MapSet.member?(set, PrologEx.resolve(val, s)), do: :fail, else: {:ok, s}
+        else
+          rev
+          |> Enum.reverse()
+          |> Enum.reduce_while({:ok, s}, fn c, {:ok, s} ->
+            case dif(val, c, s) do
+              :fail -> {:halt, :fail}
+              ok -> {:cont, ok}
+            end
+          end)
+        end
     end
   end
 

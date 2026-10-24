@@ -298,11 +298,21 @@ neu unifiziert (erfüllt, gescheitert oder kleinere Front); das Restziel
 schrumpft entsprechend (`dif(f(X,Y,Z), f(1,2,3)), X = 1` →
 `dif(f(Y, Z), f(2, 3))`).
 
-Geweckte `dif`-Bedingungen prüft die Maschine selbst in Elixir (statt
-eines Prolog-Weckziels mit vier Inferenzen), die führenden mit frühem
-Abbruch beim ersten Scheitern; die Reihenfolge gegenüber `freeze`/`when`
-bleibt dieselbe. Neue Bedingungen werden in O(1) angehängt. Gegenüber
-vorher 3–9-mal so schnell (`mix run bench/dif_bench.exs`).
+Ist die Front ein einziges Paar *Variable = ground Wert*, kommt der Wert in
+die **Ausschlussmenge** der Variablen statt in eine eigene Bedingung:
+`dif(X, a), dif(X, b), …` ist eine Menge „X ∉ {a, b, …}“. Bindet man X an
+einen ground Wert, kostet das ein Nachschlagen statt k Prüfungen; bei
+X = Y geht die Menge an Y über, bei einem Term mit Variablen (X = f(Z))
+wird jeder Wert wieder ein `dif` (dabei oft eine kleinere Menge, etwa an
+Z). Als Restziele erscheint die Menge wie gewohnt als `dif(X, a), dif(X, b)`
+(jeder Wert einmal). Ausschlussmengen werden beim Wecken vor den übrigen
+Weckzielen geprüft; alle anderen in der Reihenfolge des Anhängens.
+
+Übrige geweckte `dif`-Bedingungen prüft die Maschine selbst in Elixir
+(statt eines Prolog-Weckziels mit vier Inferenzen), mit frühem Abbruch
+beim ersten Scheitern; neue werden in O(1) angehängt.
+`mix run bench/dif_bench.exs`, `mix run bench/memberd_bench.exs`: `memberd(X, L)`
+mit 1000 Elementen, alle Antworten, 2200 ms → 3 ms.
 
 `frozen/2`, `copy_term/3` (Body als Konjunktion) und `term_attvars/2` wie
 SICStus. `copy_term/2` und `findall/3` kopieren Attribute nicht mit.
