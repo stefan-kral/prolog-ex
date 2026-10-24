@@ -15,7 +15,8 @@ defmodule PrologEx.Builtins.Atoms do
   `1_000`), `0'c` (Zeichencode, mit Escapes; `0'''` für das Hochkomma),
   `0x..`, `0o..`, `0b..`, Floats mit Nachkommastellen und optionalem
   Exponenten (`1.5e10`, `1.0E-3`; ohne Nachkommastellen wie ISO kein
-  Float), davor optional ein `-` ohne Leerraum dazwischen.
+  Float), davor optional ein `-`, danach Leerzeichen erlaubt, aber keine
+  Kommentare (wie ISO, Cor.2).
 
   Fehler wie ISO: instantiation_error, type_error(number|list|character),
   representation_error(character_code), syntax_error(illegal_number).
@@ -118,7 +119,9 @@ defmodule PrologEx.Builtins.Atoms do
 
     {sign, rest} =
       case rest do
-        "-" <> r -> {-1, r}
+        # nach dem Minus nur Leerraumzeichen, keine Kommentare (ISO-
+        # Konformitätstests 21 und 24)
+        "-" <> r -> {-1, skip_blanks(r)}
         r -> {1, r}
       end
 
@@ -129,6 +132,11 @@ defmodule PrologEx.Builtins.Atoms do
   rescue
     ArgumentError -> :error
   end
+
+  defp skip_blanks(<<c, rest::binary>>) when c in [?\s, ?\t, ?\n, ?\r, ?\f, ?\v],
+    do: skip_blanks(rest)
+
+  defp skip_blanks(s), do: s
 
   # Leerraum und Kommentare
   defp skip_layout(<<c, rest::binary>>) when c in [?\s, ?\t, ?\n, ?\r, ?\f, ?\v],

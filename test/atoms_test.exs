@@ -62,7 +62,10 @@ defmodule PrologEx.AtomsTest do
       assert ask(c, "number_chars(A, \"\\n\\t 7\").") == ["A = 7"]
       assert err(c, "number_chars(A, \"/* 1\").") =~ "syntax_error"
       assert err(c, "number_chars(A, \"1 \").") =~ "syntax_error"
-      assert err(c, "number_chars(A, \"- 1\").") =~ "syntax_error"
+      # nach dem Minus Leerraum ja, Kommentar nein (ISO-Tests 21, 24)
+      assert ask(c, "number_chars(A, \"- 1\").") == ["A = -1"]
+      assert ask(c, "number_chars(A, \"-\\n 1\").") == ["A = -1"]
+      assert err(c, "number_chars(A, \"-/**/1\").") =~ "syntax_error"
       assert err(c, "number_chars(A, \"+1\").") =~ "syntax_error"
     end
 
