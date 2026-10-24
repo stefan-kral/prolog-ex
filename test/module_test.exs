@@ -245,4 +245,28 @@ defmodule PrologEx.ModuleTest do
                ["L = [user]"]
     end
   end
+
+  test "library(lists) gibt maplist/N, include/3, exclude/3, partition/4 weiter", c do
+    assert ask(c, "use_module(library(lists)), maplist(succ, [1, 2], L).") == ["L = [2, 3]"]
+    assert ask(c, "include(integer, [a, 1], L).") == ["L = [1]"]
+    assert ask(c, "exclude(integer, [a, 1], L).") == ["L = \"a\""]
+    assert ask(c, "partition(integer, [a, 1], I, E).") == ["E = \"a\", I = [1]"]
+    # foldl/4 gehört nur zu apply
+    assert err(c, "foldl(plus, [1], 0, S).") =~ "existence_error"
+
+    # lists und apply zusammen: kein Konflikt, keine Warnung
+    assert capture_io(:stderr, fn ->
+             assert ask(c, "use_module(library(apply)), maplist(succ, [1], L).") == ["L = [2]"]
+           end) == ""
+
+    assert ask(c, "predicate_property(maplist(_, _), imported_from(M)).") == ["M = apply"]
+  end
+
+  test "Re-Exporte: Import-Liste und qualifizierter Aufruf", c do
+    assert ask(c, "use_module(library(lists), [include/3]), include(atom, [a, 1], L).") ==
+             ["L = \"a\""]
+
+    assert err(c, "maplist(atom, [a]).") =~ "existence_error"
+    assert ask(c, "lists:maplist(atom, [a]).") == ["true"]
+  end
 end

@@ -211,6 +211,9 @@ defmodule PrologEx.Builtins.Modules do
   defp import(m, keys, ctx) do
     PrologEx.update_db(fn db ->
       Enum.reduce(keys, db, fn {n, ar}, db ->
+        # Re-Export: aus dem Quellmodul
+        m = if PrologEx.Builtins.exports(m), do: PrologEx.Builtins.source(m, n, ar), else: m
+
         case import_check(db, m, ctx, n, ar) do
           :ok ->
             Map.put(db, {:import, ctx, n, ar}, m)

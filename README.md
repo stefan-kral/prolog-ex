@@ -338,6 +338,10 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     Bibliotheksprädikate wie `append/3`, `member/2`, `maplist/2..8` gibt es
     nur nach `:- use_module(library(lists)).` bzw. `library(apply)` – auch
     im Toplevel. Eigene Definitionen gehen Importen vor.
+  * `library(lists)` gibt wie bei SICStus auch `maplist/2..8`, `include/3`,
+    `exclude/3` und `partition/4` aus `library(apply)` weiter (Re-Export:
+    importiert wird aus `apply`, beide zusammen ergeben keinen Konflikt).
+    `foldl/4..6` gibt es nur in `library(apply)`.
   * Rümpfe laufen im Modul, in dem das Prädikat definiert ist;
     Meta-Argumente (`0..9`, `^`, `//`, `:`) werden beim Aufruf mit dem
     Kontextmodul qualifiziert. Prädikate von `system` sind geschützt.

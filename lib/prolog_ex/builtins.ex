@@ -160,8 +160,36 @@ defmodule PrologEx.Builtins do
     if File.regular?(path), do: path
   end
 
+  # Re-Exporte: Prädikate, die ein Bibliotheksmodul aus einem anderen
+  # weitergibt (wie SICStus' library(lists), die maplist/N, include/3, ...
+  # enthält). Importiert wird aus dem Quellmodul – lists und apply
+  # zusammen ergeben also keinen Konflikt.
+  @reexports %{
+    "lists" =>
+      Map.new(
+        for(n <- 2..8, do: {{"maplist", n}, "apply"}) ++
+          [{{"include", 3}, "apply"}, {{"exclude", 3}, "apply"}, {{"partition", 4}, "apply"}]
+      )
+  }
+
+  for {m, re} <- @reexports, {key, src} <- re do
+    unless MapSet.member?(Map.fetch!(@exports, src), key),
+      do: raise("Re-Export #{m}: #{inspect(key)} nicht in #{src}")
+  end
+
+  @exports_all Map.new(@exports, fn {m, ex} ->
+                 {m, MapSet.union(ex, MapSet.new(Map.keys(Map.get(@reexports, m, %{}))))}
+               end)
+
   @doc "Exporte eines Bibliotheksmoduls (MapSet von {name, arity}) oder nil"
-  def exports(module), do: Map.get(@exports, module)
+  def exports(module), do: Map.get(@exports_all, module)
+
+  @doc """
+  Modul, aus dem `name/arity` beim Import aus `module` tatsächlich kommt:
+  das Quellmodul eines Re-Exports, sonst `module`.
+  """
+  def source(module, name, arity),
+    do: get_in(@reexports, [module, {name, arity}]) || module
 
   @doc "Alle Builtins eines Moduls als `{name, arity}`, sortiert"
   def keys(module),

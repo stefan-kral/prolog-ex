@@ -547,7 +547,9 @@ defmodule PrologEx do
     exports = PrologEx.Builtins.exports(lib) || raise ArgumentError, "keine Bibliothek: #{lib}"
 
     Enum.reduce(exports, db, fn {n, a}, db ->
-      if Map.has_key?(db, {into, n, a}), do: db, else: Map.put(db, {:import, into, n, a}, lib)
+      if Map.has_key?(db, {into, n, a}),
+        do: db,
+        else: Map.put(db, {:import, into, n, a}, PrologEx.Builtins.source(lib, n, a))
     end)
   end
 
@@ -572,8 +574,15 @@ defmodule PrologEx do
 
       :error ->
         case PrologEx.Builtins.lookup(mod, name, arity) do
-          nil -> :none
-          entry -> {:builtin, mod, entry}
+          nil ->
+            # Re-Export (lists:maplist(...)): im Quellmodul
+            case PrologEx.Builtins.source(mod, name, arity) do
+              ^mod -> :none
+              src -> local(db, src, name, arity)
+            end
+
+          entry ->
+            {:builtin, mod, entry}
         end
     end
   end
