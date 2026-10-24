@@ -69,7 +69,11 @@ Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`
 `same_length/2`, aus SICStus' `library(lists)`: `one_longer/2`,
 `shorter_list/2`, `keys_and_values/3`, `transpose/2` (rechteckig, in beide
 Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
-`partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}), `chain/2`, `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
+`partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}), `chain/2`,
+`memberd/2` (Neumerkel: wie `member/2` mit `dif/2` in der Rekursion, also
+ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
+Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
+Prolog-Fassung `library(memberd_pl)`, `mix run bench/memberd_bench.exs`), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
 `findall/3,4`, `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
 `V^G`; Gruppen nach Zeugen sortiert wie SICStus/SWI), `=@=/2`, `\=@=/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,

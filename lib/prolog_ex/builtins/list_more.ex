@@ -17,6 +17,9 @@ defmodule PrologEx.Builtins.ListMore do
     * `chain(+Zs, :Relation)` – `call(Relation, Z1, Z2)` für jedes
       benachbarte Paar (wie Scryers chain/2; leere und einelementige Listen
       erfüllen jede Relation).
+    * `memberd(?X, ?Liste)` – wie `member/2`, aber ohne doppelte Antworten
+      (Neumerkel; `dif/2` in der Rekursion). In Elixir; dieselben Antworten
+      wie die Prolog-Fassung in `library(memberd_pl)`.
 
   Alle sind in Prolog definiert (Lösungen und ihre Reihenfolge wie bei
   SICStus). Schnellwege in Elixir, wenn eine der Listen schon fertig ist:
@@ -101,6 +104,65 @@ defmodule PrologEx.Builtins.ListMore do
       other -> PrologEx.Error.domain!("order", resolve(other))
     end
   end
+
+  # memberd(X, Es): X ist ein Element von Es, ohne doppelte Antworten
+  # (Neumerkel) – wie
+  #
+  #   memberd(X, [E|Es]) :- ( X = E ; dif(X, E), memberd(X, Es) ).
+  #
+  # Für jedes E entscheidet die Unifikator-Prüfung von dif/2 vorab:
+  #   - nie gleich: dif gelingt sofort, E ergibt keine Antwort → weiter
+  #   - identisch: die Antwort ist X = E, dif scheitert → letzte Antwort
+  #     (kein Choice Point)
+  #   - offen: Antwort X = E, beim Backtracking dif(X, E) und weiter
+  #     mit dem Rest (über einen erneuten Aufruf)
+  # Offener Rest T: T = [X|_], dann T = [E|Es], dif(X, E), memberd(X, Es).
+  defbuiltin "memberd", [x, l], nondet: true, protected: false do
+    memberd(x, l, subst())
+  end
+
+  defp memberd(x, l, s) do
+    case PrologEx.walk(l, s) do
+      [e | es] ->
+        case PrologEx.Builtins.Coroutining.unifier(x, e, s) do
+          :different ->
+            memberd(x, es, s)
+
+          :identical ->
+            [{:unify, []}]
+
+          {:maybe, _, _} ->
+            [
+              {:unify, [{x, e}]}
+              | fn -> [{:call, conj([mk("dif", [x, e]), lists_memberd(x, es)])}] end
+            ]
+        end
+
+      {:glist, raw} ->
+        memberd(x, PrologEx.unmark({:glist, raw}), s)
+
+      {:var, _} = t ->
+        e = fresh_var()
+        es = fresh_var()
+
+        [
+          {:unify, [{t, [x | fresh_var()]}]}
+          | fn ->
+              [
+                {:call, conj([mk("=", [t, [e | es]]), mk("dif", [x, e]), lists_memberd(x, es)])}
+              ]
+            end
+        ]
+
+      _ ->
+        []
+    end
+  end
+
+  defp lists_memberd(x, es), do: mk(":", [a("lists"), mk("memberd", [x, es])])
+
+  defp conj([g]), do: g
+  defp conj([g | rest]), do: mk(",", [g, conj(rest)])
 
   defp fresh_list(0), do: []
   defp fresh_list(k), do: Enum.map(1..k, fn _ -> fresh_var() end)
