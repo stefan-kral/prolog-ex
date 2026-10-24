@@ -891,7 +891,10 @@ defmodule PrologEx do
             # Zähler für call_nth/2: überstehen Backtracking (nicht in subst)
             counters: %{},
             # catch/3-Rahmen, deren Ziel gerade verlassen ist (siehe catch/3)
-            catch_off: MapSet.new()
+            catch_off: MapSet.new(),
+            # Inferenzzähler der Sitzung (:counters, je Prozess einer);
+            # Unter-Maschinen (findall, \\+, ...) teilen ihn
+            icount: nil
 
   # (vor dem Wecken nicht kompaktieren: $wake braucht die Attribute der
   # eben gebundenen Variablen)
@@ -900,8 +903,44 @@ defmodule PrologEx do
 
   defp run_step(st) do
     case st.goals do
-      [] -> {:sol, st}
-      [{goal, cutb, mod} | rest] -> step(unmark_top(walk(goal, st.subst)), cutb, mod, rest, st)
+      [] ->
+        {:sol, st}
+
+      [{goal, cutb, mod} | rest] ->
+        goal = unmark_top(walk(goal, st.subst))
+        count_inference(goal, st.icount)
+        step(goal, cutb, mod, rest, st)
+    end
+  end
+
+  # Inferenz = Aufruf eines Prädikats (wie SWI), auch eingebauter wie =/2
+  # und is/2; nicht: Steuerkonstrukte und call/N (das gerufene Ziel zählt
+  # selbst), interne Ziele der Maschine
+  defp count_inference({:struct, f, _}, _ref) when f in [",", ";", "->", ":", "call"], do: :ok
+  defp count_inference({:struct, _, _}, ref), do: :counters.add(ref, 1, 1)
+  defp count_inference({:atom, "!"}, _ref), do: :ok
+  defp count_inference({:atom, _}, ref), do: :counters.add(ref, 1, 1)
+  defp count_inference(_, _ref), do: :ok
+
+  @icount_key :prolog_ex_inferences
+
+  @doc "Inferenzen dieser Sitzung (Prozess) bisher"
+  def inferences do
+    case Process.get(@icount_key) do
+      nil -> 0
+      ref -> :counters.get(ref, 1)
+    end
+  end
+
+  defp inference_counter do
+    case Process.get(@icount_key) do
+      nil ->
+        ref = :counters.new(1, [])
+        Process.put(@icount_key, ref)
+        ref
+
+      ref ->
+        ref
     end
   end
 
@@ -2013,7 +2052,15 @@ defmodule PrologEx do
 
   defp new_state(db, goals, answer, opts) do
     min = Keyword.get(opts, :compact_threshold, @min_threshold)
-    %__MODULE__{goals: goals, db: db, answer: answer, threshold: min, min_threshold: min}
+
+    %__MODULE__{
+      goals: goals,
+      db: db,
+      answer: answer,
+      threshold: min,
+      min_threshold: min,
+      icount: inference_counter()
+    }
   end
 
   defp emit(:done), do: nil

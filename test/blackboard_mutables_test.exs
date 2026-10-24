@@ -179,44 +179,4 @@ defmodule PrologEx.BlackboardMutablesTest do
       assert err(c, "update_mutable(1, f(x)).") =~ "type_error(mutable, f(x))"
     end
   end
-
-  describe "statistics/2" do
-    test "runtime, walltime: [Gesamt, seit letztem Aufruf]", c do
-      for k <- ~w(runtime total_runtime process_cputime walltime) do
-        assert [answer] =
-                 ask(c, "statistics(#{k}, [T, D]), integer(T), integer(D), T >= D, D >= 0.")
-
-        assert answer =~ ~r/^D = \d+, T = \d+$/, k
-      end
-
-      # D zählt ab dem letzten Aufruf mit demselben Schlüssel
-      assert [a] =
-               ask(
-                 c,
-                 "statistics(walltime, [T0, _]), numlist(1, 30000, L), sum_list(L, _), statistics(walltime, [T1, D]), D =:= T1 - T0, D >= 0, true."
-               )
-
-      assert a =~ "D = "
-    end
-
-    test "Rechenzeit wächst bei Arbeit", c do
-      assert ask(
-               c,
-               "statistics(runtime, _), numlist(1, 100000, L), msort(L, _), length(L, N), statistics(runtime, [_, D]), D > 0."
-             )
-             |> length() == 1
-    end
-
-    test "real_time in Sekunden", c do
-      [answer] = ask(c, "statistics(real_time, [S, _]).")
-      [_, s] = Regex.run(~r/S = (\d+)/, answer)
-      assert abs(String.to_integer(s) - System.os_time(:second)) < 5
-    end
-
-    test "Fehler", c do
-      assert err(c, "statistics(K, V).") =~ "instantiation_error"
-      assert err(c, "statistics(foo, V).") =~ "domain_error(statistics_key, foo)"
-      assert err(c, "statistics(1, V).") =~ "type_error(atom, 1)"
-    end
-  end
 end

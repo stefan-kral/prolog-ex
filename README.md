@@ -157,12 +157,33 @@ eigenes Hilfsprädikat bleibt noch einmal gut 2-mal schneller.
 Bibliotheken in Prolog-Quelltext: `priv/library/NAME.pl` mit
 `:- module(NAME, ...)` lädt `use_module(library(NAME))` wie eine Datei.
 
-## Zeitmessung: `statistics/2`
+## Messen: `statistics/2`, `statistics/0`
 
-`statistics(K, [T, D])` mit `K` = `runtime` (auch `total_runtime`,
-`process_cputime`: CPU-Zeit der VM in ms), `walltime` (ms) oder
-`real_time` (Sekunden seit 1970); `D` ist der Abstand zum letzten Aufruf
-mit demselben Schlüssel.
+`statistics(K, V)`:
+
+| Schlüssel | Wert |
+|---|---|
+| `runtime` (auch `total_runtime`, `process_cputime`) | `[T, D]` CPU-Zeit der VM in ms |
+| `walltime` | `[T, D]` ms seit Start der VM |
+| `real_time` | `[S, D]` Sekunden seit 1970 |
+| `inferences` | Prädikataufrufe der Sitzung (wie SWI; auch `=/2`, `is/2`; nicht `,` `;` `->` `!` `call/N`) |
+| `reductions` | `[R, D]` Reduktionen des Sitzungsprozesses (Arbeitsmaß der BEAM) |
+| `memory` | `[Bytes, 0]` Speicher des Sitzungsprozesses (wie SICStus) |
+| `process_memory`, `vm_memory` | Bytes: Sitzungsprozess, ganze VM |
+| `garbage_collection` | `[Anzahl, Bytes freigegeben, 0]` der VM (die GC-Zeit misst die BEAM nicht) |
+| `schedulers`, `process_count` | aktive Scheduler, Erlang-Prozesse |
+
+`D` ist der Abstand zum letzten Aufruf mit demselben Schlüssel. Inferenzen
+pro Sekunde:
+
+```prolog
+?- numlist(1, 400, L), statistics(inferences, I0), statistics(runtime, [T0, _]),
+   nrev(L, _), statistics(runtime, [T1, _]), statistics(inferences, I1),
+   LIPS is (I1 - I0) / (T1 - T0) * 1000.
+```
+
+`statistics/0` gibt eine Übersicht aus. Das Zählen der Inferenzen kostet
+etwa 25 ns je Aufruf (rund 1–2 %).
 
 ## Coroutining
 
