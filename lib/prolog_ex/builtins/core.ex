@@ -135,33 +135,34 @@ defmodule PrologEx.Builtins.Core do
   # write/1, print/1, writeq/1, write_canonical/1, write_term/2 (ISO 8.14.2):
   # Operator-Schreibweise wie gprolog, siehe PrologEx.Writer
   defbuiltin "write", [x] do
-    IO.write(PrologEx.Writer.format(resolve(x), numbervars: true))
+    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), numbervars: true))
     :ok
   end
 
   defbuiltin "print", [x] do
-    IO.write(PrologEx.Writer.format(resolve(x), writeq_opts()))
+    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), writeq_opts()))
     :ok
   end
 
   defbuiltin "writeq", [x] do
-    IO.write(PrologEx.Writer.format(resolve(x), writeq_opts()))
+    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), writeq_opts()))
     :ok
   end
 
   defbuiltin "write_canonical", [x] do
-    IO.write(PrologEx.Writer.format(resolve(x), quoted: true, ignore_ops: true))
+    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), quoted: true, ignore_ops: true))
     :ok
   end
 
   defbuiltin "write_term", [x, opts] do
-    IO.write(PrologEx.Writer.format(resolve(x), write_options(opts, subst())))
+    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), write_options(opts, subst())))
     :ok
   end
 
   # writeq: quoted, numbervars; Zeichenlisten als "..." bei
   # double_quotes=chars (wie die Antworten)
-  defp writeq_opts do
+  @doc false
+  def writeq_opts do
     [
       quoted: true,
       numbervars: true,
@@ -172,7 +173,8 @@ defmodule PrologEx.Builtins.Core do
   # Optionen von write_term/2: quoted/1, ignore_ops/1, numbervars/1
   # (ISO), variable_names/1 (ISO Cor.2), max_depth/1, spacing/1,
   # priority/1 (SWI)
-  defp write_options(opts, s) do
+  @doc false
+  def write_options(opts, s) do
     case PrologEx.Builtins.Lists.skip_list(opts, s) do
       {_, []} -> :ok
       {_, {:var, _}} -> PrologEx.Error.instantiation!()
@@ -232,17 +234,17 @@ defmodule PrologEx.Builtins.Core do
   end
 
   defbuiltin "nl", [] do
-    IO.write("\n")
+    PrologEx.Builtins.IO.out("\n")
     :ok
   end
 
   defbuiltin "listing", [] do
-    IO.write(PrologEx.Listing.listing(db(), :all, context_module()))
+    PrologEx.Builtins.IO.out(PrologEx.Listing.listing(db(), :all, context_module()))
     :ok
   end
 
   defbuiltin "listing", [spec] do
-    IO.write(PrologEx.Listing.listing(db(), resolve(spec), context_module()))
+    PrologEx.Builtins.IO.out(PrologEx.Listing.listing(db(), resolve(spec), context_module()))
     :ok
   end
 

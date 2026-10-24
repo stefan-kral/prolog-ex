@@ -96,6 +96,40 @@ Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
 `existence_error`, `permission_error`, `domain_error`, `evaluation_error`, …)
 und fangbar. Nicht Gefangenes meldet der Toplevel als `Fehler: …`.
 
+## Ein- und Ausgabe: Streams
+
+ISO 8.11–8.14 – Streams sind `'$stream'(N)`, dazu die Aliase `user_input`,
+`user_output`, `user_error` und eigene (`alias(A)`):
+
+  * Streams: `open/3,4` (`type(text|binary)`, `alias/1`, `reposition/1`,
+    `eof_action(error|eof_code|reset)`, `encoding(utf8)`), `close/1,2`,
+    `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`,
+    `flush_output/0,1`, `stream_property/2`, `at_end_of_stream/0,1`,
+    `set_stream_position/2`; `line_count/2`, `line_position/2`,
+    `character_count/2`.
+  * Zeichen und Bytes: `get_char`, `peek_char`, `put_char`, `get_code`,
+    `peek_code`, `put_code`, `get_byte`, `peek_byte`, `put_byte` (je /1 und /2),
+    `nl/0,1`. Textstreams sind UTF-8.
+  * Terme: `read/1,2`, `read_term/2,3` (`variables/1`, `variable_names/1`,
+    `singletons/1`), `write/2`, `writeq/2`, `print/2`, `write_canonical/2`,
+    `write_term/3`; `term_to_atom/2`, `read_term_from_atom/3` (SWI).
+  * Alle Ausgaben (`write/1`, `nl/0`, `listing`, …) gehen auf den aktuellen
+    Ausgabestrom.
+  * Fehler wie ISO, z. B. `permission_error(input, binary_stream, S)`,
+    `permission_error(input, past_end_of_stream, S)`,
+    `existence_error(source_sink, F)`.
+
+```prolog
+?- open('t.pl', write, S), writeq(S, f('a b', X)), write(S, '.'), nl(S), close(S).
+?- open('t.pl', read, S), read_term(S, T, [variable_names(V)]), close(S).
+T = f('a b', _A), V = ['X'=_A].
+```
+
+`read/1` liest genau einen Term: das Ende (der einzelne `.` vor Leerraum)
+findet ein kleiner Scanner in Elixir, den Term selbst liest gprolog. So
+lassen sich `read/2` und `get_char/2` auf demselben Stream mischen.
+Gelesene Direktiven (`:- op(...)`) werden dabei nicht ausgeführt.
+
 ## Ausgabe: Terme mit Operatoren
 
 `write/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2` und die

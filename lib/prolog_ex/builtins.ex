@@ -46,7 +46,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Lambda,
     PrologEx.Builtins.Operators,
     PrologEx.Builtins.Si,
-    PrologEx.Builtins.Solutions
+    PrologEx.Builtins.Solutions,
+    PrologEx.Builtins.IO
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst

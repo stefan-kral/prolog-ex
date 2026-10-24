@@ -70,7 +70,7 @@ defmodule PrologEx.Builtins.Statistics do
   end
 
   defbuiltin "statistics", [] do
-    IO.write(summary())
+    PrologEx.Builtins.IO.out(summary())
     :ok
   end
 
