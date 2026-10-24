@@ -125,6 +125,13 @@ defmodule PrologEx.AttsTest do
       assert ask(c, "dif(X, a), domain(X, [a, b, c]).") == ["dif(X, a), domain(X, \"abc\")"]
     end
 
+    test "dif neben verify_attributes/3 (Weckziele nach den Hooks)", c do
+      assert ask(c, "dif(X, a), domain(X, [a, b, c]), X = a.") == []
+      assert ask(c, "dif(X, a), domain(X, [a, b, c]), X = b.") == ["X = b"]
+      assert ask(c, "dif(X, Y), domain(X, [a, b]), X = a, Y = a.") == []
+      assert ask(c, "dif(X, Y), domain(X, [a, b]), X = a.") == ["X = a, dif(Y, a)"]
+    end
+
     test "frozen/2 und copy_term/3", c do
       assert ask(c, "domain(X, [a, b]), frozen(X, G).") |> hd() =~
                "G = domain:domain(X, \"ab\")"

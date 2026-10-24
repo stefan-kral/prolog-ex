@@ -156,8 +156,10 @@ defmodule PrologEx do
   # Variable.
   #
   # Coroutining (freeze, dif, when) nutzt das Attribut "$susp": eine
-  # Prolog-Liste von '$s'(Done, Weckziel, Restziel). Wird die Variable
-  # gebunden, laufen die Weckziele aller Einträge mit ungebundenem Done.
+  # Prolog-Liste von '$s'(Done, Weckziel, Restziel), neuester Eintrag vorn.
+  # Wird die Variable gebunden, laufen die Weckziele aller Einträge mit
+  # ungebundenem Done, in der Reihenfolge des Anhängens. dif-Weckziele
+  # prüft die Maschine selbst (siehe wake_difs/2, '$difs').
   # ---------------------------------------------------------------------
 
   @doc "Ist die (dereferenzierte) Variable attributiert?"
@@ -189,16 +191,17 @@ defmodule PrologEx do
   end
 
   @doc "Suspension '$s'(Done, Weckziel, Restziel) an alle Variablen hängen"
+  # Die Liste steht mit dem neuesten Eintrag vorn (Anhängen in O(1));
+  # gelesen wird sie mit susp_items/1 in Reihenfolge des Anhängens.
   def suspend(subst, vars, susp) do
     Enum.reduce(vars, subst, fn v, s ->
       old = get_attrs(v, s) |> Map.get("$susp", [])
-      put_attr(s, v, "$susp", append_term(old, susp))
+      put_attr(s, v, "$susp", [susp | old])
     end)
   end
 
-  defp append_term([], x), do: [x]
-  defp append_term([h | t], x), do: [h | append_term(t, x)]
-  defp append_term({:glist, _} = l, x), do: append_term(unmark(l), x)
+  # Suspensionen aus den Attributen einer Variablen, älteste zuerst
+  defp susp_items(attrs), do: attrs |> Map.get("$susp", []) |> prolog_items() |> Enum.reverse()
 
   @doc """
   Attributierte Variablen in t, in Reihenfolge des Auftretens, auch die nur
@@ -237,8 +240,7 @@ defmodule PrologEx do
   def suspensions(var, subst) do
     var
     |> get_attrs(subst)
-    |> Map.get("$susp", [])
-    |> prolog_items()
+    |> susp_items()
     |> Enum.filter(fn s ->
       {_, "$s", [done, _, _]} = unmark_top(s)
       match?({:var, _}, walk(done, subst))
@@ -1119,7 +1121,11 @@ defmodule PrologEx do
   defp step({:"$wake", attvs}, _cutb, _mod, rest, st) do
     case verify_modules(current_db()) do
       [] ->
-        run(%{st | goals: wake_goals(attvs, st) ++ rest})
+        case wake_difs(attvs, st.subst) do
+          :fail -> backtrack(st)
+          {s, []} -> run(%{st | subst: s, goals: rest})
+          {s, later} -> run(%{st | subst: s, goals: susp_goals(later, s, st.height) ++ rest})
+        end
 
       mods ->
         pairs = for v <- attvs, do: {v, Map.fetch!(st.subst, v)}
@@ -1139,6 +1145,33 @@ defmodule PrologEx do
 
         goals = for {h, _} <- hooks, do: {h, st.height, "system"}
         run(%{st | subst: subst, goals: goals ++ [{redo, st.height, "system"} | rest]})
+    end
+  end
+
+  # geweckte dif-Bedingungen (siehe wake_goals/2): je Eintrag mit noch
+  # ungebundenem Done dieses binden und dif neu stellen
+  defp step({:struct, "$difs", [difs]}, _cutb, _mod, rest, st) do
+    result =
+      difs
+      |> prolog_items()
+      |> Enum.reduce_while({:ok, st.subst}, fn dxy, {:ok, s} ->
+        {_, "$d", [d, x, y]} = unmark_top(dxy)
+
+        case walk(d, s) do
+          {:var, _} = dv ->
+            case PrologEx.Builtins.Coroutining.dif(x, y, Map.put(s, dv, {:atom, "true"})) do
+              :fail -> {:halt, :fail}
+              ok -> {:cont, ok}
+            end
+
+          _ ->
+            {:cont, {:ok, s}}
+        end
+      end)
+
+    case result do
+      {:ok, s} -> run(%{st | subst: s, goals: rest})
+      :fail -> backtrack(st)
     end
   end
 
@@ -1455,13 +1488,74 @@ defmodule PrologEx do
   end
 
   # Weckziele der gebundenen attributierten Variablen, in der Reihenfolge,
-  # in der sie angehängt wurden; jedes wie call/1 (Cut lokal)
-  defp wake_goals(attvs, st) do
+  # in der sie angehängt wurden; jedes wie call/1 (Cut lokal).
+  # Aufeinanderfolgende dif-Weckziele ('$dif_retry'(Done, X, Y)) werden zu
+  # einem Ziel '$difs'(['$d'(Done, X, Y), ...]) zusammengefasst, das die
+  # Maschine direkt prüft – statt vier Inferenzen je dif in Prolog. Die
+  # Reihenfolge gegenüber anderen Weckzielen bleibt dieselbe. (Ein
+  # gewöhnlicher Term, damit die Kompaktierung seine Variablen sieht.)
+  defp wake_goals(attvs, st), do: susp_goals(suspensions_of(attvs, st.subst), st.subst, st.height)
+
+  defp suspensions_of(attvs, subst) do
     for {:var, {:attv, id}} <- attvs,
-        susp <- prolog_items(Map.get(Map.get(st.subst, {:attrs, id}, %{}), "$susp", [])),
+        susp <- susp_items(Map.get(subst, {:attrs, id}, %{})),
+        do: susp
+  end
+
+  # Die führenden dif-Weckziele gleich hier prüfen (vor ihnen läuft nichts,
+  # die Reihenfolge bleibt also dieselbe), mit frühem Abbruch beim ersten
+  # Scheitern. Ergebnis: :fail oder {Substitution, übrige Suspensionen ab
+  # dem ersten anderen Weckziel}.
+  defp wake_difs(attvs, subst), do: wake_difs(attvs, subst, subst)
+
+  defp wake_difs([], _orig, s), do: {s, []}
+
+  defp wake_difs([{:var, {:attv, id}} | attvs], orig, s) do
+    case Map.get(orig, {:attrs, id}, %{}) |> susp_items() |> lead_difs(s) do
+      {:ok, s} -> wake_difs(attvs, orig, s)
+      {:later, s, later} -> {s, later ++ suspensions_of(attvs, orig)}
+      :fail -> :fail
+    end
+  end
+
+  defp lead_difs([], s), do: {:ok, s}
+
+  defp lead_difs([susp | more] = all, s) do
+    {_, "$s", [done, wake, _residual]} = unmark_top(susp)
+
+    case walk(done, s) do
+      {:var, _} = dv ->
+        case unmark_top(wake) do
+          {:struct, "$dif_retry", [_, x, y]} ->
+            case PrologEx.Builtins.Coroutining.dif(x, y, Map.put(s, dv, {:atom, "true"})) do
+              :fail -> :fail
+              {:ok, s} -> lead_difs(more, s)
+            end
+
+          _ ->
+            {:later, s, all}
+        end
+
+      _ ->
+        lead_difs(more, s)
+    end
+  end
+
+  # Weckziele zu Suspensionen (mit ungebundenem Done)
+  defp susp_goals(susps, subst, height) do
+    for susp <- susps,
         {_, "$s", [done, wake, _residual]} = unmark_top(susp),
-        match?({:var, _}, walk(done, st.subst)),
-        do: {wake, st.height, "system"}
+        match?({:var, _}, walk(done, subst)) do
+      case unmark_top(wake) do
+        {:struct, "$dif_retry", [d, x, y]} -> {:dif, mk("$d", [d, x, y])}
+        _ -> {wake, height, "system"}
+      end
+    end
+    |> Enum.chunk_by(&match?({:dif, _}, &1))
+    |> Enum.flat_map(fn
+      [{:dif, _} | _] = difs -> [{mk("$difs", [Enum.map(difs, &elem(&1, 1))]), 0, "system"}]
+      goals -> goals
+    end)
   end
 
   # Ergebnis eines Builtins (siehe PrologEx.Builtin) umsetzen

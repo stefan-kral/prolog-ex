@@ -190,4 +190,44 @@ defmodule PrologEx.CoroutiningTest do
     assert ask(c, "ground(f(a, [b])).") == ["true"]
     assert ask(c, "ground(f(a, X)).") == []
   end
+
+  describe "dif/2: Wecken in der Maschine" do
+    test "Reihenfolge gegenüber anderen Weckzielen bleibt", c do
+      # freeze zuerst angehängt: läuft vor dem scheiternden dif
+      assert out(c, "freeze(X, write(f)), dif(X, a), X = a.") == "f"
+      # dif zuerst: scheitert, bevor freeze läuft
+      assert out(c, "dif(X, a), freeze(X, write(f)), X = a.") == ""
+      # dif, freeze, dif: zweites dif nach der Ausgabe
+      assert out(c, "dif(X, b), freeze(X, write(f)), dif(X, a), X = a.") == "f"
+      assert out(c, "dif(X, a), freeze(X, write(f)), dif(X, b), X = a.") == ""
+    end
+
+    test "eine Bedingung an mehreren Variablen: einmal geprüft", c do
+      assert ask(c, "dif(X, Y), f(X, Y) = f(a, b).") == ["X = a, Y = b"]
+      assert ask(c, "dif(X, Y), f(X, Y) = f(a, a).") == []
+      assert ask(c, "dif(f(X, Y), f(Y, X)), X = a.") == ["X = a, dif(Y, a)"]
+      assert ask(c, "dif(f(X, Y), f(Y, X)), X = a, Y = a.") == []
+    end
+
+    test "neu gestellt an den Variablen der Front", c do
+      assert ask(c, "dif(X, f(Y)), X = f(Z).") == ["X = f(Z), dif(Z, Y)"]
+      assert ask(c, "dif(X, f(Y)), X = f(Z), Z = Y.") == []
+      assert ask(c, "dif(X, a), dif(X, b), dif(X, c), X = d.") == ["X = d"]
+      assert ask(c, "dif(X, a), dif(X, b), dif(X, c), X = c.") == []
+    end
+
+    test "dif nach anderen Weckzielen übersteht die Kompaktierung", c do
+      assert ask(
+               c,
+               "freeze(X, zaehle(3000)), dif(X, a), dif(X, Y), X = b, zaehle(3000), Y = b.",
+               compact_threshold: 1
+             ) == []
+
+      assert ask(
+               c,
+               "freeze(X, zaehle(3000)), dif(X, a), dif(X, Y), X = b, zaehle(3000), Y = c.",
+               compact_threshold: 1
+             ) == ["X = b, Y = c"]
+    end
+  end
 end

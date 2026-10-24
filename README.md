@@ -289,7 +289,7 @@ zeigt der Toplevel als Restziele:
 
 ```
 ?- dif(f(X, Y), f(1, 2)), X = 1.
-X = 1, dif(f(1, Y), f(1, 2)).
+X = 1, dif(Y, 2).
 ```
 
 `dif/2` merkt sich nur die *Front*: die Paare des Unifikators, die noch
@@ -297,6 +297,12 @@ offen sind. Wird eine ihrer Variablen gebunden, wird die Front gemeinsam
 neu unifiziert (erfüllt, gescheitert oder kleinere Front); das Restziel
 schrumpft entsprechend (`dif(f(X,Y,Z), f(1,2,3)), X = 1` →
 `dif(f(Y, Z), f(2, 3))`).
+
+Geweckte `dif`-Bedingungen prüft die Maschine selbst in Elixir (statt
+eines Prolog-Weckziels mit vier Inferenzen), die führenden mit frühem
+Abbruch beim ersten Scheitern; die Reihenfolge gegenüber `freeze`/`when`
+bleibt dieselbe. Neue Bedingungen werden in O(1) angehängt. Gegenüber
+vorher 3–9-mal so schnell (`mix run bench/dif_bench.exs`).
 
 `frozen/2`, `copy_term/3` (Body als Konjunktion) und `term_attvars/2` wie
 SICStus. `copy_term/2` und `findall/3` kopieren Attribute nicht mit.

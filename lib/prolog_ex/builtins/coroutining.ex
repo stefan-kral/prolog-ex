@@ -81,9 +81,20 @@ defmodule PrologEx.Builtins.Coroutining do
   # dif(X, Y): X und Y sind verschieden – scheitert, sobald sie gleich
   # werden; wartet, solange es offen ist
   defbuiltin "dif", [x, y] do
-    case unifier(x, y, subst()) do
+    case dif(x, y, subst()) do
+      :fail -> :fail
+      {:ok, s} -> {:subst, s}
+    end
+  end
+
+  @doc false
+  # dif(X, Y) auf der Substitution: :fail oder {:ok, neue Substitution}
+  # (unverändert, wenn verschieden; sonst mit Suspension an der Front).
+  # Auch für das Wecken in der Maschine (siehe PrologEx, $difs).
+  def dif(x, y, s) do
+    case unifier(x, y, s) do
       :different ->
-        :ok
+        {:ok, s}
 
       :identical ->
         :fail
@@ -93,7 +104,7 @@ defmodule PrologEx.Builtins.Coroutining do
         {l, r} = frontier(pairs)
         done = fresh_var()
         susp = s3(done, mk("$dif_retry", [done, l, r]), mk("dif", [l, r]))
-        {:subst, PrologEx.suspend(subst(), vars, susp)}
+        {:ok, PrologEx.suspend(s, vars, susp)}
     end
   end
 
