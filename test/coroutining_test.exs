@@ -299,4 +299,33 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "numlist(1, 20000, L), maplist(dif(X), L), X = 0.") |> length() == 1
     end
   end
+
+  describe "freeze/2, when/2: Wecken in der Maschine" do
+    test "Bedingung an zwei Variablen, beide auf einmal gebunden: einmal", c do
+      assert out(c, "when((nonvar(X) ; nonvar(Y)), write(w)), f(X, Y) = f(1, 2).") == "w"
+      assert ask(c, "when((nonvar(X) ; nonvar(Y)), true), f(X, Y) = f(1, 2).") == ["X = 1, Y = 2"]
+      assert out(c, "when(?=(X, Y), write(w)), f(X, Y) = f(1, 2).") == "w"
+    end
+
+    test "an eine andere Variable gebunden: wartet dort weiter", c do
+      assert out(c, "freeze(X, write(a)), freeze(Y, write(b)), X = Y, write(-), Y = 1.") ==
+               "-ba"
+
+      assert ask(c, "freeze(X, true), freeze(Y, true), X = Y.") ==
+               ["X = Y, freeze(Y, true)"]
+
+      assert out(
+               c,
+               "when(nonvar(X), write(a)), when(nonvar(Y), write(b)), X = Y, write(-), Y = 1."
+             ) ==
+               "-ba"
+    end
+
+    test "when mit Konjunktion: erst die zweite Bindung weckt", c do
+      assert out(c, "when((nonvar(X), nonvar(Y)), write(w)), X = 1, write(-), Y = 2.") == "-w"
+
+      assert ask(c, "when((nonvar(X), nonvar(Y)), true), X = 1.") ==
+               ["X = 1, when((nonvar(1), nonvar(Y)), true)"]
+    end
+  end
 end

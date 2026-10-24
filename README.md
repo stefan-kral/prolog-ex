@@ -310,7 +310,9 @@ Weckzielen geprüft; alle anderen in der Reihenfolge des Anhängens.
 
 Übrige geweckte `dif`-Bedingungen prüft die Maschine selbst in Elixir
 (statt eines Prolog-Weckziels mit vier Inferenzen), mit frühem Abbruch
-beim ersten Scheitern; neue werden in O(1) angehängt.
+beim ersten Scheitern; neue werden in O(1) angehängt. Auch für geweckte
+`freeze`/`when` prüft die Maschine selbst, ob die Bedingung erledigt ist,
+und legt nur noch das Ziel auf den Stapel (eine Inferenz statt vier).
 `mix run bench/dif_bench.exs`, `mix run bench/memberd_bench.exs`: `memberd(X, L)`
 mit 1000 Elementen, alle Antworten, 2200 ms → 3 ms.
 

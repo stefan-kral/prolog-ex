@@ -195,8 +195,17 @@ defmodule PrologEx do
   # gelesen wird sie mit susp_items/1 in Reihenfolge des Anhängens.
   def suspend(subst, vars, susp) do
     Enum.reduce(vars, subst, fn v, s ->
-      old = get_attrs(v, s) |> Map.get("$susp", [])
-      put_attr(s, v, "$susp", [susp | old])
+      # ein walk statt dreien (get_attrs, put_attr)
+      case walk(v, s) do
+        {:var, {:attv, id}} ->
+          Map.update(s, {:attrs, id}, %{"$susp" => [susp]}, fn attrs ->
+            Map.put(attrs, "$susp", [susp | Map.get(attrs, "$susp", [])])
+          end)
+
+        {:var, _} = v ->
+          id = System.unique_integer([:positive])
+          s |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{"$susp" => [susp]})
+      end
     end)
   end
 
@@ -1148,6 +1157,16 @@ defmodule PrologEx do
     end
   end
 
+  # geweckte freeze/when-Bedingung (siehe susp_goals/3): wie
+  # '$freeze_retry'/'$when_retry', aber ohne vier Inferenzen in Prolog –
+  # Done gebunden: erledigt; sonst Done binden und neu stellen: das Ziel
+  # läuft jetzt (wie call/1, Cut lokal) oder wartet auf neuen Variablen
+  defp step({:struct, "$wake_freeze", [d, x, g]}, _cutb, _mod, rest, st),
+    do: wake_retry(d, st, rest, &PrologEx.Builtins.Coroutining.freeze(x, g, &1))
+
+  defp step({:struct, "$wake_when", [d, c, g]}, _cutb, _mod, rest, st),
+    do: wake_retry(d, st, rest, &PrologEx.Builtins.Coroutining.when_(c, g, &1))
+
   # Ausschlussmenge einer gebundenen Variablen prüfen (siehe wake_goals/2)
   defp step({:struct, "$difset_check", [x, data]}, _cutb, _mod, rest, st) do
     case PrologEx.Builtins.Coroutining.check_excluded(x, data, st.subst) do
@@ -1573,6 +1592,26 @@ defmodule PrologEx do
     end
   end
 
+  defp wake_retry(d, st, rest, again) do
+    case walk(d, st.subst) do
+      {:var, _} = dv ->
+        case again.(Map.put(st.subst, dv, {:atom, "true"})) do
+          {:call, goal} ->
+            run(%{
+              st
+              | subst: Map.put(st.subst, dv, {:atom, "true"}),
+                goals: [{goal, st.height, "system"} | rest]
+            })
+
+          {:ok, s} ->
+            run(%{st | subst: s, goals: rest})
+        end
+
+      _ ->
+        run(%{st | goals: rest})
+    end
+  end
+
   # Weckziele zu Suspensionen (mit ungebundenem Done)
   defp susp_goals(susps, subst, height) do
     for susp <- susps,
@@ -1580,6 +1619,9 @@ defmodule PrologEx do
         match?({:var, _}, walk(done, subst)) do
       case unmark_top(wake) do
         {:struct, "$dif_retry", [d, x, y]} -> {:dif, mk("$d", [d, x, y])}
+        # freeze/when: die Maschine prüft Done und die Bedingung selbst
+        {:struct, "$freeze_retry", args} -> {mk("$wake_freeze", args), height, "system"}
+        {:struct, "$when_retry", args} -> {mk("$wake_when", args), height, "system"}
         _ -> {wake, height, "system"}
       end
     end

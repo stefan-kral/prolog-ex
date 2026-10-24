@@ -33,14 +33,40 @@ defmodule PrologEx.Builtins.Coroutining do
   defbuiltin "freeze", [x, g] do
     goal = qualify(g, context_module(), subst())
 
-    case deref(x) do
+    case freeze(x, goal, subst()) do
+      {:call, goal} -> {:call, goal}
+      {:ok, s} -> {:subst, s}
+    end
+  end
+
+  @doc false
+  # freeze mit qualifiziertem Ziel: {:call, Ziel} oder {:ok, s} (wartet).
+  # Auch für das Wecken in der Maschine (siehe PrologEx, '$wake_freeze').
+  def freeze(x, goal, s) do
+    case PrologEx.walk(x, s) do
       {:var, _} = v ->
         done = fresh_var()
         susp = s3(done, mk("$freeze_retry", [done, v, goal]), mk("freeze", [v, goal]))
-        {:subst, PrologEx.suspend(subst(), [v], susp)}
+        {:ok, PrologEx.suspend(s, [v], susp)}
 
       _ ->
         {:call, goal}
+    end
+  end
+
+  @doc false
+  # when mit qualifiziertem Ziel und gültiger Bedingung: {:call, Ziel} oder
+  # {:ok, s} (wartet). Auch für das Wecken (siehe '$wake_when').
+  def when_(c, goal, s) do
+    case condition(c, s) do
+      true ->
+        {:call, goal}
+
+      {:wait, vars} ->
+        done = fresh_var()
+        cond_t = PrologEx.resolve(c, s)
+        susp = s3(done, mk("$when_retry", [done, cond_t, goal]), mk("when", [cond_t, goal]))
+        {:ok, PrologEx.suspend(s, Enum.uniq(vars), susp)}
     end
   end
 
@@ -198,15 +224,9 @@ defmodule PrologEx.Builtins.Coroutining do
   defbuiltin "when", [c, g] do
     goal = qualify(g, context_module(), subst())
 
-    case condition(c, subst()) do
-      true ->
-        {:call, goal}
-
-      {:wait, vars} ->
-        done = fresh_var()
-        cond_t = resolve(c)
-        susp = s3(done, mk("$when_retry", [done, cond_t, goal]), mk("when", [cond_t, goal]))
-        {:subst, PrologEx.suspend(subst(), Enum.uniq(vars), susp)}
+    case when_(c, goal, subst()) do
+      {:call, goal} -> {:call, goal}
+      {:ok, s} -> {:subst, s}
     end
   end
 

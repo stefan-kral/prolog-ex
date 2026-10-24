@@ -1,4 +1,4 @@
-# dif/2: Kosten des Weckens.
+# Coroutining: Kosten des Weckens (dif/2, freeze/2, when/2).
 #
 #   mix run bench/dif_bench.exs          (K = 300, N = 100000)
 #
@@ -23,6 +23,14 @@ end
     alle_dif([X|Xs]) :- maplist(dif(X), Xs), alle_dif(Xs).
     viele_dif(_, 0) :- !.
     viele_dif(X, I) :- dif(X, I), I1 is I - 1, viele_dif(X, I1).
+    fr([]).
+    fr([X|Xs]) :- freeze(X, true), fr(Xs).
+    wh([]).
+    wh([X|Xs]) :- when(nonvar(X), true), wh(Xs).
+    wh2([]).
+    wh2([X-Y|Ps]) :- when((nonvar(X), nonvar(Y)), true), wh2(Ps).
+    paare([], [], []).
+    paare([X|Xs], [Y|Ys], [X-Y|Ps]) :- paare(Xs, Ys, Ps).
     """)
   )
 
@@ -32,6 +40,10 @@ benches = [
    "length(Vs, #{k}), alle_dif(Vs), Vs = [_|T], numlist(2, #{k}, T), Vs = [0|_]"},
   {"N dif an X, dann X = 0", "viele_dif(X, #{n}), X = 0"},
   {"N dif an X, dann X = f(Y)", "viele_dif(X, #{n}), X = f(_)"},
+  {"freeze an N Var., dann binden", "length(L, #{n}), fr(L), numlist(1, #{n}, L)"},
+  {"when(nonvar) an N Var., binden", "length(L, #{n}), wh(L), numlist(1, #{n}, L)"},
+  {"when(,) an N Paaren, zweimal binden",
+   "length(Xs, #{n}), paare(Xs, Ys, Ps), wh2(Ps), numlist(1, #{n}, Xs), numlist(1, #{n}, Ys)"},
   {"memberd: alle Antworten (K)", "numlist(1, #{k}, L), findall(X, memberd(X, L), _)"}
 ]
 
