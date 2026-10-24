@@ -69,7 +69,7 @@ defmodule PrologEx.BuiltinsTest do
 
   test "write/nl", %{db: db} do
     out = capture_io(fn -> all(db, s(",", [s("write", [s("f", [list([1, 2])])]), a("nl")])) end)
-    assert out == "f([1, 2])\n"
+    assert out == "f([1,2])\n"
   end
 
   test "DCG-Übersetzung und phrase/2" do

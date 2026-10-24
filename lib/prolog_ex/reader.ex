@@ -78,7 +78,7 @@ defmodule PrologEx.Reader do
   @doc "Operator im Reader setzen (für Bibliotheksexporte); Fehler: raise"
   def op(reader, priority, type, name) do
     case op_call(reader, "#{priority}, #{type}, #{quote_atom(name)}") do
-      :ok -> :ok
+      :ok -> PrologEx.Ops.add(priority, type, name)
       {:error, e} -> raise "op(#{priority}, #{type}, #{name}): #{PrologEx.format(e)}"
     end
   end
@@ -89,6 +89,12 @@ defmodule PrologEx.Reader do
   mit dem ISO-Fehlerterm (Formal aus error(Formal, _)).
   """
   def op_call(reader, args), do: GenServer.call(reader, {:op, args}, @timeout + 1000)
+
+  @doc """
+  gprologs `writeq`-Text eines Terms (für Tests des Writers); `text` ist
+  der Term in kanonischer Schreibweise.
+  """
+  def gprolog_writeq(reader, text), do: GenServer.call(reader, {:writeq, text}, @timeout + 1000)
 
   @doc "Aktuelle Operatortabelle: [{priorität, typ, name}]"
   def current_ops(reader), do: GenServer.call(reader, :ops, @timeout + 1000)
@@ -179,6 +185,19 @@ defmodule PrologEx.Reader do
 
       {:timeout, _} ->
         {:reply, {:error, {:atom, "reader_timeout"}}, restart(st)}
+    end
+  end
+
+  def handle_call({:writeq, text}, _from, st) do
+    Port.command(st.port, "'$writeq'(#{text}).\n")
+
+    case collect_until(st.port, st.buf, [], &match?({:writeq, _}, &1)) do
+      {:ok, results, buf} ->
+        {:writeq, out} = List.last(results)
+        {:reply, {:ok, out}, %{st | buf: buf}}
+
+      {:timeout, results} ->
+        {:reply, {:error, results}, restart(st)}
     end
   end
 
@@ -303,6 +322,12 @@ defmodule PrologEx.Reader do
 
       {:ok, {:atom, a}} when a in ["opened", "pause", "file_end"] ->
         String.to_atom(a)
+
+      {:ok, {tag, "writeq", [{:atom, text}]}} when tag in [:struct, :gstruct] ->
+        {:writeq, text}
+
+      {:ok, {:gstruct, "writeq", [[]]}} ->
+        {:writeq, "[]"}
 
       {:ok, {:atom, "op_ok"}} ->
         {:op, :ok}

@@ -30,23 +30,9 @@ defmodule PrologEx.Error do
     end
   end
 
-  # Bis es einen Writer mit Operatoren gibt: Prädikatsindikatoren als N/A
-  defp show(t) do
-    case PrologEx.unmark(t) do
-      {:struct, "/", [{:atom, n}, ar]} when is_integer(ar) ->
-        "#{n}/#{ar}"
-
-      {:struct, ":", [{:atom, m}, x]} ->
-        "#{m}:" <> show(x)
-
-      {:struct, f, args} ->
-        PrologEx.format({:atom, f}, quoted: true) <>
-          "(" <> Enum.map_join(args, ", ", &show/1) <> ")"
-
-      other ->
-        PrologEx.format(other, quoted: true)
-    end
-  end
+  # wie writeq, mit Leerzeichen nach Kommas (wie die Antworten)
+  defp show(t),
+    do: PrologEx.Writer.format(PrologEx.unmark(t), quoted: true, spacing: :next_argument)
 
   @doc "Ball werfen (ohne error/2-Hülle)"
   def throw!(ball), do: raise(%__MODULE__{term: ball})

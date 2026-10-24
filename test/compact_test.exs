@@ -58,7 +58,7 @@ defmodule PrologEx.CompactTest do
   end
 
   test "lange Liste über verkettete Rest-Variablen", c do
-    assert both(c, "build(5, L, T).") == ["L = [5, 4, 3, 2, 1 | T]"]
+    assert both(c, "build(5, L, T).") == ["L = [5, 4, 3, 2, 1|T]"]
 
     assert both(c, "build(3, L, T), T = [x|U], U = [].") == [
              "L = [3, 2, 1, x], T = \"x\", U = []"
@@ -83,7 +83,7 @@ defmodule PrologEx.CompactTest do
 
   test "attributierte Variablen in langen Listen bleiben erhalten", c do
     [answer] = both(c, "length(L, 5000), L = [X|_], freeze(X, true), last(L, Y), frozen(X, G).")
-    assert answer =~ "G = freeze(X, :(user, true))"
+    assert answer =~ "G = freeze(X, user:true)"
     assert String.ends_with?(answer, ", _F4997, Y], freeze(X, true)")
   end
 end

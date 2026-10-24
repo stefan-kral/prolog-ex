@@ -119,7 +119,7 @@ defmodule PrologEx.DatabaseTest do
       db = load(r)
 
       assert [ans] = ask(r, db, "assertz((h(X) :- X > 1, write(x))), retract((h(Y) :- B)).")
-      assert ans == "B = ','(>(Y, 1), write(x))"
+      assert ans == "B = (Y>1, write(x))"
 
       assert ask(
                r,
@@ -225,7 +225,7 @@ defmodule PrologEx.DatabaseTest do
   describe "acyclic_term/1" do
     test "endliche und zyklische Terme", %{reader: r} do
       db = load(r)
-      assert ask(r, db, "acyclic_term(f(X, [1, 2 | Y], g(X))).") == ["true"]
+      assert ask(r, db, "acyclic_term(f(X, [1, 2|Y], g(X))).") == ["true"]
       assert ask(r, db, "X = f(Y), Y = g(a), acyclic_term(X).") != []
       assert ask(r, db, "acyclic_term(a).") == ["true"]
     end
@@ -234,7 +234,7 @@ defmodule PrologEx.DatabaseTest do
       db = load(r)
       ok? = fn q -> PrologEx.first_with_stats(db, goal(r, q)) != false end
       assert ok?.("X = f(X), \\+ acyclic_term(X).")
-      assert ok?.("X = [a, b | X], \\+ acyclic_term(g(X)).")
+      assert ok?.("X = [a, b|X], \\+ acyclic_term(g(X)).")
       assert ok?.("X = f(Y, Y), Y = g(Z, Z), Z = h, acyclic_term(X).")
       assert ok?.("X = f(Y), Y = g(X), \\+ acyclic_term(h(1, Y)).")
       refute ok?.("X = f(X), acyclic_term(X).")

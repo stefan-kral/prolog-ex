@@ -2,12 +2,17 @@ defmodule PrologEx.Listing do
   @moduledoc """
   `listing/0,1`: gibt Prädikate aus ihrem gespeicherten Quelltext aus.
 
-  Vorläufig ohne Operator-Schreibweise in den Teilzielen (die kommt mit dem
-  Writer); Klauselstruktur und Konjunktionen werden aber lesbar gesetzt:
+  Wie `portray_clause/1`: gequotet, mit Operatoren, ein Teilziel je Zeile,
+  Wenn-dann-sonst und Disjunktionen eingerückt:
 
       app([], L, L).
       app([H|T], L, [H|R]) :-
           app(T, L, R).
+      max(X, Y, Z) :-
+          (   X >= Y
+          ->  Z = X
+          ;   Z = Y
+          ).
   """
 
   import PrologEx, only: [unmark: 1]
@@ -137,16 +142,46 @@ defmodule PrologEx.Listing do
 
   @doc false
   def clause_text({head, body}) do
-    case goals(unmark(body)) do
-      [] -> q(head) <> ".\n"
-      gs -> q(head) <> " :-\n" <> Enum.map_join(gs, ",\n", &("    " <> q(&1))) <> ".\n"
+    case unmark(body) do
+      {:atom, "true"} -> q(head, 1199) <> ".\n"
+      b -> q(head, 1199) <> " :-\n" <> body(b, "    ") <> ".\n"
     end
   end
 
-  defp goals({:atom, "true"}), do: []
-  defp goals({:struct, ",", [a, b]}), do: goals(a) ++ goals(b)
-  defp goals(g), do: [g]
+  # Rumpf ab Einrückung ind; die erste Zeile beginnt mit ind
+  defp body({:struct, ",", [a, b]}, ind), do: body(a, ind) <> ",\n" <> body(b, ind)
 
-  # wie portray_clause: gequotet
-  defp q(t), do: PrologEx.Writer.format(t, PrologEx.Writer.answer_opts())
+  defp body({:struct, op, [_, _]} = g, ind) when op in [";", "->", "*->"] do
+    branches(g)
+    |> Enum.with_index()
+    |> Enum.map_join("\n", fn {{prefix, goal}, i} ->
+      lead = if i == 0, do: "(   ", else: prefix
+      ind <> lead <> String.trim_leading(body(goal, ind <> "    "))
+    end)
+    |> Kernel.<>("\n" <> ind <> ")")
+  end
+
+  defp body(g, ind), do: ind <> q(g, 999)
+
+  # (C1 -> T1 ; C2 -> T2 ; E) als [{"(   ", C1}, {"->  ", T1}, {";   ", C2}, ...]
+  defp branches({:struct, ";", [a, b]}), do: branch(a) ++ alt(b)
+  defp branches(g), do: branch(g)
+
+  defp alt({:struct, ";", [a, b]}), do: mark(branch(a), ";   ") ++ alt(b)
+  defp alt(g), do: mark(branch(g), ";   ")
+
+  defp branch({:struct, op, [c, t]}) when op in ["->", "*->"],
+    do: [{"(   ", c}, {String.pad_trailing(op, 4), t}]
+
+  defp branch(g), do: [{"(   ", g}]
+
+  defp mark([{_, g} | rest], prefix), do: [{prefix, g} | rest]
+
+  # wie portray_clause: gequotet, Leerzeichen nach Kommas
+  defp q(t, priority),
+    do:
+      PrologEx.Writer.format(
+        t,
+        PrologEx.Writer.answer_opts() ++ [priority: priority, numbervars: true]
+      )
 end

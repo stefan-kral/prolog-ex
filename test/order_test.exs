@@ -51,7 +51,7 @@ defmodule PrologEx.OrderTest do
             true -> "="
           end
 
-        assert all(s("compare", [@o, a, b])) == ["O = #{expected}"],
+        assert all(s("compare", [@o, a, b])) == ["O = (#{expected})"],
                "compare(#{format(a)}, #{format(b)})"
       end
     end
@@ -76,7 +76,7 @@ defmodule PrologEx.OrderTest do
 
     test "gebundene Variablen werden verfolgt" do
       goal = s(",", [s("=", [@x, 5]), s("compare", [@o, @x, 3])])
-      assert all(goal) == ["O = >, X = 5"]
+      assert all(goal) == ["O = (>), X = 5"]
     end
 
     test "compare/3: Fehler und Prüfung" do
@@ -104,7 +104,7 @@ defmodule PrologEx.OrderTest do
       pairs =
         list([s("-", [a("b"), 1]), s("-", [a("a"), 2]), s("-", [a("b"), 0]), s("-", [a("a"), 1])])
 
-      assert all(s("keysort", [pairs, @l])) == ["L = [-(a, 2), -(a, 1), -(b, 1), -(b, 0)]"]
+      assert all(s("keysort", [pairs, @l])) == ["L = [a-2, a-1, b-1, b-0]"]
     end
 
     test "Fehler" do

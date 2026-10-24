@@ -26,6 +26,10 @@
 %   stdin:   '$ops'.             die aktuelle Operatortabelle
 %   stdout:  ops([op(P, T, Name), ...]).
 %
+% Für Tests des Writers: gprologs writeq-Text eines Terms
+%   stdin:   '$writeq'(T).
+%   stdout:  writeq('Text').
+%
 % Operator-Direktiven (:- op(...)) und :- set_prolog_flag(double_quotes, _)
 % werden hier ausgeführt, damit folgende Terme richtig gelesen werden. Sie
 % werden trotzdem auch weitergereicht.
@@ -43,6 +47,8 @@ loop :-
     catch(read_term(T, [variable_names(Vs)]), E, true),
     (   nonvar(E)
     ->  emit(error(E)), loop
+    ;   var(T)
+    ->  emit(term(T, Vs)), loop     % sonst passte T = '$batch_end'(N) & Co.
     ;   T == end_of_file
     ->  emit(eof)
     ;   T = '$batch_end'(N)
@@ -54,6 +60,9 @@ loop :-
     ;   T = '$op'(P, Ty, N)
     ->  catch((op(P, Ty, N), R = op_ok), E, R = op_error(E)),
         emit(R), loop
+    ;   T = '$writeq'(X)
+    ->  format_to_atom(A, '~q', [X]),
+        emit(writeq(A)), loop
     ;   T == '$ops'
     ->  findall(op(P, Ty, N), current_op(P, Ty, N), L),
         emit(ops(L)), loop
@@ -62,16 +71,23 @@ loop :-
         loop
     ).
 
-run_op((:- op(P, Ty, N))) :- !, catch(op(P, Ty, N), _, true).
+% Nur echte Direktiven: Variablen dürfen nicht an op(...) usw. gebunden
+% werden (sonst änderte sich der gelesene Term, z. B. bei ":- X.")
+run_op(T) :- var(T), !.
+run_op((:- D)) :- nonvar(D), run_directive(D), !.
+run_op(_).
+
+run_directive(op(P, Ty, N)) :- catch(op(P, Ty, N), _, true).
 % Operatoren in der Exportliste von module/2 gelten (global) ab sofort
-run_op((:- module(_, Exports))) :- !,
+run_directive(module(_, Exports)) :-
     (   is_list(Exports)
-    ->  forall(member(op(P, Ty, N), Exports), catch(op(P, Ty, N), _, true))
+    ->  forall(( member(E, Exports), nonvar(E), E = op(P, Ty, N) ),
+               catch(op(P, Ty, N), _, true))
     ;   true
     ).
-run_op((:- set_prolog_flag(double_quotes, V))) :- !,
+run_directive(set_prolog_flag(F, V)) :-
+    F == double_quotes,
     catch(set_prolog_flag(double_quotes, V), _, true).
-run_op(_).
 
 emit(X) :- write_canonical(X), write('.'), nl, flush_output.
 
@@ -99,7 +115,7 @@ chunk(S, Rest) :-
     ->  close(S), g_assign(files, Rest), emit(file_end)
     ;   run_op(T),
         emit(term(T, Vs)),
-        (   T = (:- _)
+        (   nonvar(T), T = (:- _)
         ->  emit(pause)
         ;   chunk(S, Rest)
         )

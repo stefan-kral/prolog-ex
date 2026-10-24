@@ -241,7 +241,7 @@ defmodule PrologEx.OccursClauseTest do
   describe "current_predicate/1" do
     test "Aufzählen und Prüfen" do
       assert all(s("current_predicate", [@p])) ==
-               ["P = /(app, 3)", "P = /(f, 1)", "P = /(leer, 2)", "P = /(pair, 2)"]
+               ["P = app/3", "P = f/1", "P = leer/2", "P = pair/2"]
 
       assert all(s("current_predicate", [s("/", [a("app"), @a])])) == ["A = 3"]
       assert all(s("current_predicate", [s("/", [@n, 2])])) == ["N = leer", "N = pair"]

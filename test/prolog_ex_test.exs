@@ -118,8 +118,8 @@ defmodule PrologExTest do
     end
 
     test "unvollständige Liste wird mit | ausgegeben", %{db: db} do
-      assert answers(db, s("=", [@x, list([1, 2], @t)])) == ["X = [1, 2 | T]"]
-      assert answers(db, s("=", [@x, s(".", [1, 2])])) == ["X = [1 | 2]"]
+      assert answers(db, s("=", [@x, list([1, 2], @t)])) == ["X = [1, 2|T]"]
+      assert answers(db, s("=", [@x, s(".", [1, 2])])) == ["X = [1|2]"]
     end
 
     test "Liste und '.'-Struktur sind derselbe Term", %{db: db} do

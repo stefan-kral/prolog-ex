@@ -21,7 +21,7 @@ defmodule PrologEx.IsoNumberCharsTest do
     {10, "number_chars(N,[X]).", {:error, ["instantiation_error"]}},
     {11, "number_chars(N,['0'|_]).", {:error, ["instantiation_error"]}},
     {12, "number_chars(N,'1').", {:error, ["type_error(list, '1')"]}},
-    {13, "number_chars(N,[a|a]).", {:error, ["type_error(list, [a | a])"]}},
+    {13, "number_chars(N,[a|a]).", {:error, ["type_error(list, [a|a])"]}},
     {14, "number_chars(N,[49]).", {:error, ["type_error(character, 49)"]}},
     {15, "number_chars(N,[]).", {:error, ["syntax_error"]}},
     {16, "number_chars(N,['3',' ']).", {:error, ["syntax_error"]}},
@@ -48,21 +48,21 @@ defmodule PrologEx.IsoNumberCharsTest do
     {37, "number_chars(N,[X|2]).", {:error, ["type_error(list, [", "instantiation_error"]}},
     {38, "number_chars(N,[1|_]).", {:error, ["instantiation_error", "type_error(character, 1)"]}},
     {39, "number_chars(V,[1|2]).",
-     {:error, ["type_error(list, [1 | 2])", "type_error(character, 1)"]}},
+     {:error, ["type_error(list, [1|2])", "type_error(character, 1)"]}},
     {40, "number_chars([],1).", {:error, ["type_error(number, [])", "type_error(list, 1)"]}},
     {41, "number_chars(1,1).", {:error, ["type_error(list, 1)"]}},
-    {42, "number_chars(1,[a|2]).", {:error, ["type_error(list, [a | 2])"]}},
+    {42, "number_chars(1,[a|2]).", {:error, ["type_error(list, [a|2])"]}},
     {43, "number_chars(1,[_|2]).", {:error, ["type_error(list, ["]}},
     {44, "number_chars(1,[[]|_]).", {:error, ["type_error(character, [])"]}},
     {45, "number_chars(1,[[]|2]).",
-     {:error, ["type_error(character, [])", "type_error(list, [[] | 2])"]}},
+     {:error, ["type_error(character, [])", "type_error(list, [[]|2])"]}},
     {47, "number_chars(1,['.'|_]).", :fail},
     {48, "number_chars(N,[+,'1']).", {:error, ["syntax_error"]}},
     {49, "number_chars(N,[+,' ','1']).", {:error, ["syntax_error"]}},
     {50, "number_chars(N,['''',+,'''','1']).", {:error, ["syntax_error"]}},
     {51, "number_chars(N,['11']).", {:error, ["type_error(character, '11')"]}},
     {52, "number_chars(N,['1.1']).", {:error, ["type_error(character, '1.1')"]}},
-    {53, "number_chars(1+1,['2']).", {:error, ["type_error(number, +(1, 1))"]}}
+    {53, "number_chars(1+1,['2']).", {:error, ["type_error(number, 1+1)"]}}
   ]
 
   setup_all do

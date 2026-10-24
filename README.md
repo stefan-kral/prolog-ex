@@ -95,14 +95,41 @@ Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
 `existence_error`, `permission_error`, `domain_error`, `evaluation_error`, …)
 und fangbar. Nicht Gefangenes meldet der Toplevel als `Fehler: …`.
 
-Antworten im Toplevel, `writeq/1`, `print/1` und `listing/1` quoten Atome
-wie `writeq` (`'1'`, `'hello world'`, `'.'`) und zeigen Zeichenlisten bei
-`double_quotes=chars` wie Scryer als `"..."` – so liest sich jede Antwort
-wieder als derselbe Term (`number_chars(123, X)` → `X = "123"`). `write/1`
-quotet nicht.
+## Ausgabe: Terme mit Operatoren
 
-Noch nicht: Ausgabe in
-Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
+`write/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2` und die
+Antworten im Toplevel schreiben mit Operatoren, nach ISO und im Stil von
+gprolog (mit dem wir auch lesen); jede `writeq`-Ausgabe liest sich wieder als
+derselbe Term:
+
+```
+?- X = (a :- b, c ; d), Y = 1 - -1, Z = -(1), W = - a, V = f((a,b), -).
+V = f((a, b), -), W = -a, X = (a:-b, c;d), Y = 1- -1, Z = - (1).
+?- writeq(f('A b', 1+2*3, (1+2)*3, a mod b, \+ (x,y), [x|T], "ab")).
+f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
+```
+
+  * Klammern nur, wo die Priorität es verlangt; Operator-Atome als Operanden
+    in Klammern (`a-(mod)`, `X = (-)`), `- (1)` für das Präfix-Minus vor
+    einer Zahl, Leerzeichen, wo Zeichen sonst zu einem Token verschmölzen
+    (`1- -1`, `a- -b`, `N+\\ \\X^G`).
+  * `writeq`/`print` quoten Atome (`'1'`, `'hello world'`, `'.'`), `write`
+    nicht; `write_canonical` schreibt ohne Operatoren (`+(1,2)`).
+  * `'$VAR'(N)` erscheint als `A`, `B`, …, `Z`, `A1`, … (außer bei
+    `write_canonical`).
+  * Zeichenlisten bei `double_quotes=chars` wie Scryer als `"..."`
+    (`number_chars(123, X)` → `X = "123"`).
+  * Antworten und `listing` setzen Leerzeichen nach Kommas (`f(a, b)`,
+    `[a, b|T]`) wie SWI; `writeq` schreibt kompakt (`f(a,b)`) wie ISO.
+  * `write_term/2`: `quoted/1`, `ignore_ops/1`, `numbervars/1`,
+    `variable_names/1` (ISO), `max_depth/1`, `spacing/1`, `priority/1` (SWI).
+  * Die Operatortabelle für die Ausgabe spiegelt die des Readers: `op/3`,
+    Operatoren aus Bibliotheken und aus `module/2`-Exportlisten.
+  * `listing/1` wie `portray_clause`, mit eingerücktem Wenn-dann-sonst.
+
+Abweichung von gprolog: Nach einem alphanumerischen Präfix-Operator steht
+immer ein Leerzeichen (`dynamic -a`, gprolog: `dynamic-a`), damit auch andere
+Systeme es als Präfix lesen.
 
 ## Zufall: `library(random)`
 

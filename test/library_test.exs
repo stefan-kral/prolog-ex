@@ -72,7 +72,7 @@ defmodule PrologEx.LibraryTest do
       assert a1 != a2
       assert all(s("functor", [@t, a("foo"), 0])) == ["T = foo"]
       assert all(s("functor", [@t, 7, 0])) == ["T = 7"]
-      assert all(s("functor", [@t, a("."), 2])) |> hd() =~ ~r/^T = \[_B\d+ \| _B\d+\]$/
+      assert all(s("functor", [@t, a("."), 2])) |> hd() =~ ~r/^T = \[_B\d+\|_B\d+\]$/
     end
 
     test "prüft" do
@@ -115,7 +115,7 @@ defmodule PrologEx.LibraryTest do
   describe "append/3" do
     test "erstes Argument fertig: deterministisch, auch mit offenem Rest" do
       assert all(s("append", [list([1, 2]), list([3]), @l])) == ["L = [1, 2, 3]"]
-      assert all(s("append", [list([1, @x]), @y, @l])) == ["L = [1, X | Y]"]
+      assert all(s("append", [list([1, @x]), @y, @l])) == ["L = [1, X|Y]"]
       assert all(s("append", [list([]), @y, @l])) == ["L = Y"]
       [{_, more?}] = db() |> solutions(s("append", [list([1, 2]), @y, @l])) |> Enum.take(1)
       refute more?, "fertiges erstes Argument darf keinen Choice Point hinterlassen"
@@ -130,7 +130,7 @@ defmodule PrologEx.LibraryTest do
           all(s(",", [s("append", [list([1]), list([2]), @l]), s("write", [@l])]))
         end)
 
-      assert out == "[1, 2]"
+      assert out == "[1,2]"
     end
 
     test "offenes erstes Argument: klassische Aufzählung" do
@@ -303,7 +303,7 @@ defmodule PrologEx.LibraryTest do
 
       assert out ==
                "% repeat/0: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
-                 "repeat(N) :-\n    '$must_be_integer'(N),\n    >(N, 0),\n    '$repeat'(N).\n\n" <>
+                 "repeat(N) :-\n    '$must_be_integer'(N),\n    N>0,\n    '$repeat'(N).\n\n" <>
                  "% $must_be_integer/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
                  "% $repeat/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n"
     end
@@ -311,7 +311,7 @@ defmodule PrologEx.LibraryTest do
     test "listing(append/3) zeigt das klassische Hilfsprädikat" do
       out = capture_io(fn -> all(s("listing", [s("/", [a("append"), 3])])) end)
       assert out =~ "% lists:append/3: eingebaut, in Elixir realisiert"
-      assert out =~ "lists:'$append'([H | T], L, [H | R]) :-"
+      assert out =~ "lists:'$append'([H|T], L, [H|R]) :-"
     end
   end
 
@@ -444,7 +444,7 @@ defmodule PrologEx.LibraryTest do
 
   test "format ist linear: lange Listen" do
     {us, text} = :timer.tc(fn -> format(list(Enum.to_list(1..200_000))) end)
-    assert String.starts_with?(text, "[1, 2, 3")
+    assert String.starts_with?(text, "[1,2,3")
     assert us < 2_000_000
   end
 

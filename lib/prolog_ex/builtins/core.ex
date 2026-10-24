@@ -132,19 +132,103 @@ defmodule PrologEx.Builtins.Core do
 
   # --- Ausgabe -----------------------------------------------------------
 
+  # write/1, print/1, writeq/1, write_canonical/1, write_term/2 (ISO 8.14.2):
+  # Operator-Schreibweise wie gprolog, siehe PrologEx.Writer
   defbuiltin "write", [x] do
-    IO.write(format(resolve(x)))
+    IO.write(PrologEx.Writer.format(resolve(x), numbervars: true))
     :ok
   end
 
   defbuiltin "print", [x] do
-    IO.write(PrologEx.Writer.format(resolve(x), PrologEx.Writer.answer_opts()))
+    IO.write(PrologEx.Writer.format(resolve(x), writeq_opts()))
     :ok
   end
 
   defbuiltin "writeq", [x] do
-    IO.write(PrologEx.Writer.format(resolve(x), PrologEx.Writer.answer_opts()))
+    IO.write(PrologEx.Writer.format(resolve(x), writeq_opts()))
     :ok
+  end
+
+  defbuiltin "write_canonical", [x] do
+    IO.write(PrologEx.Writer.format(resolve(x), quoted: true, ignore_ops: true))
+    :ok
+  end
+
+  defbuiltin "write_term", [x, opts] do
+    IO.write(PrologEx.Writer.format(resolve(x), write_options(opts, subst())))
+    :ok
+  end
+
+  # writeq: quoted, numbervars; Zeichenlisten als "..." bei
+  # double_quotes=chars (wie die Antworten)
+  defp writeq_opts do
+    [
+      quoted: true,
+      numbervars: true,
+      strings: PrologEx.Flags.get("double_quotes") == {:atom, "chars"}
+    ]
+  end
+
+  # Optionen von write_term/2: quoted/1, ignore_ops/1, numbervars/1
+  # (ISO), variable_names/1 (ISO Cor.2), max_depth/1, spacing/1,
+  # priority/1 (SWI)
+  defp write_options(opts, s) do
+    case PrologEx.Builtins.Lists.skip_list(opts, s) do
+      {_, []} -> :ok
+      {_, {:var, _}} -> PrologEx.Error.instantiation!()
+      _ -> PrologEx.Error.type!("list", PrologEx.resolve(opts, s))
+    end
+
+    opts
+    |> PrologEx.Builtins.Lists.items(s)
+    |> Enum.map(&write_option(PrologEx.unmark(PrologEx.resolve(&1, s)), s))
+  end
+
+  @bool_options %{"quoted" => :quoted, "ignore_ops" => :ignore_ops, "numbervars" => :numbervars}
+
+  defp write_option({:var, _}, _s), do: PrologEx.Error.instantiation!()
+
+  defp write_option({:struct, name, [{:atom, b}]}, _s)
+       when is_map_key(@bool_options, name) and b in ["true", "false"],
+       do: {@bool_options[name], b == "true"}
+
+  defp write_option({:struct, "max_depth", [n]}, _s) when is_integer(n) and n >= 0,
+    do: {:max_depth, n}
+
+  defp write_option({:struct, "priority", [n]}, _s) when is_integer(n) and n in 0..1200,
+    do: {:priority, n}
+
+  defp write_option({:struct, "spacing", [{:atom, sp}]}, _s)
+       when sp in ["standard", "next_argument"],
+       do: {:spacing, String.to_atom(sp)}
+
+  defp write_option({:struct, "variable_names", [l]} = opt, _s) do
+    # Name = Var; ist Var gebunden, wird der Eintrag nicht gebraucht
+    names =
+      proper_items!(l, opt)
+      |> Enum.flat_map(fn
+        {:struct, "=", [{:atom, name}, {:var, _} = v]} -> [{v, name}]
+        {:struct, "=", [{:atom, _}, _]} -> []
+        {:struct, "=", [{:var, _}, _]} -> PrologEx.Error.instantiation!()
+        {:var, _} -> PrologEx.Error.instantiation!()
+        _ -> PrologEx.Error.domain!("write_option", opt)
+      end)
+      # der erste Eintrag für eine Variable gilt
+      |> Enum.reverse()
+      |> Map.new()
+
+    {:variable_names, names}
+  end
+
+  defp write_option(other, _s), do: PrologEx.Error.domain!("write_option", other)
+
+  defp proper_items!(l, opt) do
+    case l do
+      [] -> []
+      [h | t] -> [h | proper_items!(t, opt)]
+      {:var, _} -> PrologEx.Error.instantiation!()
+      _ -> PrologEx.Error.domain!("write_option", opt)
+    end
   end
 
   defbuiltin "nl", [] do

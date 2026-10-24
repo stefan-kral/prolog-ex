@@ -154,7 +154,7 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "clause(quadrat(A, B), Body).") |> length() == 1
 
     assert err(c, "clause(lists:'$append'(_, _, _), _).") =~
-             "permission_error(access, private_procedure, lists:$append/3)"
+             "permission_error(access, private_procedure, lists:'$append'/3)"
 
     assert ask(c, "current_predicate(geo:mal/3).") == ["true"]
     assert ask(c, "current_predicate(mal/3).") == []
@@ -202,7 +202,7 @@ defmodule PrologEx.ModuleTest do
       assert props(c, "append(_, _, _)") == "L = [compiled, imported_from(lists)]"
 
       assert props(c, "maplist(_, _)") ==
-               "L = [compiled, imported_from(apply), meta_predicate(maplist(1, ?))]"
+               "L = [compiled, imported_from(apply), (meta_predicate maplist(1, ?))]"
 
       assert props(c, "flaeche(_, _)") ==
                "L = [compiled, imported_from(geo), number_of_clauses(2)]"
@@ -212,7 +212,7 @@ defmodule PrologEx.ModuleTest do
       assert props(c, "geo:zaehler(_)") == "L = [interpreted, dynamic, number_of_clauses(1)]"
 
       assert props(c, "meta:zweimal(_)") ==
-               "L = [compiled, exported, meta_predicate(zweimal(0)), number_of_clauses(1)]"
+               "L = [compiled, exported, (meta_predicate zweimal(0)), number_of_clauses(1)]"
 
       # unsichtbar oder unbekannt: scheitert
       assert props(c, "mal(_, _, _)") == "L = []"
@@ -232,11 +232,11 @@ defmodule PrologEx.ModuleTest do
           "findall(N/A, (predicate_property(geo:H, exported), functor(H, N, A)), L), msort(L, S)."
         )
 
-      assert ans =~ "S = [/(flaeche, 2), /(quadrat, 2), /(tick, 0), /(zaehle, 1)]"
+      assert ans =~ "S = [flaeche/2, quadrat/2, tick/0, zaehle/1]"
 
       assert ask(c, "findall(M-P, predicate_property(M:tick, P), L).") ==
                [
-                 "L = [-(user, compiled), -(user, imported_from(geo)), -(user, number_of_clauses(1)), -(geo, compiled), -(geo, exported), -(geo, number_of_clauses(1))]"
+                 "L = [user-compiled, user-imported_from(geo), user-number_of_clauses(1), geo-compiled, geo-exported, geo-number_of_clauses(1)]"
                ]
 
       assert ask(c, "predicate_property(geo:H, dynamic).") |> length() == 1

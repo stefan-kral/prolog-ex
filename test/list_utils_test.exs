@@ -88,7 +88,7 @@ defmodule PrologEx.ListUtilsTest do
     assert ask(c, "memberchk(f(X), [a, f(1), f(2)]).") == ["X = 1"]
     assert ask(c, "memberchk(z, [a, b]).") == []
     assert [ans] = ask(c, "memberchk(x, L).")
-    assert ans =~ ~r/^L = \[x \| _\w+\]$/
+    assert ans =~ ~r/^L = \[x\|_\w+\]$/
 
     assert ask(c, "delete([a, b, a, c], a, R).") == ["R = \"bc\""]
     assert ask(c, "delete([f(1), g(2), f(3)], f(_), R).") == ["R = [g(2)]"]

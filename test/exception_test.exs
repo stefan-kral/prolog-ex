@@ -58,7 +58,7 @@ defmodule PrologEx.ExceptionTest do
 
   test "Fehler der Builtins als error(Formal, _)", c do
     assert ask(c, "catch(X is foo + 1, error(E, _), true).") == [
-             "E = type_error(evaluable, /(foo, 0))"
+             "E = type_error(evaluable, foo/0)"
            ]
 
     assert ask(c, "catch(X is Y + 1, error(E, _), true).") == ["E = instantiation_error"]
@@ -68,14 +68,14 @@ defmodule PrologEx.ExceptionTest do
            ]
 
     assert ask(c, "catch(atom_lenght(abc, N), error(existence_error(procedure, PI), _), true).") ==
-             ["PI = /(atom_lenght, 2)"]
+             ["PI = atom_lenght/2"]
 
     assert ask(c, "catch(call(1), error(E, _), true).") == ["E = type_error(callable, 1)"]
     assert ask(c, "catch(G, error(E, _), true).") == ["E = instantiation_error"]
     assert ask(c, "catch(throw(_), error(E, _), true).") == ["E = instantiation_error"]
 
     assert ask(c, "catch(assertz(p(9)), error(permission_error(A, T, PI), _), true).") ==
-             ["A = modify, PI = /(p, 1), T = static_procedure"]
+             ["A = modify, PI = p/1, T = static_procedure"]
 
     # Kulprit mit gebundenen Variablen wird aufgelöst
     assert ask(
@@ -104,7 +104,7 @@ defmodule PrologEx.ExceptionTest do
 
   test "Ausnahmen aus Unter-Maschinen: findall, \\\\+, countall, findnsols, lazy Builtins", c do
     assert ask(c, "catch(findall(X, (p(X), X > a), L), error(E, _), true).") ==
-             ["E = type_error(evaluable, /(a, 0))"]
+             ["E = type_error(evaluable, a/0)"]
 
     assert ask(c, "catch(\\+ throw(x), x, true).") == ["true"]
     assert ask(c, "catch(countall(throw(x), N), x, true).") == ["true"]

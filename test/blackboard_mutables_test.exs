@@ -145,7 +145,7 @@ defmodule PrologEx.BlackboardMutablesTest do
       assert answer =~ ~r/^M = '\$mutable'\(f\('\$mutable'\(_V\d+\)\)\)$/
 
       assert ask(c, "create_mutable(1, M), L = [a|M].") ==
-               ["L = [a | '$mutable'(1)], M = '$mutable'(1)"]
+               ["L = [a|'$mutable'(1)], M = '$mutable'(1)"]
 
       # Restziele von Variablen im Wert
       assert ask(c, "create_mutable(f(X), M), freeze(X, true).") ==

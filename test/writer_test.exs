@@ -3,7 +3,8 @@ defmodule PrologEx.WriterTest do
   import PrologEx, only: [a: 1, mk: 2, list: 1, v: 1]
   alias PrologEx.{Reader, Writer}
 
-  defp q(t), do: Writer.format(t, quoted: true, strings: true)
+  # als Argument gelesen: höchstens Priorität 999
+  defp q(t), do: Writer.format(t, quoted: true, strings: true, priority: 999)
 
   test "Atome: wann Hochkommas" do
     for n <- ~w(a abc a1 a_B [] {} ! ; + - ** =.. \\+ :- @>= ~) do
@@ -32,14 +33,14 @@ defmodule PrologEx.WriterTest do
   test "Zeichenlisten als String, andere Listen nicht" do
     assert q(list([a("1"), a("2"), a("3")])) == ~s("123")
     assert q(mk("f", [list([a("a"), a("b")])])) == ~s{f("ab")}
-    assert q(list([a("a"), a("bc")])) == "[a, bc]"
-    assert q(list([1, 2])) == "[1, 2]"
+    assert q(list([a("a"), a("bc")])) == "[a,bc]"
+    assert q(list([1, 2])) == "[1,2]"
     assert q(list([a("\""), a("\\")])) == ~S("\"\\")
-    assert q(PrologEx.cons(a("a"), v("T"))) == "[a | T]"
+    assert q(PrologEx.cons(a("a"), v("T"))) == "[a|T]"
     # ohne strings: Liste mit gequoteten Zeichen
-    assert Writer.format(list([a("1"), a("2")]), quoted: true) == "['1', '2']"
+    assert Writer.format(list([a("1"), a("2")]), quoted: true) == "['1','2']"
     # write/1: nichts gequotet
-    assert Writer.format(list([a("1"), a("hello world")])) == "[1, hello world]"
+    assert Writer.format(list([a("1"), a("hello world")])) == "[1,hello world]"
   end
 
   describe "über den Reader" do

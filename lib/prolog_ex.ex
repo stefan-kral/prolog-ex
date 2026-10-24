@@ -2265,9 +2265,14 @@ defmodule PrologEx do
       named
       |> Enum.sort()
       |> Enum.reject(fn {k, t} -> t == {:var, k} end)
-      |> Enum.map(fn {k, t} -> "#{k} = #{format(t, opts)}" end)
+      # rechts von =/2 (700, xfx): höchstens 699, Operator-Atome in Klammern
+      |> Enum.map(fn {k, t} -> "#{k} = #{format(t, opts ++ [priority: 699, operand: true])}" end)
 
-    goals = Enum.map(residual, &(&1 |> rename_free(renames) |> strip_user() |> format(opts)))
+    goals =
+      Enum.map(
+        residual,
+        &(&1 |> rename_free(renames) |> strip_user() |> format(opts ++ [priority: 999]))
+      )
 
     case bindings ++ goals do
       [] -> "true"

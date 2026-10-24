@@ -83,7 +83,7 @@ defmodule PrologEx.LambdaTest do
 
       test "X^G ohne \\\\: keine Kopie", c do
         assert ask(c, "F = X^Y^(Y is X+1), call(F, 1, R).") ==
-                 ["F = ^(1, ^(2, is(2, +(1, 1)))), R = 2, X = 1, Y = 2"]
+                 ["F = 1^2^(2 is 1+1), R = 2, X = 1, Y = 2"]
 
         # zweiter Aufruf mit anderem Wert scheitert (X ist schon gebunden)
         assert ask(c, "F = X^Y^(Y is X+1), call(F, 1, _), call(F, 2, _).") == []
@@ -91,7 +91,7 @@ defmodule PrologEx.LambdaTest do
 
       test "Fehler", c do
         assert err(c, "call(\\X^Y^foo(X,Y), 1).") =~
-                 "existence_error(lambda_parameter, user:^(_, foo(1, _)))"
+                 "existence_error(lambda_parameter, user:_^foo(1, _))"
 
         assert err(c, "call(\\X^true, 1, 2).") =~ "existence_error(procedure, true/1)"
         assert err(c, "call(\\G, 1).") =~ "instantiation_error"
@@ -126,6 +126,6 @@ defmodule PrologEx.LambdaTest do
   test "ohne use_module: nicht sichtbar", c do
     Reader.put_current(c.reader)
     PrologEx.put_db(%{})
-    assert err(c, "call(\\X^true, 1).") =~ "existence_error(procedure, \\/2)"
+    assert err(c, "call(\\X^true, 1).") =~ "existence_error(procedure, (\\)/2)"
   end
 end

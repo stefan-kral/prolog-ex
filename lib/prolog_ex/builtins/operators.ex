@@ -25,13 +25,37 @@ defmodule PrologEx.Builtins.Operators do
 
   defbuiltin "op", [p, t, ops] do
     precheck(resolve(p), resolve(t), resolve(ops))
-    args = Enum.map_join([p, t, ops], ", ", &Writer.format(resolve(&1), quoted: true))
+    # kanonisch: gprolog liest das sicher, unabhängig von Operatoren
+    args =
+      Enum.map_join(
+        [p, t, ops],
+        ", ",
+        &Writer.format(resolve(&1), quoted: true, ignore_ops: true)
+      )
 
     case Reader.op_call(Reader.current(), args) do
-      :ok -> :ok
-      {:error, formal} -> Error.error!(formal)
+      :ok ->
+        # Spiegel für den Writer nachziehen (gprolog hat schon geprüft)
+        mirror(resolve(p), resolve(t), resolve(ops))
+        :ok
+
+      {:error, formal} ->
+        Error.error!(formal)
     end
   end
+
+  @doc "op(P, T, Ops) in den Spiegel der Operatortabelle übernehmen (schon geprüft)"
+  def mirror(p, {:atom, type}, ops) when is_integer(p) do
+    for name <- names(ops), do: PrologEx.Ops.add(p, type, name)
+    :ok
+  end
+
+  def mirror(_, _, _), do: :ok
+
+  defp names({:atom, n}), do: [n]
+  defp names([h | t]), do: names(h) ++ names(t)
+  defp names({:glist, l}), do: names(l)
+  defp names(_), do: []
 
   defbuiltin "current_op", [p, t, op], nondet: true do
     pp = deref(p)

@@ -59,7 +59,7 @@ defmodule PrologEx.AtomPredsTest do
     test "aufzählen", c do
       assert ask(c, "findall(X-Y, atom_concat(X, Y, hello), L).") ==
                [
-                 "L = [-('', hello), -(h, ello), -(he, llo), -(hel, lo), -(hell, o), -(hello, '')]"
+                 "L = [''-hello, h-ello, he-llo, hel-lo, hell-o, hello-'']"
                ]
 
       assert ask(c, "atom_concat(X, Y, 'ä€').") ==
@@ -93,7 +93,7 @@ defmodule PrologEx.AtomPredsTest do
 
       assert ask(c, "findall(B-L-S, sub_atom(ab, B, L, _, S), Xs).") ==
                [
-                 "Xs = [-(-(0, 0), ''), -(-(0, 1), a), -(-(0, 2), ab), -(-(1, 0), ''), -(-(1, 1), b), -(-(2, 0), '')]"
+                 "Xs = [0-0-'', 0-1-a, 0-2-ab, 1-0-'', 1-1-b, 2-0-'']"
                ]
     end
 
@@ -112,7 +112,7 @@ defmodule PrologEx.AtomPredsTest do
 
     test "Kombinationen gebundener Zahlen", c do
       assert ask(c, "findall(B-L, sub_atom(abc, B, L, 1, _), Xs).") ==
-               ["Xs = [-(0, 2), -(1, 1), -(2, 0)]"]
+               ["Xs = [0-2, 1-1, 2-0]"]
 
       assert ask(c, "findall(L, sub_atom(abc, 1, L, _, _), Xs).") == ["Xs = [0, 1, 2]"]
       assert ask(c, "sub_atom(abc, 1, 1, A, S).") == ["A = 1, S = b"]
@@ -156,7 +156,7 @@ defmodule PrologEx.AtomPredsTest do
       assert err(c, "atom_chars(X, [a, _]).") =~ "instantiation_error"
       assert err(c, "atom_chars(1, L).") =~ "type_error(atom, 1)"
       assert err(c, "atom_chars(X, a).") =~ "type_error(list, a)"
-      assert err(c, "atom_chars(X, [a|b]).") =~ "type_error(list, [a | b])"
+      assert err(c, "atom_chars(X, [a|b]).") =~ "type_error(list, [a|b])"
       assert err(c, "atom_chars(X, [ab]).") =~ "type_error(character, ab)"
       # Elemente werden auch bei gebundenem Atom geprüft (wie number_chars)
       assert err(c, "atom_chars(a, [f(x)|_]).") =~ "type_error(character, f(x))"

@@ -48,7 +48,7 @@ defmodule PrologEx.CoroutiningTest do
 
     test "offene Ziele als Restziele, auch über frozen/2", c do
       assert ask(c, "freeze(X, true).") == ["freeze(X, true)"]
-      assert ask(c, "freeze(X, true), frozen(X, G).") |> hd() =~ "G = freeze(X, :(user, true))"
+      assert ask(c, "freeze(X, true), frozen(X, G).") |> hd() =~ "G = freeze(X, user:true)"
       assert ask(c, "frozen(X, G).") == ["G = true"]
       assert ask(c, "frozen(a, G).") == ["G = true"]
     end
@@ -77,7 +77,7 @@ defmodule PrologEx.CoroutiningTest do
       assert out(c, "freeze(X, write(h)), \\+ X = 1.") == "h"
 
       assert ask(c, "freeze(X, X > 1), findall(X, member(X, [1, 2, 3]), L).") == [
-               "L = [2, 3], freeze(X, >(X, 1))"
+               "L = [2, 3], freeze(X, X>1)"
              ]
     end
 
@@ -146,7 +146,7 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "dif(X, b), member(X, [a, b, c]).") == ["X = a", "X = c"]
 
       assert ask(c, "findall(X-Y, (dif(X, Y), member(X, [1, 2]), member(Y, [1, 2])), L).") ==
-               ["L = [-(1, 2), -(2, 1)]"]
+               ["L = [1-2, 2-1]"]
     end
 
     test "?=/2", c do

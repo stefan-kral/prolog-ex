@@ -33,17 +33,17 @@ defmodule PrologEx.OperatorsTest do
   test "op/3 wirkt ab dem nächsten gelesenen Term", c do
     assert {:syntax_error, _} = ask(c, "X = (a ===> b).")
     assert ask(c, "op(700, xfx, ===>).") == ["true"]
-    assert ask(c, "X = (a ===> b), X =.. L.") == ["L = [===>, a, b], X = ===>(a, b)"]
+    assert ask(c, "X = (a ===> b), X =.. L.") == ["L = [===>, a, b], X = (a===>b)"]
     # Liste von Operatoren, Assoziativität
     assert ask(c, "op(200, xfy, [aa, bb]).") == ["true"]
-    assert ask(c, "X = (1 aa 2 bb 3).") == ["X = aa(1, bb(2, 3))"]
+    assert ask(c, "X = (1 aa 2 bb 3).") == ["X = 1 aa 2 bb 3"]
     assert ask(c, "op(200, yfx, cc).") == ["true"]
-    assert ask(c, "Y = (1 cc 2 cc 3).") == ["Y = cc(cc(1, 2), 3)"]
+    assert ask(c, "Y = (1 cc 2 cc 3), Y =.. L.") == ["L = [cc, 1 cc 2, 3], Y = 1 cc 2 cc 3"]
     # Präfix, Postfix
     assert ask(c, "op(900, fy, nicht), op(100, xf, fakultaet).") == ["true"]
 
     assert ask(c, "X = (nicht nicht a), Y = (3 fakultaet).") ==
-             ["X = nicht(nicht(a)), Y = fakultaet(3)"]
+             ["X = (nicht nicht a), Y = 3 fakultaet"]
   end
 
   test "Priorität 0 entfernt einen Operator", c do
@@ -83,7 +83,7 @@ defmodule PrologEx.OperatorsTest do
 
   test "current_op/3", c do
     assert ask(c, "current_op(P, T, mod).") == ["P = 400, T = yfx"]
-    assert ask(c, "current_op(1200, xfx, O).") |> Enum.sort() == ["O = -->", "O = :-"]
+    assert ask(c, "current_op(1200, xfx, O).") |> Enum.sort() == ["O = (-->)", "O = (:-)"]
 
     assert ask(c, "current_op(P, T, ':-').") |> Enum.sort() == [
              "P = 1200, T = fx",
@@ -119,6 +119,6 @@ defmodule PrologEx.OperatorsTest do
 
     out = capture_io(:stderr, fn -> assert ask(c, "consult('#{file}').") == ["true"] end)
     assert out =~ "domain_error(operator_priority, 1201)"
-    assert ask(c, "regel(X).") == ["X = ===>(a, b)"]
+    assert ask(c, "regel(X).") == ["X = (a===>b)"]
   end
 end

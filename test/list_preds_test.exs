@@ -202,7 +202,7 @@ defmodule PrologEx.ListPredsTest do
                ["I = 0, L = \"xab\"", "I = 1, L = \"axb\"", "I = 2, L = \"abx\""]
 
       assert all(s("nth0", [3, list([a("a")], @t), a("x")])) |> hd() =~
-               ~r/^T = \[_B\d+, _B\d+, x \| _B\d+\]$/
+               ~r/^T = \[_B\d+, _B\d+, x\|_B\d+\]$/
 
       error(s("nth0", [a("a"), abc, @e]))
     end

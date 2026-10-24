@@ -186,6 +186,12 @@ defmodule PrologEx.Consult do
 
   defp directive({:struct, "module", [{:atom, m}, exports]}, st) do
     st = flush(st)
+
+    # op(P, T, N) in der Exportliste: gprolog hat sie beim Lesen gesetzt,
+    # der Writer braucht sie auch
+    for {:struct, "op", [p, t, n]} <- prolog_list(exports) |> Enum.map(&PrologEx.unmark/1),
+        do: PrologEx.Builtins.Operators.mirror(p, t, n)
+
     keys = export_keys(exports)
     db = Map.put(st.db, {:module, m}, %{exports: MapSet.new(keys), file: st.file})
     st = %{st | db: db, module: m, declared: m}

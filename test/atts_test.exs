@@ -66,14 +66,14 @@ defmodule PrologEx.AttsTest do
   describe "verify_attributes/3 (SICStus-Ablauf)" do
     test "alle Hooks sehen alle beteiligten Variablen ungebunden, Goals danach", c do
       assert out(c, "tag(X, x, Y), tag(Y, y, X), f(X, Y) = f(1, 2).") ==
-               "hook(x, 1, frei)\nhook(y, 2, frei)\ngoal(x, 1)\ngoal(y, 2)\n"
+               "hook(x,1,frei)\nhook(y,2,frei)\ngoal(x,1)\ngoal(y,2)\n"
     end
 
     test "auch im Klauselkopf und in Builtins", c do
       {db, []} = Consult.load(PrologEx.current_db(), Reader.read_terms(c.reader, "k(7).\n"))
       PrologEx.put_db(db)
-      assert out(c, "tag(X, x, _), k(X).") == "hook(x, 7, frei)\ngoal(x, 7)\n"
-      assert out(c, "tag(X, x, _), arg(1, f(5), X).") == "hook(x, 5, frei)\ngoal(x, 5)\n"
+      assert out(c, "tag(X, x, _), k(X).") == "hook(x,7,frei)\ngoal(x,7)\n"
+      assert out(c, "tag(X, x, _), arg(1, f(5), X).") == "hook(x,5,frei)\ngoal(x,5)\n"
     end
 
     test "Scheitern, Alternativen und Ausnahmen des Hooks", c do
@@ -98,7 +98,7 @@ defmodule PrologEx.AttsTest do
       assert ask(c, "freeze(X, true), X = 1.") == ["X = 1"]
 
       assert out(c, "freeze(X, write(fr)), tag(X, x, _), X = 3.") ==
-               "hook(x, 3, frei)\ngoal(x, 3)\nfr"
+               "hook(x,3,frei)\ngoal(x,3)\nfr"
     end
 
     test "Kompaktierung während der Hooks", c do
@@ -127,7 +127,7 @@ defmodule PrologEx.AttsTest do
 
     test "frozen/2 und copy_term/3", c do
       assert ask(c, "domain(X, [a, b]), frozen(X, G).") |> hd() =~
-               "G = :(domain, domain(X, \"ab\"))"
+               "G = domain:domain(X, \"ab\")"
 
       assert ask(c, "frozen(f(a), G).") == ["G = true"]
 

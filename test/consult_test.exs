@@ -70,7 +70,7 @@ defmodule PrologEx.ConsultTest do
         """)
       end)
 
-    assert out == "=(direkt, 1)\n=(init, 42)\n"
+    assert out == "direkt=1\ninit=42\n"
   end
 
   test "dynamic deklariert leere Prädikate", %{reader: r} do
@@ -92,7 +92,7 @@ defmodule PrologEx.ConsultTest do
   test "listing zeigt den Quelltext", %{reader: r} do
     {db, []} = load(r, "app([], L, L).\napp([H|T], L, [H|R]) :- app(T, L, R).\n")
     out = capture_io(fn -> ask(r, db, "listing(app/3).") end)
-    assert out == "app([], L, L).\napp([H | T], L, [H | R]) :-\n    app(T, L, R).\n"
+    assert out == "app([], L, L).\napp([H|T], L, [H|R]) :-\n    app(T, L, R).\n"
   end
 
   test "Toplevel: Programm von stdin mit -g" do
@@ -111,7 +111,7 @@ defmodule PrologEx.ConsultTest do
         fn -> PrologEx.Toplevel.main(["-", "-g", "s1(X), s2(Y), write(X-Y), nl"]) end
       )
 
-    assert out == "-([a, b], [97, 98])\n"
+    assert out == "[a,b]-[97,98]\n"
 
     input = "set_prolog_flag(double_quotes, atom).\nX = \"ab\".\nhalt.\n"
     out = capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)

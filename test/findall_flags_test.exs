@@ -33,7 +33,7 @@ defmodule PrologEx.FindallFlagsTest do
       assert all(s("findall", [@x, a("fail"), @l])) == ["L = []"]
 
       assert all(s("findall", [s("-", [@x, @x]), s("p", [@x]), @l])) == [
-               "L = [-(1, 1), -(2, 2), -(3, 3)]"
+               "L = [1-1, 2-2, 3-3]"
              ]
 
       assert more(s("findall", [@x, s("p", [@x]), @l])) == [false]
@@ -67,7 +67,7 @@ defmodule PrologEx.FindallFlagsTest do
 
       for opts <- [[], [compact_threshold: 1]] do
         assert all(goal, opts) ==
-                 ["A = [-(1, [1, 2, 3]), -(2, [1, 2, 3]), -(3, [1, 2, 3])]"]
+                 ["A = [1-[1, 2, 3], 2-[1, 2, 3], 3-[1, 2, 3]]"]
       end
     end
 

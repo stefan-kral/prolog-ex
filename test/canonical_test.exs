@@ -28,7 +28,7 @@ defmodule PrologEx.CanonicalTest do
 
   test "Listen in beiden Schreibweisen, geschweifte Klammern" do
     assert C.parse!("'.'(a, '.'(b, []))") == list([a("a"), a("b")])
-    assert C.parse!("[a, b | T]") == list([a("a"), a("b")], v("T"))
+    assert C.parse!("[a, b|T]") == list([a("a"), a("b")], v("T"))
     assert C.parse!("{}(x)") == s("{}", [a("x")])
     assert C.parse!("{x}") == s("{}", [a("x")])
   end
