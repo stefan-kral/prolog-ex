@@ -390,6 +390,26 @@ defmodule PrologEx do
     c
   end
 
+  @doc """
+  Wie `copy_fresh/2`, aber die Variablen von `keep` bleiben dieselben
+  (für `Free+\\Lambda`: globale Variablen werden nicht umbenannt).
+  """
+  def copy_fresh(t, subst, keep) do
+    map = keep |> keep_vars(subst, []) |> Map.new(&{&1, &1})
+    {c, _map} = copy(t, subst, map)
+    c
+  end
+
+  defp keep_vars(t, subst, acc) do
+    case walk(t, subst) do
+      {:var, _} = v -> [v | acc]
+      m when is_marked(m) -> acc
+      {:struct, _, args} -> Enum.reduce(args, acc, &keep_vars(&1, subst, &2))
+      [h | tl] -> keep_vars(tl, subst, keep_vars(h, subst, acc))
+      _ -> acc
+    end
+  end
+
   defp copy(t, subst, map) do
     case walk(t, subst) do
       {:var, _} = var ->
@@ -1415,6 +1435,11 @@ defmodule PrologEx do
       {:call, goal} ->
         run(%{st | goals: [{goal, st.height, mod} | rest]})
 
+      # neue Substitution, dann weiter mit einem Ziel (z. B. Lambda:
+      # Parameter gebunden, jetzt der Rumpf)
+      {:call, goal, s} ->
+        cont(st, s, [{goal, st.height, mod} | rest])
+
       # neue Substitution (z. B. Attribute gesetzt: freeze, dif, when)
       {:subst, s} ->
         cont(st, s, rest)
@@ -1523,12 +1548,13 @@ defmodule PrologEx do
     run(%{st | goals: [{c, h + 1, mod}, {{:"$cut_to", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
-  defp add_args(g, []), do: g
-  defp add_args({:struct, ":", [m, g]}, extra), do: mk(":", [m, add_args(unmark_top(g), extra)])
-  defp add_args({:atom, f}, extra), do: mk(f, extra)
-  defp add_args({:struct, f, args}, extra), do: mk(f, args ++ extra)
-  defp add_args({:var, _}, _), do: PrologEx.Error.instantiation!()
-  defp add_args(g, _), do: PrologEx.Error.type!("callable", g)
+  @doc "Ziel um Argumente erweitern wie call/N (auch M:Ziel); Ziel dereferenziert"
+  def add_args(g, []), do: g
+  def add_args({:struct, ":", [m, g]}, extra), do: mk(":", [m, add_args(unmark_top(g), extra)])
+  def add_args({:atom, f}, extra), do: mk(f, extra)
+  def add_args({:struct, f, args}, extra), do: mk(f, args ++ extra)
+  def add_args({:var, _}, _), do: PrologEx.Error.instantiation!()
+  def add_args(g, _), do: PrologEx.Error.type!("callable", g)
 
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.

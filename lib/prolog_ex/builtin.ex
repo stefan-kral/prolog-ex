@@ -28,6 +28,10 @@ defmodule PrologEx.Builtin do
     * `{:unify, [{a, b}, ...]}`   – Erfolg, wenn alle Paare unifizieren
     * `{:call, ziel}`             – weiter mit einem Prolog-Ziel (Cut darin
                                     ist lokal, wie bei call/1)
+    * `{:call, ziel, subst}`      – wie `{:call, ziel}`, aber vorher mit
+                                    der neuen Substitution `subst` (eigene
+                                    Unifikationen, z. B. `PrologEx.unify/3`)
+    * `{:subst, subst}`           – Erfolg mit neuer Substitution
 
   Mit `nondet: true` liefert der Rumpf eine Aufzählung solcher Ergebnisse.
   Jedes Element ist eine Lösung; beim Backtracking wird das nächste geholt.

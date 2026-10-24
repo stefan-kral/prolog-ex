@@ -157,29 +157,39 @@ defmodule PrologEx.Builtins.Modules do
   defp use_module({tag, "library", [lib]}, keys, ctx, s) when tag in [:struct, :gstruct] do
     name = lib_name(PrologEx.walk(lib, s))
 
-    case PrologEx.Builtins.exports(name) do
-      nil -> PrologEx.Error.existence!("source_sink", mk("library", [a(name)]))
-      exports -> import(name, select(exports, keys, name), ctx)
+    case {PrologEx.Builtins.exports(name), PrologEx.Builtins.library_file(name)} do
+      {nil, nil} ->
+        PrologEx.Error.existence!("source_sink", mk("library", [a(name)]))
+
+      {nil, path} ->
+        use_file(path, keys, ctx)
+
+      {exports, _} ->
+        for {p, type, op} <- PrologEx.Builtins.ops(name),
+            do: PrologEx.Reader.op(PrologEx.Reader.current(), p, type, op)
+
+        import(name, select(exports, keys, name), ctx)
     end
 
     :ok
   end
 
   defp use_module(spec, keys, ctx, _s) do
-    for f <- files(spec) do
-      module =
-        case Consult.loaded(f) do
-          {:ok, m} -> m
-          :error -> elem(Consult.load_file(f, into: nil), 1)
-        end
-
-      if module do
-        exports = PrologEx.current_db() |> Map.fetch!({:module, module}) |> Map.fetch!(:exports)
-        import(module, select(exports, keys, module), ctx)
-      end
-    end
-
+    for f <- files(spec), do: use_file(f, keys, ctx)
     :ok
+  end
+
+  defp use_file(f, keys, ctx) do
+    module =
+      case Consult.loaded(f) do
+        {:ok, m} -> m
+        :error -> elem(Consult.load_file(f, into: nil), 1)
+      end
+
+    if module do
+      exports = PrologEx.current_db() |> Map.fetch!({:module, module}) |> Map.fetch!(:exports)
+      import(module, select(exports, keys, module), ctx)
+    end
   end
 
   defp lib_name({:atom, n}), do: n

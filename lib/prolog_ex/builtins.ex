@@ -8,7 +8,13 @@ defmodule PrologEx.Builtins do
   Bibliotheksprädikate in Prolog liefert ein Modul über `library/0`
   (Liste von Klauseln, im Modul des Elixir-Moduls) oder als
   `%{"modul" => klauseln}`; sie werden beim Übersetzen kompiliert.
-  `meta/0` liefert meta_predicate-Deklarationen `{modul, name, specs}`.
+  `meta/0` liefert meta_predicate-Deklarationen `{modul, name, specs}`,
+  `ops/0` Operatoren, die `use_module` eines Bibliotheksmoduls (global)
+  setzt: `{modul, priorität, typ, name}`.
+
+  Bibliotheken können auch Prolog-Quelltext sein: `priv/library/NAME.pl`
+  mit `:- module(NAME, ...)`. `use_module(library(NAME))` lädt sie dann
+  wie eine Datei (einmal), wenn es kein eingebautes Modul NAME gibt.
 
   ## Module
 
@@ -36,7 +42,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Atoms,
     PrologEx.Builtins.Blackboard,
     PrologEx.Builtins.Mutables,
-    PrologEx.Builtins.Statistics
+    PrologEx.Builtins.Statistics,
+    PrologEx.Builtins.Lambda
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
@@ -131,6 +138,22 @@ defmodule PrologEx.Builtins do
 
   @doc "Bibliotheksmodule"
   def library_modules, do: Map.keys(@exports) |> Enum.sort()
+
+  @ops (for mod <- @modules,
+            function_exported?(mod, :ops, 0),
+            {pmod, p, type, name} <- mod.ops(),
+            reduce: %{} do
+          acc -> Map.update(acc, pmod, [{p, type, name}], &(&1 ++ [{p, type, name}]))
+        end)
+
+  @doc "Operatoren, die ein Bibliotheksmodul exportiert: [{prio, typ, name}]"
+  def ops(module), do: Map.get(@ops, module, [])
+
+  @doc "Pfad einer Bibliothek in Prolog-Quelltext (priv/library/NAME.pl) oder nil"
+  def library_file(name) do
+    path = Path.join([:code.priv_dir(:prolog_ex), "library", name <> ".pl"])
+    if File.regular?(path), do: path
+  end
 
   @doc "Exporte eines Bibliotheksmoduls (MapSet von {name, arity}) oder nil"
   def exports(module), do: Map.get(@exports, module)

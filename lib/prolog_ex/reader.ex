@@ -75,6 +75,12 @@ defmodule PrologEx.Reader do
     pid
   end
 
+  @doc "Operator im Reader setzen (global, wie op/3)"
+  def op(reader, priority, type, name) do
+    read_terms(reader, ":- op(#{priority}, #{type}, #{quote_atom(name)}).\n")
+    :ok
+  end
+
   @doc "Setzt double_quotes im Reader (codes, chars, atom)"
   def set_double_quotes(reader, value) when value in ["codes", "chars", "atom"] do
     read_terms(reader, ":- set_prolog_flag(double_quotes, #{value}).\n")
@@ -196,12 +202,20 @@ defmodule PrologEx.Reader do
         collect_until(port, buf <> chunk, acc, stop?)
 
       {^port, {:data, {:eol, chunk}}} ->
-        result = decode(buf <> chunk)
-        acc = [result | acc]
+        case decode(buf <> chunk) do
+          # veraltete Endemarke einer Leseanfrage (jede sendet ihre Marke
+          # zweimal); kann z. B. nach op/3 aus einer Direktive kommen, während
+          # die Datei pausiert
+          {:batch_end, _} ->
+            collect_until(port, "", acc, stop?)
 
-        if stop?.(result),
-          do: {:ok, Enum.reverse(acc), ""},
-          else: collect_until(port, "", acc, stop?)
+          result ->
+            acc = [result | acc]
+
+            if stop?.(result),
+              do: {:ok, Enum.reverse(acc), ""},
+              else: collect_until(port, "", acc, stop?)
+        end
     after
       @timeout -> {:timeout, Enum.reverse(acc)}
     end

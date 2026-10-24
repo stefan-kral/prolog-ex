@@ -121,6 +121,34 @@ Wie SICStus (dort eingebaut, hier nach `use_module`):
     Änderung also ein Eintrag in der Substitution. Der Toplevel zeigt ein
     Mutable als `'$mutable'(Wert)`.
 
+## Lambdas: `library(lambda)` und `library(lambda_pl)`
+
+Nach Ulrich Neumerkel, in zwei Varianten mit gleichem Verhalten:
+`library(lambda)` in Elixir, `library(lambda_pl)` in reinem Prolog wie sein
+`lambda.pl` (Quelltext: `priv/library/lambda_pl.pl`).
+
+```prolog
+?- use_module(library(apply)), use_module(library(lambda)).
+?- maplist(\X^Y^(Y is X*2), [1,2,3], L).
+L = [2, 4, 6].
+?- N = 10, maplist(N+\X^Y^(Y is X+N), [1,2], L).
+L = [11, 12], N = 10.
+```
+
+`\X1^..^Xn^G` wird bei jedem Aufruf kopiert (lokale Variablen frisch),
+`Free+\Lambda` lässt die Variablen von `Free` aus (mehrere als Liste:
+`[A,B]+\...`), `X^G` ohne `\` kopiert nicht. Zu wenige Argumente:
+`existence_error(lambda_parameter, ...)`. Der Operator `+\` (201, xfx) gilt
+ab `use_module`.
+
+Die Elixir-Variante bindet die Parameter und ruft den Rumpf in einem
+Schritt auf, statt über `call/N` → `^/N` → `call/N-1` je Parameter; sie
+ist etwa 2–3-mal so schnell (`mix run bench/lambda_bench.exs`), ein
+eigenes Hilfsprädikat bleibt noch einmal gut 2-mal schneller.
+
+Bibliotheken in Prolog-Quelltext: `priv/library/NAME.pl` mit
+`:- module(NAME, ...)` lädt `use_module(library(NAME))` wie eine Datei.
+
 ## Zeitmessung: `statistics/2`
 
 `statistics(K, [T, D])` mit `K` = `runtime` (auch `total_runtime`,
@@ -183,7 +211,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
     `library(apply)`, `library(random)`, `library(atts)`,
-    `library(blackboard)`, `library(mutables)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
+    `library(blackboard)`, `library(mutables)`, `library(lambda)`,
+    `library(lambda_pl)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
     SICStus, dazu `number_of_clauses/1`); `clause/2`, `retract/1`,
