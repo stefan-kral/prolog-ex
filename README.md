@@ -19,13 +19,19 @@ dient nur als Term-Reader (Operator-Syntax → kanonische Terme); ausgeführt
 wird alles in PrologEx.
 
 ```sh
-mix prolog.build_reader              # Reader mit gplc übersetzen (einmalig;
-                                     # GPLC=/pfad/zu/gplc falls nicht im PATH)
+mix compile                          # Elixir und den Reader (gplc) übersetzen;
+                                     # GPLC=/pfad/zu/gplc falls nicht im PATH
 mix prolog                           # interaktiver Toplevel
 mix prolog examples/demo.pl          # Datei laden, dann Toplevel
 mix prolog examples/demo.pl -g main -q   # laden, main ausführen, Ende
 cat prog.pl | mix prolog - -g main   # Programm von stdin
 ```
+
+Bauen: `mix compile` übersetzt neben dem Elixir-Code auch den gprolog-Reader
+(`priv/gprolog/reader.pl`), sobald die Quelle neuer ist als das Programm –
+also auch bei `mix test`, `mix run` und `mix prolog`. `mix clean` löscht
+beides, `mix rebuild` baut alles neu (wie `make clean && make all`).
+`mix prolog.build_reader` übersetzt nur den Reader, immer.
 
 Zeilenbearbeitung und Verlauf (↑/↓, Ctrl-R, …) bekommt man mit
 [rlwrap](https://github.com/hanslub42/rlwrap) (`brew install rlwrap`):

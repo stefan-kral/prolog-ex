@@ -2,8 +2,8 @@ defmodule PrologEx.Reader do
   @moduledoc """
   Liest Prolog-Text (mit Operatoren) über einen GNU-Prolog-Kindprozess.
 
-  Der Prozess besitzt einen Port zu `priv/gprolog/reader` (übersetzt mit
-  `mix prolog.build_reader`). Operator-Definitionen bleiben über mehrere
+  Der Prozess besitzt einen Port zu `priv/gprolog/reader` (übersetzt von
+  `mix compile`, siehe `mix.exs`). Operator-Definitionen bleiben über mehrere
   Aufrufe hinweg erhalten – wie in einer Prolog-Sitzung.
 
       {:ok, r} = PrologEx.Reader.start_link()
@@ -112,18 +112,6 @@ defmodule PrologEx.Reader do
 
   def available?, do: File.exists?(executable())
 
-  @doc "Ist das übersetzte Programm älter als priv/gprolog/reader.pl?"
-  def stale? do
-    src = Path.join(["priv", "gprolog", "reader.pl"])
-
-    with {:ok, %{mtime: bin}} <- File.stat(executable()),
-         {:ok, %{mtime: pl}} <- File.stat(src) do
-      pl > bin
-    else
-      _ -> false
-    end
-  end
-
   # ---------------------------------------------------------------------
 
   @impl true
@@ -132,7 +120,7 @@ defmodule PrologEx.Reader do
       {:ok, %{port: open_port(), batch: 0, buf: "", lines: 0}}
     else
       {:stop,
-       {:reader_missing, "#{executable()} fehlt – bitte `mix prolog.build_reader` ausführen"}}
+       {:reader_missing, "#{executable()} fehlt – bitte `mix compile` (braucht gplc) ausführen"}}
     end
   end
 
