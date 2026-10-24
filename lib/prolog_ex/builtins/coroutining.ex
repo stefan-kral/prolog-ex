@@ -198,7 +198,8 @@ defmodule PrologEx.Builtins.Coroutining do
 
   defp s3(done, wake, residual), do: mk("$s", [done, wake, residual])
 
-  defp qualify(g, mod, s) do
+  @doc false
+  def qualify(g, mod, s) do
     case PrologEx.walk(g, s) do
       {:var, _} -> PrologEx.Error.instantiation!()
       {tag, ":", [_, _]} = q when tag in [:struct, :gstruct] -> q
@@ -206,8 +207,9 @@ defmodule PrologEx.Builtins.Coroutining do
     end
   end
 
-  # Bedingung von when/2: :true oder {:wait, variablen}
-  defp condition(c, s) do
+  @doc false
+  # Bedingung von when/2: true oder {:wait, variablen} (auch für when_si/2)
+  def condition(c, s) do
     case PrologEx.unmark_top(PrologEx.walk(c, s)) do
       {:var, _} ->
         PrologEx.Error.instantiation!()

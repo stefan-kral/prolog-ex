@@ -36,7 +36,18 @@ defmodule PrologEx.Builtins.Si do
       Fehler sonst wie bei `sort/2` (Teilliste: instantiation_error,
       keine Liste: type_error(list, …)).
 
-  Nicht (noch nicht): `when_si/2`, `not_si/1`, `term_si/1`.
+  Steuerung:
+
+    * `when_si(Bedingung, Ziel)`: wie `when/2`, aber ohne zu warten – ist
+      die Bedingung schon wahr, läuft Ziel sofort, sonst
+      `instantiation_error`. Bedingungen wie bei `when/2` (`nonvar/1`,
+      `ground/1`, `?=/2`, `,`, `;`; sonst domain_error(when_condition, …)).
+      Da eine wahre Bedingung bei jeder weiteren Bindung wahr bleibt, gibt
+      when_si/2 nie eine Antwort, die when/2 nicht auch gäbe. Die Tests
+      oben lassen sich so ausdrücken: `atom_si(X) :- when_si(nonvar(X),
+      atom(X))`, `dif_si(X, Y) :- when_si(?=(X, Y), X \\== Y)`.
+
+  Nicht (noch nicht): `not_si/1`, `term_si/1`.
   """
   use PrologEx.Builtin, module: "si"
   alias PrologEx.{Error, Order}
@@ -157,6 +168,18 @@ defmodule PrologEx.Builtins.Si do
 
     decided!(keys, s, [:lt, :eq])
     {:unify, [{sorted, list(result)}]}
+  end
+
+  # --- Steuerung ----------------------------------------------------------------
+
+  defbuiltin "when_si", [c, g] do
+    s = subst()
+    goal = PrologEx.Builtins.Coroutining.qualify(g, context_module(), s)
+
+    case PrologEx.Builtins.Coroutining.condition(c, s) do
+      true -> {:call, goal}
+      {:wait, _} -> Error.instantiation!()
+    end
   end
 
   # ---------------------------------------------------------------------

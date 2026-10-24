@@ -146,6 +146,45 @@ defmodule PrologEx.SiTest do
     end
   end
 
+  test "when_si/2", c do
+    for {q, exp} <- [
+          {"when_si(nonvar(X), atom(X))", :inst},
+          {"X = a, when_si(nonvar(X), atom(X))", "X = a"},
+          {"X = 1, when_si(nonvar(X), atom(X))", :fail},
+          # Reihenfolge zählt (when/2 gäbe hier X = a)
+          {"when_si(nonvar(X), atom(X)), X = a", :inst},
+          {"when_si(ground(f(a, X)), true)", :inst},
+          {"X = b, when_si(ground(f(a, X)), true)", "X = b"},
+          {"when_si(?=(X, X), true)", "true"},
+          {"when_si(?=(f(X), g(Y)), true)", "true"},
+          {"when_si(?=(f(X), f(Y)), true)", :inst},
+          {"when_si((nonvar(X) ; nonvar(a)), true)", "true"},
+          {"when_si((nonvar(a), nonvar(X)), true)", :inst},
+          {"when_si(foo, true)", {:error, "domain_error(when_condition, foo)"}},
+          {"when_si(_, true)", :inst},
+          {"when_si(nonvar(a), _)", :inst},
+          {"when_si(nonvar(a), (X = 1 ; X = 2))", [%{"X" => 1}, %{"X" => 2}]},
+          # Ziel im Kontextmodul
+          {"assertz(p_si(7)), when_si(nonvar(a), p_si(X))", "X = 7"}
+        ] do
+      got = run(c, q)
+      assert got == exp, "#{q}: #{inspect(got)}"
+    end
+  end
+
+  # die Tests lassen sich mit when_si/2 ausdrücken
+  test "atom_si/1 und dif_si/2 über when_si/2", c do
+    terms = ["_", "a", "1", "f(_)", "f(a)", "[]", "A"]
+
+    for x <- terms, y <- terms do
+      assert run(c, "atom_si(#{x})") == run(c, "when_si(nonvar(#{x}), atom(#{x}))"), x
+
+      assert run(c, "A = Z, dif_si(#{x}, #{y})") ==
+               run(c, "A = Z, when_si(?=(#{x}, #{y}), #{x} \\== #{y})"),
+             "#{x} #{y}"
+    end
+  end
+
   test "nur nach use_module sichtbar", c do
     [{:term, g, _}] = Reader.read_terms(c.reader, "atom_si(a).")
     e = assert_raise(PrologEx.Error, fn -> PrologEx.query(%{}, g) |> Enum.take(1) end)

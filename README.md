@@ -242,6 +242,10 @@ Bindung gilt, und scheitern nur, wenn sie für keine gilt.
   * `sort_si/2`, `msort_si/2`, `keysort_si/2` – nur, wenn das Ergebnis für
     jede weitere Bindung dasselbe wäre: `sort_si([X,X], L)` gibt `[X]`,
     `sort_si([X,a], L)` wirft.
+  * `when_si/2` – wie `when/2`, aber ohne zu warten: ist die Bedingung
+    schon wahr, läuft das Ziel, sonst `instantiation_error`. Das Konzept
+    hinter allen `_si`-Tests: `atom_si(X) :- when_si(nonvar(X), atom(X))`,
+    `dif_si(X, Y) :- when_si(?=(X, Y), X \== Y)`.
 
 ## Messen: `statistics/2`, `statistics/0`
 
