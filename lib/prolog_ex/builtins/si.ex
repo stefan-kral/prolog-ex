@@ -47,7 +47,13 @@ defmodule PrologEx.Builtins.Si do
       oben lassen sich so ausdrücken: `atom_si(X) :- when_si(nonvar(X),
       atom(X))`, `dif_si(X, Y) :- when_si(?=(X, Y), X \\== Y)`.
 
-  Nicht (noch nicht): `not_si/1`, `term_si/1`.
+  Grundterme und Negation:
+
+    * `term_si(T)`: T ground → ja, sonst `instantiation_error`.
+    * `not_si(G)`: wie `\\+ G`, aber nur für ground G (sonst
+      `instantiation_error`) – erst dann ist das Ergebnis logisch
+      (unabhängig von weiteren Bindungen). Wie Scryer: „True if Goal is
+      not provable. Instantiation error if Goal is not ground.“
   """
   use PrologEx.Builtin, module: "si"
   alias PrologEx.{Error, Order}
@@ -168,6 +174,19 @@ defmodule PrologEx.Builtins.Si do
 
     decided!(keys, s, [:lt, :eq])
     {:unify, [{sorted, list(result)}]}
+  end
+
+  def meta, do: [{"si", "not_si", [0]}]
+
+  defbuiltin "term_si", [x] do
+    if PrologEx.Builtins.Order.variables(x, subst()) == [], do: :ok, else: Error.instantiation!()
+  end
+
+  defbuiltin "not_si", [g] do
+    # g kommt als M:G (meta_predicate 0); M:G ist ground genau dann, wenn G es ist
+    if PrologEx.Builtins.Order.variables(g, subst()) == [],
+      do: {:call, mk("\\+", [g])},
+      else: Error.instantiation!()
   end
 
   # --- Steuerung ----------------------------------------------------------------

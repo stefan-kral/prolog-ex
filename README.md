@@ -253,6 +253,8 @@ Bindung gilt, und scheitern nur, wenn sie für keine gilt.
   * `sort_si/2`, `msort_si/2`, `keysort_si/2` – nur, wenn das Ergebnis für
     jede weitere Bindung dasselbe wäre: `sort_si([X,X], L)` gibt `[X]`,
     `sort_si([X,a], L)` wirft.
+  * `term_si/1` – ground: ja, sonst wirft es; `not_si/1` – wie `\+`, aber
+    nur für ground Ziele (sonst wirft es), dann ist das Ergebnis logisch.
   * `when_si/2` – wie `when/2`, aber ohne zu warten: ist die Bedingung
     schon wahr, läuft das Ziel, sonst `instantiation_error`. Das Konzept
     hinter allen `_si`-Tests: `atom_si(X) :- when_si(nonvar(X), atom(X))`,

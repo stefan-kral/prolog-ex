@@ -146,6 +146,29 @@ defmodule PrologEx.SiTest do
     end
   end
 
+  test "term_si/1, not_si/1", c do
+    for {q, exp} <- [
+          {"term_si(a)", true},
+          {"term_si(f(a, [1, g(b)]))", true},
+          {"term_si(_)", :inst},
+          {"term_si(f(a, _))", :inst},
+          {"X = b, term_si(f(a, X))", "X = b"},
+          {"not_si(1 = 2)", true},
+          {"not_si(a = a)", :fail},
+          {"not_si(X = a)", :inst},
+          {"X = b, not_si(X = a)", "X = b"},
+          {"not_si(_)", :inst},
+          {"not_si(member(c, [a, b]))", true},
+          {"not_si(member(a, [a, b]))", :fail},
+          {"not_si(member(_, [a, b]))", :inst},
+          # im Kontextmodul gerufen
+          {"assertz(q_si(1)), not_si(q_si(2))", true},
+          {"assertz(q_si2(1)), not_si(q_si2(1))", :fail}
+        ] do
+      assert run(c, q) == exp, "#{q}: #{inspect(run(c, q))}"
+    end
+  end
+
   test "when_si/2", c do
     for {q, exp} <- [
           {"when_si(nonvar(X), atom(X))", :inst},
