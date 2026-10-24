@@ -30,6 +30,68 @@ defmodule PrologEx.Order do
   def equal?(a, b, subst), do: compare(a, b, subst) == :eq
 
   @doc """
+  Sind a und b Varianten (gleich bis auf eine eineindeutige Umbenennung der
+  Variablen)? Wie `=@=/2` in SWI.
+  """
+  def variant?(a, b, subst), do: variant(a, b, subst, {%{}, %{}}) != :no
+
+  defp variant(a, b, subst, maps) do
+    a = walk(a, subst)
+    b = walk(b, subst)
+
+    case {a, b} do
+      {{:var, _}, {:var, _}} ->
+        {ab, ba} = maps
+
+        case {Map.fetch(ab, a), Map.fetch(ba, b)} do
+          {{:ok, ^b}, {:ok, ^a}} -> maps
+          {:error, :error} -> {Map.put(ab, a, b), Map.put(ba, b, a)}
+          _ -> :no
+        end
+
+      {{:var, _}, _} ->
+        :no
+
+      {_, {:var, _}} ->
+        :no
+
+      _ ->
+        variant_nonvar(a, b, subst, maps)
+    end
+  end
+
+  defp variant_nonvar(a, b, subst, maps) do
+    cond do
+      # ground markiert: Variante heißt gleich
+      is_marked(a) or is_marked(b) ->
+        if compare(a, b, subst) == :eq, do: maps, else: :no
+
+      class(a) == 3 and class(b) == 3 ->
+        {fa, aa} = parts(a)
+        {fb, ab} = parts(b)
+
+        if fa == fb and length(aa) == length(ab),
+          do: variant_args(aa, ab, subst, maps),
+          else: :no
+
+      class(a) == class(b) and same_class(class(a), a, b, subst) == :eq ->
+        maps
+
+      true ->
+        :no
+    end
+  end
+
+  defp variant_args([], [], _subst, maps), do: maps
+
+  defp variant_args([x | xs], [y | ys], subst, maps) do
+    case variant(x, y, subst, maps) do
+      :no -> :no
+      maps -> variant_args(xs, ys, subst, maps)
+    end
+  end
+
+  @doc """
   Wie `compare/3`, aber nur, wenn das Ergebnis unter jeder weiteren Bindung
   dasselbe bliebe (library(si)): `:lt`, `:eq`, `:gt` oder `:undecided`.
 

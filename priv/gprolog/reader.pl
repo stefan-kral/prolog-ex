@@ -41,6 +41,8 @@ main :-
     % Präfix-Operatoren für Deklarationen wie in SWI/ISO-Praxis
     op(1150, fx, [dynamic, discontiguous, initialization, multifile, meta_predicate,
                   module_transparent, table, attribute]),
+    % Variante (wie SWI)
+    op(700, xfx, [=@=, \=@=]),
     loop.
 
 loop :-
