@@ -32,7 +32,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Modules,
     PrologEx.Builtins.Coroutining,
     PrologEx.Builtins.Random,
-    PrologEx.Builtins.Atts
+    PrologEx.Builtins.Atts,
+    PrologEx.Builtins.Atoms
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst

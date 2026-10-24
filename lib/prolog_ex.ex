@@ -2073,7 +2073,7 @@ defmodule PrologEx do
   defp fmt({:var, n}), do: inspect(n)
   defp fmt({:atom, n}), do: n
   defp fmt(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt(f) when is_float(f), do: Float.to_string(f)
+  defp fmt(f) when is_float(f), do: format_float(f)
   defp fmt([]), do: "[]"
   defp fmt([_ | _] = l), do: ["[", fmt_list(l, []), "]"]
   defp fmt({:glist, l}), do: ["[", fmt_list(l, []), "]"]
@@ -2082,6 +2082,54 @@ defmodule PrologEx do
     do: [f, "(", Enum.map_intersperse(args, ", ", &fmt/1), ")"]
 
   defp fmt(other), do: inspect(other)
+
+  @doc """
+  Kürzeste Darstellung eines Floats, die beim Lesen denselben Wert ergibt –
+  wie SWI dezimal für 1.0e-4 =< |f| < 1.0e15 (`1500.0`, `0.001`), sonst mit
+  Exponent (`1.0e15`, `1.0e-5`).
+  """
+  def format_float(f) do
+    s = Float.to_string(f)
+
+    case String.split(s, "e") do
+      [_plain] ->
+        s
+
+      [mant, exp] ->
+        e = String.to_integer(exp)
+        a = abs(f)
+
+        if a >= 1.0e-4 and a < 1.0e15,
+          do: plain_float(mant, e),
+          else: s
+    end
+  end
+
+  # "-1.25", 3 -> "-1250.0"; "1.5", -3 -> "0.0015"
+  defp plain_float(mant, e) do
+    {sign, mant} =
+      if String.starts_with?(mant, "-"), do: {"-", String.slice(mant, 1..-1//1)}, else: {"", mant}
+
+    [int, frac] = String.split(mant, ".")
+    digits = String.trim_trailing(int <> frac, "0")
+    digits = if digits == "", do: "0", else: digits
+    point = String.length(int) + e
+
+    body =
+      cond do
+        point <= 0 ->
+          "0." <> String.duplicate("0", -point) <> digits
+
+        point >= String.length(digits) ->
+          digits <> String.duplicate("0", point - String.length(digits)) <> ".0"
+
+        true ->
+          {i, f} = String.split_at(digits, point)
+          i <> "." <> f
+      end
+
+    sign <> body
+  end
 
   # endrekursiv entlang der Liste, Akkumulator in umgekehrter Reihenfolge
   defp fmt_list([h | t], acc) do

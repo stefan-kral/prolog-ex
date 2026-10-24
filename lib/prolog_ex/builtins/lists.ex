@@ -325,6 +325,18 @@ defmodule PrologEx.Builtins.Lists do
   defp skip_raw([_ | t], n), do: skip_raw(t, n + 1)
   defp skip_raw(t, n), do: {n, t}
 
+  @doc "Elemente des gebundenen Anfangs einer (auch offenen) Liste."
+  def items_prefix(t, subst) do
+    case PrologEx.walk(t, subst) do
+      [h | tl] -> [h | items_prefix(tl, subst)]
+      {:glist, l} -> raw_prefix(l)
+      _ -> []
+    end
+  end
+
+  defp raw_prefix([h | t]), do: [h | raw_prefix(t)]
+  defp raw_prefix(_), do: []
+
   @doc "Elemente einer echten Liste (Elemente nicht dereferenziert)."
   def items(t, subst) do
     case PrologEx.walk(t, subst) do
