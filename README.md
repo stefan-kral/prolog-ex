@@ -67,7 +67,9 @@ Floats), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`
 `current_predicate/1`, `assert/1` `asserta/1` `assertz/1` `retract/1`
 `retractall/1` `dynamic/1`, `number_chars/2`, `number_codes/2` (ISO; Leerraum und Kommentare davor erlaubt, `0x`/`0o`/`0b`/`0'c`, Zifferngruppen),
 `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_chars/2`, `atom_codes/2`,
-`char_code/2` (ISO, streng getypt, zählen Zeichen statt Bytes), `atom_number/2`, `false/0`, `repeat/0,1`, `numlist/2,3`,
+`char_code/2` (ISO, streng getypt, zählen Zeichen statt Bytes), `atom_number/2`,
+`op/3`, `current_op/3` (ISO; Operatoren sind global und gelten ab dem nächsten
+gelesenen Term), `false/0`, `repeat/0,1`, `numlist/2,3`,
 `write/1` `nl/0` `listing/0,1` `halt/0,1`.
 
 Datenbank: Prädikate aus `assert` sind dynamisch, geladene statisch (außer

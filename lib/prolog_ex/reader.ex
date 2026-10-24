@@ -75,11 +75,23 @@ defmodule PrologEx.Reader do
     pid
   end
 
-  @doc "Operator im Reader setzen (global, wie op/3)"
+  @doc "Operator im Reader setzen (für Bibliotheksexporte); Fehler: raise"
   def op(reader, priority, type, name) do
-    read_terms(reader, ":- op(#{priority}, #{type}, #{quote_atom(name)}).\n")
-    :ok
+    case op_call(reader, "#{priority}, #{type}, #{quote_atom(name)}") do
+      :ok -> :ok
+      {:error, e} -> raise "op(#{priority}, #{type}, #{name}): #{PrologEx.format(e)}"
+    end
   end
+
+  @doc """
+  op/3 in gprolog ausführen; `args` ist der Text `P, T, Ops` (kanonisch
+  geschrieben, Variablen erlaubt). Ergebnis `:ok` oder `{:error, formal}`
+  mit dem ISO-Fehlerterm (Formal aus error(Formal, _)).
+  """
+  def op_call(reader, args), do: GenServer.call(reader, {:op, args}, @timeout + 1000)
+
+  @doc "Aktuelle Operatortabelle: [{priorität, typ, name}]"
+  def current_ops(reader), do: GenServer.call(reader, :ops, @timeout + 1000)
 
   @doc "Setzt double_quotes im Reader (codes, chars, atom)"
   def set_double_quotes(reader, value) when value in ["codes", "chars", "atom"] do
@@ -161,6 +173,37 @@ defmodule PrologEx.Reader do
       {:ok, [:opened], buf} -> {:reply, :ok, %{st | buf: buf}}
       {:ok, [{:error, msg}], buf} -> {:reply, {:error, msg}, %{st | buf: buf}}
       {:timeout, _} -> {:reply, {:error, "Reader antwortet nicht"}, restart(st)}
+    end
+  end
+
+  def handle_call({:op, args}, _from, st) do
+    Port.command(st.port, "'$op'(#{args}).\n")
+
+    case collect_until(st.port, st.buf, [], &match?({:op, _}, &1)) do
+      {:ok, results, buf} ->
+        reply =
+          case List.last(results) do
+            {:op, :ok} -> :ok
+            {:op, {:error, e}} -> {:error, e}
+          end
+
+        {:reply, reply, %{st | buf: buf}}
+
+      {:timeout, _} ->
+        {:reply, {:error, {:atom, "reader_timeout"}}, restart(st)}
+    end
+  end
+
+  def handle_call(:ops, _from, st) do
+    Port.command(st.port, "'$ops'.\n")
+
+    case collect_until(st.port, st.buf, [], &match?({:ops, _}, &1)) do
+      {:ok, results, buf} ->
+        {:ops, ops} = List.last(results)
+        {:reply, ops, %{st | buf: buf}}
+
+      {:timeout, _} ->
+        {:reply, [], restart(st)}
     end
   end
 
@@ -273,6 +316,22 @@ defmodule PrologEx.Reader do
       {:ok, {:atom, a}} when a in ["opened", "pause", "file_end"] ->
         String.to_atom(a)
 
+      {:ok, {:atom, "op_ok"}} ->
+        {:op, :ok}
+
+      {:ok, {tag, "op_error", [e]}} when tag in [:struct, :gstruct] ->
+        case PrologEx.unmark(e) do
+          {:struct, "error", [formal, _]} -> {:op, {:error, formal}}
+          other -> {:op, {:error, other}}
+        end
+
+      {:ok, {tag, "ops", [l]}} when tag in [:struct, :gstruct] ->
+        ops =
+          for {:struct, "op", [p, {:atom, type}, name]} <- prolog_list(PrologEx.unmark(l)),
+              do: {p, type, op_name(name)}
+
+        {:ops, ops}
+
       {:ok, {tag, "term", [t, vs]}} when tag in [:struct, :gstruct] ->
         {t, names} = Canonical.rename_vars(t, vs)
         {:term, t, names}
@@ -284,6 +343,12 @@ defmodule PrologEx.Reader do
         {:error, "Antwort des Readers nicht lesbar: #{inspect(e)}: #{line}"}
     end
   end
+
+  defp prolog_list([h | t]), do: [h | prolog_list(t)]
+  defp prolog_list(_), do: []
+
+  defp op_name({:atom, n}), do: n
+  defp op_name([]), do: "[]"
 
   defp error_message(e) do
     case PrologEx.unmark(e) do

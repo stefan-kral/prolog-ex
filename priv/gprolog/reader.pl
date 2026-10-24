@@ -20,6 +20,12 @@
 % Während eine Datei pausiert, darf eine weitere geöffnet werden (use_module
 % in einer Direktive); gelesen wird immer aus der obersten.
 %
+% Operatoren (op/3 und current_op/3 als Prädikate):
+%   stdin:   '$op'(P, T, Ops).   op/3 ausführen
+%   stdout:  op_ok.  oder  op_error(Fehlerterm).
+%   stdin:   '$ops'.             die aktuelle Operatortabelle
+%   stdout:  ops([op(P, T, Name), ...]).
+%
 % Operator-Direktiven (:- op(...)) und :- set_prolog_flag(double_quotes, _)
 % werden hier ausgeführt, damit folgende Terme richtig gelesen werden. Sie
 % werden trotzdem auch weitergereicht.
@@ -45,6 +51,12 @@ loop :-
     ->  open_file(Path), loop
     ;   T == '$next'
     ->  next_chunk, loop
+    ;   T = '$op'(P, Ty, N)
+    ->  catch((op(P, Ty, N), R = op_ok), E, R = op_error(E)),
+        emit(R), loop
+    ;   T == '$ops'
+    ->  findall(op(P, Ty, N), current_op(P, Ty, N), L),
+        emit(ops(L)), loop
     ;   run_op(T),
         emit(term(T, Vs)),
         loop
