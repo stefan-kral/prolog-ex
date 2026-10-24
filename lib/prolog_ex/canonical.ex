@@ -226,7 +226,7 @@ defmodule PrologEx.Canonical do
   defp atom_name(s), do: {:error, {:unexpected, String.slice(s, 0, 20)}}
 
   defp quoted("''" <> rest, acc), do: quoted(rest, [?' | acc])
-  defp quoted("'" <> rest, acc), do: {:ok, acc |> Enum.reverse() |> List.to_string(), rest}
+  defp quoted("'" <> rest, acc), do: {:ok, acc |> Enum.reverse() |> to_text(), rest}
   defp quoted("\\" <> rest, acc), do: escape(rest, acc)
   defp quoted(<<c::utf8, rest::binary>>, acc), do: quoted(rest, [c | acc])
   defp quoted("", _), do: {:error, :unterminated_quote}
@@ -252,12 +252,12 @@ defmodule PrologEx.Canonical do
   defp escape("x" <> rest, acc) do
     {hex, r} = take_while(rest, &hex?/1)
     "\\" <> r = r
-    quoted(r, [String.to_integer(hex, 16) | acc])
+    quoted(r, [byte_or_char(String.to_integer(hex, 16)) | acc])
   end
 
   defp escape(<<d, _::binary>> = rest, acc) when d in ?0..?7 do
     case take_while(rest, &(&1 in ?0..?7)) do
-      {oct, "\\" <> r} -> quoted(r, [String.to_integer(oct, 8) | acc])
+      {oct, "\\" <> r} -> quoted(r, [byte_or_char(String.to_integer(oct, 8)) | acc])
       {_, _} -> quoted(binary_part(rest, 1, byte_size(rest) - 1), [0 | acc])
     end
   end
@@ -269,6 +269,24 @@ defmodule PrologEx.Canonical do
       {:ok, ch} -> quoted(rest, [ch | acc])
       :error -> {:error, {:bad_escape, <<c>>}}
     end
+  end
+
+  # gprolog arbeitet mit Bytes und schreibt Nicht-ASCII als \xHH\ je Byte
+  # (ä -> \xc3\\xa4\). Solche Bytes sammeln und am Ende als UTF-8 lesen.
+  defp byte_or_char(n) when n in 128..255, do: {:byte, n}
+  defp byte_or_char(n), do: n
+
+  defp to_text(items) do
+    bin =
+      for i <- items,
+          into: "",
+          do:
+            (case i do
+               {:byte, b} -> <<b>>
+               c -> <<c::utf8>>
+             end)
+
+    if String.valid?(bin), do: bin, else: :unicode.characters_to_binary(bin, :latin1)
   end
 
   defp alnum?(c), do: c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c == ?_ or c >= 128

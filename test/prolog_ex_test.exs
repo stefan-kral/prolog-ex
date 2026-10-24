@@ -124,7 +124,7 @@ defmodule PrologExTest do
 
     test "Liste und '.'-Struktur sind derselbe Term", %{db: db} do
       goal = s("=", [s(".", [@h, @t]), list([a("a"), a("b")])])
-      assert answers(db, goal) == ["H = a, T = [b]"]
+      assert answers(db, goal) == ["H = a, T = \"b\""]
     end
 
     test "Liste unifiziert nicht mit anderer Struktur oder Atom", %{db: db} do
@@ -153,7 +153,7 @@ defmodule PrologExTest do
       ])
 
     goal = s(",", [s("mk", [3, @x]), s("=", [@x, list([a("a"), a("b"), a("c")])])])
-    assert answers(db, goal) == ["X = [a, b, c]"]
+    assert answers(db, goal) == ["X = \"abc\""]
 
     goal = s(",", [s("fresh", [list([@x, @y])]), s("=", [list([@x, @y]), list([1, 2])])])
     assert answers(db, goal) == ["X = 1, Y = 2"]

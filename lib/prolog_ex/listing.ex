@@ -10,7 +10,7 @@ defmodule PrologEx.Listing do
           app(T, L, R).
   """
 
-  import PrologEx, only: [format: 1, unmark: 1]
+  import PrologEx, only: [unmark: 1]
 
   @doc """
   spec: `:all` (Prädikate des Moduls), ein Atom (alle Stelligkeiten),
@@ -138,12 +138,15 @@ defmodule PrologEx.Listing do
   @doc false
   def clause_text({head, body}) do
     case goals(unmark(body)) do
-      [] -> format(head) <> ".\n"
-      gs -> format(head) <> " :-\n" <> Enum.map_join(gs, ",\n", &("    " <> format(&1))) <> ".\n"
+      [] -> q(head) <> ".\n"
+      gs -> q(head) <> " :-\n" <> Enum.map_join(gs, ",\n", &("    " <> q(&1))) <> ".\n"
     end
   end
 
   defp goals({:atom, "true"}), do: []
   defp goals({:struct, ",", [a, b]}), do: goals(a) ++ goals(b)
   defp goals(g), do: [g]
+
+  # wie portray_clause: gequotet
+  defp q(t), do: PrologEx.Writer.format(t, PrologEx.Writer.answer_opts())
 end

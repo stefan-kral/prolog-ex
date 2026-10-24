@@ -97,7 +97,7 @@ defmodule PrologEx.OrderTest do
     end
 
     test "msort behält Duplikate" do
-      assert all(s("msort", [list([a("b"), a("a"), a("b")]), @l])) == ["L = [a, b, b]"]
+      assert all(s("msort", [list([a("b"), a("a"), a("b")]), @l])) == ["L = \"abb\""]
     end
 
     test "keysort ist stabil" do

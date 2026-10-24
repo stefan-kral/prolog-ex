@@ -85,6 +85,12 @@ Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
 `existence_error`, `permission_error`, `domain_error`, `evaluation_error`, …)
 und fangbar. Nicht Gefangenes meldet der Toplevel als `Fehler: …`.
 
+Antworten im Toplevel, `writeq/1`, `print/1` und `listing/1` quoten Atome
+wie `writeq` (`'1'`, `'hello world'`, `'.'`) und zeigen Zeichenlisten bei
+`double_quotes=chars` wie Scryer als `"..."` – so liest sich jede Antwort
+wieder als derselbe Term (`number_chars(123, X)` → `X = "123"`). `write/1`
+quotet nicht.
+
 Noch nicht: Ausgabe in
 Operator-Schreibweise (`write` gibt derzeit kanonisch aus).
 

@@ -99,7 +99,7 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "alle(positiv, [1, -2]).") == []
     # schon qualifiziert: bleibt
     assert ask(c, "alle(geo:quadrat(2), [4]).") == ["true"]
-    assert ask(c, "sammle(X, member(X, [a, b]), L).") == ["L = [a, b]"]
+    assert ask(c, "sammle(X, member(X, [a, b]), L).") == ["L = \"ab\""]
     # hilfe/1 im Ziel ist das aus user, nicht das private aus meta
     assert ask(c, "sammle(X, hilfe(X), L).") == ["L = [user]"]
     # Bibliotheks-Metaprädikate genauso
@@ -108,7 +108,7 @@ defmodule PrologEx.ModuleTest do
   end
 
   test "use_module(library(...)), Import-Liste, Konflikte", c do
-    assert ask(c, "use_module(library(lists)), append(X, [c], [a, c]).") == ["X = [a]"]
+    assert ask(c, "use_module(library(lists)), append(X, [c], [a, c]).") == ["X = \"a\""]
     assert ask(c, "use_module(library(apply), [maplist/2]), maplist(integer, [1]).") == ["true"]
 
     assert err(c, "use_module(library(gibtsnicht)).") =~
@@ -140,7 +140,7 @@ defmodule PrologEx.ModuleTest do
 
     PrologEx.put_db(db)
     assert ask(c, "append(a, b, X).") == ["X = eigen"]
-    assert ask(c, "lists:append([a], [b], X).") == ["X = [a, b]"]
+    assert ask(c, "lists:append([a], [b], X).") == ["X = \"ab\""]
     assert ask(c, "last([1], X).") == ["X = auch"]
     # system-Prädikate sind geschützt, in jedem Modul
     {_db, [msg]} = Consult.load(%{}, Reader.read_terms(c.reader, "m:atom(x).\n"))

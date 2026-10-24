@@ -84,7 +84,7 @@ defmodule PrologEx.AttsTest do
 
     test "Variable an Variable: Hook bekommt die andere Variable", c do
       assert ask(c, "domain(X, [a, b, c]), domain(Y, [b, c, d]), X = Y.") ==
-               ["X = Y, domain(Y, [b, c])"]
+               ["X = Y, domain(Y, \"bc\")"]
 
       assert ask(c, "domain(X, [a, b]), domain(Y, [b, c]), X = Y.") == ["X = b, Y = b"]
       assert ask(c, "domain(X, [a, b]), domain(Y, [c]), X = Y.") == []
@@ -120,21 +120,21 @@ defmodule PrologEx.AttsTest do
 
   describe "Restziele: attribute_goal/2, frozen/2, copy_term/3, term_attvars/2" do
     test "Toplevel zeigt attribute_goal", c do
-      assert ask(c, "domain(X, [a, b, c]), domain(X, [a, c]).") == ["domain(X, [a, c])"]
+      assert ask(c, "domain(X, [a, b, c]), domain(X, [a, c]).") == ["domain(X, \"ac\")"]
       assert ask(c, "myfreeze(X, foo).") == ["myfreeze(X, foo)"]
-      assert ask(c, "dif(X, a), domain(X, [a, b, c]).") == ["dif(X, a), domain(X, [a, b, c])"]
+      assert ask(c, "dif(X, a), domain(X, [a, b, c]).") == ["dif(X, a), domain(X, \"abc\")"]
     end
 
     test "frozen/2 und copy_term/3", c do
       assert ask(c, "domain(X, [a, b]), frozen(X, G).") |> hd() =~
-               "G = :(domain, domain(X, [a, b]))"
+               "G = :(domain, domain(X, \"ab\"))"
 
       assert ask(c, "frozen(f(a), G).") == ["G = true"]
 
       [ans] =
         ask(c, "domain(X, [a, b]), copy_term(f(X), C, B), C = f(Y), B = M:domain(Z, D), Y == Z.")
 
-      assert ans =~ "D = [a, b]" and ans =~ "M = domain"
+      assert ans =~ "D = \"ab\"" and ans =~ "M = domain"
       assert ask(c, "copy_term(f(X), C, B).") |> hd() =~ "B = true"
       # die Kopie trägt keine Attribute
       assert ask(c, "domain(X, [a, b]), copy_term(X, Y, _), term_attvars(Y, L).") |> hd() =~

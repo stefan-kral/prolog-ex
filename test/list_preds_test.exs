@@ -143,13 +143,13 @@ defmodule PrologEx.ListPredsTest do
   describe "select/3" do
     test "Modi" do
       assert all(s("select", [@x, list([a("a"), a("b"), a("c")]), @r])) ==
-               ["R = [b, c], X = a", "R = [a, c], X = b", "R = [a, b], X = c"]
+               ["R = \"bc\", X = a", "R = \"ac\", X = b", "R = \"ab\", X = c"]
 
       assert more(s("select", [@x, list([a("a"), a("b")]), @r])) == [true, false]
       assert more(s("select", [a("b"), list([a("a"), a("b")]), @r])) == [false]
 
       assert all(s("select", [a("x"), @l, list([a("a"), a("b")])])) ==
-               ["L = [x, a, b]", "L = [a, x, b]", "L = [a, b, x]"]
+               ["L = \"xab\"", "L = \"axb\"", "L = \"abx\""]
     end
 
     test "gleich wie klassisch" do
@@ -194,12 +194,12 @@ defmodule PrologEx.ListPredsTest do
       assert all(s("nth1", [@i, abc, @e])) == ["E = a, I = 1", "E = b, I = 2", "E = c, I = 3"]
       assert more(s("nth0", [@i, abc, @e])) == [true, true, false]
       assert more(s("nth0", [1, abc, @e])) == [false]
-      assert all(s("nth0", [1, abc, @e, @r])) == ["E = b, R = [a, c]"]
+      assert all(s("nth0", [1, abc, @e, @r])) == ["E = b, R = \"ac\""]
       assert more(s("nth1", [@i, abc, @e, @r])) == [true, true, false]
-      assert all(s("nth0", [1, @l, a("x"), list([a("a"), a("b")])])) == ["L = [a, x, b]"]
+      assert all(s("nth0", [1, @l, a("x"), list([a("a"), a("b")])])) == ["L = \"axb\""]
 
       assert all(s("nth0", [@i, @l, a("x"), list([a("a"), a("b")])])) ==
-               ["I = 0, L = [x, a, b]", "I = 1, L = [a, x, b]", "I = 2, L = [a, b, x]"]
+               ["I = 0, L = \"xab\"", "I = 1, L = \"axb\"", "I = 2, L = \"abx\""]
 
       assert all(s("nth0", [3, list([a("a")], @t), a("x")])) |> hd() =~
                ~r/^T = \[_B\d+, _B\d+, x \| _B\d+\]$/

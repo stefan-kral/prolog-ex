@@ -62,7 +62,7 @@ defmodule PrologEx.LibraryTest do
       assert all(s("functor", [s("f", [a("a"), @y]), @n, @x])) == ["N = f, X = 2"]
       assert all(s("functor", [a("foo"), @n, @x])) == ["N = foo, X = 0"]
       assert all(s("functor", [42, @n, @x])) == ["N = 42, X = 0"]
-      assert all(s("functor", [list([1]), @n, @x])) == ["N = ., X = 2"]
+      assert all(s("functor", [list([1]), @n, @x])) == ["N = '.', X = 2"]
       assert all(s("functor", [list([]), @n, @x])) == ["N = [], X = 0"]
     end
 
@@ -94,7 +94,7 @@ defmodule PrologEx.LibraryTest do
       assert all(s("=..", [s("f", [a("a"), list([1])]), @l])) == ["L = [f, a, [1]]"]
       assert all(s("=..", [a("foo"), @l])) == ["L = [foo]"]
       assert all(s("=..", [3, @l])) == ["L = [3]"]
-      assert all(s("=..", [list([a("a")], a("b")), @l])) == ["L = [., a, b]"]
+      assert all(s("=..", [list([a("a")], a("b")), @l])) == ["L = \".ab\""]
     end
 
     test "baut" do
@@ -303,7 +303,7 @@ defmodule PrologEx.LibraryTest do
 
       assert out ==
                "% repeat/0: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
-                 "repeat(N) :-\n    $must_be_integer(N),\n    >(N, 0),\n    $repeat(N).\n\n" <>
+                 "repeat(N) :-\n    '$must_be_integer'(N),\n    >(N, 0),\n    '$repeat'(N).\n\n" <>
                  "% $must_be_integer/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
                  "% $repeat/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n"
     end
@@ -311,7 +311,7 @@ defmodule PrologEx.LibraryTest do
     test "listing(append/3) zeigt das klassische Hilfsprädikat" do
       out = capture_io(fn -> all(s("listing", [s("/", [a("append"), 3])])) end)
       assert out =~ "% lists:append/3: eingebaut, in Elixir realisiert"
-      assert out =~ "lists:$append([H | T], L, [H | R]) :-"
+      assert out =~ "lists:'$append'([H | T], L, [H | R]) :-"
     end
   end
 
@@ -436,7 +436,7 @@ defmodule PrologEx.LibraryTest do
       # Hilfsprädikate explizit verlangt: werden gezeigt; listing/0 zeigt
       # nur Benutzerprädikate
       out = capture_io(fn -> all(s("listing", [a("$append")])) end)
-      assert out =~ "lists:$append([], L, L)."
+      assert out =~ "lists:'$append'([], L, L)."
       out = capture_io(fn -> all(a("listing")) end)
       refute out =~ "numlist"
     end

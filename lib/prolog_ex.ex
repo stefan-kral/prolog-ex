@@ -2065,23 +2065,10 @@ defmodule PrologEx do
 
   # Baut iodata und wandelt erst am Ende in einen String: linear in der
   # Termgröße (verschachteltes <> wäre bei langen Listen quadratisch)
-  def format(t), do: t |> fmt() |> IO.iodata_to_binary()
+  def format(t), do: PrologEx.Writer.format(t)
 
-  defp fmt({:var, n}) when is_integer(n), do: ["_G", Integer.to_string(n)]
-  defp fmt({:var, n}) when is_binary(n), do: n
-  defp fmt({:var, {:attv, id}}), do: ["_V", Integer.to_string(id)]
-  defp fmt({:var, n}), do: inspect(n)
-  defp fmt({:atom, n}), do: n
-  defp fmt(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt(f) when is_float(f), do: format_float(f)
-  defp fmt([]), do: "[]"
-  defp fmt([_ | _] = l), do: ["[", fmt_list(l, []), "]"]
-  defp fmt({:glist, l}), do: ["[", fmt_list(l, []), "]"]
-
-  defp fmt({tag, f, args}) when tag in [:struct, :gstruct],
-    do: [f, "(", Enum.map_intersperse(args, ", ", &fmt/1), ")"]
-
-  defp fmt(other), do: inspect(other)
+  @doc "Wie format/1, aber wie writeq (siehe PrologEx.Writer)"
+  def format(t, opts), do: PrologEx.Writer.format(t, opts)
 
   @doc """
   Kürzeste Darstellung eines Floats, die beim Lesen denselben Wert ergibt –
@@ -2131,20 +2118,12 @@ defmodule PrologEx do
     sign <> body
   end
 
-  # endrekursiv entlang der Liste, Akkumulator in umgekehrter Reihenfolge
-  defp fmt_list([h | t], acc) do
-    case t do
-      [] -> Enum.reverse(acc, [fmt(h)])
-      [_ | _] -> fmt_list(t, [", ", fmt(h) | acc])
-      {:glist, l} -> fmt_list(l, [", ", fmt(h) | acc])
-      _ -> Enum.reverse(acc, [fmt(h), " | ", fmt(t)])
-    end
-  end
-
   # Wie SWI: ungebundene Anfragevariablen (X = X) werden nicht gezeigt
   # `order`: Namen in Anfragereihenfolge (für Variablenketten wie SWI);
   # ohne Angabe alphabetisch. Die Ausgabe ist alphabetisch sortiert.
   def format_answer(ans, order \\ nil) do
+    # wie writeq; Zeichenlisten als "..." bei double_quotes=chars (wie Scryer)
+    opts = PrologEx.Writer.answer_opts()
     {residual, ans} = Map.pop(ans, "$residual", [])
     order = order || Map.keys(ans) |> Enum.sort()
 
@@ -2158,9 +2137,9 @@ defmodule PrologEx do
       named
       |> Enum.sort()
       |> Enum.reject(fn {k, t} -> t == {:var, k} end)
-      |> Enum.map(fn {k, t} -> "#{k} = #{format(t)}" end)
+      |> Enum.map(fn {k, t} -> "#{k} = #{format(t, opts)}" end)
 
-    goals = Enum.map(residual, &(&1 |> rename_free(renames) |> strip_user() |> format()))
+    goals = Enum.map(residual, &(&1 |> rename_free(renames) |> strip_user() |> format(opts)))
 
     case bindings ++ goals do
       [] -> "true"

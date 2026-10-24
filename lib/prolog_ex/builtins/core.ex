@@ -138,12 +138,12 @@ defmodule PrologEx.Builtins.Core do
   end
 
   defbuiltin "print", [x] do
-    IO.write(format(resolve(x)))
+    IO.write(PrologEx.Writer.format(resolve(x), PrologEx.Writer.answer_opts()))
     :ok
   end
 
   defbuiltin "writeq", [x] do
-    IO.write(format(resolve(x)))
+    IO.write(PrologEx.Writer.format(resolve(x), PrologEx.Writer.answer_opts()))
     :ok
   end
 

@@ -33,10 +33,18 @@ defmodule PrologEx.Error do
   # Bis es einen Writer mit Operatoren gibt: Prädikatsindikatoren als N/A
   defp show(t) do
     case PrologEx.unmark(t) do
-      {:struct, "/", [{:atom, n}, ar]} when is_integer(ar) -> "#{n}/#{ar}"
-      {:struct, ":", [{:atom, m}, x]} -> "#{m}:" <> show(x)
-      {:struct, f, args} -> f <> "(" <> Enum.map_join(args, ", ", &show/1) <> ")"
-      other -> PrologEx.format(other)
+      {:struct, "/", [{:atom, n}, ar]} when is_integer(ar) ->
+        "#{n}/#{ar}"
+
+      {:struct, ":", [{:atom, m}, x]} ->
+        "#{m}:" <> show(x)
+
+      {:struct, f, args} ->
+        PrologEx.format({:atom, f}, quoted: true) <>
+          "(" <> Enum.map_join(args, ", ", &show/1) <> ")"
+
+      other ->
+        PrologEx.format(other, quoted: true)
     end
   end
 
