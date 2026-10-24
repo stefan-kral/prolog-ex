@@ -14,7 +14,7 @@ defmodule PrologEx.Order do
   Ground-Markierungen spielen keine Rolle.
   """
 
-  import PrologEx, only: [walk: 2, uncons: 1]
+  import PrologEx, only: [walk: 2, uncons: 1, is_marked: 1]
 
   @doc "`:lt`, `:eq` oder `:gt`"
   def compare(a, b, subst) do
@@ -28,6 +28,68 @@ defmodule PrologEx.Order do
   end
 
   def equal?(a, b, subst), do: compare(a, b, subst) == :eq
+
+  @doc """
+  Wie `compare/3`, aber nur, wenn das Ergebnis unter jeder weiteren Bindung
+  dasselbe bliebe (library(si)): `:lt`, `:eq`, `:gt` oder `:undecided`.
+
+  Verglichen wird wie in der Standardordnung von links; trifft der
+  Vergleich auf zwei nicht identische Terme, von denen einer eine Variable
+  ist, hängt das Ergebnis von deren späterer Bindung ab. Was vorher schon
+  entschieden ist (Stelligkeit, Name, frühere Argumente), bleibt
+  entschieden: `f(a, X)` gegen `f(b, Y)` ist `:lt`, `f(X, a)` gegen
+  `f(Y, b)` unentschieden. Identische Variablen sind gleich.
+  """
+  def compare_si(a, b, subst) do
+    a = walk(a, subst)
+    b = walk(b, subst)
+
+    case {a, b} do
+      {{:var, _}, {:var, _}} -> if a == b, do: :eq, else: :undecided
+      {{:var, _}, _} -> :undecided
+      {_, {:var, _}} -> :undecided
+      _ -> compare_si_nonvar(a, b, subst)
+    end
+  end
+
+  defp compare_si_nonvar(a, b, subst) do
+    case {class(a), class(b)} do
+      # ground markierte Terme: gewöhnlicher Vergleich
+      {3, 3} ->
+        if is_marked(a) and is_marked(b) do
+          same_class(3, a, b, subst)
+        else
+          {fx, ax} = parts(a)
+          {fy, ay} = parts(b)
+
+          case cmp(length(ax), length(ay)) do
+            :eq ->
+              case cmp(fx, fy) do
+                :eq -> compare_args_si(ax, ay, subst)
+                other -> other
+              end
+
+            other ->
+              other
+          end
+        end
+
+      {c, c} ->
+        same_class(c, a, b, subst)
+
+      {ca, cb} ->
+        if ca < cb, do: :lt, else: :gt
+    end
+  end
+
+  defp compare_args_si([x], [y], subst), do: compare_si(x, y, subst)
+
+  defp compare_args_si([x | xs], [y | ys], subst) do
+    case compare_si(x, y, subst) do
+      :eq -> compare_args_si(xs, ys, subst)
+      other -> other
+    end
+  end
 
   # ---------------------------------------------------------------------
   # Sortieren

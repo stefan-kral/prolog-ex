@@ -184,6 +184,23 @@ eigenes Hilfsprädikat bleibt noch einmal gut 2-mal schneller.
 Bibliotheken in Prolog-Quelltext: `priv/library/NAME.pl` mit
 `:- module(NAME, ...)` lädt `use_module(library(NAME))` wie eine Datei.
 
+## Sichere Tests: `library(si)`
+
+„sufficiently instantiated“ (Neumerkel, Scryer), in Elixir: Statt bei zu
+wenig gebundenen Argumenten zu scheitern, werfen die Prädikate
+`instantiation_error`; sie gelingen nur, wenn die Aussage für jede weitere
+Bindung gilt, und scheitern nur, wenn sie für keine gilt.
+
+  * `atom_si/1`, `integer_si/1`, `atomic_si/1`, `list_si/1`, `character_si/1`,
+    `chars_si/1` – `atom_si(X)` wirft, `list_si([a|_])` wirft,
+    `list_si([a|b])` scheitert.
+  * `dif_si/2` – gelingt, wenn nie unifizierbar (`dif_si(f(_,a), f(_,b))`).
+  * `compare_si/3` – Standardordnung, nur wenn entschieden:
+    `compare_si(O, f(a,X), f(b,Y))` gibt `<`, `compare_si(O, f(X,a), f(Y,b))` wirft.
+  * `sort_si/2`, `msort_si/2`, `keysort_si/2` – nur, wenn das Ergebnis für
+    jede weitere Bindung dasselbe wäre: `sort_si([X,X], L)` gibt `[X]`,
+    `sort_si([X,a], L)` wirft.
+
 ## Messen: `statistics/2`, `statistics/0`
 
 `statistics(K, V)`:
@@ -268,7 +285,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
     `library(apply)`, `library(random)`, `library(atts)`,
     `library(blackboard)`, `library(mutables)`, `library(lambda)`,
-    `library(lambda_pl)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
+    `library(lambda_pl)`, `library(si)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
     SICStus, dazu `number_of_clauses/1`); `clause/2`, `retract/1`,

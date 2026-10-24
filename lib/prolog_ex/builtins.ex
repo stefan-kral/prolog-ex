@@ -44,7 +44,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Mutables,
     PrologEx.Builtins.Statistics,
     PrologEx.Builtins.Lambda,
-    PrologEx.Builtins.Operators
+    PrologEx.Builtins.Operators,
+    PrologEx.Builtins.Si
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
