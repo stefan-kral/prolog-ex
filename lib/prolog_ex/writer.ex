@@ -79,12 +79,31 @@ defmodule PrologEx.Writer do
   # entscheiden, ob zwischen zwei Stücken ein Leerzeichen nötig ist.
   # w(Term, höchste Priorität, Rolle, Tiefe, Optionen); Rolle :operand,
   # wenn der Term Operand eines Operators ist, sonst :arg.
+  #
+  # Ohne Rekursion: descend/6 steigt in einen Term ab und legt für jede
+  # Struktur einen Rahmen auf einen Stapel (was noch fehlt: weitere
+  # Argumente, der rechte Operand, ")" ...); ret/3 bekommt das fertige Stück
+  # eines Kindes, macht mit dem nächsten Kind weiter oder schließt den
+  # Rahmen und gibt das Stück eine Ebene höher. Beide rufen sich nur
+  # endrekursiv. Der Stapel liegt auf dem Heap: f(1,f(2,...)), a:-b,c,...,
+  # ((1+2)+3)+..., - - - a, [[[...]]] oder g(1, g(2, ...), x) brauchen keinen
+  # Stack, der mit der Tiefe wächst.
   # ---------------------------------------------------------------------
 
-  defp w(_t, _max, _role, d, %{max_depth: m}) when m > 0 and d > m, do: piece("...")
+  defp w(t, max, role, d, o), do: descend(t, max, role, d, o, [])
+
+  defp descend(_t, _max, _role, d, %{max_depth: m} = o, st) when m > 0 and d > m,
+    do: ret(st, piece("..."), o)
+
+  defp descend({tag, f, args}, max, _role, d, o, st) when tag in [:struct, :gstruct],
+    do: compound(f, args, max, d, o, st)
+
+  defp descend([_ | _] = l, _max, _role, d, o, st), do: list(l, d, o, st)
+  defp descend({:glist, l}, _max, _role, d, o, st), do: list(l, d, o, st)
+  defp descend(t, _max, role, _d, o, st), do: ret(st, leaf(t, role, o), o)
 
   # Variablen: Ränder Buchstabe/_ (für glue? zählt nur die Klasse)
-  defp w({:var, n} = v, _max, _role, _d, o) do
+  defp leaf({:var, n} = v, _role, o) do
     case o.var_names do
       %{^v => name} -> piece(name)
       _ -> {var_name(n), ?_, ?_}
@@ -92,17 +111,17 @@ defmodule PrologEx.Writer do
   end
 
   # Zahlen: vorn Ziffer oder -, hinten Ziffer
-  defp w(n, _max, _role, _d, _o) when is_integer(n),
+  defp leaf(n, _role, _o) when is_integer(n),
     do: {Integer.to_string(n), if(n < 0, do: ?-, else: ?0), ?0}
 
-  defp w(f, _max, _role, _d, _o) when is_float(f) do
+  defp leaf(f, _role, _o) when is_float(f) do
     text = format_float(f)
     {text, first(text), ?0}
   end
 
-  defp w([], max, role, d, o), do: w({:atom, "[]"}, max, role, d, o)
+  defp leaf([], role, o), do: leaf({:atom, "[]"}, role, o)
 
-  defp w({:atom, name}, _max, role, _d, o) do
+  defp leaf({:atom, name}, role, o) do
     text = atom(name, o)
 
     if role == :operand and not o.ignore_ops and Map.has_key?(o.ops, name),
@@ -110,13 +129,7 @@ defmodule PrologEx.Writer do
       else: piece(text)
   end
 
-  defp w([_ | _] = l, _max, _role, d, o), do: list(l, d, o)
-  defp w({:glist, l}, _max, _role, d, o), do: list(l, d, o)
-
-  defp w({tag, f, args}, max, role, d, o) when tag in [:struct, :gstruct],
-    do: compound(f, args, max, role, d, o)
-
-  defp w(other, _max, _role, _d, _o), do: piece(inspect(other))
+  defp leaf(other, _role, _o), do: piece(inspect(other))
 
   defp var_name(n) when is_integer(n), do: "_G#{n}"
   defp var_name(n) when is_binary(n), do: n
@@ -125,34 +138,74 @@ defmodule PrologEx.Writer do
 
   # --- Strukturen ---------------------------------------------------------
 
-  defp compound("{}", [x], _max, _role, d, o) when not o.ignore_ops do
-    {io, _, _} = w(x, 1200, :arg, d + 1, o)
-    {["{", io, "}"], ?{, ?}}
-  end
+  defp compound("{}", [x], _max, d, o, st) when not o.ignore_ops,
+    do: descend(x, 1200, :arg, d + 1, o, [:curly | st])
 
-  defp compound("$VAR", [n], _max, _role, _d, %{numbervars: true})
+  defp compound("$VAR", [n], _max, _d, %{numbervars: true} = o, st)
        when is_integer(n) and n >= 0 do
     letter = <<?A + rem(n, 26)>>
-    piece(if n >= 26, do: letter <> Integer.to_string(div(n, 26)), else: letter)
+    ret(st, piece(if n >= 26, do: letter <> Integer.to_string(div(n, 26)), else: letter), o)
   end
 
   # Operator-Eintrag einmal holen (nicht in den Guards dreier Klauseln)
-  defp compound(f, args, max, _role, d, o) do
+  defp compound(f, args, max, d, o, st) do
     entry = if o.ignore_ops, do: nil, else: Map.get(o.ops, f)
 
     case {args, entry} do
-      {[l, r], %{infix: inf}} -> infix(f, inf, l, r, max, d, o)
-      {[x], %{prefix: pre}} -> prefix(f, pre, x, max, d, o)
-      {[x], %{postfix: post}} -> postfix(f, post, x, max, d, o)
-      _ -> canonical(f, args, d, o)
+      {[l, r], %{infix: {p, type}}} ->
+        {lp, rp} = infix_args(p, type)
+        descend(l, lp, :operand, d + 1, o, [{:infix_l, f, p, max, r, rp, d} | st])
+
+      {[x], %{prefix: {p, type}}} ->
+        ap = if type == "fy", do: p, else: p - 1
+        descend(x, ap, :operand, d + 1, o, [{:prefix, f, p, max} | st])
+
+      {[x], %{postfix: {p, type}}} ->
+        ap = if type == "yf", do: p, else: p - 1
+        descend(x, ap, :operand, d + 1, o, [{:postfix, f, p, max} | st])
+
+      {[], _} ->
+        name = atom(f, o)
+        ret(st, {[name, "()"], first(name), ?)}, o)
+
+      {[a | rest], _} ->
+        descend(a, 999, :arg, d + 1, o, [{:args, f, rest, [], d} | st])
     end
   end
 
-  defp infix(f, {p, type}, l, r, max, d, o) do
-    {lp, rp} = infix_args(p, type)
-    {lio, lf, ll} = w(l, lp, :operand, d + 1, o)
-    {rio, rf, rl} = w(r, rp, :operand, d + 1, o)
+  # Stück eines Kindes zurück an den obersten Rahmen
+  defp ret([], piece, _o), do: piece
 
+  defp ret([{:args, f, [], acc, _d} | st], {io, _, _}, o) do
+    name = atom(f, o)
+    ret(st, {[name, "(", :lists.reverse(acc, [io]), ")"], first(name), ?)}, o)
+  end
+
+  defp ret([{:args, f, [a | rest], acc, d} | st], {io, _, _}, o),
+    do: descend(a, 999, :arg, d + 1, o, [{:args, f, rest, [o.comma, io | acc], d} | st])
+
+  defp ret([{:infix_l, f, p, max, r, rp, d} | st], left, o),
+    do: descend(r, rp, :operand, d + 1, o, [{:infix_r, f, p, max, left} | st])
+
+  defp ret([{:infix_r, f, p, max, left} | st], right, o),
+    do: ret(st, infix(f, p, max, left, right, o), o)
+
+  defp ret([{:prefix, f, p, max} | st], arg, o), do: ret(st, prefix(f, p, max, arg, o), o)
+
+  defp ret([{:postfix, f, p, max} | st], {aio, af, al}, o) do
+    op = atom(f, o)
+    sep = if alpha?(op) or glue?(al, first(op)), do: " ", else: ""
+    ret(st, wrap({[aio, sep, op], af || first(op), last(op)}, p, max), o)
+  end
+
+  defp ret([:curly | st], {io, _, _}, o), do: ret(st, {["{", io, "}"], ?{, ?}}, o)
+
+  defp ret([{:list, t, n, acc, d} | st], {io, _, _}, o), do: list_next(t, n, [io | acc], d, o, st)
+
+  defp ret([{:tail, acc} | st], {io, _, _}, o),
+    do: ret(st, {["[", :lists.reverse(acc, ["|", io]), "]"], ?[, ?]}, o)
+
+  defp infix(f, p, max, {lio, lf, ll}, {rio, rf, rl}, o) do
     op =
       case f do
         "," -> o.comma
@@ -174,10 +227,7 @@ defmodule PrologEx.Writer do
     wrap(t, p, max)
   end
 
-  defp prefix(f, {p, type}, x, max, d, o) do
-    ap = if type == "fy", do: p, else: p - 1
-    arg = w(x, ap, :operand, d + 1, o)
-
+  defp prefix(f, p, max, arg, o) do
     # - (1), - (1^2): sonst läse man eine negative Zahl (+1 ist keine
     # Zahl, sondern +(1) – wie ISO und gprolog)
     {aio, af, al} =
@@ -193,20 +243,6 @@ defmodule PrologEx.Writer do
     wrap({[op, sep, aio], first(op), al || last(op)}, p, max)
   end
 
-  defp postfix(f, {p, type}, x, max, d, o) do
-    ap = if type == "yf", do: p, else: p - 1
-    {aio, af, al} = w(x, ap, :operand, d + 1, o)
-    op = atom(f, o)
-    sep = if alpha?(op) or glue?(al, first(op)), do: " ", else: ""
-    wrap({[aio, sep, op], af || first(op), last(op)}, p, max)
-  end
-
-  defp canonical(f, args, d, o) do
-    items = Enum.map(args, fn a -> elem(w(a, 999, :arg, d + 1, o), 0) end)
-    name = atom(f, o)
-    {[name, "(", Enum.intersperse(items, o.comma), ")"], first(name), ?)}
-  end
-
   defp infix_args(p, "xfx"), do: {p - 1, p - 1}
   defp infix_args(p, "xfy"), do: {p - 1, p}
   defp infix_args(p, "yfx"), do: {p, p - 1}
@@ -216,36 +252,33 @@ defmodule PrologEx.Writer do
 
   # --- Listen -------------------------------------------------------------
 
-  defp list(l, d, %{strings: true} = o) do
+  defp list(l, d, %{strings: true} = o, st) do
     case chars(l, []) do
-      {:ok, cs} -> {[?", Enum.map(cs, &escape(&1, ?")), ?"], ?", ?"}
-      :no -> plain_list(l, d, o)
+      {:ok, cs} -> ret(st, {[?", Enum.map(cs, &escape(&1, ?")), ?"], ?", ?"}, o)
+      :no -> list_first(l, d, o, st)
     end
   end
 
-  defp list(l, d, o), do: plain_list(l, d, o)
+  defp list(l, d, o, st), do: list_first(l, d, o, st)
 
-  defp plain_list(l, d, o) do
-    {["[", items(l, [], 1, d, o), "]"], ?[, ?]}
-  end
+  defp list_first([h | t], d, o, st),
+    do: descend(h, 999, :arg, d + 1, o, [{:list, t, 1, [], d} | st])
 
-  # endrekursiv entlang der Liste, Akkumulator in umgekehrter Reihenfolge
-  defp items([h | t], acc, n, d, o) do
-    {io, _, _} = w(h, 999, :arg, d + 1, o)
+  # nach dem n-ten Element (acc: geschriebene Elemente und Kommas, umgekehrt);
+  # bei max_depth nach n Elementen "|..."
+  defp list_next(t, n, acc, _d, %{max_depth: m} = o, st) when m > 0 and n >= m and t != [],
+    do: ret(st, {["[", :lists.reverse(acc, ["|..."]), "]"], ?[, ?]}, o)
 
-    cond do
-      o.max_depth > 0 and n >= o.max_depth and t != [] ->
-        Enum.reverse(acc, [io, "|..."])
+  defp list_next([], _n, acc, _d, o, st),
+    do: ret(st, {["[", :lists.reverse(acc), "]"], ?[, ?]}, o)
 
-      true ->
-        case t do
-          [] -> Enum.reverse(acc, [io])
-          [_ | _] -> items(t, [o.comma, io | acc], n + 1, d, o)
-          {:glist, l} -> items(l, [o.comma, io | acc], n + 1, d, o)
-          _ -> Enum.reverse(acc, [io, "|", elem(w(t, 999, :arg, d + 1, o), 0)])
-        end
-    end
-  end
+  defp list_next([h | t], n, acc, d, o, st),
+    do: descend(h, 999, :arg, d + 1, o, [{:list, t, n + 1, [o.comma | acc], d} | st])
+
+  defp list_next({:glist, l}, n, acc, d, o, st), do: list_next(l, n, acc, d, o, st)
+
+  defp list_next(t, _n, acc, d, o, st),
+    do: descend(t, 999, :arg, d + 1, o, [{:tail, acc} | st])
 
   # echte Liste aus Ein-Zeichen-Atomen?
   defp chars([{:atom, c} | t], acc) do

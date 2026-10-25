@@ -13,6 +13,8 @@ defmodule PrologEx.MixProject do
         # alles neu, wie make clean && make all
         rebuild: ["clean", "compile --force"]
       ],
+      # Hilfsdateien der Tests (z. B. der frühere Writer als Referenz)
+      test_ignore_filters: [~r"^test/fixtures/"],
       deps: []
     ]
   end

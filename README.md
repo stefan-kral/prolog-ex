@@ -216,6 +216,12 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
   * Die Operatortabelle für die Ausgabe spiegelt die des Readers: `op/3`,
     Operatoren aus Bibliotheken und aus `module/2`-Exportlisten.
   * `listing/1` wie `portray_clause`, mit eingerücktem Wenn-dann-sonst.
+  * Auch sehr tiefe Terme ohne wachsenden Stack: Der Writer steigt in einer
+    Schleife ab und legt für jede Struktur einen Rahmen auf einen Stapel im
+    Heap (was noch fehlt: weitere Argumente, der rechte Operand, `)` …).
+    `f(1,f(2,…))`, `a,(b,(…))`, `((1+2)+3)+…`, `- - - a`, `[[[…]]]` und
+    Verschachtelung in mittleren Argumenten kosten so nur Heap; bei einer
+    Million Ebenen etwa 1–2 s (vorher 2–4 s, rekursiv).
 
 Abweichung von gprolog: Nach einem alphanumerischen Präfix-Operator steht
 immer ein Leerzeichen (`dynamic -a`, gprolog: `dynamic-a`), damit auch andere
