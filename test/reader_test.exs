@@ -60,4 +60,14 @@ defmodule PrologEx.ReaderTest do
     {:ok, _} = PrologEx.Consult.load_file(file)
     assert PrologEx.current_db() |> Map.has_key?({"user", "q", 3})
   end
+
+  test "gprolog stirbt (zu tief verschachtelt): Fehler, Reader läuft weiter" do
+    {:ok, r} = PrologEx.Reader.start_link()
+    deep = String.duplicate("f(", 10_000) <> "a" <> String.duplicate(")", 10_000) <> "."
+    res = PrologEx.Reader.read_terms(r, deep)
+    assert {:error, msg} = List.last(res)
+    assert msg =~ "beendet"
+    assert Process.alive?(r)
+    assert [{:term, {:atom, "ok"}, _}] = PrologEx.Reader.read_terms(r, "ok.")
+  end
 end

@@ -164,6 +164,11 @@ findet ein kleiner Scanner in Elixir, den Term selbst liest gprolog. So
 lassen sich `read/2` und `get_char/2` auf demselben Stream mischen.
 Gelesene Direktiven (`:- op(...)`) werden dabei nicht ausgeführt.
 
+Grenze des gprolog-Readers: sehr tief verschachtelte Terme (etwa 10 000
+Ebenen `f(f(...))`) bringen gprolog zum Absturz. Das gibt einen Fehler
+(„Reader (gprolog) beendet … – neu gestartet“), der Reader startet neu und
+liest danach normal weiter.
+
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 
 Wie SWI (`fast_write/2`, `fast_read/2`, `fast_term_serialized/2`) und SICStus

@@ -159,10 +159,13 @@ defmodule PrologEx.Reader do
         lines = st.lines + count_newlines(sent)
         {:reply, Enum.map(results, fix), %{st | batch: n, buf: buf, lines: lines}}
 
+      {:died, results} ->
+        err = {:error, "Reader (gprolog) beendet (Term zu tief verschachtelt?) – neu gestartet"}
+        {:reply, Enum.map(results, fix) ++ [err], restart(st)}
+
       {:timeout, results} ->
-        Port.close(st.port)
         err = {:error, "Reader antwortet nicht (unvollständige Eingabe?) – neu gestartet"}
-        {:reply, Enum.map(results, fix) ++ [err], fresh(st)}
+        {:reply, Enum.map(results, fix) ++ [err], restart(st)}
     end
   end
 
@@ -170,9 +173,14 @@ defmodule PrologEx.Reader do
     Port.command(st.port, "'$open'(#{quote_atom(path)}).\n")
 
     case collect_until(st.port, st.buf, [], &(&1 in [:opened] or match?({:error, _}, &1))) do
-      {:ok, [:opened], buf} -> {:reply, :ok, %{st | buf: buf}}
-      {:ok, [{:error, msg}], buf} -> {:reply, {:error, msg}, %{st | buf: buf}}
-      {:timeout, _} -> {:reply, {:error, "Reader antwortet nicht"}, restart(st)}
+      {:ok, [:opened], buf} ->
+        {:reply, :ok, %{st | buf: buf}}
+
+      {:ok, [{:error, msg}], buf} ->
+        {:reply, {:error, msg}, %{st | buf: buf}}
+
+      {why, _} when why in [:timeout, :died] ->
+        {:reply, {:error, "Reader antwortet nicht"}, restart(st)}
     end
   end
 
@@ -189,7 +197,7 @@ defmodule PrologEx.Reader do
 
         {:reply, reply, %{st | buf: buf}}
 
-      {:timeout, _} ->
+      {why, _} when why in [:timeout, :died] ->
         {:reply, {:error, {:atom, "reader_timeout"}}, restart(st)}
     end
   end
@@ -202,7 +210,7 @@ defmodule PrologEx.Reader do
         {:writeq, out} = List.last(results)
         {:reply, {:ok, out}, %{st | buf: buf}}
 
-      {:timeout, results} ->
+      {why, results} when why in [:timeout, :died] ->
         {:reply, {:error, results}, restart(st)}
     end
   end
@@ -215,7 +223,7 @@ defmodule PrologEx.Reader do
         {:ops, ops} = List.last(results)
         {:reply, ops, %{st | buf: buf}}
 
-      {:timeout, _} ->
+      {why, _} when why in [:timeout, :died] ->
         {:reply, [], restart(st)}
     end
   end
@@ -229,7 +237,7 @@ defmodule PrologEx.Reader do
         status = if last == :pause, do: :pause, else: :eof
         {:reply, {Enum.map(items, &fix_file_line/1), status}, %{st | buf: buf}}
 
-      {:timeout, results} ->
+      {why, results} when why in [:timeout, :died] ->
         err = {:error, "Reader antwortet nicht – neu gestartet"}
         {:reply, {results ++ [err], :eof}, restart(st)}
     end
@@ -244,7 +252,20 @@ defmodule PrologEx.Reader do
   defp fresh(st), do: %{st | port: open_port(st.env), batch: 0, buf: "", lines: 0}
 
   defp restart(st) do
-    Port.close(st.port)
+    # der Port kann schon tot sein (gprolog abgestürzt)
+    try do
+      Port.close(st.port)
+    rescue
+      ArgumentError -> :ok
+    end
+
+    # eine bereits eingetroffene exit_status-Nachricht des alten Ports verwerfen
+    receive do
+      {port, {:exit_status, _}} when port == st.port -> :ok
+    after
+      0 -> :ok
+    end
+
     fresh(st)
   end
 
@@ -272,6 +293,9 @@ defmodule PrologEx.Reader do
               do: {:ok, Enum.reverse(acc), ""},
               else: collect_until(port, "", acc, stop?)
         end
+
+      {^port, {:exit_status, _}} ->
+        {:died, Enum.reverse(acc)}
     after
       @timeout -> {:timeout, Enum.reverse(acc)}
     end
@@ -320,6 +344,9 @@ defmodule PrologEx.Reader do
           :eof -> {:ok, Enum.reverse(acc), ""}
           result -> collect(port, n, "", [result | acc])
         end
+
+      {^port, {:exit_status, _}} ->
+        {:died, Enum.reverse(acc)}
     after
       @timeout -> {:timeout, Enum.reverse(acc)}
     end
