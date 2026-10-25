@@ -49,7 +49,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Si,
     PrologEx.Builtins.Solutions,
     PrologEx.Builtins.IO,
-    PrologEx.Builtins.Expansion
+    PrologEx.Builtins.Expansion,
+    PrologEx.Builtins.Between
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
@@ -171,12 +172,23 @@ defmodule PrologEx.Builtins do
       Map.new(
         for(n <- 2..8, do: {{"maplist", n}, "apply"}) ++
           [{{"include", 3}, "apply"}, {{"exclude", 3}, "apply"}, {{"partition", 4}, "apply"}]
-      )
+      ),
+    # wie SICStus' library(between)
+    "between" => %{
+      {"between", 3} => "system",
+      {"repeat", 1} => "system",
+      {"numlist", 2} => "lists",
+      {"numlist", 3} => "lists"
+    }
   }
 
   for {m, re} <- @reexports, {key, src} <- re do
-    unless MapSet.member?(Map.fetch!(@exports, src), key),
-      do: raise("Re-Export #{m}: #{inspect(key)} nicht in #{src}")
+    known =
+      if src == "system",
+        do: MapSet.member?(@system_keys, key),
+        else: MapSet.member?(Map.fetch!(@exports, src), key)
+
+    unless known, do: raise("Re-Export #{m}: #{inspect(key)} nicht in #{src}")
   end
 
   @exports_all Map.new(@exports, fn {m, ex} ->

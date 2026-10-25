@@ -184,6 +184,13 @@ Abweichung von gprolog: Nach einem alphanumerischen Präfix-Operator steht
 immer ein Leerzeichen (`dynamic -a`, gprolog: `dynamic-a`), damit auch andere
 Systeme es als Präfix lesen.
 
+## Ganzzahlen erzeugen: `library(between)`
+
+Wie SICStus: `gen_nat/1` (0, 1, 2, … ohne Ende), `gen_int/1` (0, 1, -1, 2,
+-2, …), `numlist/5` (`numlist(L, 2, U, N, [1,X,Y,Z])` gibt `L = 1, U = 7,
+N = 4, X = 3, Y = 5, Z = 7`; Länge aus Length, der Liste oder Lower/Step/
+Upper), dazu `between/3`, `repeat/1` und `numlist/2,3`.
+
 ## Zufall: `library(random)`
 
 Wie SICStus: `random/1` (Float in [0,1)), `random/3` (Ganzzahlen: L =< X < U,
@@ -360,7 +367,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 ```
 
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
-    `library(apply)`, `library(random)`, `library(atts)`,
+    `library(apply)`, `library(random)`, `library(atts)`, `library(between)`,
     `library(blackboard)`, `library(mutables)`, `library(lambda)`,
     `library(lambda_pl)`, `library(si)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
