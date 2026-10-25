@@ -357,10 +357,22 @@ defmodule PrologEx.Builtins.IO do
 
     open_opts = Enum.map(options, &open_option!/1)
 
+    # Atom, oder Zeichen-/Codeliste ("datei" mit double_quotes=chars/codes,
+    # wie Strings in SWI)
     path =
-      case src do
-        {:atom, p} -> p
-        other -> Error.domain!("source_sink", PrologEx.resolve(other, s))
+      case PrologEx.unmark_top(src) do
+        {:atom, p} ->
+          p
+
+        [_ | _] = l ->
+          try do
+            PrologEx.Builtins.Modules.file_name(PrologEx.resolve(l, s))
+          rescue
+            PrologEx.Error -> Error.domain!("source_sink", PrologEx.resolve(l, s))
+          end
+
+        other ->
+          Error.domain!("source_sink", PrologEx.resolve(other, s))
       end
 
     case Keyword.get(open_opts, :alias) do
@@ -430,7 +442,8 @@ defmodule PrologEx.Builtins.IO do
   # --- Eingabe- und Ausgabestreams prüfen ------------------------------------
 
   # kind: :text, :binary oder :any
-  defp input!(st, kind) do
+  @doc false
+  def input!(st, kind) do
     id = S.lookup!(st)
     s = S.get(id)
     unless s.mode == :read, do: Error.permission!("input", "stream", st)
@@ -438,7 +451,8 @@ defmodule PrologEx.Builtins.IO do
     id
   end
 
-  defp output!(st, kind) do
+  @doc false
+  def output!(st, kind) do
     id = S.lookup!(st)
     s = S.get(id)
     if s.mode == :read, do: Error.permission!("output", "stream", st)
@@ -446,8 +460,10 @@ defmodule PrologEx.Builtins.IO do
     id
   end
 
-  defp current_in!(kind), do: input!(S.term(S.current_input()), kind)
-  defp current_out!(kind), do: output!(S.term(S.current_output()), kind)
+  @doc false
+  def current_in!(kind), do: input!(S.term(S.current_input()), kind)
+  @doc false
+  def current_out!(kind), do: output!(S.term(S.current_output()), kind)
 
   defp check_type!(%{type: :binary}, :text, dir, st),
     do: Error.permission!(dir, "binary_stream", st)

@@ -101,7 +101,7 @@ Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
 ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
 Prolog-Fassung `library(memberd_pl)`, `mix run bench/memberd_bench.exs`), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
-`findall/3,4`, `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
+`findall/3,4`, `forall/2`, `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
 `V^G`; Gruppen nach Zeugen sortiert wie SICStus/SWI), `=@=/2`, `\=@=/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
 `occurs_check`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
@@ -163,6 +163,18 @@ T = f('a b', _A), V = ['X'=_A].
 findet ein kleiner Scanner in Elixir, den Term selbst liest gprolog. So
 lassen sich `read/2` und `get_char/2` auf demselben Stream mischen.
 Gelesene Direktiven (`:- op(...)`) werden dabei nicht ausgeführt.
+
+## Schnell speichern: `fast_write/2`, `fast_read/2`
+
+Wie SWI (`fast_write/2`, `fast_read/2`, `fast_term_serialized/2`) und SICStus
+(`library(fastrw)`, dazu `fast_write/1`, `fast_read/1`): Terme als
+Datensätze im External Term Format der BEAM auf einen Binärstream
+(`open(F, write, S, [type(binary)])`); am Ende liest `fast_read` den Term
+`end_of_file`. Variablen bleiben geteilt, Attribute fallen weg. Gelesen
+wird sicher (`:safe`, nur Prolog-Terme) – kaputte oder fremde Daten geben
+`syntax_error(fast_term)`, eine andere Formatversion
+`syntax_error(fast_term_version)`. 100 000 Terme: `fast_write` 0,7 s statt
+`writeq` 3,1 s, `fast_read` 1,6 s statt `read` 17 s.
 
 ## Ausgabe: Terme mit Operatoren
 

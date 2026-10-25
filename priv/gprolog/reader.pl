@@ -47,33 +47,36 @@ main :-
     op(400, yfx, xor),
     loop.
 
+% Fehlschlag-getriebene Schleife: gprolog hat keine Speicherbereinigung für
+% den globalen Stack, Speicher wird nur beim Backtracking frei. Eine
+% rekursive Schleife behielte jeden gelesenen Term (nach ~70 000 Termen:
+% global stack overflow). So wird nach jedem Schritt alles freigegeben;
+% die offenen Dateien stehen in g_assign-Variablen (überstehen das).
 loop :-
+    repeat,
     catch(read_term(T, [variable_names(Vs)]), E, true),
-    (   nonvar(E)
-    ->  emit(error(E)), loop
-    ;   var(T)
-    ->  emit(term(T, Vs)), loop     % sonst passte T = '$batch_end'(N) & Co.
-    ;   T == end_of_file
-    ->  emit(eof)
-    ;   T = '$batch_end'(N)
-    ->  emit(batch_end(N)), loop
-    ;   T = '$open'(Path)
-    ->  open_file(Path), loop
-    ;   T == '$next'
-    ->  next_chunk, loop
-    ;   T = '$op'(P, Ty, N)
-    ->  catch((op(P, Ty, N), R = op_ok), E, R = op_error(E)),
-        emit(R), loop
-    ;   T = '$writeq'(X)
-    ->  format_to_atom(A, '~q', [X]),
-        emit(writeq(A)), loop
-    ;   T == '$ops'
-    ->  findall(op(P, Ty, N), current_op(P, Ty, N), L),
-        emit(ops(L)), loop
-    ;   run_op(T),
-        emit(term(T, Vs)),
-        loop
-    ).
+    step(E, T, Vs, R),
+    R == stop,
+    !.
+
+step(E, _, _, cont) :- nonvar(E), !, emit(error(E)).
+step(_, T, Vs, cont) :- var(T), !, emit(term(T, Vs)).   % sonst passte T = '$batch_end'(N) & Co.
+step(_, T, _, stop) :- T == end_of_file, !, emit(eof).
+step(_, '$batch_end'(N), _, cont) :- !, emit(batch_end(N)).
+step(_, '$open'(Path), _, cont) :- !, open_file(Path).
+step(_, T, _, cont) :- T == '$next', !, next_chunk.
+step(_, '$op'(P, Ty, N), _, cont) :- !,
+    catch((op(P, Ty, N), R = op_ok), E, R = op_error(E)),
+    emit(R).
+step(_, '$writeq'(X), _, cont) :- !,
+    format_to_atom(A, '~q', [X]),
+    emit(writeq(A)).
+step(_, T, _, cont) :- T == '$ops', !,
+    findall(op(P, Ty, N), current_op(P, Ty, N), L),
+    emit(ops(L)).
+step(_, T, Vs, cont) :-
+    run_op(T),
+    emit(term(T, Vs)).
 
 % Nur echte Direktiven: Variablen dürfen nicht an op(...) usw. gebunden
 % werden (sonst änderte sich der gelesene Term, z. B. bei ":- X.")
@@ -111,16 +114,22 @@ next_chunk :-
     ;   emit(file_end)
     ).
 
+% wie loop/0 fehlschlag-getrieben (eine große Datei ohne Direktiven ist ein
+% einziger Abschnitt)
 chunk(S, Rest) :-
+    repeat,
     catch(read_term(S, T, [variable_names(Vs)]), E, true),
-    (   nonvar(E)
-    ->  emit(error(E)), chunk(S, Rest)
-    ;   T == end_of_file
-    ->  close(S), g_assign(files, Rest), emit(file_end)
-    ;   run_op(T),
-        emit(term(T, Vs)),
-        (   nonvar(T), T = (:- _)
-        ->  emit(pause)
-        ;   chunk(S, Rest)
-        )
+    chunk_step(E, T, Vs, S, Rest, R),
+    R \== cont,
+    !.
+
+chunk_step(E, _, _, _, _, cont) :- nonvar(E), !, emit(error(E)).
+chunk_step(_, T, _, S, Rest, done) :- T == end_of_file, !,
+    close(S), g_assign(files, Rest), emit(file_end).
+chunk_step(_, T, Vs, _, _, R) :-
+    run_op(T),
+    emit(term(T, Vs)),
+    (   nonvar(T), T = (:- _)
+    ->  emit(pause), R = paused
+    ;   R = cont
     ).

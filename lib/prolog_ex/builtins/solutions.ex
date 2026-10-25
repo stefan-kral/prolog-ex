@@ -34,8 +34,16 @@ defmodule PrologEx.Builtins.Solutions do
     [
       {"system", "bagof", ["?", "^", "-"]},
       {"system", "setof", ["?", "^", "-"]},
-      {"system", "^", ["?", 0]}
+      {"system", "^", ["?", 0]},
+      {"system", "forall", [0, 0]}
     ]
+  end
+
+  # forall(Cond, Action): für jede Lösung von Cond gelingt Action
+  def library do
+    import PrologEx, only: [s: 2, v: 1, rule: 2]
+    [c, act] = [v("C"), v("A")]
+    [rule(s("forall", [c, act]), [s("\\+", [s(",", [c, s("\\+", [act])])])])]
   end
 
   defbuiltin "bagof", [t, g, l] do

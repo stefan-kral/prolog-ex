@@ -51,7 +51,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.IO,
     PrologEx.Builtins.Expansion,
     PrologEx.Builtins.Between,
-    PrologEx.Builtins.Reif
+    PrologEx.Builtins.Reif,
+    PrologEx.Builtins.FastRW
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
@@ -174,6 +175,13 @@ defmodule PrologEx.Builtins do
         for(n <- 2..8, do: {{"maplist", n}, "apply"}) ++
           [{{"include", 3}, "apply"}, {{"exclude", 3}, "apply"}, {{"partition", 4}, "apply"}]
       ),
+    # wie SICStus' library(fastrw) (die Prädikate sind eingebaut, wie in SWI)
+    "fastrw" => %{
+      {"fast_read", 1} => "system",
+      {"fast_read", 2} => "system",
+      {"fast_write", 1} => "system",
+      {"fast_write", 2} => "system"
+    },
     # wie SICStus' library(between)
     "between" => %{
       {"between", 3} => "system",
@@ -192,8 +200,13 @@ defmodule PrologEx.Builtins do
     unless known, do: raise("Re-Export #{m}: #{inspect(key)} nicht in #{src}")
   end
 
-  @exports_all Map.new(@exports, fn {m, ex} ->
-                 {m, MapSet.union(ex, MapSet.new(Map.keys(Map.get(@reexports, m, %{}))))}
+  # (auch Module, die nur weitergeben, z. B. fastrw)
+  @exports_all Map.new(Enum.uniq(Map.keys(@exports) ++ Map.keys(@reexports)), fn m ->
+                 {m,
+                  MapSet.union(
+                    Map.get(@exports, m, MapSet.new()),
+                    MapSet.new(Map.keys(Map.get(@reexports, m, %{})))
+                  )}
                end)
 
   @doc "Exporte eines Bibliotheksmoduls (MapSet von {name, arity}) oder nil"

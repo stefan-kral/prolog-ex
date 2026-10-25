@@ -39,4 +39,25 @@ defmodule PrologEx.ReaderTest do
       _ -> Process.sleep(1) && wait_queued(r)
     end
   end
+
+  # gprolog hat keine Speicherbereinigung: die Leseschleife muss
+  # fehlschlag-getrieben sein, sonst wächst der globale Stack mit jedem Term
+  @tag timeout: 120_000
+  @tag :tmp_dir
+  test "viele Terme lesen: kein global stack overflow (kleiner Stack)", %{tmp_dir: dir} do
+    {:ok, r} = PrologEx.Reader.start_link(env: [{"GLOBALSZ", "4096"}])
+
+    # einzeln (wie read/1, Anfragen im Toplevel)
+    for i <- 1..20_000 do
+      [{:term, _, _}] = PrologEx.Reader.read_terms(r, "p(#{i}, f(#{i}, [a, b, c]), 'Name').")
+    end
+
+    # eine große Datei ohne Direktiven (ein einziger Abschnitt)
+    file = Path.join(dir, "gross.pl")
+    File.write!(file, for(i <- 1..30_000, into: "", do: "q(#{i}, g(#{i}, [x, y, z]), 'Wert').\n"))
+    PrologEx.Reader.put_current(r)
+    PrologEx.put_db(%{})
+    {:ok, _} = PrologEx.Consult.load_file(file)
+    assert PrologEx.current_db() |> Map.has_key?({"user", "q", 3})
+  end
 end

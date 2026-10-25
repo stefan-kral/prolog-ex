@@ -446,6 +446,29 @@ defmodule PrologEx.Stream do
     :ok
   end
 
+  @doc "Bytes (Binary) auf einmal ausgeben"
+  def put_bytes(id, bin) do
+    s = get(id)
+
+    case s.kind do
+      :stdout -> IO.binwrite(bin)
+      :stderr -> IO.binwrite(:stderr, bin)
+      :file -> :file.write(s.dev, bin)
+    end
+
+    update(%{s | bytes: s.bytes + byte_size(bin)})
+    :ok
+  end
+
+  @doc "Bis zu n Bytes lesen (weniger nur am Dateiende); Binary"
+  def get_bytes(id, n) do
+    s = ensure(get(id), n)
+    k = min(n, byte_size(s.buf))
+    {data, rest} = :erlang.split_binary(s.buf, k)
+    update(%{s | buf: rest, bytes: s.bytes + k})
+    data
+  end
+
   @doc "Ausgabepuffer leeren"
   def flush(id) do
     s = get(id)

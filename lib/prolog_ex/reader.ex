@@ -30,10 +30,12 @@ defmodule PrologEx.Reader do
 
   @timeout 10_000
 
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, opts)
+  # opts: name (GenServer), env (Umgebung für gprolog, z. B. [{"GLOBALSZ", "4096"}])
+  def start_link(opts \\ []),
+    do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
 
   @doc "Wie start_link/1, aber nicht verknüpft (überlebt den Aufrufer, siehe Toplevel.repl/1)"
-  def start(opts \\ []), do: GenServer.start(__MODULE__, opts, opts)
+  def start(opts \\ []), do: GenServer.start(__MODULE__, opts, Keyword.take(opts, [:name]))
 
   def read_terms(reader, text), do: GenServer.call(reader, {:read, text}, @timeout + 1000)
 
@@ -124,9 +126,10 @@ defmodule PrologEx.Reader do
   # ---------------------------------------------------------------------
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     if available?() do
-      {:ok, %{port: open_port(), batch: 0, buf: "", lines: 0}}
+      env = Keyword.get(opts, :env, [])
+      {:ok, %{port: open_port(env), env: env, batch: 0, buf: "", lines: 0}}
     else
       {:stop,
        {:reader_missing, "#{executable()} fehlt – bitte `mix compile` (braucht gplc) ausführen"}}
@@ -238,7 +241,7 @@ defmodule PrologEx.Reader do
 
   def handle_info(_msg, st), do: {:noreply, st}
 
-  defp fresh(st), do: %{st | port: open_port(), batch: 0, buf: "", lines: 0}
+  defp fresh(st), do: %{st | port: open_port(st.env), batch: 0, buf: "", lines: 0}
 
   defp restart(st) do
     Port.close(st.port)
@@ -291,8 +294,15 @@ defmodule PrologEx.Reader do
 
   defp fix_line(other, _), do: other
 
-  defp open_port do
-    Port.open({:spawn_executable, executable()}, [:binary, {:line, 1_000_000}, :exit_status])
+  defp open_port(env) do
+    env = for {k, v} <- env, do: {String.to_charlist(k), String.to_charlist(v)}
+
+    Port.open({:spawn_executable, executable()}, [
+      :binary,
+      {:line, 1_000_000},
+      :exit_status,
+      {:env, env}
+    ])
   end
 
   # Zeilen einsammeln bis batch_end(n); lange Zeilen kommen ggf. in Stücken
