@@ -310,16 +310,44 @@ defmodule PrologEx.Builtins.Lists do
 
   # ---------------------------------------------------------------------
 
+  # '$skip_list'(-Len, +List, -Rest) wie SWI: Len Zellen überspringen,
+  # Rest ist [] (echte Liste), eine Variable (offene Liste), ein anderer
+  # Term (keine Liste) oder – bei einer zyklischen Liste – eine Zelle
+  # [_|_] im Zyklus. Terminiert immer.
+  defbuiltin "$skip_list", [len, l, rest], module: "system" do
+    {n, r} = skip_list(l, subst())
+    {:unify, [{len, n}, {rest, r}]}
+  end
+
   @doc """
   Läuft die Liste entlang, solange Zellen gebunden sind.
   Liefert `{länge_des_präfixes, rest}`; `rest` ist dereferenziert:
-  `[]` (echte Liste), eine Variable (offene Liste) oder etwas anderes.
-  """
-  def skip_list(t, subst), do: skip(PrologEx.walk(t, subst), subst, 0)
+  `[]` (echte Liste), eine Variable (offene Liste), etwas anderes – oder
+  bei einer zyklischen Liste (`X = [a|X]`) eine Zelle `[_|_]` im Zyklus.
 
-  defp skip([_ | t], subst, n), do: skip(PrologEx.walk(t, subst), subst, n + 1)
-  defp skip({:glist, l}, _subst, n), do: skip_raw(l, n)
-  defp skip(other, _subst, n), do: {n, other}
+  Zyklen erkennt Brents Algorithmus. Ein Zyklus läuft immer über gebundene
+  Variablen (Elixir-Terme selbst sind azyklisch); verglichen werden daher
+  nur die rohen Variablen im Rest der Zellen – zweimal dieselbe heißt:
+  dieselbe Stelle, also ein Zyklus. Native Abschnitte kosten nichts extra.
+  """
+  def skip_list(t, subst), do: skip(t, subst, 0, nil, 1, 0)
+
+  # raw: der Rest, noch nicht dereferenziert; tort/power/lam: Brent
+  defp skip({:var, _} = raw, subst, n, raw, _power, _lam), do: {n, PrologEx.walk(raw, subst)}
+
+  defp skip({:var, _} = raw, subst, n, tort, power, lam) do
+    {tort, power, lam} = if lam == power, do: {raw, power * 2, 1}, else: {tort, power, lam + 1}
+
+    case PrologEx.walk(raw, subst) do
+      [_ | t] -> skip(t, subst, n + 1, tort, power, lam)
+      {:glist, l} -> skip_raw(l, n)
+      other -> {n, other}
+    end
+  end
+
+  defp skip([_ | t], subst, n, tort, power, lam), do: skip(t, subst, n + 1, tort, power, lam)
+  defp skip({:glist, l}, _subst, n, _tort, _power, _lam), do: skip_raw(l, n)
+  defp skip(other, _subst, n, _tort, _power, _lam), do: {n, other}
 
   # Innerhalb einer glist: rohe Zellen ohne Variablen
   defp skip_raw([_ | t], n), do: skip_raw(t, n + 1)

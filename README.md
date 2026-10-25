@@ -93,7 +93,10 @@ gleiche Werte und Fehler), Typprüfungen, `functor/3`, `=../2`, `append/3`, `len
 `proper_length/2`, `sum_list/2`, `max_list/2`, `min_list/2`, `max_member/2`,
 `min_member/2`, `delete/3`, `list_to_set/2`, `nextto/3`, `subtract/3`,
 `intersection/3`, `union/3`, `include/3`, `exclude/3`, `partition/4`, `foldl/4..6`,
-`same_length/2`, aus SICStus' `library(lists)`: `one_longer/2`,
+`same_length/2`, `'$skip_list'(Len, List, Rest)` (wie SWI: überspringt
+Len Zellen; Rest ist `[]`, eine Variable, ein anderer Term oder bei einer
+zyklischen Liste eine Zelle im Zyklus – Brents Zykluserkennung, terminiert
+immer; dieselbe Funktion liegt `length/2` und Co. zugrunde), aus SICStus' `library(lists)`: `one_longer/2`,
 `shorter_list/2`, `keys_and_values/3`, `transpose/2` (rechteckig, in beide
 Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
 `partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}), `chain/2`,
