@@ -1,0 +1,6 @@
+#!/bin/sh
+# Prolog-Toplevel in iex: Ctrl-C bricht die laufende Anfrage ab und führt zu
+# iex (+Bc statt BREAK-Menü); PrologEx.Toplevel.repl() macht mit derselben
+# Sitzung weiter.
+cd "$(dirname "$0")/.." || exit 1
+exec iex --erl "+Bc" --dot-iex bin/iprolog.iex.exs -S mix

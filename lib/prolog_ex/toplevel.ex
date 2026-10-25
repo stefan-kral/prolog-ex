@@ -16,6 +16,31 @@ defmodule PrologEx.Toplevel do
       ?- [datei].           Datei laden (auch consult(datei))
       ?- app(X, Y, [1,2]).  Anfrage; bei weiteren Lösungen ";" + Enter
       ?- halt.
+
+  ## Antworten seitenweise
+
+  Passiert beim Berechnen einer Antwort kein Seiteneffekt (Ausgabe,
+  assert/retract, bb_put, Flags, op/3, Zufall, ...), rechnet der Toplevel
+  die nächste schon voraus und zeigt sie gleich mit an – bis eine
+  Bildschirmseite voll ist (Flag `answer_chunk`: `auto`, oder höchstens N
+  Antworten; `1` = einzeln wie früher; ohne Terminal immer einzeln). Das
+  Vorausrechnen läuft in einem eigenen Prozess mit Zeitgrenze (#{500} ms)
+  und gefangener Ausgabe; gibt es dabei Seiteneffekte oder dauert es zu
+  lange, wird es verworfen und wie früher nach ";" gefragt. (Nur äußere
+  Wirkungen – eine Datei schreiben – lassen sich nicht verwerfen.)
+
+  ## In iex: Ctrl-C bricht ab und führt zu iex
+
+      bin/iprolog                         # oder:
+      iex --erl "+Bc" -S mix
+      iex> PrologEx.Toplevel.repl()
+
+  Mit `+Bc` unterbricht Ctrl-C nur die laufende Anfrage (statt des
+  BREAK-Menüs der BEAM) und man ist in iex; `PrologEx.Toplevel.repl()`
+  macht mit derselben Sitzung weiter (Datenbank, Flags, Operatoren, ... –
+  Stand nach der letzten fertigen Anfrage). `halt.` führt ebenfalls zurück
+  zu iex; `reset_session/0` beginnt neu. Offene Datei-Streams überstehen
+  den Abbruch nicht.
   """
 
   alias PrologEx.{Consult, Reader}
@@ -40,6 +65,82 @@ defmodule PrologEx.Toplevel do
       {:prolog_halt, code} -> code
     end
   end
+
+  @session __MODULE__.Session
+
+  @doc "Toplevel in iex mit Sitzung, die einen Abbruch (Ctrl-C mit +Bc) übersteht"
+  def repl(args \\ []) do
+    {files, goals, quiet} = parse_args(args, [], [], false)
+    session = session()
+
+    {st, resumed?} =
+      case Agent.get(session, & &1) do
+        nil ->
+          {:ok, reader} = Reader.start()
+          Reader.put_current(reader)
+          PrologEx.put_db(%{})
+          {%{db: %{}, reader: reader, dq: "chars"}, false}
+
+        %{st: st, pdict: pdict} ->
+          Enum.each(pdict, fn {k, v} -> Process.put(k, v) end)
+          {st, true}
+      end
+
+    save = fn st -> Agent.update(session, fn _ -> %{st: st, pdict: state_snapshot()} end) end
+
+    try do
+      st = Enum.reduce(files, st, &load_source/2)
+      st = Enum.reduce(goals, st, fn g, st -> run_text(g <> ".", st, :goal) end)
+      save.(st)
+
+      unless quiet do
+        IO.puts(
+          if resumed?,
+            do: "PrologEx – weiter mit der Sitzung (Ctrl-C: zu iex, halt.: zu iex)\n",
+            else: "PrologEx – Ctrl-C: zu iex (mit +Bc), weiter mit PrologEx.Toplevel.repl()\n"
+        )
+      end
+
+      loop(st, save)
+      :ok
+    catch
+      {:prolog_halt, _code} -> :ok
+    end
+  end
+
+  @doc "Sitzung von repl/1 verwerfen (der nächste Aufruf beginnt neu)"
+  def reset_session do
+    case Process.whereis(@session) do
+      nil ->
+        :ok
+
+      pid ->
+        case Agent.get_and_update(pid, &{&1, nil}) do
+          %{st: %{reader: r}} -> if Process.alive?(r), do: GenServer.stop(r)
+          _ -> :ok
+        end
+
+        :ok
+    end
+  end
+
+  # Agent mit der Sitzung, unverknüpft (überlebt den abgebrochenen Prozess)
+  defp session do
+    case Agent.start(fn -> nil end, name: @session) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
+    end
+  end
+
+  @doc false
+  # Zustand des Interpreters im Prozess (Datenbank, Flags, Streams, ...)
+  def state_snapshot do
+    for {k, _} = e <- Process.get(), prolog_key?(k), do: e
+  end
+
+  defp prolog_key?(k) when is_atom(k), do: String.starts_with?(Atom.to_string(k), "prolog_ex_")
+  defp prolog_key?(k) when is_tuple(k) and tuple_size(k) > 0, do: prolog_key?(elem(k, 0))
+  defp prolog_key?(_), do: false
 
   defp parse_args([], files, goals, q), do: {Enum.reverse(files), Enum.reverse(goals), q}
   defp parse_args(["-g", g | rest], f, gs, q), do: parse_args(rest, f, [g | gs], q)
@@ -83,17 +184,20 @@ defmodule PrologEx.Toplevel do
     unless quiet,
       do: IO.puts("PrologEx – Hilfe: siehe `mix help prolog`, Ende mit halt. oder Ctrl-D\n")
 
-    loop(st)
+    loop(st, fn _ -> :ok end)
+    0
   end
 
-  defp loop(st) do
+  # save: nach jeder Anfrage (Sitzung von repl/1)
+  defp loop(st, save) do
     case read_query("?- ", []) do
       :eof ->
         IO.puts("")
-        0
 
       text ->
-        loop(run_text(text, st, :interactive))
+        st = run_text(text, st, :interactive)
+        save.(st)
+        loop(st, save)
     end
   end
 
@@ -168,28 +272,133 @@ defmodule PrologEx.Toplevel do
   end
 
   defp show(answers, _mode, order) do
-    answers
-    |> Enumerable.reduce({:cont, nil}, fn x, _ -> {:suspend, x} end)
-    |> show_next(order)
+    page = page()
+    first = fn -> Enumerable.reduce(answers, {:cont, nil}, fn x, _ -> {:suspend, x} end) end
+    show_next(computed(first), order, page, 0)
   end
 
   # Nächste Lösung zeigen; die Suche wird FORTGESETZT (nicht neu gestartet),
   # Seiteneffekte früherer Lösungen wiederholen sich also nicht. Nur nach
-  # ";" fragen, wenn noch Choice Points da sind (wie SWI).
-  defp show_next({:suspended, {ans, more?}, cont}, order) do
+  # ";" fragen, wenn noch Choice Points da sind (wie SWI). Ohne
+  # Seiteneffekt seit der vorigen Antwort: die nächste vorausrechnen und
+  # ohne Rückfrage zeigen, bis die Seite voll ist (siehe Moduldoku).
+  # used: auf dieser Seite schon gezeigte Antworten bzw. Zeilen
+  defp show_next({{:suspended, {ans, more?}, cont}, effects?}, order, page, used) do
     text = PrologEx.format_answer(ans, order)
+    used = used + size(text, page)
 
-    if more? do
-      case IO.gets(text <> " ") do
-        ";" <> _ -> show_next(cont.({:cont, nil}), order)
-        _ -> IO.puts(".")
-      end
-    else
-      IO.puts(text <> ".")
+    cond do
+      not more? ->
+        IO.puts(text <> ".")
+
+      page != nil and not effects? and room?(page, used) ->
+        case lookahead(cont) do
+          {:ok, {{:suspended, _, _}, false} = next} ->
+            IO.puts(text <> " ;")
+            show_next(next, order, page, used)
+
+          # keine weitere Lösung: gleich mit "." enden
+          {:ok, {_done, false}} ->
+            IO.puts(text <> ".")
+
+          _ ->
+            ask(text, cont, order, page)
+        end
+
+      true ->
+        ask(text, cont, order, page)
     end
   end
 
-  defp show_next(_done, _order), do: IO.puts("false.")
+  defp show_next({_done, _effects?}, _order, _page, _used), do: IO.puts("false.")
+
+  defp ask(text, cont, order, page) do
+    case IO.gets(text <> " ") do
+      ";" <> _ -> show_next(computed(fn -> cont.({:cont, nil}) end), order, page, 0)
+      _ -> IO.puts(".")
+    end
+  end
+
+  # Ergebnis von f und ob dabei ein Seiteneffekt passiert ist (der Zustand
+  # des Interpreters im Prozess hat sich geändert)
+  defp computed(f) do
+    before = state_snapshot()
+    r = f.()
+    {r, not same_state?(before, state_snapshot())}
+  end
+
+  defp same_state?(a, b), do: length(a) == length(b) and Enum.all?(a, &(&1 in b))
+
+  @lookahead_ms 500
+
+  # Nächste Lösung in einem eigenen Prozess vorausrechnen: mit dem Zustand
+  # dieses Prozesses, gefangener Ausgabe und Zeitgrenze. {:ok, {r, false}}
+  # nur, wenn dabei nichts passiert ist – sonst verwerfen (die Wirkungen
+  # bleiben im anderen Prozess).
+  defp lookahead(cont) do
+    state = state_snapshot()
+    parent = self()
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        Enum.each(state, fn {k, v} -> Process.put(k, v) end)
+        {:ok, io} = StringIO.open("")
+        Process.group_leader(self(), io)
+
+        result =
+          try do
+            r = cont.({:cont, nil})
+            {_, out} = StringIO.contents(io)
+
+            if out == "" and same_state?(state, state_snapshot()),
+              do: {:ok, {r, false}},
+              else: :effects
+          catch
+            _, _ -> :effects
+          end
+
+        send(parent, {:lookahead, self(), result})
+      end)
+
+    receive do
+      {:lookahead, ^pid, result} ->
+        Process.demonitor(ref, [:flush])
+        result
+    after
+      @lookahead_ms ->
+        Process.exit(pid, :kill)
+        Process.demonitor(ref, [:flush])
+        :timeout
+    end
+  end
+
+  # Seite: {:lines, n} (auto, Terminal mit n Zeilen), {:answers, n} oder nil
+  defp page do
+    case PrologEx.Flags.get("answer_chunk") do
+      {:atom, "auto"} ->
+        case :io.rows() do
+          {:ok, rows} when rows > 3 -> {:lines, rows - 2}
+          _ -> nil
+        end
+
+      1 ->
+        nil
+
+      # ohne Terminal einzeln (Eingabe aus Datei/Pipe erwartet das alte
+      # Protokoll); :prolog_ex_force_chunk: für Tests
+      n when is_integer(n) ->
+        if match?({:ok, _}, :io.rows()) or Process.get(:prolog_ex_force_chunk),
+          do: {:answers, n},
+          else: nil
+    end
+  end
+
+  defp size(text, {:lines, _}), do: length(String.split(text, "\n"))
+  defp size(_text, _), do: 1
+
+  # Platz für eine weitere Antwort auf der Seite?
+  defp room?({:lines, n}, used), do: used + 1 <= n
+  defp room?({:answers, n}, used), do: used < n
 
   defp prolog_list([]), do: []
   defp prolog_list([h | t]), do: [h | prolog_list(t)]

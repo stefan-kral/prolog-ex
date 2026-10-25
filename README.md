@@ -57,6 +57,26 @@ X = [], Y = [1, 2] ;       % ";" + Enter für die nächste Lösung
 ?- halt.
 ```
 
+**Antworten seitenweise:** Passiert beim Berechnen einer Antwort kein
+Seiteneffekt (Ausgabe, `assert`, `bb_put`, Flags, `op/3`, Zufall, …), rechnet
+der Toplevel die nächste schon voraus und zeigt sie gleich mit – bis eine
+Bildschirmseite voll ist. Gefragt wird erst danach (`;` nächste Seite,
+Enter Ende); zeigt das Vorausrechnen, dass nichts mehr kommt, endet die
+Antwort gleich mit `.`. Vorausgerechnet wird in einem eigenen Prozess mit
+Zeitgrenze (0,5 s) und gefangener Ausgabe: passiert dabei doch etwas oder
+dauert es zu lange, wird es verworfen und wie gewohnt gefragt. Nach einer
+Antwort mit Seiteneffekt wird nie vorausgerechnet. Flag `answer_chunk`:
+`auto` (Standard: eine Seite), `N` (höchstens N Antworten), `1` (einzeln wie
+früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
+
+**Ctrl-C führt zu iex:** `bin/iprolog` startet iex mit `+Bc` – Ctrl-C
+unterbricht dann nur die laufende Anfrage (statt des BREAK-Menüs der BEAM),
+und man ist in iex. `repl` startet bzw. setzt den Toplevel fort, mit
+derselben Sitzung (Datenbank, Flags, Operatoren, … – Stand nach der letzten
+fertigen Anfrage); `halt.` führt auch zurück zu iex, `reset_session` beginnt
+neu. Von Hand: `iex --erl "+Bc" -S mix`, dann `PrologEx.Toplevel.repl()`.
+Offene Datei-Streams überstehen den Abbruch nicht.
+
 Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`), Direktiven (`op/3`,
 `dynamic/1`, `initialization/1`, beliebige Ziele), Reconsult (erneutes
 Laden ersetzt Prädikate), `,` `;` `->` `*->` (soft cut wie SWI; `if/3` wie SICStus: alle Lösungen der Bedingung, Else nur ohne Lösung) `\\+` `!` `call/N` `time/1`,

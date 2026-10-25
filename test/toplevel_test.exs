@@ -1,0 +1,143 @@
+defmodule PrologEx.ToplevelTest do
+  use ExUnit.Case, async: false
+  import ExUnit.CaptureIO
+
+  @moduletag :gprolog
+
+  setup do
+    PrologEx.Flags.reset()
+    on_exit(fn -> PrologEx.Toplevel.reset_session() end)
+    :ok
+  end
+
+  # Toplevel mit Eingabe; Seiten mit höchstens n Antworten (ohne Terminal)
+  defp top(input, n \\ 3) do
+    Process.put(:prolog_ex_force_chunk, true)
+    input = "use_module(library(lists)).\nset_prolog_flag(answer_chunk, #{n}).\n" <> input
+
+    capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)
+    |> String.split("set_prolog_flag(answer_chunk, #{n}).")
+    |> List.last()
+  end
+
+  describe "Antworten seitenweise" do
+    test "reine Anfrage: ohne Rückfrage bis die Seite voll ist" do
+      out = top("between(1, 7, X).\n;\n\n")
+      # (ohne Terminal kein Echo des getippten ";")
+      assert out =~ "X = 1 ;\nX = 2 ;\nX = 3 X = 4 ;\nX = 5 ;\nX = 6 ."
+      refute out =~ "X = 7"
+    end
+
+    test "keine weitere Antwort: gleich mit Punkt" do
+      assert top("member(X, [1, 2]).\n") =~ "X = 1 ;\nX = 2."
+      assert top("member(X, [1, 2, 3]), X > 1.\n") =~ "X = 2 ;\nX = 3."
+      # Choice Point da, aber keine weitere Lösung
+      assert top("( X = 1 ; fail ).\n") =~ "X = 1."
+    end
+
+    test "mit Ausgabe: einzeln wie früher" do
+      out = top("member(X, [a, b]), write(w(X)), nl.\n;\n")
+      assert out =~ "w(a)\nX = a w(b)\nX = b."
+    end
+
+    test "Seiteneffekte beim Vorausrechnen werden verworfen" do
+      out =
+        top("""
+        member(X, [1, 2]), ( X =:= 2 -> assertz(spur(X)), write(spur) ; true ).
+
+        catch(spur(Y), _, fail).
+        """)
+
+      assert out =~ "X = 1 ."
+      refute out =~ "spur\n"
+      assert out =~ "false."
+
+      # mit ; läuft es wirklich (einmal)
+      out =
+        top("""
+        member(X, [1, 2]), ( X =:= 2 -> assertz(spur(X)), write(spur) ; true ).
+        ;
+        findall(Y, spur(Y), L).
+        """)
+
+      assert out =~ "spur"
+      assert out =~ "L = [2]."
+    end
+
+    @tag :tmp_dir
+    test "nach einem Seiteneffekt wird nicht vorausgerechnet (äußere Wirkungen)", c do
+      f = Path.join(c.tmp_dir, "spur.txt")
+
+      top("""
+      member(X, [1, 2]), open('#{f}', append, S), write(S, X), close(S).
+
+      """)
+
+      assert File.read!(f) == "1"
+    end
+
+    test "dauert die nächste Antwort zu lange: Rückfrage" do
+      out = top("( X = 1 ; between(0, inf, N), N < 0 ).\n\n")
+      assert out =~ "X = 1 ."
+    end
+
+    test "answer_chunk 1: einzeln" do
+      assert top("member(X, [p, q]).\n;\n", 1) =~ "X = p X = q."
+    end
+
+    test "ohne Terminal und ohne Zwang: einzeln (altes Protokoll)" do
+      Process.delete(:prolog_ex_force_chunk)
+
+      out =
+        capture_io("use_module(library(lists)).\nmember(X, [p, q]).\n;\n", fn ->
+          PrologEx.Toplevel.main(["-q"])
+        end)
+
+      assert out =~ "X = p X = q."
+    end
+
+    test "Flag answer_chunk" do
+      out =
+        top(
+          "current_prolog_flag(answer_chunk, F).\ncatch(set_prolog_flag(answer_chunk, 0), error(E, _), true).\n"
+        )
+
+      assert out =~ "F = 3."
+      assert out =~ "domain_error(flag_value"
+    end
+  end
+
+  describe "repl/1 (für iex)" do
+    test "die Sitzung bleibt über Aufrufe hinweg" do
+      out1 =
+        capture_io("assertz(merk(42)).\nhalt.\n", fn ->
+          assert PrologEx.Toplevel.repl(["-q"]) == :ok
+        end)
+
+      assert out1 =~ "true."
+
+      out2 = capture_io("merk(X).\nhalt.\n", fn -> PrologEx.Toplevel.repl(["-q"]) end)
+      assert out2 =~ "X = 42."
+
+      PrologEx.Toplevel.reset_session()
+
+      out3 =
+        capture_io("catch(merk(X), error(E, _), true).\nhalt.\n", fn ->
+          PrologEx.Toplevel.repl(["-q"])
+        end)
+
+      assert out3 =~ "existence_error"
+    end
+
+    test "in einem anderen Prozess (wie nach Ctrl-C) geht es weiter" do
+      capture_io("assertz(merk(7)).\nhalt.\n", fn -> PrologEx.Toplevel.repl(["-q"]) end)
+
+      task =
+        Task.async(fn ->
+          capture_io("merk(X).\nhalt.\n", fn -> PrologEx.Toplevel.repl(["-q"]) end)
+        end)
+
+      assert Task.await(task) =~ "X = 7."
+    end
+  end
+end

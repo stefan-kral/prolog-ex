@@ -27,6 +27,9 @@ defmodule PrologEx.Flags do
     "debug" => {false, [true, false]},
     "last_call_optimisation" => {true, :read_only},
     "dialect" => {:prolog_ex, :read_only},
+    # Toplevel: Antworten ohne Rückfrage zeigen, solange keine Seiteneffekte
+    # passieren – auto: eine Bildschirmseite, N: höchstens N, 1: einzeln
+    "answer_chunk" => {:auto, [:auto, :positive_integer]},
     "version" => {1, :read_only}
   }
 
@@ -57,8 +60,12 @@ defmodule PrologEx.Flags do
         PrologEx.Error.permission!("modify", "flag", PrologEx.a(name))
 
       {:ok, {_, allowed}} ->
-        unless Enum.any?(allowed, &(term(&1) == value)),
-          do: PrologEx.Error.domain!("flag_value", PrologEx.mk("+", [PrologEx.a(name), value]))
+        unless Enum.any?(allowed, fn
+                 :positive_integer -> is_integer(value) and value > 0
+                 v -> term(v) == value
+               end),
+               do:
+                 PrologEx.Error.domain!("flag_value", PrologEx.mk("+", [PrologEx.a(name), value]))
 
         Process.put(@key, Map.put(Process.get(@key, %{}), name, value))
         apply_side_effect(name, value)

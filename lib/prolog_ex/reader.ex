@@ -32,6 +32,9 @@ defmodule PrologEx.Reader do
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, opts)
 
+  @doc "Wie start_link/1, aber nicht verknüpft (überlebt den Aufrufer, siehe Toplevel.repl/1)"
+  def start(opts \\ []), do: GenServer.start(__MODULE__, opts, opts)
+
   def read_terms(reader, text), do: GenServer.call(reader, {:read, text}, @timeout + 1000)
 
   def stop(reader), do: GenServer.stop(reader)
