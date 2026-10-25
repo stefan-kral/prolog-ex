@@ -988,6 +988,9 @@ defmodule PrologEx do
       {:struct, "->", [c, t]} ->
         if_then_else(c, t, g2, cutb, mod, rest, st)
 
+      {:struct, "*->", [c, t]} ->
+        soft_if(c, t, g2, cutb, mod, rest, st)
+
       _ ->
         st = push(st, {:alt, {g2, cutb, mod}, rest, st.subst, st.answer})
         run(%{st | goals: [{g1, cutb, mod} | rest]})
@@ -996,6 +999,31 @@ defmodule PrologEx do
 
   defp step({:struct, "->", [c, t]}, cutb, mod, rest, st),
     do: if_then_else(c, t, {:atom, "fail"}, cutb, mod, rest, st)
+
+  # C *-> T ohne Else: wie (C, T), Cut in C lokal (wie SWI)
+  defp step({:struct, "*->", [c, t]}, cutb, mod, rest, st),
+    do: run(%{st | goals: [{c, st.height, mod}, {t, cutb, mod} | rest]})
+
+  # if(C, T, E) (SICStus): wie (C *-> T ; E)
+  defp step({:struct, "if", [c, t, e]}, cutb, mod, rest, st),
+    do: soft_if(c, t, e, cutb, mod, rest, st)
+
+  # Interne Markierung (soft cut): C hat eine Lösung – den Choice Point für
+  # Else an Höhe h + 1 unwirksam machen, die Alternativen von C bleiben.
+  # Liegt er ganz oben (C ohne Alternativen), fällt er einfach weg.
+  defp step({:"$soft_cut", h}, _cutb, _mod, rest, st) do
+    case st.height - h - 1 do
+      0 ->
+        run(%{st | goals: rest, cps: tl(st.cps), height: h})
+
+      i when i > 0 ->
+        run(%{st | goals: rest, cps: List.replace_at(st.cps, i, :dead)})
+
+      # schon abgeschnitten (oder schon unwirksam gemacht und weg)
+      _ ->
+        run(%{st | goals: rest})
+    end
+  end
 
   # Interne Markierung: Choice Points bis zur Höhe h abschneiden
   defp step({:"$cut_to", h}, _cutb, _mod, rest, st) do
@@ -1795,6 +1823,14 @@ defmodule PrologEx do
     run(%{st | goals: [{c, h + 1, mod}, {{:"$cut_to", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
+  # (C *-> T ; E), if(C, T, E): wie if_then_else, aber $soft_cut nimmt nur
+  # E weg – für jede Lösung von C läuft T; E nur, wenn C keine hat
+  defp soft_if(c, t, e, cutb, mod, rest, st) do
+    h = st.height
+    st = push(st, {:alt, {e, cutb, mod}, rest, st.subst, st.answer})
+    run(%{st | goals: [{c, h + 1, mod}, {{:"$soft_cut", h}, 0, mod}, {t, cutb, mod} | rest]})
+  end
+
   @doc "Ziel um Argumente erweitern wie call/N (auch M:Ziel); Ziel dereferenziert"
   def add_args(g, []), do: g
   def add_args({:struct, ":", [m, g]}, extra), do: mk(":", [m, add_args(unmark_top(g), extra)])
@@ -1846,6 +1882,10 @@ defmodule PrologEx do
     st = %{st | cps: cps, height: st.height - 1}
 
     case cp do
+      # Else eines soft cut, dessen Bedingung schon eine Lösung hatte
+      :dead ->
+        backtrack(st)
+
       {:alt, goal, rest, subst, answer} ->
         run(%{st | goals: [goal | rest], subst: subst, answer: answer})
 

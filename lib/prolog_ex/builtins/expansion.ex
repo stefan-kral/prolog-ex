@@ -31,6 +31,7 @@ defmodule PrologEx.Builtins.Expansion do
   # Maschine qualifiziert selbst); für die Expansion:
   @engine_meta %{
     {"call", 1} => [0],
+    {"if", 3} => [0, 0, 0],
     {"findall", 3} => ["?", 0, "-"],
     {"findall", 4} => ["?", 0, "-", "?"],
     {"findnsols", 4} => ["?", "?", 0, "-"],
