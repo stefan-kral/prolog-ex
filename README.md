@@ -385,6 +385,29 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     ladenden Datei. Operatoren sind global (nicht modul-lokal).
   * Relative Pfade in einer Datei gelten ab deren Ordner.
 
+## Expansion: `term_expansion/2`, `goal_expansion/2`
+
+Wie SWI/SICStus: Hooks im Quellmodul oder in `user`, ab der Klausel nach
+ihrer Definition wirksam.
+
+```prolog
+term_expansion(erzeuge(N), [p(N), q(N)]).   % ein Term wird zu zweien
+goal_expansion(alt(X), neu(X)).             % Teilziele im Rumpf ersetzen
+goal_expansion(setze(X), true) :- X = 42.   % Bindungen gelten in der ganzen Klausel
+```
+
+  * `term_expansion`: jeder gelesene Term (auch Direktiven, vor der
+    DCG-Übersetzung) und zum Schluss `end_of_file`; Ergebnis ein Term oder
+    eine Liste (`[]`: entfällt).
+  * `goal_expansion`: jedes Teilziel jedes Klauselrumpfs und jeder
+    Direktive, wiederholt bis kein Hook mehr greift (höchstens 50-mal);
+    auch in `,` `;` `->` `\+` `M:G` und in Meta-Argumenten (`findall/3`,
+    `forall/2`, `bagof/3` mit `^`, eigene `meta_predicate`).
+  * `expand_term/2`, `expand_goal/2`, `dcg_translate_rule/2`.
+  * Fehler in einem Hook werden gemeldet, der Term bleibt dann, wie er ist.
+  * Ohne Hooks kostet das Laden nichts zusätzlich. Anfragen im Toplevel
+    werden (noch) nicht expandiert.
+
 ## Eigene Builtins in Elixir
 
 Ein Modul mit `use PrologEx.Builtin` anlegen und in `PrologEx.Builtins`

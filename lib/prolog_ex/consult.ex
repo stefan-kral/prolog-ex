@@ -15,6 +15,11 @@ defmodule PrologEx.Consult do
       `initialization/1`, `discontiguous/1`, `multifile/1`. `op/3` wirkt
       schon beim Einlesen (gprolog), Fehler meldet die Direktive.
     * `initialization(G)` läuft am Ende des Ladevorgangs.
+    * Expansion (siehe `PrologEx.Builtins.Expansion`): gibt es im Quellmodul
+      oder in `user` einen Hook `term_expansion/2`, geht jeder gelesene Term
+      (und zum Schluss `end_of_file`) erst durch ihn; `goal_expansion/2`
+      expandiert danach jeden Klauselrumpf und jede Direktive. Ein Hook
+      gilt ab der Klausel nach seiner Definition.
 
   Optionen: `file:` (Pfad, für Meldungen und module/2), `into:` (Modul,
   in das geladen wird und das die Exporte eines Moduls importiert;
@@ -52,7 +57,7 @@ defmodule PrologEx.Consult do
       file: Keyword.get(opts, :file)
     }
 
-    st = st |> feed.() |> flush()
+    st = st |> feed.() |> eof_expansion() |> flush()
 
     st =
       Enum.reduce(Enum.reverse(st.init), st, fn {g, m}, st ->
@@ -123,6 +128,109 @@ defmodule PrologEx.Consult do
   defp item({:error, msg}, st), do: msg(st, msg)
 
   defp item({:term, t, _names}, st) do
+    {st, hook?} = hook?(st, "term_expansion")
+
+    if hook? do
+      case expand(st, "$term_hook", [PrologEx.unmark(t), a(st.module)], "term_expansion") do
+        {st, nil} -> plain_item(t, st)
+        {st, x} -> x |> expansion_items() |> Enum.reduce(st, &plain_item/2)
+      end
+    else
+      plain_item(t, st)
+    end
+  end
+
+  # Ergebnis von term_expansion: Liste von Termen oder ein Term
+  defp expansion_items(x) do
+    case PrologEx.unmark(x) do
+      l when is_list(l) -> prolog_list(l)
+      t -> [t]
+    end
+  end
+
+  # zum Schluss: term_expansion(end_of_file, X) (wie SWI); X ohne end_of_file
+  defp eof_expansion(st) do
+    {st, hook?} = hook?(st, "term_expansion")
+
+    with true <- hook?,
+         {st, x} when x != nil <-
+           expand(st, "$term_hook", [a("end_of_file"), a(st.module)], "term_expansion") do
+      x
+      |> expansion_items()
+      |> Enum.reject(&(&1 == a("end_of_file")))
+      |> Enum.reduce(st, &plain_item/2)
+    else
+      false -> st
+      {st, nil} -> st
+    end
+  end
+
+  # Ist ein Hook name/2 im Quellmodul oder in user definiert? Steht er noch
+  # ungeladen in pending, wird vorher geladen (damit er schon für den
+  # nächsten Term gilt).
+  defp hook?(st, name) do
+    keys = Enum.uniq([{st.module, name, 2}, {"user", name, 2}])
+
+    st = if Enum.any?(keys, &MapSet.member?(st.dirty, &1)), do: flush(st), else: st
+    {st, Enum.any?(keys, &Map.has_key?(st.db, &1))}
+  end
+
+  # Expansion als Anfrage: helper(Args..., X); Ergebnis X (frische
+  # Variablen umbenannt) oder nil, wenn kein Hook gelingt. Fehler werden
+  # gemeldet, der Term bleibt dann unverändert.
+  defp expand(st, helper, args, what) do
+    out = {:var, "$expansion"}
+    PrologEx.put_db(st.db)
+
+    result =
+      try do
+        case Enum.take(PrologEx.query(st.db, mk(helper, args ++ [out]), module: st.module), 1) do
+          [ans] -> {:ok, rename_fresh(Map.fetch!(ans, "$expansion"))}
+          [] -> {:ok, nil}
+        end
+      rescue
+        e in [RuntimeError, PrologEx.Error] -> {:error, Exception.message(e)}
+      end
+
+    st = %{st | db: PrologEx.current_db()}
+
+    case result do
+      {:ok, x} -> {st, x}
+      {:error, m} -> {msg(st, "Fehler in #{what}: #{m}"), nil}
+    end
+  end
+
+  # frische Variablen einer Antwort ({:var, 0}, ...) eindeutig benennen
+  defp rename_fresh(t) do
+    {t, _} = rename(t, %{})
+    t
+  end
+
+  defp rename({:var, n}, m) when is_integer(n) do
+    case m do
+      %{^n => v} ->
+        {v, m}
+
+      _ ->
+        v = {:var, "_X#{System.unique_integer([:positive])}"}
+        {v, Map.put(m, n, v)}
+    end
+  end
+
+  defp rename({:struct, f, args}, m) do
+    {args, m} = Enum.map_reduce(args, m, &rename/2)
+    {{:struct, f, args}, m}
+  end
+
+  defp rename([h | t], m) do
+    {h, m} = rename(h, m)
+    {t, m} = rename(t, m)
+    {[h | t], m}
+  end
+
+  defp rename(t, m), do: {t, m}
+
+  defp plain_item(t, st) do
     case PrologEx.unmark_top(t) do
       {:struct, ":-", [d]} -> directive(PrologEx.unmark(d), st)
       {:struct, "?-", [d]} -> directive(PrologEx.unmark(d), st)
@@ -135,6 +243,27 @@ defmodule PrologEx.Consult do
   end
 
   defp add_clause({head, body}, st) do
+    {st, hook?} = hook?(st, "goal_expansion")
+
+    {head, body, st} =
+      if hook? do
+        case expand(
+               st,
+               "$expand_clause",
+               [mk(":-", [PrologEx.unmark(head), PrologEx.unmark(body)]), a(st.module)],
+               "goal_expansion"
+             ) do
+          {st, {:struct, ":-", [h, b]}} -> {h, b, st}
+          {st, _} -> {head, body, st}
+        end
+      else
+        {head, body, st}
+      end
+
+    store_clause({head, body}, st)
+  end
+
+  defp store_clause({head, body}, st) do
     # M:Kopf – Klausel für Modul M, Rumpf läuft im Quellmodul
     {m, head, body} =
       case PrologEx.unmark(head) do
@@ -219,7 +348,23 @@ defmodule PrologEx.Consult do
   # Terme); hier noch einmal über op/3, damit Fehler gemeldet werden
   defp directive({:struct, "discontiguous", [_]}, st), do: st
   defp directive({:struct, "multifile", [_]}, st), do: st
-  defp directive(g, st), do: run_directive(g, flush(st), "Direktive")
+
+  defp directive(g, st) do
+    st = flush(st)
+    {st, hook?} = hook?(st, "goal_expansion")
+
+    {st, g} =
+      if hook? do
+        case expand(st, "$expand_directive", [g, a(st.module)], "goal_expansion") do
+          {st, nil} -> {st, g}
+          {st, g2} -> {st, g2}
+        end
+      else
+        {st, g}
+      end
+
+    run_directive(g, st, "Direktive")
+  end
 
   defp run_directive(g, st, what) do
     # Direktiven sehen und ändern die Datenbank (assert, use_module, ...)
