@@ -50,7 +50,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Solutions,
     PrologEx.Builtins.IO,
     PrologEx.Builtins.Expansion,
-    PrologEx.Builtins.Between
+    PrologEx.Builtins.Between,
+    PrologEx.Builtins.Reif
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst

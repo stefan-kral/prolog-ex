@@ -184,6 +184,28 @@ Abweichung von gprolog: Nach einem alphanumerischen Präfix-Operator steht
 immer ein Leerzeichen (`dynamic -a`, gprolog: `dynamic-a`), damit auch andere
 Systeme es als Präfix lesen.
 
+## Reifizierte Gleichheit: `library(reif)` und `library(reif_pl)`
+
+Nach Neumerkel und Kral, „Indexing dif/2“ (2016): `if_/3`, `(=)/3`,
+`dif/3`, `(',')/3`, `(;)/3`, `cond_t/3`, `memberd_t/3`, `tfilter/3`,
+`tpartition/4`, `tmember/2`, `tmember_t/3` – rein und ohne überflüssige
+Choice Points:
+
+```
+?- tfilter(dif(a), [a,b,X,a,c], Fs).
+Fs = "bc", X = a ;
+Fs = [b, X, c], dif(X, a).
+```
+
+Zwei Fassungen mit denselben Antworten (Vergleichstest auch auf
+Zufallstermen): `library(reif_pl)` in reinem Prolog wie reif.pl,
+`library(reif)` mit Schnellwegen in Elixir – bei `X = Y`/`dif(X, Y)` als
+Bedingung und `=(Y)`/`dif(Y)` als Closure entscheidet die Prüfung von
+`dif/2` vorab, Zweige gibt es nur bei offenen Elementen. Gemessen
+(`mix run bench/reif_bench.exs`, 100 000 Elemente): `tfilter(dif(5), L, Fs)`
+28 ms gegen 1494 ms, `memberd_t/3` 13 ms gegen 991 ms; mit eigener
+Closure (`tfilter(gross, L, Fs)`) etwa gleich schnell.
+
 ## Ganzzahlen erzeugen: `library(between)`
 
 Wie SICStus: `gen_nat/1` (0, 1, 2, … ohne Ende), `gen_int/1` (0, 1, -1, 2,
@@ -367,7 +389,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 ```
 
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
-    `library(apply)`, `library(random)`, `library(atts)`, `library(between)`,
+    `library(apply)`, `library(random)`, `library(atts)`, `library(between)`, `library(reif)`, `library(reif_pl)`,
     `library(blackboard)`, `library(mutables)`, `library(lambda)`,
     `library(lambda_pl)`, `library(si)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
