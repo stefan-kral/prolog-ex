@@ -19,6 +19,9 @@ defmodule PrologEx.Builtins.Expansion do
   erste, der gelingt, zählt). Ohne definierten Hook kostet das Laden
   nichts zusätzlich.
 
+  Anfragen im Toplevel werden ebenso expandiert (Hook in `user`), siehe
+  `expand_query/2`.
+
   Dazu `expand_term/2` (Hooks, sonst DCG-Übersetzung), `expand_goal/2` und
   `dcg_translate_rule/2`.
   """
@@ -95,6 +98,21 @@ defmodule PrologEx.Builtins.Expansion do
 
       other ->
         PrologEx.Error.type!("dcg_rule", resolve(other))
+    end
+  end
+
+  @doc """
+  Anfrage im Toplevel: gibt es in `user` einen Hook `goal_expansion/2`,
+  wird sie zur Laufzeit expandiert und dann gerufen (wie SWI; SICStus
+  expandiert Meta-Aufrufe ebenso). Die Hilfsvariable beginnt mit `_` und
+  erscheint daher nicht in der Antwort; Bindungen des Hooks schon.
+  """
+  def expand_query(db, goal) do
+    if Map.has_key?(db, {"user", "goal_expansion", 2}) do
+      g2 = {:var, "_ExpandedQuery"}
+      mk(",", [mk("$expand_goal", [goal, a("user"), g2, 0]), mk("call", [g2])])
+    else
+      goal
     end
   end
 

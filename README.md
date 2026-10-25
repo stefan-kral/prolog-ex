@@ -405,8 +405,10 @@ goal_expansion(setze(X), true) :- X = 42.   % Bindungen gelten in der ganzen Kla
     `forall/2`, `bagof/3` mit `^`, eigene `meta_predicate`).
   * `expand_term/2`, `expand_goal/2`, `dcg_translate_rule/2`.
   * Fehler in einem Hook werden gemeldet, der Term bleibt dann, wie er ist.
-  * Ohne Hooks kostet das Laden nichts zusätzlich. Anfragen im Toplevel
-    werden (noch) nicht expandiert.
+  * Anfragen im Toplevel werden ebenso expandiert (Hook in `user`; wie SWI,
+    SICStus expandiert Meta-Aufrufe zur Laufzeit). Bindungen des Hooks
+    erscheinen in der Antwort.
+  * Ohne Hooks kostet das Laden nichts zusätzlich.
 
 ## Eigene Builtins in Elixir
 

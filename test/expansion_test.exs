@@ -181,4 +181,32 @@ defmodule PrologEx.ExpansionTest do
       assert Enum.any?(msgs, &(&1 =~ "resource_error(goal_expansion)"))
     end
   end
+
+  describe "Toplevel" do
+    import ExUnit.CaptureIO
+
+    @tag :tmp_dir
+    test "Anfragen werden expandiert, Bindungen erscheinen in der Antwort", c do
+      file = Path.join(c.tmp_dir, "hooks.pl")
+
+      File.write!(file, """
+      goal_expansion(alt(X), neu(X)).
+      goal_expansion(setze(X), true) :- X = 42.
+      neu(X) :- X = neu.
+      """)
+
+      input = "['#{file}'].\nalt(Y).\nsetze(Z).\nfindall(A, alt(A), L).\n"
+      out = capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)
+
+      assert out =~ "Y = neu."
+      assert out =~ "Z = 42."
+      assert out =~ "L = [neu]"
+      refute out =~ "_ExpandedQuery"
+    end
+
+    test "ohne Hook unverändert" do
+      g = PrologEx.mk("foo", [])
+      assert PrologEx.Builtins.Expansion.expand_query(%{}, g) == g
+    end
+  end
 end

@@ -149,7 +149,7 @@ defmodule PrologEx.Toplevel do
   defp run_query({:struct, "consult", [f]}, st, mode), do: run_query([f], st, mode)
 
   defp run_query(goal, st, mode) do
-    answers = PrologEx.solutions(st.db, goal)
+    answers = PrologEx.solutions(st.db, PrologEx.Builtins.Expansion.expand_query(st.db, goal))
 
     try do
       show(answers, mode, PrologEx.query_var_names(goal))
@@ -194,10 +194,13 @@ defmodule PrologEx.Toplevel do
   defp prolog_list([]), do: []
   defp prolog_list([h | t]), do: [h | prolog_list(t)]
 
-  defp file_name({:atom, name}), do: name
-  defp file_name({:struct, "/", [a, b]}), do: file_name(a) <> "/" <> file_name(b)
   defp file_name([]), do: "[]"
-  defp file_name(other), do: PrologEx.format(other)
+
+  defp file_name(t) do
+    PrologEx.Builtins.Modules.file_name(t)
+  rescue
+    PrologEx.Error -> PrologEx.format(t)
+  end
 
   defp err(msg, st) do
     IO.puts(:stderr, msg)

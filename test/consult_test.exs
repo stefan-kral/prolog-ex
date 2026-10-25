@@ -132,4 +132,30 @@ defmodule PrologEx.ConsultTest do
     assert out =~ "X = b."
     assert out =~ "false."
   end
+
+  @tag :tmp_dir
+  test "Dateinamen als Zeichen- oder Codeliste (wie Strings in SWI)", %{reader: r, tmp_dir: dir} do
+    Reader.put_current(r)
+    file = Path.join(dir, "h.pl")
+    File.write!(file, "hallo(welt).\n")
+
+    for q <- [
+          "consult(\"#{file}\"), hallo(X).",
+          "set_prolog_flag(double_quotes, codes), consult(\"#{file}\"), hallo(X).",
+          "consult([\"#{file}\"]), hallo(X).",
+          "consult(['#{file}']), hallo(X)."
+        ] do
+      PrologEx.put_db(%{})
+      assert ask(r, %{}, q) |> hd() =~ "X = welt", q
+    end
+
+    PrologEx.Flags.reset()
+    # Liste von Einzelzeichen ohne . oder /: Liste von Dateien
+    PrologEx.put_db(%{})
+    assert ask(r, %{}, "catch(consult([a, b]), E, true).") |> hd() =~ "'a.pl'"
+
+    input = "[\"#{file}\"].\nhallo(X).\n"
+    out = capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)
+    assert out =~ "X = welt."
+  end
 end

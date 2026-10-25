@@ -16,7 +16,11 @@ defmodule PrologEx.IOTest do
     Reader.put_current(c.reader)
     PrologEx.Stream.reset()
     PrologEx.put_db(Enum.reduce(["lists"], %{}, &PrologEx.use_library(&2, &1, "user")))
+    # im eigenen Verzeichnis arbeiten, danach zurück (sonst laufen alle
+    # folgenden Tests in einem anderen Arbeitsverzeichnis)
+    old = File.cwd!()
     File.cd!(c.tmp_dir)
+    on_exit(fn -> File.cd!(old) end)
     :ok
   end
 

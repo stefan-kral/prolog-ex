@@ -262,19 +262,55 @@ defmodule PrologEx.Builtins.Modules do
 
   # --- Dateinamen --------------------------------------------------------
 
+  # Eine Liste ist eine Liste von Dateien; eine Liste darin ist ein Name als
+  # Zeichen- oder Codeliste ("datei.pl" mit double_quotes=chars/codes, wie
+  # Strings in SWI): consult(["a.pl", b]).
+  # Ganz außen ist eine Liste von Codes oder von Einzelzeichen mit "." oder
+  # "/" ein Name (consult("a.pl")), sonst eine Liste von Dateien
+  # (consult([a, b])).
   @doc false
-  def files([]), do: []
-  def files([h | t]), do: files(h) ++ files(t)
   def files({:glist, _} = l), do: files(PrologEx.unmark(l))
+
+  def files(l) when is_list(l) do
+    items = prolog_items(l)
+    if text?(items), do: [file_name(l)], else: Enum.map(items, &file_name/1)
+  end
+
   def files(t), do: [file_name(t)]
 
-  defp file_name({:atom, name}), do: name
+  defp text?([]), do: false
 
-  defp file_name({tag, "/", [x, y]}) when tag in [:struct, :gstruct],
+  defp text?(items) do
+    Enum.all?(items, &(is_integer(&1) and &1 >= 0)) or
+      (Enum.all?(items, &match?({:atom, <<_::utf8>>}, &1)) and
+         Enum.any?(items, &(&1 in [{:atom, "."}, {:atom, "/"}])))
+  end
+
+  defp prolog_items([]), do: []
+  defp prolog_items([h | t]), do: [h | prolog_items(t)]
+  defp prolog_items(other), do: PrologEx.Error.type!("list", other)
+
+  @doc false
+  def file_name({:glist, _} = l), do: file_name(PrologEx.unmark(l))
+
+  def file_name([_ | _] = l) do
+    l
+    |> prolog_items()
+    |> Enum.map(fn
+      {:atom, <<c::utf8>>} -> c
+      c when is_integer(c) and c >= 0 -> c
+      _ -> PrologEx.Error.type!("atom", l)
+    end)
+    |> List.to_string()
+  end
+
+  def file_name({:atom, name}), do: name
+
+  def file_name({tag, "/", [x, y]}) when tag in [:struct, :gstruct],
     do: file_name(x) <> "/" <> file_name(y)
 
-  defp file_name({:var, _}), do: PrologEx.Error.instantiation!()
-  defp file_name(other), do: PrologEx.Error.type!("atom", other)
+  def file_name({:var, _}), do: PrologEx.Error.instantiation!()
+  def file_name(other), do: PrologEx.Error.type!("atom", other)
 
   # --- Hilfsfunktionen für andere Builtins --------------------------------
 
