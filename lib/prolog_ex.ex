@@ -1333,24 +1333,46 @@ defmodule PrologEx do
     end
   end
 
-  # time(G): wie call/1, meldet danach die verstrichene Zeit. Ein Choice
-  # Point direkt unter G meldet auch einen Fehlschlag. Hat G bei Erfolg
-  # keine eigenen Choice Points hinterlassen, wird dieser Melde-Choice-Point
-  # sofort entfernt – time(G) ist dann so deterministisch wie G.
+  # time(G): wie call/1, meldet nach jeder Lösung und beim Fehlschlag die
+  # Zeit, die G bisher tatsächlich gelaufen ist – summiert über alle
+  # Abschnitte: die Uhr steht, solange G eine Lösung geliefert hat (etwa
+  # während man im Toplevel überlegt, ob man ";" drückt), und läuft weiter,
+  # wenn Backtracking wieder in G hineingeht. Die Summe liegt in
+  # st.counters (Backtracking setzt sie nicht zurück): {Summe, Start | nil}.
+  # Ein Choice Point direkt unter G meldet auch einen Fehlschlag. Hat G bei
+  # Erfolg keine eigenen Choice Points hinterlassen, wird dieser
+  # Melde-Choice-Point sofort entfernt – time(G) ist dann so
+  # deterministisch wie G; sonst kommt über die Lösung ein Choice Point,
+  # der die Uhr beim Wiedereintritt neu startet.
   defp step({:struct, "time", [g]}, _cutb, mod, rest, st) do
-    t0 = System.monotonic_time(:microsecond)
+    ref = make_ref()
     h = st.height
-    st = push(st, {:time_fail, t0, st.subst, st.answer})
+    st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
+    st = push(st, {:time_fail, ref, st.subst, st.answer})
     goal = unmark_top(walk(g, st.subst))
-    run(%{st | goals: [{goal, h + 1, mod}, {{:"$time_exit", t0, h}, 0, mod} | rest]})
+    run(%{st | goals: [{goal, h + 1, mod}, {{:"$time_exit", ref, h}, 0, mod} | rest]})
   end
 
-  defp step({:"$time_exit", t0, h}, _cutb, _mod, rest, st) do
-    report_time(t0)
+  defp step({:"$time_exit", ref, h}, _cutb, _mod, rest, st) do
+    total = time_stop(st, ref)
+    report_time(total)
 
     if st.height == h + 1,
-      do: run(%{st | goals: rest, cps: tl(st.cps), height: h}),
-      else: run(%{st | goals: rest})
+      do:
+        run(%{
+          st
+          | goals: rest,
+            cps: tl(st.cps),
+            height: h,
+            counters: Map.delete(st.counters, ref)
+        }),
+      else:
+        run(
+          push(
+            %{st | goals: rest, counters: Map.put(st.counters, ref, {total, nil})},
+            {:time_reenter, ref}
+          )
+        )
   end
 
   # call_nth(G, N): zählt die Lösungen von G mit einem Zähler, den
@@ -1768,8 +1790,19 @@ defmodule PrologEx do
 
   defp next_solution(_done_or_halted, _mod, _rest, st), do: backtrack(st)
 
-  defp report_time(us0) do
-    secs = (System.monotonic_time(:microsecond) - us0) / 1_000_000
+  defp now_us, do: System.monotonic_time(:microsecond)
+
+  # bisher gelaufene Zeit von time/1 (µs), einschließlich des laufenden Abschnitts
+  defp time_stop(st, ref) do
+    case Map.get(st.counters, ref) do
+      {total, nil} -> total
+      {total, t0} -> total + now_us() - t0
+      nil -> 0
+    end
+  end
+
+  defp report_time(us) do
+    secs = us / 1_000_000
     IO.puts(:stderr, "% #{:erlang.float_to_binary(secs, decimals: 3)} seconds")
   end
 
@@ -1914,9 +1947,14 @@ defmodule PrologEx do
       {:nth_cleanup, ref, subst, answer} ->
         backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
 
-      {:time_fail, t0, subst, answer} ->
-        report_time(t0)
-        backtrack(%{st | subst: subst, answer: answer})
+      {:time_fail, ref, subst, answer} ->
+        report_time(time_stop(st, ref))
+        backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
+
+      # zurück in G (time/1): die Uhr läuft weiter
+      {:time_reenter, ref} ->
+        {total, _} = Map.get(st.counters, ref, {0, nil})
+        backtrack(%{st | counters: Map.put(st.counters, ref, {total, now_us()})})
 
       # G von catch/3 erschöpft
       {:catch, _id, _c, _r, _rest, _mod, _subst, _answer} ->
@@ -2010,9 +2048,9 @@ defmodule PrologEx do
     # können selbst wieder solche enthalten)
     {attrs, size} = compact_attrs(attvs_in(memo), MapSet.new(), %{}, {memo, size}, st.subst)
 
-    # Zähler von call_nth/2, deren Aufräum-Choice-Point (z. B. durch einen
-    # Cut) verschwunden ist, werden nie mehr gebraucht
-    live = for {:nth_cleanup, ref, _, _} <- st.cps, do: ref
+    # Zähler von call_nth/2 und Uhren von time/1, deren Choice Point (z. B.
+    # durch einen Cut) verschwunden ist, werden nie mehr gebraucht
+    live = for cp <- st.cps, ref = counter_ref(cp), ref != nil, do: ref
     counters = Map.take(st.counters, live)
 
     %{
@@ -2024,6 +2062,10 @@ defmodule PrologEx do
         threshold: max(st.min_threshold, 2 * size)
     }
   end
+
+  defp counter_ref({:nth_cleanup, ref, _, _}), do: ref
+  defp counter_ref({:time_fail, ref, _, _}), do: ref
+  defp counter_ref(_), do: nil
 
   defp term_attvs({:var, {:attv, id}}, acc), do: [id | acc]
   defp term_attvs({:struct, _, args}, acc), do: Enum.reduce(args, acc, &term_attvs/2)

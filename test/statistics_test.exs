@@ -190,4 +190,51 @@ defmodule PrologEx.StatisticsTest do
     assert err(c, "statistics(foo, V).") =~ "domain_error(statistics_key, foo)"
     assert err(c, "statistics(1, V).") =~ "type_error(atom, 1)"
   end
+
+  # time/1 misst nur die Zeit, in der G läuft: Wartezeit zwischen den
+  # Lösungen (im Toplevel: bis man ";" drückt) zählt nicht mit
+  defp secs(err),
+    do: for([_, x] <- Regex.scan(~r/% ([0-9.]+) seconds/, err), do: String.to_float(x))
+
+  test "time/1: Pause zwischen den Lösungen zählt nicht", c do
+    [{:term, g, _}] = Reader.read_terms(c.reader, "time(member(X, [1, 2, 3])).")
+
+    err =
+      capture_io(:stderr, fn ->
+        c.db
+        |> PrologEx.query(g)
+        |> Stream.each(fn _ -> Process.sleep(300) end)
+        |> Enum.to_list()
+      end)
+
+    # drei Lösungen (die letzte deterministisch), alle weit unter 0,3 s
+    assert [_, _, _] = ts = secs(err)
+    assert Enum.all?(ts, &(&1 < 0.2)), err
+  end
+
+  test "time/1: gelaufene Zeit wird über die Lösungen summiert", c do
+    [{:term, g, _}] =
+      Reader.read_terms(c.reader, "time((member(X, [1, 2]), numlist(1, 300, L), nrev(L, _))).")
+
+    err =
+      capture_io(:stderr, fn ->
+        c.db |> PrologEx.query(g) |> Stream.each(fn _ -> Process.sleep(300) end) |> Enum.to_list()
+      end)
+
+    [t1, t2] = secs(err)
+    # beide Abschnitte gleich viel Arbeit: Summe etwa doppelt
+    assert t1 > 0 and t2 > 1.4 * t1 and t2 < 3 * t1 + 0.05, err
+  end
+
+  test "time/1: deterministisch bleibt deterministisch", c do
+    capture_io(:stderr, fn ->
+      assert ask(c, "time(X = 1).") == ["X = 1"]
+      assert ask(c, "time(member(X, [1])), Y = 2.") == ["X = 1, Y = 2"]
+      assert ask(c, "time(fail).") == []
+    end)
+
+    # Fehlschlag nach Backtracking: eine Meldung (vom Choice Point unter G)
+    err = capture_io(:stderr, fn -> assert ask(c, "time((member(X, [1, 2]), X > 5)).") == [] end)
+    assert [_] = secs(err)
+  end
 end
