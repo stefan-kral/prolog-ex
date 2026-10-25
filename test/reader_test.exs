@@ -63,11 +63,14 @@ defmodule PrologEx.ReaderTest do
 
   test "gprolog stirbt (zu tief verschachtelt): Fehler, Reader läuft weiter" do
     {:ok, r} = PrologEx.Reader.start_link()
-    deep = String.duplicate("f(", 10_000) <> "a" <> String.duplicate(")", 10_000) <> "."
-    res = PrologEx.Reader.read_terms(r, deep)
-    assert {:error, msg} = List.last(res)
-    assert msg =~ "beendet"
-    assert Process.alive?(r)
-    assert [{:term, {:atom, "ok"}, _}] = PrologEx.Reader.read_terms(r, "ok.")
+    # 10 000: stirbt nach dem Einlesen; 100 000: schon beim Schreiben (epipe)
+    for n <- [10_000, 100_000] do
+      deep = String.duplicate("f(", n) <> "a" <> String.duplicate(")", n) <> "."
+      res = PrologEx.Reader.read_terms(r, deep)
+      assert {:error, msg} = List.last(res)
+      assert msg =~ "beendet"
+      assert Process.alive?(r)
+      assert [{:term, {:atom, "ok"}, _}] = PrologEx.Reader.read_terms(r, "ok.")
+    end
   end
 end

@@ -128,6 +128,8 @@ defmodule PrologEx.Reader do
   @impl true
   def init(opts) do
     if available?() do
+      # stirbt gprolog beim Schreiben (epipe), soll das nur den Port treffen
+      Process.flag(:trap_exit, true)
       env = Keyword.get(opts, :env, [])
       {:ok, %{port: open_port(env), env: env, batch: 0, buf: "", lines: 0}}
     else
@@ -245,7 +247,9 @@ defmodule PrologEx.Reader do
 
   @impl true
   def handle_info({port, {:exit_status, _}}, %{port: port} = st),
-    do: {:noreply, fresh(st)}
+    do: {:noreply, restart(st)}
+
+  def handle_info({:EXIT, port, _}, %{port: port} = st), do: {:noreply, restart(st)}
 
   def handle_info(_msg, st), do: {:noreply, st}
 
@@ -262,6 +266,12 @@ defmodule PrologEx.Reader do
     # eine bereits eingetroffene exit_status-Nachricht des alten Ports verwerfen
     receive do
       {port, {:exit_status, _}} when port == st.port -> :ok
+    after
+      0 -> :ok
+    end
+
+    receive do
+      {:EXIT, port, _} when port == st.port -> :ok
     after
       0 -> :ok
     end
@@ -295,6 +305,9 @@ defmodule PrologEx.Reader do
         end
 
       {^port, {:exit_status, _}} ->
+        {:died, Enum.reverse(acc)}
+
+      {:EXIT, ^port, _} ->
         {:died, Enum.reverse(acc)}
     after
       @timeout -> {:timeout, Enum.reverse(acc)}
@@ -346,6 +359,9 @@ defmodule PrologEx.Reader do
         end
 
       {^port, {:exit_status, _}} ->
+        {:died, Enum.reverse(acc)}
+
+      {:EXIT, ^port, _} ->
         {:died, Enum.reverse(acc)}
     after
       @timeout -> {:timeout, Enum.reverse(acc)}
