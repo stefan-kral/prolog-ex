@@ -26,7 +26,7 @@ work_root = Path.join(System.tmp_dir!(), "prolog_ex_conformance")
 File.rm_rf!(work_root)
 
 files =
-  Path.wildcard(Path.join(tests_root, "**/tests.lgt"))
+  Path.wildcard(Path.join(tests_root, "**/tests*.lgt"))
   |> Enum.filter(&String.contains?(Path.relative_to(&1, tests_root), filter))
   |> Enum.sort()
 
@@ -53,7 +53,10 @@ defmodule Conf do
   def tr({:struct, op, [x, y]}) when op in [",", ";", "->", "*->"],
     do: mk(op, [tr(x), tr(y)])
 
-  def tr({:struct, op, [g]}) when op in ["\\+", "once", "ignore", "call"], do: mk(op, [tr(g)])
+  def tr({:struct, op, [g]}) when op in ["\\+", "once", "ignore", "call", "assertion"],
+    do: mk(op, [tr(g)])
+
+  def tr({:struct, "assertion", [n, g]}), do: mk("assertion", [n, tr(g)])
   def tr({:struct, "catch", [g, c, r]}), do: mk("catch", [tr(g), c, tr(r)])
   def tr({:struct, "findall", [t, g, l]}), do: mk("findall", [t, tr(g), l])
   def tr({:struct, "forall", [c, act]}), do: mk("forall", [tr(c), tr(act)])
@@ -156,7 +159,7 @@ end
 
 results =
   for file <- files do
-    rel = Path.relative_to(Path.dirname(file), tests_root)
+    rel = Path.relative_to(file, tests_root) |> String.replace_suffix("/tests.lgt", "")
     work = Path.join(work_root, rel)
     File.mkdir_p!(work)
     File.cp_r!(Path.dirname(file), work)
@@ -169,7 +172,7 @@ results =
       Conf.run(db, mk(":", [a("lgt"), mk("assertz", [mk("lgt_dir", [a(work <> "/")])])]), reader)
 
     # Datei lesen; op-Direktiven wirken sofort
-    :ok = Reader.open_file(reader, Path.join(work, "tests.lgt"))
+    :ok = Reader.open_file(reader, Path.join(work, Path.basename(file)))
 
     items =
       Stream.unfold(:go, fn

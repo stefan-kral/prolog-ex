@@ -1048,9 +1048,18 @@ defmodule PrologEx do
   end
 
   # call/1: Cut darin ist lokal (Barriere = aktuelle Höhe)
+  # call/N: Ziel wie ISO 7.6.2 in einen Rumpf umwandeln – Variablen an
+  # Zielstellen werden call(V) (ein später gebundener Cut ist dann lokal),
+  # Nicht-Aufrufbares irgendwo im Gerüst aus , ; -> gibt sofort
+  # type_error(callable, Ziel), bevor etwas ausgeführt wird
   defp step({:struct, "call", [g | extra]}, _cutb, mod, rest, st) do
-    goal = add_args(unmark_top(walk(g, st.subst)), extra)
-    run(%{st | goals: [{goal, st.height, mod} | rest]})
+    case guarded(fn ->
+           goal = add_args(unmark_top(walk(g, st.subst)), extra)
+           to_body(goal, goal, st.subst)
+         end) do
+      {:ok, goal} -> run(%{st | goals: [{goal, st.height, mod} | rest]})
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
   end
 
   defp step({:struct, "not", [g]}, cutb, mod, rest, st),
@@ -1965,6 +1974,34 @@ defmodule PrologEx do
 
         {%{st | subst: Map.put(st.subst, @depth_key, level + 1)}, rest}
       end
+    end
+  end
+
+  # Rumpfumwandlung für call/N (ISO 7.6.2); whole: das ganze Ziel (für
+  # den Fehlerterm)
+  defp to_body(g, whole, subst) do
+    case unmark_top(walk(g, subst)) do
+      {:var, _} = v ->
+        {:struct, "call", [v]}
+
+      {:struct, op, [a, b]} when op in [",", ";", "->", "*->"] ->
+        {:struct, op, [to_body(a, whole, subst), to_body(b, whole, subst)]}
+
+      {:atom, _} = t ->
+        t
+
+      {:struct, _, _} = t ->
+        t
+
+      # [] ist in ISO ein Atom, Listen sind Strukturen: wie bisher weiter
+      t when is_list(t) ->
+        t
+
+      {:glist, _} = t ->
+        t
+
+      _ ->
+        PrologEx.Error.type!("callable", resolve(whole, subst))
     end
   end
 

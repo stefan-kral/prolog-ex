@@ -155,4 +155,24 @@ defmodule PrologEx.ExceptionTest do
     end)
     |> IO.write()
   end
+
+  # gefunden mit Logtalks Konformitätstests (conformance/run.exs)
+  test "call/N: Fehler beim Zusammensetzen des Ziels fängt catch/3", c do
+    assert ask(c, "catch(call(X, _), error(E, _), true).") == ["E = instantiation_error"]
+    assert ask(c, "catch(call(3, _), error(E, _), true).") == ["E = type_error(callable, 3)"]
+  end
+
+  test "call/1 wandelt den Rumpf wie ISO 7.6.2 um", c do
+    # Nicht-Aufrufbares irgendwo im Gerüst: Fehler, bevor etwas läuft
+    assert ask(c, "catch(call((fail, 3)), error(E, _), true).") ==
+             ["E = type_error(callable, (fail, 3))"]
+
+    assert ask(c, "catch(call((write(x), 3)), error(E, _), true).") ==
+             ["E = type_error(callable, (write(x), 3))"]
+
+    # eine Variable an Zielstelle wird call(V): ein später gebundener Cut ist lokal
+    assert ask(c, "findall(Z-X, call((Z = !, p(X), Z)), L).") == ["L = [!-1, !-2, !-3]"]
+    # ein Cut direkt im Gerüst schneidet weiter wie gehabt (lokal zu call/1)
+    assert ask(c, "findall(X, call((p(X), !)), L).") == ["L = [1]"]
+  end
 end
