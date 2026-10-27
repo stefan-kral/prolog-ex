@@ -67,7 +67,11 @@ after(failure, _, failed(failure)).
 after(error(E), _, failed(error(E))).
 
 outcome(true, G, R) :- !, once_status(G, S), after(S, true, R).
-outcome(true(A), G, R) :- !, once_status(G, S), after(S, A, R).
+% wie lgtunit: die Zusicherung wird geprüft, solange die Choice Points von G
+% noch stehen (erst danach wird abgeschnitten)
+outcome(true(A), G, R) :- !,
+    catch(( call(G), check(A, R0) -> R = R0 ; R = failed(failure) ),
+          E, R = failed(error(E))).
 outcome(deterministic, G, R) :- !, outcome(deterministic(true), G, R).
 outcome(deterministic(A), G, R) :- !,
     once_status(call_with_inference_limit(G, 100000000, D), S),
@@ -75,10 +79,8 @@ outcome(deterministic(A), G, R) :- !,
     ->  R = failed(nondeterministic)
     ;   after(S, A, R)
     ).
-outcome(subsumes(Exp, Res), G, R) :- !,
-    once_status(G, S), after(S, subsumes_term(Exp, Res), R).
-outcome(variant(T1, T2), G, R) :- !,
-    once_status(G, S), after(S, T1 =@= T2, R).
+outcome(subsumes(Exp, Res), G, R) :- !, outcome(true(subsumes_term(Exp, Res)), G, R).
+outcome(variant(T1, T2), G, R) :- !, outcome(true(T1 =@= T2), G, R).
 outcome(exists(A), G, R) :- !,
     once_status((G, A), S), after(S, true, R).
 outcome(all(A), G, R) :- !,

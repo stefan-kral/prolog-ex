@@ -934,7 +934,10 @@ defmodule PrologEx do
             # [{atomics, Basisebene, höchste erlaubte Ebene}] und das Minimum
             # der höchsten erlaubten Ebenen (nil: keine aktiv)
             dlimits: [],
-            dlimit: nil
+            dlimit: nil,
+            # gab es in diesem Lauf schon setup_call_cleanup/3? Nur dann
+            # müssen Cuts die abgeschnittenen Choice Points ansehen
+            scc: false
 
   # (vor dem Wecken nicht kompaktieren: $wake braucht die Attribute der
   # eben gebundenen Variablen)
@@ -992,8 +995,8 @@ defmodule PrologEx do
   defp step({:atom, "fail"}, _cutb, _mod, _rest, st), do: backtrack(st)
 
   defp step({:atom, "!"}, cutb, _mod, rest, st) do
-    cps = Enum.drop(st.cps, st.height - cutb)
-    run(%{st | goals: rest, cps: cps, height: cutb})
+    {st, rest} = cut_to(st, cutb, rest)
+    run(%{st | goals: rest})
   end
 
   defp step({:struct, ",", [g1, g2]}, cutb, mod, rest, st),
@@ -1043,8 +1046,8 @@ defmodule PrologEx do
 
   # Interne Markierung: Choice Points bis zur Höhe h abschneiden
   defp step({:"$cut_to", h}, _cutb, _mod, rest, st) do
-    cps = Enum.drop(st.cps, st.height - h)
-    run(%{st | goals: rest, cps: cps, height: h})
+    {st, rest} = cut_to(st, h, rest)
+    run(%{st | goals: rest})
   end
 
   # call/1: Cut darin ist lokal (Barriere = aktuelle Höhe)
@@ -1081,7 +1084,7 @@ defmodule PrologEx do
   # Negation: eigener Lauf mit leerem Choice-Point-Stack (Cut darin ist lokal)
   defp step({:struct, "\\+", [g]}, _cutb, mod, rest, st) do
     case guarded(fn -> run(%{st | goals: [{g, 0, mod}], cps: [], height: 0, answer: []}) end) do
-      {:ok, {:sol, _}} -> backtrack(st)
+      {:ok, {:sol, sub}} -> discard(sub, st, &backtrack/1)
       {:ok, :done} -> run(%{st | goals: rest})
       {:thrown, ball} -> throw_ball(ball, st)
     end
@@ -1519,6 +1522,64 @@ defmodule PrologEx do
   defp step({:"$depth", level}, _cutb, _mod, rest, st),
     do: run(%{st | goals: rest, subst: Map.put(st.subst, @depth_key, level)})
 
+  # setup_call_cleanup(S, G, C) wie SWI und der WG17-Vorschlag (N215):
+  #
+  #   * S läuft wie once/1; scheitert oder wirft S, gibt es kein Cleanup.
+  #   * Danach müssen G und C aufrufbar sein (sonst Fehler, bevor G läuft).
+  #   * Ein Rahmen-Choice-Point {:scc, ...} unter G merkt sich C und die
+  #     Bindungen nach S.
+  #   * G deterministisch gelungen: C sofort, mit den aktuellen Bindungen,
+  #     die bleiben; Scheitern von C zählt nicht, Ausnahmen gehen weiter.
+  #   * G scheitert endgültig (Backtracking erreicht den Rahmen) oder wirft
+  #     (die Ausnahme passiert den Rahmen): C mit den Bindungen nach S; beim
+  #     Werfen gewinnt die ursprüngliche Ausnahme.
+  #   * G hat Choice Points hinterlassen: C läuft, sobald ein Cut den Rahmen
+  #     abschneidet (cut_to/3, auch once/1, ->, call_nth/2) oder eine
+  #     Unter-Maschine mit ihm verworfen wird (\\+, discard/3) – mit den
+  #     aktuellen Bindungen, innen vor außen.
+  defp step({:struct, "setup_call_cleanup", [s, g, c]}, _cutb, mod, rest, st) do
+    case guarded(fn -> callable_goal!(s, st.subst) end) do
+      {:ok, sb} ->
+        h = st.height
+        run(%{st | goals: [{sb, h, mod}, {{:"$scc_setup", h, g, c}, 0, mod} | rest]})
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+    end
+  end
+
+  defp step({:"$scc_setup", h, g, c}, _cutb, mod, rest, st) do
+    # once(S): Alternativen von S abschneiden (Cleanups darin laufen zuerst)
+    {st, pre} = cut_to(st, h, [])
+
+    checked =
+      guarded(fn ->
+        gb = callable_goal!(g, st.subst)
+        _ = callable_goal!(c, st.subst)
+        gb
+      end)
+
+    case checked do
+      {:ok, gb} ->
+        st = push(%{st | scc: true}, {:scc, make_ref(), c, mod, st.subst, st.answer})
+        goals = [{gb, h + 1, mod}, {{:"$scc_exit", h}, 0, mod} | rest]
+        run(%{st | goals: pre ++ goals})
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+    end
+  end
+
+  defp step({:"$scc_exit", h}, _cutb, _mod, rest, st) do
+    if st.height == h + 1 do
+      # G deterministisch: Rahmen weg, C jetzt
+      [{:scc, _id, c, cmod, _s, _a} | cps] = st.cps
+      run(%{st | goals: [cleanup_goal(c, cmod, h) | rest], cps: cps, height: h})
+    else
+      run(%{st | goals: rest})
+    end
+  end
+
   # call_nth(G, N): zählt die Lösungen von G mit einem Zähler, den
   # Backtracking NICHT zurücksetzt (st.counters). Ist N eine Zahl, wird bei
   # der N-ten Lösung abgeschnitten (deterministisch). Ein Choice Point unter G
@@ -1564,8 +1625,8 @@ defmodule PrologEx do
 
       k when is_integer(k) ->
         # N-te Lösung: alles ab G abschneiden, Zähler entfernen
-        cps = Enum.drop(st.cps, st.height - h)
-        run(%{st | goals: rest, cps: cps, height: h, counters: Map.delete(st.counters, ref)})
+        {st, rest} = cut_to(st, h, rest)
+        run(%{st | goals: rest, counters: Map.delete(st.counters, ref)})
 
       _ ->
         case unify(n, c, st.subst) do
@@ -1941,6 +2002,75 @@ defmodule PrologEx do
 
   defp next_solution(_done_or_halted, _mod, _rest, st), do: backtrack(st)
 
+  # Choice Points bis zur Höhe h abschneiden. Waren darunter Rahmen von
+  # setup_call_cleanup/3, kommen ihre Cleanups vor die übrigen Ziele
+  # (innen vor außen), als (call(C) -> true ; true).
+  defp cut_to(%{scc: false} = st, h, rest),
+    do: {%{st | cps: Enum.drop(st.cps, st.height - h), height: h}, rest}
+
+  defp cut_to(st, h, rest) do
+    {dropped, cps} = Enum.split(st.cps, st.height - h)
+    {%{st | cps: cps, height: h}, cleanups(dropped, h) ++ rest}
+  end
+
+  defp cleanups(cps, h) do
+    Enum.flat_map(cps, fn
+      {:scc, _id, c, mod, _s, _a} -> [cleanup_goal(c, mod, h)]
+      # eine aufbewahrte Unter-Maschine (findnsols) mit eigenen Rahmen
+      {:findnsols, %{scc: true, cps: sub}, _, _, _, _, _, _} -> cleanups(sub, h)
+      _ -> []
+    end)
+  end
+
+  defp cleanup_goal(c, mod, h),
+    do: {mk(";", [mk("->", [mk("call", [c]), a("true")]), a("true")]), h, mod}
+
+  # eine Unter-Maschine wird mit offenen Choice Points verworfen (\\+ nach
+  # einer Lösung): ihre Cleanups laufen dort (Bindungen zählen nicht mehr),
+  # Ausnahmen daraus gehen weiter; dann k.(st)
+  defp discard(%{scc: false}, st, k), do: k.(st)
+
+  defp discard(sub, st, k) do
+    case cleanups(sub.cps, 0) do
+      [] ->
+        k.(st)
+
+      goals ->
+        case guarded(fn -> run(%{sub | goals: goals, cps: [], height: 0, answer: []}) end) do
+          {:thrown, ball} -> throw_ball(ball, st)
+          _ -> k.(st)
+        end
+    end
+  end
+
+  # Cleanup eines verlassenen Rahmens in einer Unter-Maschine mit den
+  # Bindungen nach dem Setup: {:ok, _} | {:thrown, ball}
+  # Ohne Inferenzgrenzen: beim Abwickeln einer Überschreitung wäre die
+  # Grenze sonst schon überschritten und bräche auch das Cleanup ab.
+  defp run_cleanup({:scc, _id, c, mod, subst, _answer}, st) do
+    sub = %{
+      st
+      | goals: [cleanup_goal(c, mod, 0)],
+        cps: [],
+        height: 0,
+        answer: [],
+        subst: subst,
+        ilimits: [],
+        ilimit: nil
+    }
+
+    guarded(fn -> run(sub) end)
+  end
+
+  # Ziel prüfen wie call/1 (Variable: instantiation_error, sonst
+  # Rumpfumwandlung mit type_error(callable, _))
+  defp callable_goal!(t, subst) do
+    case walk(t, subst) do
+      {:var, _} -> PrologEx.Error.instantiation!()
+      g -> to_body(unmark_top(g), g, subst)
+    end
+  end
+
   defp add_dlimit(st, frame) do
     ls = [frame | st.dlimits]
     %{st | dlimits: ls, dlimit: min_dlimit(ls)}
@@ -2092,8 +2222,14 @@ defmodule PrologEx do
   defp findnsols_chunk({items, cont}, k, l, tail, rest, st) do
     st =
       case cont do
-        {:more, sub} -> push(st, {:findnsols, sub, k, l, tail, rest, st.subst, st.answer})
-        :done -> st
+        # Rahmen von setup_call_cleanup/3 in der aufbewahrten Teilberechnung:
+        # dann müssen auch Cuts hier hinsehen (cut_to/3)
+        {:more, sub} ->
+          st = if sub.scc, do: %{st | scc: true}, else: st
+          push(st, {:findnsols, sub, k, l, tail, rest, st.subst, st.answer})
+
+        :done ->
+          st
       end
 
     case unify(l, list(items, tail), st.subst) do
@@ -2207,6 +2343,13 @@ defmodule PrologEx do
         report_time(time_stop(st, ref))
         backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
 
+      # G von setup_call_cleanup/3 endgültig gescheitert: Cleanup, dann weiter
+      {:scc, _, _, _, _, _} = frame ->
+        case run_cleanup(frame, st) do
+          {:thrown, ball} -> throw_ball(ball, st)
+          _ -> backtrack(st)
+        end
+
       # G von call_with_depth_limit/3 erschöpft: einmal depth_limit_exceeded,
       # falls die Grenze irgendwo überschritten wurde, sonst scheitern
       {:dlimit, {ref, _, _} = frame, r, rest, _mod, subst, answer} ->
@@ -2290,6 +2433,12 @@ defmodule PrologEx do
           unwind(ball, below, h - 1, st)
       end
     end
+  end
+
+  # Rahmen von setup_call_cleanup/3: Cleanup, dessen Ausnahmen zählen nicht
+  defp unwind(ball, [{:scc, _, _, _, _, _} = frame | below], h, st) do
+    _ = run_cleanup(frame, st)
+    unwind(ball, below, h - 1, st)
   end
 
   # Rahmen von call_with_depth_limit/3: G wird verlassen, Grenze weg

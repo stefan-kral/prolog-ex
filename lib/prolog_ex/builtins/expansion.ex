@@ -45,7 +45,8 @@ defmodule PrologEx.Builtins.Expansion do
     {"ignore", 1} => [0],
     {"time", 1} => [0],
     {"call_with_inference_limit", 3} => [0, "+", "-"],
-    {"call_with_depth_limit", 3} => [0, "+", "-"]
+    {"call_with_depth_limit", 3} => [0, "+", "-"],
+    {"setup_call_cleanup", 3} => [0, 0, 0]
   }
 
   # im Kontextmodul des Aufrufers (ohne meta_predicate: eine vom Benutzer
