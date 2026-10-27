@@ -120,6 +120,20 @@ defmodule PrologEx.Builtins.Expansion do
     end
   end
 
+  @doc """
+  Meta-Angabe eines eingebauten Prädikats oder Steuerkonstrukts für
+  predicate_property/2 (`meta_predicate(...)`): Liste der Argumentangaben
+  oder nil.
+  """
+  def builtin_meta(name, ar) do
+    cond do
+      name in [",", ";", "->", "*->"] and ar == 2 -> [0, 0]
+      name == "\\+" and ar == 1 -> [0]
+      name == "call" and ar >= 2 -> [ar - 1 | List.duplicate("?", ar - 1)]
+      true -> PrologEx.Builtins.meta("system", name, ar) || Map.get(@engine_meta, {name, ar})
+    end
+  end
+
   @doc false
   def hook_modules(db, mod, name, arity) do
     [mod, "user"]

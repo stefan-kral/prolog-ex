@@ -79,11 +79,30 @@ defmodule PrologEx.Builtins.Modules do
         other -> PrologEx.Error.type!("atom", other)
       end
 
+    # wie die meisten Systeme (und Logtalks Konformitätstests): ohne Kopf
+    # kein Aufzählen (M:H mit ungebundenem H zählt dagegen die Prädikate
+    # von M auf); eine unbekannte Eigenschaft ist ein domain_error
+    if match?({:var, _}, PrologEx.walk(head, s)), do: PrologEx.Error.instantiation!()
+    check_property!(PrologEx.walk(prop, s), s)
+
     for m <- mods,
         {n, ar} <- candidate_keys(db, m, h),
         p <- properties(db, m, n, ar),
         do: {:unify, [{mod_t, a(m)}, {h, general(n, ar)}, {prop, p}]}
   end
+
+  @props0 ~w(built_in dynamic static multifile discontiguous exported interpreted compiled
+             defined visible)
+  @props1 ~w(meta_predicate number_of_clauses imported_from)
+
+  defp check_property!({:var, _}, _s), do: :ok
+  defp check_property!({:atom, p}, _s) when p in @props0, do: :ok
+
+  defp check_property!({tag, p, [_]}, _s) when tag in [:struct, :gstruct] and p in @props1,
+    do: :ok
+
+  defp check_property!(other, s),
+    do: PrologEx.Error.domain!("predicate_property", PrologEx.resolve(other, s))
 
   defp candidate_keys(db, m, {:var, _}) do
     local = for {^m, n, ar} <- Map.keys(db), do: {n, ar}
@@ -112,21 +131,45 @@ defmodule PrologEx.Builtins.Modules do
       end
     end
 
+    built_in = fn ->
+      [a("built_in"), a("static"), a("defined")] ++
+        meta_prop(PrologEx.Builtins.Expansion.builtin_meta(n, ar), n)
+    end
+
     case PrologEx.locate(db, m, n, ar) do
       {:db, dm, pred} ->
-        dyn = PrologEx.dynamic?(db, {dm, n, ar})
-        impl = if dyn, do: [a("interpreted"), a("dynamic")], else: [a("compiled")]
+        key = {dm, n, ar}
+        dyn = PrologEx.dynamic?(db, key)
+
+        impl =
+          if dyn,
+            do: [a("interpreted"), a("dynamic")],
+            else: [a("compiled"), a("static")]
+
+        decl =
+          for kind <- [:multifile, :discontiguous],
+              PrologEx.has_property?(db, key, kind),
+              do: a(Atom.to_string(kind))
+
         clauses = [mk("number_of_clauses", [length(PrologEx.pred_entries(pred))])]
-        impl ++ origin.(dm) ++ meta_prop(Map.get(db, {:meta, dm, n, ar}), n) ++ clauses
+
+        [a("defined") | impl] ++
+          decl ++ origin.(dm) ++ meta_prop(Map.get(db, {:meta, dm, n, ar}), n) ++ clauses
 
       {:builtin, "system", _} ->
-        [a("built_in")]
+        built_in.()
 
       {:builtin, lib, _} ->
-        [a("compiled")] ++ origin.(lib) ++ meta_prop(PrologEx.Builtins.meta(lib, n, ar), n)
+        [a("defined"), a("compiled"), a("static")] ++
+          origin.(lib) ++ meta_prop(PrologEx.Builtins.meta(lib, n, ar), n)
 
       :none ->
-        if PrologEx.Builtins.system?({n, ar}), do: [a("built_in")], else: []
+        cond do
+          PrologEx.Builtins.system?({n, ar}) -> built_in.()
+          # Steuerkonstrukte der Maschine (, ; -> ...)
+          PrologEx.Builtins.Expansion.builtin_meta(n, ar) != nil -> built_in.()
+          true -> []
+        end
     end
   end
 

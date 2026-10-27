@@ -57,7 +57,7 @@ defmodule PrologEx.Builtins.System do
       unless match?({:var, _}, nm) or match?({:atom, _}, nm) or nm == [],
         do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
 
-      unless match?({:var, _}, ar) or is_integer(ar),
+      unless match?({:var, _}, ar) or (is_integer(ar) and ar >= 0),
         do: PrologEx.Error.type!("predicate_indicator", resolve(pi))
 
       for {m, n, k} <- visible,

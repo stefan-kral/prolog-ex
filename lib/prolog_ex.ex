@@ -526,6 +526,22 @@ defmodule PrologEx do
   @doc false
   def dynamic?(db, key), do: MapSet.member?(Map.get(db, :dynamic, MapSet.new()), pkey(key))
 
+  @doc """
+  multifile/1, discontiguous/1: das Prädikat existiert danach (ohne
+  Klauseln scheitert ein Aufruf nur, statt existence_error), und die
+  Eigenschaft wird gemerkt (`kind`: :multifile | :discontiguous).
+  """
+  def declare_property(db, key, kind) do
+    key = pkey(key)
+
+    db
+    |> Map.put_new(key, build_pred([]))
+    |> Map.update(kind, MapSet.new([key]), &MapSet.put(&1, key))
+  end
+
+  @doc false
+  def has_property?(db, key, kind), do: MapSet.member?(Map.get(db, kind, MapSet.new()), pkey(key))
+
   defp pkey({n, a}), do: {"user", n, a}
   defp pkey({_m, _n, _a} = k), do: k
 
@@ -2127,6 +2143,15 @@ defmodule PrologEx do
 
   # Rumpfumwandlung für call/N (ISO 7.6.2); whole: das ganze Ziel (für
   # den Fehlerterm)
+  @doc """
+  Prüft einen Klauselrumpf (assert/1, ISO 8.9.1.3): lässt er sich nicht in
+  ein Ziel umwandeln, type_error(callable, Rumpf).
+  """
+  def check_body!(b, subst) do
+    _ = to_body(b, b, subst)
+    :ok
+  end
+
   defp to_body(g, whole, subst) do
     case unmark_top(walk(g, subst)) do
       {:var, _} = v ->

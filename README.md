@@ -78,7 +78,9 @@ neu. Von Hand: `iex --erl "+Bc" -S mix`, dann `PrologEx.Toplevel.repl()`.
 Offene Datei-Streams überstehen den Abbruch nicht.
 
 Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`), Direktiven (`op/3`,
-`dynamic/1`, `initialization/1`, beliebige Ziele), Reconsult (erneutes
+`dynamic/1`, `initialization/1`, `multifile/1`, `discontiguous/1`,
+`include/1`, bedingte Übersetzung mit `if/1`, `elif/1`, `else/0`,
+`endif/0`, beliebige Ziele), Reconsult (erneutes
 Laden ersetzt Prädikate), `,` `;` `->` `*->` (soft cut wie SWI; `if/3` wie SICStus: alle Lösungen der Bedingung, Else nur ohne Lösung) `\\+` `!` `call/N` `time/1` (meldet nach jeder Lösung die Zeit, die das Ziel bisher
 tatsächlich gelaufen ist – die Pause bis zum `;` im Toplevel zählt nicht mit),
 `=` `\\=` `==` `\\==`, Standardordnung (`@<` `@>` `@=<` `@>=` `compare/3`,
@@ -537,7 +539,11 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     `library(lambda_pl)`, `library(si)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
-    SICStus, dazu `number_of_clauses/1`); `clause/2`, `retract/1`,
+    SICStus: `built_in`, `static`, `dynamic`, `defined`, `compiled`,
+    `interpreted`, `exported`, `imported_from/1`, `meta_predicate/1`,
+    `multifile`, `discontiguous`, `number_of_clauses/1`; ohne Kopf
+    `instantiation_error`, `M:H` zählt auf; unbekannte Eigenschaft:
+    `domain_error(predicate_property, P)`); `clause/2`, `retract/1`,
     `dynamic/1`, `listing/1`, `current_predicate/1` mit `M:`.
   * Auflösung eines Aufrufs in Modul `m` wie SICStus: in `m` definiert →
     nach `m` importiert → `system`. Kein Rückgriff auf `user` (sonst
@@ -556,6 +562,16 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     eines mit `use_module` geladenen Moduls gelten schon für den Rest der
     ladenden Datei. Operatoren sind global (nicht modul-lokal).
   * Relative Pfade in einer Datei gelten ab deren Ordner.
+  * `:- multifile(P)`: Klauseln von P aus mehreren Dateien werden
+    aneinandergehängt (sonst ersetzt die zuletzt geladene Datei die
+    Definition). `multifile`/`discontiguous` deklarieren das Prädikat:
+    ohne Klauseln scheitert ein Aufruf statt `existence_error`.
+  * `:- include(F)`: die Terme von F stehen an dieser Stelle (relativ zur
+    einschließenden Datei, `.pl` darf fehlen).
+  * `:- if(C)` … `:- elif(C)` … `:- else` … `:- endif` (verschachtelbar,
+    wie SWI/SICStus/GNU): C läuft als Anfrage und sieht das bisher
+    Geladene, ein Fehler gilt als falsch. In inaktiven Zweigen wird alles
+    übersprungen, auch Direktiven und Syntaxfehler.
 
 ## Expansion: `term_expansion/2`, `goal_expansion/2`
 
@@ -633,9 +649,13 @@ mix run conformance/run.exs /pfad/logtalk3 [predicates/atom_length_2] [--failure
 
 Stand: Alle Tests aus der ISO-Norm und aus dem Konformitätsrahmen von
 Szabó/Szeredi bestehen. Bewusst anders als SICStus: `sub_atom/5` mit
-negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Die übrigen
-Fehlschläge betreffen De-facto-Prädikate, die (noch) fehlen, Unicode-Optionen von `open/4` und Grenzen des
-gprolog-Readers (Großzahlen beim Laden von Dateien, einige Escapes).
+negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Gesamt:
+3 947 bestanden, 137 fehlgeschlagen, 205 übersprungen. Die übrigen
+Fehlschläge betreffen Logtalk-, ECLiPSe- und „commons“-Erweiterungen
+(Klauselreferenzen, `evaluable_property/2`, `atomic_concat/3`, die
+logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4` und
+Grenzen des gprolog-Readers (Großzahlen beim Laden von Dateien, einige
+Escapes).
 
 ## Entwicklung
 

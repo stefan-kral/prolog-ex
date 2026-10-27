@@ -49,6 +49,12 @@ defmodule PrologEx.Consult do
       pending: %{},
       # seit dem letzten flush geänderte Prädikate
       dirty: MapSet.new(),
+      # multifile: Klauseln aus anderen Dateien, die beim ersten Auftreten
+      # in dieser Datei schon da waren – sie bleiben vor den neuen stehen
+      mf_base: %{},
+      # bedingte Übersetzung: Stapel aus :on, :off (Bedingung noch offen),
+      # :done (ein Zweig war schon dran), :dead (umgebender Zweig aus)
+      cond: [],
       msgs: [],
       init: [],
       module: into || "user",
@@ -125,9 +131,85 @@ defmodule PrologEx.Consult do
 
   # ---------------------------------------------------------------------
 
+  defp item({:error, _msg}, %{cond: [top | _]} = st) when top != :on, do: st
   defp item({:error, msg}, st), do: msg(st, msg)
 
-  defp item({:term, t, _names}, st) do
+  defp item({:term, t, _names} = it, st) do
+    case conditional(PrologEx.unmark_top(t), st) do
+      {:handled, st} -> st
+      :skip -> st
+      :go -> expand_item(it, st)
+    end
+  end
+
+  # :- if(C), :- elif(C), :- else, :- endif (wie SWI, SICStus, GNU):
+  # zuerst ausgewertet, vor term_expansion; in einem inaktiven Zweig wird
+  # alles übersprungen, auch Direktiven
+  defp conditional({:struct, ":-", [d]}, st) do
+    active = Enum.all?(st.cond, &(&1 == :on))
+
+    case PrologEx.unmark_top(d) do
+      {:struct, "if", [c]} ->
+        top =
+          cond do
+            not active -> :dead
+            condition?(c, st) -> :on
+            true -> :off
+          end
+
+        {:handled, %{st | cond: [top | st.cond]}}
+
+      {:struct, "elif", [c]} ->
+        case st.cond do
+          [top | rest] ->
+            top =
+              cond do
+                top in [:on, :done] -> :done
+                top == :dead -> :dead
+                condition?(c, %{st | cond: rest}) -> :on
+                true -> :off
+              end
+
+            {:handled, %{st | cond: [top | rest]}}
+
+          [] ->
+            {:handled, msg(st, "Fehler: elif ohne if")}
+        end
+
+      {:atom, "else"} ->
+        case st.cond do
+          [top | rest] ->
+            top = %{off: :on, on: :done, done: :done, dead: :dead}[top]
+            {:handled, %{st | cond: [top | rest]}}
+
+          [] ->
+            {:handled, msg(st, "Fehler: else ohne if")}
+        end
+
+      {:atom, "endif"} ->
+        case st.cond do
+          [_ | rest] -> {:handled, %{st | cond: rest}}
+          [] -> {:handled, msg(st, "Fehler: endif ohne if")}
+        end
+
+      _ ->
+        if active, do: :go, else: :skip
+    end
+  end
+
+  defp conditional(_t, st), do: if(Enum.all?(st.cond, &(&1 == :on)), do: :go, else: :skip)
+
+  # Bedingung als Anfrage (sieht das bisher Geladene); Fehler: Meldung, falsch
+  defp condition?(c, st) do
+    st = flush(st)
+    PrologEx.put_db(st.db)
+    [_] = Enum.take(PrologEx.query(st.db, c, module: st.module), 1)
+    true
+  rescue
+    _ -> false
+  end
+
+  defp expand_item({:term, t, _names}, st) do
     {st, hook?} = hook?(st, "term_expansion")
 
     if hook? do
@@ -288,6 +370,7 @@ defmodule PrologEx.Consult do
     end
 
     pkey = {m, name, arity}
+    st = if PrologEx.has_property?(st.db, pkey, :multifile), do: remember_base(st, pkey), else: st
 
     %{
       st
@@ -305,12 +388,33 @@ defmodule PrologEx.Consult do
       |> Enum.map(&{&1, Map.fetch!(st.pending, &1)})
       |> Enum.group_by(fn {{m, _, _}, _} -> m end)
       |> Enum.reduce(st.db, fn {m, preds}, db ->
-        clauses = Enum.flat_map(preds, fn {_, cls} -> Enum.reverse(cls) end)
+        clauses =
+          Enum.flat_map(preds, fn {key, cls} ->
+            Map.get(st.mf_base, key, []) ++ Enum.reverse(cls)
+          end)
+
         db = PrologEx.consult(db, clauses, m)
         Enum.reduce(preds, db, fn {{m, n, ar}, _}, db -> Map.delete(db, {:import, m, n, ar}) end)
       end)
 
     %{st | db: db, dirty: MapSet.new()}
+  end
+
+  # multifile: beim ersten Auftreten in dieser Datei die vorhandenen
+  # Klauseln merken (aus anderen Dateien), damit flush sie nicht ersetzt
+  defp remember_base(st, key) do
+    if Map.has_key?(st.mf_base, key) or Map.has_key?(st.pending, key) do
+      st
+    else
+      base =
+        case Map.fetch(st.db, key) do
+          {:ok, {:pred, _, _, _, _} = pred} -> PrologEx.pred_source(pred)
+          {:ok, pred} when not is_nil(pred) -> PrologEx.pred_source(pred)
+          _ -> []
+        end
+
+      %{st | mf_base: Map.put(st.mf_base, key, base)}
+    end
   end
 
   defp directive({:struct, "module", [{:atom, m}, exports]}, st) do
@@ -341,13 +445,40 @@ defmodule PrologEx.Consult do
     %{st | db: PrologEx.Builtins.Modules.declare_meta(st.db, spec, st.module)}
   end
 
+  # :- include(F): die Terme von F stehen an dieser Stelle (relativ zur
+  # ladenden Datei, .pl darf fehlen)
+  defp directive({:struct, "include", [f]}, st) do
+    path = resolve_path(PrologEx.Builtins.Modules.file_name(f))
+
+    case File.read(path) do
+      {:ok, text} ->
+        items = Reader.read_terms(Reader.current(), text)
+        outer = Process.put(:prolog_ex_load_dir, Path.dirname(Path.expand(path)))
+
+        try do
+          Enum.reduce(items, st, &item/2)
+        after
+          Process.put(:prolog_ex_load_dir, outer)
+        end
+
+      {:error, _} ->
+        msg(st, "Fehler: include(#{PrologEx.format(f, quoted: true)}): Datei nicht gefunden")
+    end
+  end
+
   defp directive({:struct, "initialization", [g | _]}, st),
     do: %{st | init: [{g, st.module} | st.init]}
 
   # op/3 hat gprolog beim Lesen schon ausgeführt (für die folgenden
   # Terme); hier noch einmal über op/3, damit Fehler gemeldet werden
-  defp directive({:struct, "discontiguous", [_]}, st), do: st
-  defp directive({:struct, "multifile", [_]}, st), do: st
+  defp directive({:struct, kind, [spec]}, st) when kind in ["discontiguous", "multifile"] do
+    k = String.to_atom(kind)
+
+    Enum.reduce(PrologEx.Builtins.Modules.indicators(spec, st.module), st, fn key, st ->
+      st = if k == :multifile, do: remember_base(st, key), else: st
+      %{st | db: PrologEx.declare_property(st.db, key, k)}
+    end)
+  end
 
   defp directive(g, st) do
     st = flush(st)

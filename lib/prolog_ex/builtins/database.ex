@@ -176,10 +176,7 @@ defmodule PrologEx.Builtins.Database do
       end
 
     # Rumpf muss aufrufbar sein (Variablen werden zu call/1)
-    case PrologEx.walk(b, s) do
-      {:var, _} -> :ok
-      bb -> Compiler.key(bb)
-    end
+    PrologEx.check_body!(b, s)
 
     check_modifiable!(key)
 
@@ -287,8 +284,10 @@ defmodule PrologEx.Builtins.Database do
   # Steuerkonstrukte und geschützte Builtins sind tabu; nicht geschützte
   # Builtins (append/3, ...) darf man wie beim consult durch eigene
   # Klauseln ersetzen
+  # (Klauseln als Kopf: (:-)/1,2 zählt wie ein Steuerkonstrukt, ISO 8.9.1.4)
   defp check_modifiable!({_m, n, ar} = key) do
-    if PrologEx.Builtins.protected?({n, ar}), do: permission!(key)
+    if PrologEx.Builtins.protected?({n, ar}) or {n, ar} in [{":-", 1}, {":-", 2}],
+      do: permission!(key)
   end
 
   # bestehendes Prädikat: nur dynamische dürfen sich ändern

@@ -197,22 +197,31 @@ defmodule PrologEx.ModuleTest do
 
     test "Implementierung, Herkunft, dynamic, meta_predicate", c do
       load("haupt.pl")
-      assert props(c, "atom(_)") == "L = [built_in]"
-      assert props(c, "call(_)") == "L = [built_in]"
-      assert props(c, "append(_, _, _)") == "L = [compiled, imported_from(lists)]"
+      assert props(c, "atom(_)") == "L = [built_in, static, defined]"
+
+      assert props(c, "call(_)") ==
+               "L = [built_in, static, defined, (meta_predicate call(0))]"
+
+      assert props(c, "append(_, _, _)") ==
+               "L = [defined, compiled, static, imported_from(lists)]"
 
       assert props(c, "maplist(_, _)") ==
-               "L = [compiled, imported_from(apply), (meta_predicate maplist(1, ?))]"
+               "L = [defined, compiled, static, imported_from(apply), (meta_predicate maplist(1, ?))]"
 
       assert props(c, "flaeche(_, _)") ==
-               "L = [compiled, imported_from(geo), number_of_clauses(2)]"
+               "L = [defined, compiled, static, imported_from(geo), number_of_clauses(2)]"
 
-      assert props(c, "geo:flaeche(_, _)") == "L = [compiled, exported, number_of_clauses(2)]"
-      assert props(c, "geo:mal(_, _, _)") == "L = [compiled, number_of_clauses(1)]"
-      assert props(c, "geo:zaehler(_)") == "L = [interpreted, dynamic, number_of_clauses(1)]"
+      assert props(c, "geo:flaeche(_, _)") ==
+               "L = [defined, compiled, static, exported, number_of_clauses(2)]"
+
+      assert props(c, "geo:mal(_, _, _)") ==
+               "L = [defined, compiled, static, number_of_clauses(1)]"
+
+      assert props(c, "geo:zaehler(_)") ==
+               "L = [defined, interpreted, dynamic, number_of_clauses(1)]"
 
       assert props(c, "meta:zweimal(_)") ==
-               "L = [compiled, exported, (meta_predicate zweimal(0)), number_of_clauses(1)]"
+               "L = [defined, compiled, static, exported, (meta_predicate zweimal(0)), number_of_clauses(1)]"
 
       # unsichtbar oder unbekannt: scheitert
       assert props(c, "mal(_, _, _)") == "L = []"
@@ -236,7 +245,7 @@ defmodule PrologEx.ModuleTest do
 
       assert ask(c, "findall(M-P, predicate_property(M:tick, P), L).") ==
                [
-                 "L = [user-compiled, user-imported_from(geo), user-number_of_clauses(1), geo-compiled, geo-exported, geo-number_of_clauses(1)]"
+                 "L = [user-defined, user-compiled, user-static, user-imported_from(geo), user-number_of_clauses(1), geo-defined, geo-compiled, geo-static, geo-exported, geo-number_of_clauses(1)]"
                ]
 
       assert ask(c, "predicate_property(geo:H, dynamic).") |> length() == 1

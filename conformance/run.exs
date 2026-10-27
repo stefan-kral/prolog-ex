@@ -60,6 +60,12 @@ defmodule Conf do
   def tr({:struct, "catch", [g, c, r]}), do: mk("catch", [tr(g), c, tr(r)])
   def tr({:struct, "findall", [t, g, l]}), do: mk("findall", [t, tr(g), l])
   def tr({:struct, "forall", [c, act]}), do: mk("forall", [tr(c), tr(act)])
+
+  def tr({:struct, op, [t, g, l]}) when op in ["setof", "bagof"],
+    do: mk(op, [t, tr_caret(g), l])
+
+  defp tr_caret({:struct, "^", [v, g]}), do: mk("^", [v, tr_caret(g)])
+  defp tr_caret(g), do: tr(g)
   def tr(g), do: g
 
   # Datei in Termen lesen: op-Direktiven und double_quotes wirken sofort,
@@ -127,6 +133,12 @@ defmodule Conf do
   end
 
   defp item(other, _reader, _dir), do: [other]
+
+  # Atome, die auf .pl enden (Dateinamen in tester.lgt)
+  def pl_atoms({:atom, n}), do: if(String.ends_with?(n, ".pl"), do: [n], else: [])
+  def pl_atoms({:struct, _, args}), do: Enum.flat_map(args, &pl_atoms/1)
+  def pl_atoms(l) when is_list(l), do: Enum.flat_map(l, &pl_atoms/1)
+  def pl_atoms(_), do: []
 
   # Klauseln außerhalb eines Objekts gehören zu user
   def target, do: if(Process.get(:lgt_in_object), do: "lgt", else: "user")
@@ -247,14 +259,28 @@ results =
     # user-Klauseln aus tester.lgt (z. B. portray/1), ohne initialization
     tester = Path.join(work, "tester.lgt")
 
+    tester_all = if File.exists?(tester), do: Conf.read_items(reader, tester), else: []
+
     tester_items =
-      if File.exists?(tester) do
-        for {:term, t} = it <- Conf.read_items(reader, tester),
-            not match?({:struct, ":-", [{:struct, "initialization", _}]}, t),
-            do: it
-      else
-        []
-      end
+      for {:term, t} = it <- tester_all,
+          not match?({:struct, ":-", [{:struct, "initialization", _}]}, t),
+          do: it
+
+    # Prolog-Dateien, die tester.lgt vor den Tests lädt
+    # ('$lgt_load_prolog_file'(File) in der initialization-Direktive)
+    pre_files =
+      for {:term, {:struct, ":-", [{:struct, "initialization", [g]}]}} <- tester_all,
+          name <- Conf.pl_atoms(g),
+          File.exists?(Path.join(work, name)),
+          do: Path.join(work, name)
+
+    db =
+      Enum.reduce(pre_files, db, fn f, db ->
+        case Conf.run(db, mk("consult", [a(f)]), reader) do
+          {:ok, _, db} -> db
+          _ -> db
+        end
+      end)
 
     items = tester_items ++ Conf.read_items(reader, Path.join(work, Path.basename(file)))
 
