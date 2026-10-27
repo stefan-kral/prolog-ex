@@ -8,8 +8,9 @@ defmodule PrologEx.TermScanner do
 
   `scan(text, eof?)`:
 
-    * `{:end, n}` – die ersten n Bytes sind der Term samt Punkt und einem
-      folgenden Leerraumzeichen (das ISO mitliest),
+    * `{:end, n}` – die ersten n Bytes sind der Term samt Punkt; das
+      folgende Leerraumzeichen bleibt im Stream (ISO 8.14.1.4: nach
+      `read` auf "term1. term2." steht noch " term2." an),
     * `:empty` – bis zum Dateiende nur Leerraum und Kommentare,
     * `{:eof_inside, n}` – Dateiende mitten in einem Term (Syntaxfehler),
     * `:more` – der Text reicht nicht, es muss nachgelesen werden.
@@ -69,7 +70,8 @@ defmodule PrologEx.TermScanner do
             # Ende, wenn danach Leerraum, % oder das Dateiende kommt
             case at(text, j) do
               nil -> if eof?, do: {:end, j}, else: :more
-              n when n in @layout -> {:end, j + 1}
+              # das Layoutzeichen bleibt im Stream (ISO 6.4.8, 8.14.1.4)
+              n when n in @layout -> {:end, j}
               ?% -> {:end, j}
               _ -> scan(text, j, true, eof?)
             end

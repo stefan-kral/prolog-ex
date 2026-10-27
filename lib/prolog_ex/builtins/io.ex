@@ -650,7 +650,7 @@ defmodule PrologEx.Builtins.IO do
   # --- read_term --------------------------------------------------------------
 
   defp read_term(id, st, t, opts, s) do
-    options = option_list!(opts, s) |> Enum.map(&read_option!/1)
+    options = option_list!(opts, s) |> Enum.map(&read_option!(&1, s))
 
     case pre_read(id, st) do
       :eof ->
@@ -671,11 +671,17 @@ defmodule PrologEx.Builtins.IO do
     end
   end
 
-  defp read_option!({:struct, name, [_]} = o)
-       when name in ["variables", "variable_names", "singletons"],
-       do: o
+  # das Argument muss eine Variable oder eine (Teil-)Liste sein
+  defp read_option!({:struct, name, [x]} = o, s)
+       when name in ["variables", "variable_names", "singletons"] do
+    case PrologEx.Builtins.Lists.skip_list(x, s) do
+      {_, []} -> o
+      {_, {:var, _}} -> o
+      _ -> Error.domain!("read_option", PrologEx.resolve(o, s))
+    end
+  end
 
-  defp read_option!(other), do: Error.domain!("read_option", other)
+  defp read_option!(other, s), do: Error.domain!("read_option", PrologEx.resolve(other, s))
 
   # Text (Term samt Punkt) mit gprolog lesen. Verpackt als '$pure'((...)),
   # damit der Reader Direktiven wie ":- op(...)" nicht ausführt.

@@ -342,31 +342,63 @@ defmodule PrologEx.IOTest do
   describe "TermScanner" do
     alias PrologEx.TermScanner, as: T
 
+    # das Layoutzeichen nach dem Punkt gehört nicht mehr zum Term (ISO 8.14.1.4)
     test "Ende eines Terms" do
       for {text, eof, expected} <- [
-            {"foo(a).\nbar.", false, {:end, 8}},
+            {"foo(a).\nbar.", false, {:end, 7}},
             {"foo(a).", false, :more},
             {"foo(a).", true, {:end, 7}},
-            {"X = 'a.b'. y.", true, {:end, 11}},
-            {"X =.. L. y.", true, {:end, 9}},
-            {"X = 0'. . y.", true, {:end, 10}},
-            {"X = 0'''. y.", true, {:end, 10}},
-            {"X = 0'\\x41\\. y.", true, {:end, 13}},
-            {"X = 1.5e3. y.", true, {:end, 11}},
-            {"% c.\n /* x. */ a. ", true, {:end, 18}},
+            {"X = 'a.b'. y.", true, {:end, 10}},
+            {"X =.. L. y.", true, {:end, 8}},
+            {"X = 0'. . y.", true, {:end, 9}},
+            {"X = 0'''. y.", true, {:end, 9}},
+            {"X = 0'\\x41\\. y.", true, {:end, 12}},
+            {"X = 1.5e3. y.", true, {:end, 10}},
+            {"% c.\n /* x. */ a. ", true, {:end, 17}},
             {"   \n  ", true, :empty},
             {"a :- b", true, {:eof_inside, 6}},
             {"a :- b", false, :more},
-            {"\"a. b\". c.", true, {:end, 8}},
+            {"\"a. b\". c.", true, {:end, 7}},
             {"f(x).%c\n", true, {:end, 5}},
             {"a = .. .", true, {:end, 8}},
-            {"'it''s.'. x.", true, {:end, 10}},
+            {"'it''s.'. x.", true, {:end, 9}},
             {"/* offen", false, :more},
             {"/* offen", true, {:eof_inside, 8}},
             {"a =", false, :more}
           ] do
         assert T.scan(text, eof) == expected, inspect(text)
       end
+    end
+  end
+
+  # ISO 8.14.1.4: read verbraucht das Layoutzeichen nach dem Punkt nicht
+  test "read/1: nach dem Term bleibt das Leerzeichen im Stream", c do
+    File.write!("rt.txt", "term1. term2. foo 123. term3.")
+
+    assert ask(
+             c,
+             "open('rt.txt', read, S), read(S, A), get_char(S, C), read(S, B), " <>
+               "catch(read(S, _), error(syntax_error(_), _), true), peek_char(S, P), read(S, D), close(S)."
+           )
+           |> hd() =~ "A = term1, B = term2, C = ' ', D = term3, P = ' '"
+  end
+
+  test "read_term/2,3: Optionswerte müssen Variablen oder (Teil-)Listen sein", c do
+    File.write!("o.txt", "a. b. c. d.")
+
+    assert ask(
+             c,
+             "open('o.txt', read, S), read_term(S, T, [variables(V), singletons([])]), close(S)."
+           )
+           |> hd() =~ "T = a"
+
+    for o <- ["variables(a)", "variable_names([_|a])", "singletons([_|1])", "foo(1)"] do
+      assert ask(
+               c,
+               "open('o.txt', read, S), catch(read_term(S, _, [#{o}]), error(E, _), true), close(S)."
+             )
+             |> hd() =~ "E = domain_error(read_option, ",
+             o
     end
   end
 
