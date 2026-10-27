@@ -61,7 +61,7 @@ defmodule PrologEx.Builtins do
   @engine ~w(true/0 fail/0 false/0 !/0 ,/2 ;/2 ->/2 :/2 call/1 call/2 call/3 call/4 call/5 call/6
              call/7 call/8 call_nth/2 findall/3 findall/4 catch/3 throw/1
              findnsols/4 findnsols/5 countall/2 not/1 \\+/1 =/2 is/2 </2 >/2 >=/2 =</2 =:=/2 =\\=/2 time/1
-             *->/2 if/3 call_with_inference_limit/3)
+             *->/2 if/3 call_with_inference_limit/3 call_with_depth_limit/3)
           |> Enum.map(fn s ->
             [n, a] = Regex.run(~r{^(.*)/(\d+)$}, s, capture: :all_but_first)
             {n, String.to_integer(a)}
@@ -148,6 +148,19 @@ defmodule PrologEx.Builtins do
 
   @doc "Bibliotheksmodule"
   def library_modules, do: Map.keys(@exports) |> Enum.sort()
+
+  # Bibliotheken in Prolog-Quelltext (priv/library/*.pl)
+  @pl_libraries Path.wildcard(Path.join([__DIR__, "..", "..", "priv", "library", "*.pl"]))
+                |> Enum.map(&Path.basename(&1, ".pl"))
+
+  @system_modules MapSet.new(["system" | Map.keys(@exports)] ++ @pl_libraries)
+
+  @doc """
+  Gehört das Modul zum System (eingebaute Prädikate, Bibliotheken in Elixir
+  oder in Prolog-Quelltext)? Für call_with_depth_limit/3: Klauseln solcher
+  Module zählen nicht als Ebene.
+  """
+  def system_module?(m), do: MapSet.member?(@system_modules, m)
 
   @ops (for mod <- @modules,
             function_exported?(mod, :ops, 0),

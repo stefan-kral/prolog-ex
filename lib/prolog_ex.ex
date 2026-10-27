@@ -907,6 +907,9 @@ defmodule PrologEx do
 
   @min_threshold 4096
 
+  # aktuelle Ebene für call_with_depth_limit/3 (ein Eintrag der Substitution)
+  @depth_key :"$depth"
+
   defstruct goals: [],
             subst: %{},
             cps: [],
@@ -926,7 +929,12 @@ defmodule PrologEx do
             # aktive Inferenzgrenzen (call_with_inference_limit/3):
             # [{id, Grenze}] und die kleinste davon (nil: keine aktiv)
             ilimits: [],
-            ilimit: nil
+            ilimit: nil,
+            # aktive Tiefengrenzen (call_with_depth_limit/3):
+            # [{atomics, Basisebene, höchste erlaubte Ebene}] und das Minimum
+            # der höchsten erlaubten Ebenen (nil: keine aktiv)
+            dlimits: [],
+            dlimit: nil
 
   # (vor dem Wecken nicht kompaktieren: $wake braucht die Attribute der
   # eben gebundenen Variablen)
@@ -1432,6 +1440,67 @@ defmodule PrologEx do
     end
   end
 
+  # call_with_depth_limit(G, L, R) wie SWI, mit unserer Zählung der Tiefe:
+  # Nur Prädikate mit Klauseln aus Benutzermodulen bilden Ebenen; eingebaute
+  # Prädikate und die Interna der Bibliotheken (auch in Prolog geschriebener)
+  # sind durchsichtig, ebenso Steuerkonstrukte und call/N. Ein Ziel, das eine
+  # Bibliothek zurückruft (maplist, findall, ...), liegt auf der Ebene ihres
+  # Aufrufs. G selbst ist Ebene 1.
+  #
+  # Gelingt G, ist R die größte erreichte Ebene (mindestens 1). Aufrufe
+  # jenseits von L scheitern (für Iterative Deepening); scheitert G am Ende
+  # und wurde dabei irgendwo die Grenze überschritten, gelingt der Aufruf
+  # einmal mit R = depth_limit_exceeded, sonst scheitert er.
+  #
+  # Die aktuelle Ebene steht in der Substitution (@depth_key): Choice
+  # Points und catch/3 stellen sie so von selbst wieder her. Beim Betreten
+  # einer Benutzerklausel (depth_enter/3) wird sie erhöht; nach dem Rumpf
+  # setzt ein Ziel {:"$depth", Ebene} sie zurück – außer es folgt ohnehin
+  # schon eines (Endrekursion: konstanter Speicher). Ohne aktive Grenze
+  # wird nichts mitgeführt. Größte Ebene und "überschritten" stehen in
+  # :atomics je Rahmen – sie überstehen Backtracking und Unter-Maschinen.
+  defp step({:struct, "call_with_depth_limit", [g, l, r]}, _cutb, mod, rest, st) do
+    case walk(l, st.subst) do
+      {:var, _} ->
+        throw_error(st, &PrologEx.Error.instantiation!/0)
+
+      n when is_integer(n) and n >= 0 ->
+        ref = :atomics.new(2, signed: true)
+        if n >= 1, do: :atomics.put(ref, 1, 1)
+        base = Map.get(st.subst, @depth_key, 0)
+        frame = {ref, base, base + n - 1}
+        h = st.height
+        st = add_dlimit(%{st | subst: Map.put(st.subst, @depth_key, base)}, frame)
+        st = push(st, {:dlimit, frame, r, rest, mod, st.subst, st.answer})
+        goal = unmark_top(walk(g, st.subst))
+        run(%{st | goals: [{goal, h + 1, mod}, {{:"$dlimit_exit", frame, h, r}, 0, mod} | rest]})
+
+      n when is_integer(n) ->
+        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
+
+      other ->
+        throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
+    end
+  end
+
+  defp step({:"$dlimit_exit", {ref, _, _} = frame, h, r}, _cutb, _mod, rest, st) do
+    st = remove_dlimit(st, frame)
+
+    st =
+      if st.height == h + 1,
+        do: %{st | cps: tl(st.cps), height: h},
+        else: push(st, {:dlimit_reenter, frame})
+
+    case unify(r, :atomics.get(ref, 1), st.subst) do
+      {:ok, s} -> cont(st, s, rest)
+      :error -> backtrack(st)
+    end
+  end
+
+  # Rumpf zu Ende: Ebene des Aufrufers wiederherstellen
+  defp step({:"$depth", level}, _cutb, _mod, rest, st),
+    do: run(%{st | goals: rest, subst: Map.put(st.subst, @depth_key, level)})
+
   # call_nth(G, N): zählt die Lösungen von G mit einem Zähler, den
   # Backtracking NICHT zurücksetzt (st.counters). Ist N eine Zahl, wird bei
   # der N-ten Lösung abgeschnitten (deterministisch). Ein Choice Point unter G
@@ -1512,7 +1581,10 @@ defmodule PrologEx do
 
     case Map.fetch(db, {mod, name, arity}) do
       {:ok, {:pred, _, _, _, _} = pred} ->
-        try_clauses(goal, args, candidates(pred, args, st.subst), rest, mod, st)
+        case depth_enter(st, rest, mod) do
+          {st, rest} -> try_clauses(goal, args, candidates(pred, args, st.subst), rest, mod, st)
+          :fail -> backtrack(st)
+        end
 
       {:ok, _stale} ->
         call_located(
@@ -1554,7 +1626,11 @@ defmodule PrologEx do
           end
 
         args = qualify(args, Map.get(current_db(), {:meta, m, name, arity}), m, mod, st.subst)
-        try_clauses(goal, args, candidates(pred, args, st.subst), rest, m, st)
+
+        case depth_enter(st, rest, m) do
+          {st, rest} -> try_clauses(goal, args, candidates(pred, args, st.subst), rest, m, st)
+          :fail -> backtrack(st)
+        end
 
       {:builtin, m, {:prolog, pred, _}} ->
         args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
@@ -1847,6 +1923,51 @@ defmodule PrologEx do
 
   defp next_solution(_done_or_halted, _mod, _rest, st), do: backtrack(st)
 
+  defp add_dlimit(st, frame) do
+    ls = [frame | st.dlimits]
+    %{st | dlimits: ls, dlimit: min_dlimit(ls)}
+  end
+
+  defp remove_dlimit(%{dlimits: []} = st, _frame), do: st
+
+  defp remove_dlimit(st, frame) do
+    ls = List.delete(st.dlimits, frame)
+    %{st | dlimits: ls, dlimit: min_dlimit(ls)}
+  end
+
+  defp min_dlimit([]), do: nil
+  defp min_dlimit(ls), do: ls |> Enum.map(&elem(&1, 2)) |> Enum.min()
+
+  # Aufruf eines Prädikats mit Klauseln aus Modul m: bei aktiver
+  # Tiefengrenze Ebene prüfen und für den Rumpf erhöhen
+  defp depth_enter(%{dlimit: nil} = st, rest, _m), do: {st, rest}
+
+  defp depth_enter(st, rest, m) do
+    if PrologEx.Builtins.system_module?(m) do
+      {st, rest}
+    else
+      level = Map.get(st.subst, @depth_key, 0)
+
+      if level > st.dlimit do
+        for {ref, _base, max} <- st.dlimits, level > max, do: :atomics.put(ref, 2, 1)
+        :fail
+      else
+        for {ref, base, _max} <- st.dlimits do
+          rel = level - base + 1
+          if rel > :atomics.get(ref, 1), do: :atomics.put(ref, 1, rel)
+        end
+
+        rest =
+          case rest do
+            [{{:"$depth", _}, _, _} | _] -> rest
+            _ -> [{{:"$depth", level}, 0, "system"} | rest]
+          end
+
+        {%{st | subst: Map.put(st.subst, @depth_key, level + 1)}, rest}
+      end
+    end
+  end
+
   defp add_ilimit(st, id, limit) do
     ls = [{id, limit} | st.ilimits]
     %{st | ilimits: ls, ilimit: min_ilimit(ls)}
@@ -2031,6 +2152,21 @@ defmodule PrologEx do
         report_time(time_stop(st, ref))
         backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
 
+      # G von call_with_depth_limit/3 erschöpft: einmal depth_limit_exceeded,
+      # falls die Grenze irgendwo überschritten wurde, sonst scheitern
+      {:dlimit, {ref, _, _} = frame, r, rest, _mod, subst, answer} ->
+        st = remove_dlimit(st, frame)
+
+        with 1 <- :atomics.get(ref, 2),
+             {:ok, s} <- unify(r, {:atom, "depth_limit_exceeded"}, subst) do
+          cont(%{st | answer: answer}, s, rest)
+        else
+          _ -> backtrack(st)
+        end
+
+      {:dlimit_reenter, frame} ->
+        backtrack(add_dlimit(st, frame))
+
       # G von call_with_inference_limit/3 erschöpft: Grenze weg
       {:ilimit, id, _r, _rest, _mod, _subst, _answer} ->
         backtrack(remove_ilimit(st, id))
@@ -2101,6 +2237,10 @@ defmodule PrologEx do
     end
   end
 
+  # Rahmen von call_with_depth_limit/3: G wird verlassen, Grenze weg
+  defp unwind(ball, [{:dlimit, frame, _, _, _, _, _} | below], h, st),
+    do: unwind(ball, below, h - 1, remove_dlimit(st, frame))
+
   # Rahmen von call_with_inference_limit/3: fängt nur die eigene
   # Überschreitung; sonst Grenze weg (G wird verlassen) und weiter
   defp unwind(ball, [{:ilimit, id, r, rest, _mod, subst, answer} | below], h, st) do
@@ -2150,6 +2290,13 @@ defmodule PrologEx do
     # Attribute der noch lebenden attributierten Variablen mitnehmen (sie
     # können selbst wieder solche enthalten)
     {attrs, size} = compact_attrs(attvs_in(memo), MapSet.new(), %{}, {memo, size}, st.subst)
+
+    # Ebene von call_with_depth_limit/3 mitnehmen
+    attrs =
+      case st.subst do
+        %{@depth_key => level} -> Map.put(attrs, @depth_key, level)
+        _ -> attrs
+      end
 
     # Zähler von call_nth/2 und Uhren von time/1, deren Choice Point (z. B.
     # durch einen Cut) verschwunden ist, werden nie mehr gebraucht

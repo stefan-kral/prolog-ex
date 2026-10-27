@@ -364,7 +364,7 @@ pro Sekunde:
 `statistics/0` gibt eine Übersicht aus. Das Zählen der Inferenzen kostet
 etwa 25 ns je Aufruf (rund 1–2 %).
 
-## Ressourcen begrenzen: `call_with_inference_limit/3`
+## Ressourcen begrenzen: `call_with_inference_limit/3`, `call_with_depth_limit/3`
 
 Wie SWI und Scryer: `call_with_inference_limit(G, L, R)` ruft `G` mit
 höchstens `L` Inferenzen (Prädikataufrufen) *je Lösung* – beim Backtracking
@@ -390,6 +390,40 @@ R = inference_limit_exceeded.
     messbar; mit aktiver Grenze ebenso.
   * Was in einem eingebauten Prädikat (Elixir) geschieht, zählt als eine
     Inferenz und wird nicht unterbrochen.
+
+`call_with_depth_limit(G, L, R)` wie SWI: Aufrufe tiefer als `L` Ebenen
+scheitern (für Iterative Deepening, zum Abfangen endloser Rekursion).
+Gelingt `G`, ist `R` die größte erreichte Ebene (mindestens 1); scheitert
+`G` und wurde dabei die Grenze überschritten, gelingt der Aufruf einmal mit
+`R = depth_limit_exceeded`, sonst scheitert er.
+
+```prolog
+?- call_with_depth_limit(nat(X), 3, R).     % nat(0). nat(s(X)) :- nat(X).
+R = 1, X = 0 ;
+R = 2, X = s(0) ;
+R = 3, X = s(s(0)) ;
+R = depth_limit_exceeded.
+```
+
+Was eine Ebene ist, legen wir unabhängig von der Implementierung fest:
+
+  * Nur Prädikate mit Klauseln aus Benutzermodulen bilden Ebenen; `G`
+    selbst ist Ebene 1, der Rumpf einer Klausel liegt eine Ebene tiefer
+    als ihr Aufruf.
+  * Eingebaute Prädikate (`is/2`, `=/2`, ...) und die Interna der
+    Bibliotheken – auch der in Prolog geschriebenen – kosten keine Ebene.
+    Ein Ziel, das eine Bibliothek zurückruft (`maplist/3`, `findall/3`,
+    ...), liegt auf der Ebene ihres Aufrufs. In SWI zählen dagegen auch
+    Builtins und Bibliotheksprädikate; dort ist `R` daher oft größer.
+  * Steuerkonstrukte (`,` `;` `->` `\+` `call/N` `catch/3`) sind
+    durchsichtig: `(A,B,C)` liegt ganz auf einer Ebene.
+  * Endrekursion braucht auch mit Grenze konstanten Speicher: Die Tiefe
+    zählt hoch (ein endloser endrekursiver Loop wird erkannt), aber die
+    Fortsetzung wächst nicht.
+  * Kosten: ohne aktive Grenze keine; mit aktiver Grenze etwa 25–30 % im
+    nrev-Benchmark.
+  * Verschachtelt (auch mit `call_with_inference_limit/3`) gilt die
+    strengere Grenze.
 
 ## Coroutining
 
