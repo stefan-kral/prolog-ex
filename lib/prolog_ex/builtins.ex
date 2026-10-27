@@ -52,7 +52,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Expansion,
     PrologEx.Builtins.Between,
     PrologEx.Builtins.Reif,
-    PrologEx.Builtins.FastRW
+    PrologEx.Builtins.FastRW,
+    PrologEx.Builtins.Format
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst

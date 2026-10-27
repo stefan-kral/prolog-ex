@@ -139,7 +139,7 @@ defmodule PrologEx.WriterOpsTest do
       assert Writer.format(a("-")) == "-"
 
       x = v("X")
-      assert Writer.format(mk("f", [x, v("Y")]), variable_names: %{x => "Foo"}) == "f(Foo,Y)"
+      assert Writer.format(mk("f", [x, v("Y")]), variable_names: %{x => "Foo"}) == "f(Foo,_Y)"
     end
 
     test "ignore_ops: kanonisch" do

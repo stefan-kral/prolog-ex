@@ -84,7 +84,9 @@ defmodule PrologEx.WriterRef do
   defp w(other, _max, _role, _d, _o), do: piece(inspect(other))
 
   defp var_name(n) when is_integer(n), do: "_G#{n}"
-  defp var_name(n) when is_binary(n), do: n
+  # (nachgezogen: Variablen beginnen mit _, ISO 7.10.5)
+  defp var_name("_" <> _ = n), do: n
+  defp var_name(n) when is_binary(n), do: "_" <> n
   defp var_name({:attv, id}), do: "_V#{id}"
   defp var_name(n), do: inspect(n)
 

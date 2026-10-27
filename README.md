@@ -179,6 +179,34 @@ Ebenen `f(f(...))`) bringen gprolog zum Absturz. Das gibt einen Fehler
 („Reader (gprolog) beendet … – neu gestartet“), der Reader startet neu und
 liest danach normal weiter.
 
+## Formatierte Ausgabe: `format/1,2,3`
+
+Nach PIP 0110 (Prolog Implementers Forum, "Formatted output"), wie SWI,
+SICStus und GNU Prolog im gemeinsamen Kern; alle gut 1 100 Fälle aus Logtalks
+Konformitätstests bestehen.
+
+```prolog
+?- format("~w und ~q~n", ['A b', 'A b']).
+A b und 'A b'
+?- format("~t~w~10|~t~d~8+~n", [name, 42]).
+      name      42
+?- format("~2f ~e ~D ~16r~n", [2.675, 1.0e-3, 1234567, 255]).
+2.67 1.000000e-03 1,234,567 ff
+```
+
+  * Terme `~w ~p ~q ~k ~W`, Text `~a ~c ~s`, Zahlen `~d ~D ~r ~R ~e ~E ~f
+    ~g ~G` (Argumente sind arithmetische Ausdrücke), `~n ~N ~i ~~`,
+    Spalten `~t ~| ~+` mit Füllzeichen `` ~`ct ``; Zahl vor der Direktive
+    als Ziffern, `*` (nächstes Argument) oder `` `c ``.
+  * `~e ~f ~g` wie C `printf`: gerundet wird der exakte Binärwert, bei
+    Gleichstand zur geraden Ziffer (`~2f` von 2.675 gibt 2.67, `~0f` von
+    2.5 gibt 2) – mit 20 000 Zufallswerten gegen C geprüft.
+  * Spalten beginnen dort, wo der Stream gerade steht.
+  * Die Ausgabe entsteht ganz im Speicher: ein Fehler unterwegs schreibt
+    nichts. Formatfehler sind `domain_error(format, Grund)`.
+  * `~p` und `print/1,2` fragen ein benutzerdefiniertes `portray/1` für
+    jeden Teilterm.
+
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 
 Wie SWI (`fast_write/2`, `fast_read/2`, `fast_term_serialized/2`) und SICStus
@@ -606,8 +634,7 @@ mix run conformance/run.exs /pfad/logtalk3 [predicates/atom_length_2] [--failure
 Stand: Alle Tests aus der ISO-Norm und aus dem Konformitätsrahmen von
 Szabó/Szeredi bestehen. Bewusst anders als SICStus: `sub_atom/5` mit
 negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Die übrigen
-Fehlschläge betreffen De-facto-Prädikate, die (noch) fehlen – vor allem
-`format/2,3` –, Unicode-Optionen von `open/4` und Grenzen des
+Fehlschläge betreffen De-facto-Prädikate, die (noch) fehlen, Unicode-Optionen von `open/4` und Grenzen des
 gprolog-Readers (Großzahlen beim Laden von Dateien, einige Escapes).
 
 ## Entwicklung

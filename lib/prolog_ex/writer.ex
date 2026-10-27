@@ -42,7 +42,11 @@ defmodule PrologEx.Writer do
       (Operator-Atome dann in Klammern: `X = (-)`).
     * `variable_names: %{var => "Name"}` – Variablen mit diesen Namen
       (ISO `variable_names/1`).
+    * `source_names: true` – sonst unbenannte Variablen mit ihrem Namen aus
+      dem Quelltext (Toplevel-Antworten); ohne: `_` davor (`_A`).
     * `ops:` – Operatortabelle (Standard: die der Sitzung, `PrologEx.Ops`).
+    * `portray: fun` – vor jedem Teilterm (außer Variablen) gefragt:
+      `{:ok, text}` ersetzt ihn, `:no` schreibt ihn normal (print/1).
   """
 
   import PrologEx, only: [format_float: 1]
@@ -57,7 +61,9 @@ defmodule PrologEx.Writer do
       comma: if(Keyword.get(opts, :spacing) == :next_argument, do: ", ", else: ","),
       max_depth: Keyword.get(opts, :max_depth, 0),
       var_names: Keyword.get(opts, :variable_names, %{}),
-      ops: Keyword.get_lazy(opts, :ops, &Ops.table/0)
+      source_names: Keyword.get(opts, :source_names, false),
+      ops: Keyword.get_lazy(opts, :ops, &Ops.table/0),
+      portray: Keyword.get(opts, :portray)
     }
 
     role = if Keyword.get(opts, :operand, false), do: :operand, else: :arg
@@ -68,6 +74,7 @@ defmodule PrologEx.Writer do
   @doc "Optionen für Toplevel-Antworten, writeq und print"
   def answer_opts do
     [
+      source_names: true,
       quoted: true,
       numbervars: true,
       spacing: :next_argument,
@@ -96,26 +103,39 @@ defmodule PrologEx.Writer do
   defp descend(_t, _max, _role, d, %{max_depth: m} = o, st) when m > 0 and d > m,
     do: ret(st, piece("..."), o)
 
-  defp descend({tag, f, args}, max, _role, d, o, st) when tag in [:struct, :gstruct],
+  # portray (print/1, ~p): zuerst den Rückruf fragen; {:ok, text} ersetzt
+  # den Teilterm (Variablen werden nicht gefragt)
+  defp descend({:var, _} = t, max, role, d, o, st), do: plain(t, max, role, d, o, st)
+
+  defp descend(t, max, role, d, %{portray: p} = o, st) when is_function(p, 1) do
+    case p.(t) do
+      {:ok, text} -> ret(st, piece(text), o)
+      :no -> plain(t, max, role, d, o, st)
+    end
+  end
+
+  defp descend(t, max, role, d, o, st), do: plain(t, max, role, d, o, st)
+
+  defp plain({tag, f, args}, max, _role, d, o, st) when tag in [:struct, :gstruct],
     do: compound(f, args, max, d, o, st)
 
   # ignore_ops (write_canonical, ISO 7.10.5): auch Listen in funktionaler
   # Schreibweise, '.'(H,T)
-  defp descend([h | t], max, _role, d, %{ignore_ops: true} = o, st),
+  defp plain([h | t], max, _role, d, %{ignore_ops: true} = o, st),
     do: compound(".", [h, t], max, d, o, st)
 
-  defp descend({:glist, l}, max, role, d, %{ignore_ops: true} = o, st),
-    do: descend(l, max, role, d, o, st)
+  defp plain({:glist, l}, max, role, d, %{ignore_ops: true} = o, st),
+    do: plain(l, max, role, d, o, st)
 
-  defp descend([_ | _] = l, _max, _role, d, o, st), do: list(l, d, o, st)
-  defp descend({:glist, l}, _max, _role, d, o, st), do: list(l, d, o, st)
-  defp descend(t, _max, role, _d, o, st), do: ret(st, leaf(t, role, o), o)
+  defp plain([_ | _] = l, _max, _role, d, o, st), do: list(l, d, o, st)
+  defp plain({:glist, l}, _max, _role, d, o, st), do: list(l, d, o, st)
+  defp plain(t, _max, role, _d, o, st), do: ret(st, leaf(t, role, o), o)
 
   # Variablen: Ränder Buchstabe/_ (für glue? zählt nur die Klasse)
   defp leaf({:var, n} = v, _role, o) do
     case o.var_names do
       %{^v => name} -> piece(name)
-      _ -> {var_name(n), ?_, ?_}
+      _ -> {var_name(n, o), ?_, ?_}
     end
   end
 
@@ -140,10 +160,16 @@ defmodule PrologEx.Writer do
 
   defp leaf(other, _role, _o), do: piece(inspect(other))
 
-  defp var_name(n) when is_integer(n), do: "_G#{n}"
-  defp var_name(n) when is_binary(n), do: n
-  defp var_name({:attv, id}), do: "_V#{id}"
-  defp var_name(n), do: inspect(n)
+  # Eine Variable beginnt mit _ (ISO 7.10.5: "_" gefolgt von einer
+  # Zeichenfolge), auch wenn sie im Quelltext A hieß – sonst sähe sie aus
+  # wie ein Name. Nur die Antworten im Toplevel (source_names) zeigen die
+  # Namen der Anfrage.
+  defp var_name(n, _o) when is_integer(n), do: "_G#{n}"
+  defp var_name("_" <> _ = n, _o), do: n
+  defp var_name(n, %{source_names: true}) when is_binary(n), do: n
+  defp var_name(n, _o) when is_binary(n), do: "_" <> n
+  defp var_name({:attv, id}, _o), do: "_V#{id}"
+  defp var_name(n, _o), do: "_" <> inspect(n)
 
   # --- Strukturen ---------------------------------------------------------
 

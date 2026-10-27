@@ -57,6 +57,15 @@ defmodule PrologEx.Arith do
   @max_tagged 576_460_752_303_423_487
   @min_tagged -576_460_752_303_423_488
 
+  @ops0 ~w(pi e epsilon max_tagged_integer min_tagged_integer random random_float
+           cputime realtime)
+  @ops1 ~w(+ - \\ abs acos acosh acot asin asinh atan atanh ceiling cos cosh cot exp
+           float float_fractional_part float_integer_part floor integer log log2 lsb
+           log10 msb popcount random random_float round sign sin sinh sqrt succ tan
+           tanh truncate)
+  @ops2 ~w(* ** + - / // /\\ << >> \\/ ^ atan atan2 copysign div gcd log max min
+           mod plus rem xor)
+
   @doc "Wert des arithmetischen Ausdrucks t unter der Substitution s"
   def eval(t, s) do
     ev(t, s)
@@ -70,8 +79,10 @@ defmodule PrologEx.Arith do
   defp ev(t, s) do
     case unmark_top(walk(t, s)) do
       n when is_number(n) -> n
-      {:struct, op, [x, y]} -> eval2(op, ev(x, s), ev(y, s))
-      {:struct, op, [x]} -> eval1(op, ev(x, s))
+      # erst der Funktor, dann die Argumente: X is foo(bar) gibt
+      # type_error(evaluable, foo/1), nicht bar/0 (ISO 9.1.1)
+      {:struct, op, [x, y]} when op in @ops2 -> eval2(op, ev(x, s), ev(y, s))
+      {:struct, op, [x]} when op in @ops1 -> eval1(op, ev(x, s))
       {:atom, name} -> eval0(name)
       [x] -> ev_char(x, s)
       {:var, _} -> Error.instantiation!()
@@ -104,14 +115,6 @@ defmodule PrologEx.Arith do
   # Die Reihenfolge der Auswertung (links vor rechts, Tiefe zuerst) und
   # damit die Fehler sind dieselben wie bei eval/2.
 
-  @ops0 ~w(pi e epsilon max_tagged_integer min_tagged_integer random random_float
-           cputime realtime)
-  @ops1 ~w(+ - \\ abs acos acosh acot asin asinh atan atanh ceiling cos cosh cot exp
-           float float_fractional_part float_integer_part floor integer log log2 lsb
-           msb popcount random random_float round sign sin sinh sqrt succ tan tanh
-           truncate)
-  @ops2 ~w(* ** + - / // /\\ << >> \\/ ^ atan atan2 copysign div gcd log max min
-           mod plus rem xor)
   # nicht falten (Wert ändert sich)
   @impure ~w(random random_float cputime realtime)
 
@@ -198,6 +201,12 @@ defmodule PrologEx.Arith do
   defp eval1("log", x) when x <= 0, do: undefined()
   defp eval1("log", x) when is_integer(x), do: int_log(x)
   defp eval1("log", x), do: :math.log(x)
+  defp eval1("log10", x) when x <= 0, do: undefined()
+  # kleine Ganzzahlen direkt (log10(1000) = 3.0), große über int_log
+  defp eval1("log10", x) when is_integer(x) and x < 1.0e300, do: :math.log10(x)
+  defp eval1("log10", x) when is_integer(x), do: int_log(x) / :math.log(10)
+  defp eval1("log10", x), do: :math.log10(x)
+
   defp eval1("log2", x) when x <= 0, do: undefined()
   defp eval1("log2", x) when is_integer(x), do: int_log(x) / :math.log(2)
   defp eval1("log2", x), do: :math.log2(x)

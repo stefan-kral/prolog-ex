@@ -415,6 +415,22 @@ defmodule PrologEx.Stream do
     id
   end
 
+  @doc """
+  Ausgabestream in den Speicher (für format/2 mit portray/1, später
+  with_output_to/2): sammelt den Text; `memory_text/1` liefert ihn.
+  """
+  def open_memory_out do
+    t = table()
+    id = t.next
+    s = %__MODULE__{id: id, kind: :memory_out, mode: :write, buf: []}
+    Process.put({@key, id}, s)
+    put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id)})
+    id
+  end
+
+  @doc "Bisher in einen Speicher-Ausgabestream geschriebener Text"
+  def memory_text(id), do: IO.iodata_to_binary(get(id).buf)
+
   # --- Ausgabe ----------------------------------------------------------------
 
   @doc "Text (UTF-8) ausgeben; Position wird nachgeführt"
@@ -422,11 +438,13 @@ defmodule PrologEx.Stream do
     s = get(id)
     text = IO.iodata_to_binary(text)
 
-    case s.kind do
-      :stdout -> IO.write(text)
-      :stderr -> IO.write(:stderr, text)
-      :file -> :file.write(s.dev, text)
-    end
+    s =
+      case s.kind do
+        :stdout -> tap(s, fn _ -> IO.write(text) end)
+        :stderr -> tap(s, fn _ -> IO.write(:stderr, text) end)
+        :file -> tap(s, fn _ -> :file.write(s.dev, text) end)
+        :memory_out -> %{s | buf: [s.buf | text]}
+      end
 
     update(out_position(s, text))
     :ok
@@ -436,11 +454,13 @@ defmodule PrologEx.Stream do
   def put_byte(id, b) do
     s = get(id)
 
-    case s.kind do
-      :stdout -> IO.binwrite(<<b>>)
-      :stderr -> IO.binwrite(:stderr, <<b>>)
-      :file -> :file.write(s.dev, <<b>>)
-    end
+    s =
+      case s.kind do
+        :stdout -> tap(s, fn _ -> IO.binwrite(<<b>>) end)
+        :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, <<b>>) end)
+        :file -> tap(s, fn _ -> :file.write(s.dev, <<b>>) end)
+        :memory_out -> %{s | buf: [s.buf | <<b>>]}
+      end
 
     update(%{s | bytes: s.bytes + 1})
     :ok
@@ -450,11 +470,13 @@ defmodule PrologEx.Stream do
   def put_bytes(id, bin) do
     s = get(id)
 
-    case s.kind do
-      :stdout -> IO.binwrite(bin)
-      :stderr -> IO.binwrite(:stderr, bin)
-      :file -> :file.write(s.dev, bin)
-    end
+    s =
+      case s.kind do
+        :stdout -> tap(s, fn _ -> IO.binwrite(bin) end)
+        :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, bin) end)
+        :file -> tap(s, fn _ -> :file.write(s.dev, bin) end)
+        :memory_out -> %{s | buf: [s.buf | bin]}
+      end
 
     update(%{s | bytes: s.bytes + byte_size(bin)})
     :ok

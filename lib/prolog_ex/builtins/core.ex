@@ -140,7 +140,7 @@ defmodule PrologEx.Builtins.Core do
   end
 
   defbuiltin "print", [x] do
-    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), writeq_opts()))
+    PrologEx.Builtins.IO.out(print_text(x, subst()))
     :ok
   end
 
@@ -157,6 +157,40 @@ defmodule PrologEx.Builtins.Core do
   defbuiltin "write_term", [x, opts] do
     PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), write_options(opts, subst())))
     :ok
+  end
+
+  @doc """
+  Text für print/1,2 und format ~p: wie writeq, und gibt es ein
+  benutzerdefiniertes portray/1, wird es für jeden Teilterm (außer
+  Variablen) gefragt; gelingt es, ersetzt seine Ausgabe den Teilterm.
+  """
+  def print_text(t, s) do
+    opts =
+      if Map.has_key?(PrologEx.current_db(), {"user", "portray", 1}),
+        do: [{:portray, &portray/1} | writeq_opts()],
+        else: writeq_opts()
+
+    PrologEx.Writer.format(PrologEx.resolve(t, s), opts)
+  end
+
+  # user:portray(T) als Unteranfrage, Ausgabe in einen Speicher-Stream
+  defp portray(t) do
+    alias PrologEx.Stream, as: S
+    id = S.open_memory_out()
+    old = S.current_output()
+    S.set_output(id)
+
+    try do
+      goal = PrologEx.mk(":", [a("user"), PrologEx.mk("portray", [t])])
+
+      case PrologEx.current_db() |> PrologEx.query(goal) |> Enum.take(1) do
+        [_] -> {:ok, S.memory_text(id)}
+        [] -> :no
+      end
+    after
+      S.set_output(old)
+      S.close(id)
+    end
   end
 
   # writeq: quoted, numbervars; Zeichenlisten als "..." bei

@@ -9,7 +9,7 @@ defmodule PrologEx.WriterTest do
   test "write_canonical: Listen und {} funktional (ISO 7.10.5, 8.14.2.4)" do
     c = &Writer.format(&1, quoted: true, ignore_ops: true)
     assert c.([1, 2, 3]) == "'.'(1,'.'(2,'.'(3,[])))"
-    assert c.([a("a") | v("T")]) == "'.'(a,T)"
+    assert c.([a("a") | v("T")]) == "'.'(a,_T)"
     assert c.({:glist, [1, 2]}) == "'.'(1,'.'(2,[]))"
     assert c.([1 | {:glist, [2]}]) == "'.'(1,'.'(2,[]))"
     assert c.([]) == "[]"
@@ -52,7 +52,7 @@ defmodule PrologEx.WriterTest do
     assert q(list([a("a"), a("bc")])) == "[a,bc]"
     assert q(list([1, 2])) == "[1,2]"
     assert q(list([a("\""), a("\\")])) == ~S("\"\\")
-    assert q(PrologEx.cons(a("a"), v("T"))) == "[a|T]"
+    assert q(PrologEx.cons(a("a"), v("T"))) == "[a|_T]"
     # ohne strings: Liste mit gequoteten Zeichen
     assert Writer.format(list([a("1"), a("2")]), quoted: true) == "['1','2']"
     # write/1: nichts gequotet

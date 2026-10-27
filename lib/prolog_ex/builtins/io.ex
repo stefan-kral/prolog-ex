@@ -307,7 +307,9 @@ defmodule PrologEx.Builtins.IO do
   end
 
   defbuiltin "print", [stream, x] do
-    write_to(stream, x, PrologEx.Builtins.Core.writeq_opts(), subst())
+    id = output!(deref(stream), :text)
+    S.put_text(id, PrologEx.Builtins.Core.print_text(x, subst()))
+    :ok
   end
 
   defbuiltin "writeq", [stream, x] do
