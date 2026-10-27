@@ -42,6 +42,22 @@ defmodule PrologEx.FastRWTest do
     assert ask(c, "forall(_, true)") == {:error, "instantiation_error"}
   end
 
+  test "exists_file/1, exists_directory/1, delete_file/1 (wie SWI)", c do
+    assert ask(c, "exists_file('#{c.f}')") == []
+    File.write!(c.f, "x")
+    assert ask(c, "exists_file('#{c.f}')") == ["true"]
+    assert ask(c, "exists_file(\"#{c.f}\")") == ["true"]
+    assert ask(c, "exists_directory('#{c.tmp_dir}'), \\+ exists_file('#{c.tmp_dir}')") == ["true"]
+    assert ask(c, "delete_file('#{c.f}'), \\+ exists_file('#{c.f}')") == ["true"]
+    refute File.exists?(c.f)
+
+    assert ask(c, "catch(delete_file('#{c.f}'), error(E, _), true)") ==
+             ["E = existence_error(file, '#{c.f}')"]
+
+    assert ask(c, "catch(exists_file(_), error(E, _), true)") == ["E = instantiation_error"]
+    assert ask(c, "catch(exists_file(1), error(E, _), true)") == ["E = type_error(atom, 1)"]
+  end
+
   test "once/1 (ISO), ignore/1", c do
     assert ask(c, "once(member(X, [1, 2]))") == ["X = 1"]
     assert ask(c, "once(fail)") == []

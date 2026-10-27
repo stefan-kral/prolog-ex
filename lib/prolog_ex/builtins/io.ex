@@ -38,6 +38,47 @@ defmodule PrologEx.Builtins.IO do
     open(src, mode, stream, opts, subst())
   end
 
+  # Dateien wie SWI: exists_file/1, exists_directory/1, delete_file/1
+  defbuiltin "exists_file", [f] do
+    if File.regular?(fs_path!(f, subst())), do: :ok, else: :fail
+  end
+
+  defbuiltin "exists_directory", [f] do
+    if File.dir?(fs_path!(f, subst())), do: :ok, else: :fail
+  end
+
+  defbuiltin "delete_file", [f] do
+    case File.rm(fs_path!(f, subst())) do
+      :ok -> :ok
+      {:error, :enoent} -> Error.existence!("file", PrologEx.resolve(f, subst()))
+      {:error, _} -> Error.permission!("delete", "file", PrologEx.resolve(f, subst()))
+    end
+  end
+
+  # Dateiname: Atom oder Zeichen-/Codeliste
+  defp fs_path!(f, s) do
+    case PrologEx.walk(f, s) do
+      {:var, _} ->
+        Error.instantiation!()
+
+      {:atom, p} ->
+        p
+
+      [_ | _] = l ->
+        try do
+          PrologEx.Builtins.Modules.file_name(PrologEx.resolve(l, s))
+        rescue
+          PrologEx.Error -> Error.type!("atom", PrologEx.resolve(l, s))
+        end
+
+      {:glist, _} = l ->
+        PrologEx.Builtins.Modules.file_name(PrologEx.resolve(l, s))
+
+      other ->
+        Error.type!("atom", PrologEx.resolve(other, s))
+    end
+  end
+
   defbuiltin "close", [stream] do
     S.close(S.lookup!(deref(stream)))
     :ok
