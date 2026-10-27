@@ -56,6 +56,20 @@ defmodule PrologEx.OrderTest do
       end
     end
 
+    # ISO 7.2.2: alle Floats vor allen Integern (nicht nach Wert gemischt)
+    test "Floats vor Integern, unabhängig vom Wert" do
+      assert all(s("compare", [@o, 7.0, 1])) == ["O = (<)"]
+      assert all(s("compare", [@o, 1, 0.5])) == ["O = (>)"]
+      assert all(s("@<", [-3, -1.0e10])) == []
+
+      assert all(s("msort", [list([1, 7.0, 2, 8.0, -3, 0.5]), @x])) ==
+               ["X = [0.5, 7.0, 8.0, -3, 1, 2]"]
+
+      # das Beispiel aus ISO 8.4.3.4 (sort/2)
+      assert all(s("sort", [list([1, 2, 7.0, 8.0, a("a")]), @x])) == ["X = [7.0, 8.0, 1, 2, a]"]
+      assert all(s("sort", [list([1, 1.0, 1]), @x])) == ["X = [1.0, 1]"]
+    end
+
     test "zusammengesetzt: Stelligkeit, dann Name, dann Argumente" do
       assert all(s("@<", [s("z", [1]), s("a", [1, 1])])) == ["true"]
       assert all(s("@<", [s("a", [2]), s("b", [1])])) == ["true"]

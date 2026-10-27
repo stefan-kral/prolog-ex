@@ -5,7 +5,8 @@ defmodule PrologEx.Order do
       Variable < Zahl < Atom < zusammengesetzter Term
 
     * Variablen: nach interner Kennung (stabil innerhalb einer Anfrage)
-    * Zahlen: nach Wert; bei gleichem Wert Float vor Integer (1.0 @< 1)
+    * Zahlen: alle Floats vor allen Integern (ISO 7.2.2: `7.0 @< 1`),
+      innerhalb nach Wert
     * Atome: alphabetisch nach Codepoints (UTF-8 bytewise = Codepoints)
     * zusammengesetzt: Stelligkeit, dann Name, dann Argumente von links;
       Listen sind '.'/2
@@ -161,7 +162,7 @@ defmodule PrologEx.Order do
   # eingebaute Ordnung der BEAM genau der Standardordnung entspricht:
   #
   #   * nur Integer          -> nativ sortieren
-  #   * nur Zahlen (gemischt) -> Zahlenvergleich mit "Float vor Integer"
+  #   * nur Zahlen (gemischt) -> alle Floats vor allen Integern, sonst Wert
   #   * nur Atome {:atom, _}  -> nativ sortieren (Namen bytewise)
   #
   # Sonst bekommt jedes Element EINMAL einen Sortierschlüssel (key/2): ein
@@ -171,7 +172,7 @@ defmodule PrologEx.Order do
   # vergleicht Tupel zuerst nach Größe):
   #
   #   Variable  -> {0, kennung, 0, 0}
-  #   Zahl      -> {1, wert, 0 | 1, 0}         Float (0) vor Integer (1)
+  #   Zahl      -> {1, 0 | 1, wert, 0}         Float (0) vor Integer (1)
   #   Atom      -> {2, name, 0, 0}
   #   zusammen. -> {3, stelligkeit, name, {schlüssel der argumente ...}}
   # ---------------------------------------------------------------------
@@ -228,10 +229,10 @@ defmodule PrologEx.Order do
   defp kind([{:atom, _} | xs], k) when k in [:none, :atoms], do: kind(xs, :atoms)
   defp kind(_, _), do: :mixed
 
-  defp number_le(x, y) when x < y, do: true
-  defp number_le(x, y) when x > y, do: false
-  # gleicher Wert: Float vor Integer
-  defp number_le(x, y), do: is_float(x) or is_integer(y)
+  # ISO: Float vor Integer, sonst nach Wert
+  defp number_le(x, y) when is_float(x) and is_integer(y), do: true
+  defp number_le(x, y) when is_integer(x) and is_float(y), do: false
+  defp number_le(x, y), do: x <= y
 
   defp dedup_numbers([x, y | rest]) when x == y and is_float(x) == is_float(y),
     do: dedup_numbers([x | rest])
@@ -251,10 +252,10 @@ defmodule PrologEx.Order do
         {0, var_key(n), 0, 0}
 
       x when is_float(x) ->
-        {1, x, 0, 0}
+        {1, 0, x, 0}
 
       x when is_integer(x) ->
-        {1, x, 1, 0}
+        {1, 1, x, 0}
 
       [] ->
         {2, "[]", 0, 0}
@@ -287,10 +288,11 @@ defmodule PrologEx.Order do
   defp class(_compound), do: 3
 
   defp same_class(0, {:var, x}, {:var, y}, _), do: cmp(var_key(x), var_key(y))
-  defp same_class(1, x, y, _) when x < y, do: :lt
-  defp same_class(1, x, y, _) when x > y, do: :gt
+  # ISO: Float vor Integer, unabhängig vom Wert
   defp same_class(1, x, y, _) when is_float(x) and is_integer(y), do: :lt
   defp same_class(1, x, y, _) when is_integer(x) and is_float(y), do: :gt
+  defp same_class(1, x, y, _) when x < y, do: :lt
+  defp same_class(1, x, y, _) when x > y, do: :gt
   defp same_class(1, _, _, _), do: :eq
   defp same_class(2, x, y, _), do: cmp(atom_name(x), atom_name(y))
 
