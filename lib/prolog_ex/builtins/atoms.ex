@@ -145,6 +145,83 @@ defmodule PrologEx.Builtins.Atoms do
   defp ascii?(name), do: not String.match?(name, ~r/[^\x00-\x7f]/)
 
   # ---------------------------------------------------------------------
+  # atomic_list_concat/2,3 (wie SWI)
+  # ---------------------------------------------------------------------
+
+  # atomic_list_concat(L, A): die Texte der atomaren Elemente von L
+  # aneinandergehängt
+  defbuiltin "atomic_list_concat", [l, res] do
+    s = subst()
+    result_atom!(res, s)
+    {:unify, [{res, a(Enum.map_join(atomic_items!(l, s), &atomic_text/1))}]}
+  end
+
+  # atomic_list_concat(L, Sep, A): mit Trenner; ist L keine vollständige
+  # Liste, aber A ein Atom und Sep nicht leer, wird A an Sep zerlegt
+  defbuiltin "atomic_list_concat", [l, sep, res] do
+    s = subst()
+
+    sep_text =
+      case PrologEx.walk(sep, s) do
+        {:var, _} ->
+          Error.instantiation!()
+
+        x ->
+          if atomic?(x), do: atomic_text(x), else: Error.type!("atomic", PrologEx.resolve(x, s))
+      end
+
+    name = result_atom!(res, s)
+
+    if name != nil and sep_text != "" and not proper_atomics?(l, s) do
+      parts = for p <- :binary.split(name, sep_text, [:global]), do: a(p)
+      {:unify, [{l, list(parts)}]}
+    else
+      text = atomic_items!(l, s) |> Enum.map(&atomic_text/1) |> Enum.join(sep_text)
+      {:unify, [{res, a(text)}]}
+    end
+  end
+
+  # Ergebnis: ungebunden (nil) oder ein Atom (sein Name)
+  defp result_atom!(res, s) do
+    case PrologEx.walk(res, s) do
+      {:var, _} -> nil
+      [] -> "[]"
+      {:atom, n} -> n
+      other -> Error.type!("atom", PrologEx.resolve(other, s))
+    end
+  end
+
+  # vollständige Liste atomarer Elemente? (für den Zerlegungsmodus)
+  defp proper_atomics?(l, s) do
+    case PrologEx.Builtins.Lists.skip_list(l, s) do
+      {_, []} -> Enum.all?(PrologEx.Builtins.Lists.items(l, s), &atomic?(PrologEx.walk(&1, s)))
+      _ -> false
+    end
+  end
+
+  defp atomic_items!(l, s) do
+    case PrologEx.Builtins.Lists.skip_list(l, s) do
+      {_, []} -> :ok
+      {_, {:var, _}} -> Error.instantiation!()
+      _ -> Error.type!("list", PrologEx.resolve(l, s))
+    end
+
+    for x <- PrologEx.Builtins.Lists.items(l, s) do
+      case PrologEx.walk(x, s) do
+        {:var, _} -> Error.instantiation!()
+        y -> if atomic?(y), do: y, else: Error.type!("atomic", PrologEx.resolve(y, s))
+      end
+    end
+  end
+
+  defp atomic?(x), do: is_number(x) or x == [] or match?({:atom, _}, x)
+
+  defp atomic_text([]), do: "[]"
+  defp atomic_text({:atom, n}), do: n
+  defp atomic_text(n) when is_integer(n), do: Integer.to_string(n)
+  defp atomic_text(f) when is_float(f), do: PrologEx.format_float(f)
+
+  # ---------------------------------------------------------------------
   # atom_concat/3
   # ---------------------------------------------------------------------
 

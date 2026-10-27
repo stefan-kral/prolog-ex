@@ -106,7 +106,8 @@ Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
 ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
 Prolog-Fassung `library(memberd_pl)`, `mix run bench/memberd_bench.exs`), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
-`findall/3,4`, `forall/2`, `once/1`, `ignore/1`, `exists_file/1`, `exists_directory/1`, `delete_file/1` (wie SWI), `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
+`findall/3,4`, `forall/2`, `once/1`, `ignore/1`, `plus/3`, `numbervars/3`,
+`atomic_list_concat/2,3` (auch zerlegen: `atomic_list_concat(L, '-', 'a-b')`), `exists_file/1`, `exists_directory/1`, `delete_file/1` (wie SWI), `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
 `V^G`; Gruppen nach Zeugen sortiert wie SICStus/SWI), `=@=/2`, `\=@=/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
 `occurs_check`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
@@ -602,8 +603,7 @@ Stand: Alle Tests aus der ISO-Norm und aus dem Konformitätsrahmen von
 Szabó/Szeredi bestehen. Bewusst anders als SICStus: `sub_atom/5` mit
 negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Die übrigen
 Fehlschläge betreffen De-facto-Prädikate, die (noch) fehlen – vor allem
-`format/2,3`, `setup_call_cleanup/3`, `numbervars/3`, `plus/3`,
-`atomic_list_concat/2,3` –, Unicode-Optionen von `open/4` und Grenzen des
+`format/2,3` und `setup_call_cleanup/3` –, Unicode-Optionen von `open/4` und Grenzen des
 gprolog-Readers (Großzahlen beim Laden von Dateien, einige Escapes).
 
 ## Entwicklung

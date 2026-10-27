@@ -3,6 +3,51 @@ defmodule PrologEx.Builtins.Terms do
   use PrologEx.Builtin
   alias PrologEx.Builtins.Core
 
+  # plus(X, Y, Z): Z = X + Y für Ganzzahlen, zwei beliebige gebunden (wie
+  # SWI); gebundene Nicht-Ganzzahl: type_error(integer, _), weniger als zwei
+  # gebunden: instantiation_error
+  defbuiltin "plus", [x, y, z] do
+    vals = Enum.map([x, y, z], &deref/1)
+
+    for v <- vals,
+        not match?({:var, _}, v),
+        not is_integer(v),
+        do: PrologEx.Error.type!("integer", resolve(v))
+
+    case vals do
+      [a, b, _] when is_integer(a) and is_integer(b) -> {:unify, [{z, a + b}]}
+      [a, _, c] when is_integer(a) and is_integer(c) -> {:unify, [{y, c - a}]}
+      [_, b, c] when is_integer(b) and is_integer(c) -> {:unify, [{x, c - b}]}
+      _ -> PrologEx.Error.instantiation!()
+    end
+  end
+
+  # numbervars(T, Start, End): die Variablen von T (nach erstem Auftreten)
+  # werden '$VAR'(Start), '$VAR'(Start+1), ...; End ist die nächste Nummer
+  defbuiltin "numbervars", [t, start, stop] do
+    n0 =
+      case deref(start) do
+        {:var, _} -> PrologEx.Error.instantiation!()
+        n when is_integer(n) -> n
+        other -> PrologEx.Error.type!("integer", resolve(other))
+      end
+
+    case deref(stop) do
+      {:var, _} -> :ok
+      n when is_integer(n) -> :ok
+      other -> PrologEx.Error.type!("integer", resolve(other))
+    end
+
+    vars = PrologEx.Builtins.Order.variables(t, subst())
+
+    pairs =
+      vars
+      |> Enum.with_index(n0)
+      |> Enum.map(fn {v, i} -> {v, mk("$VAR", [i])} end)
+
+    {:unify, [{stop, n0 + length(vars)} | pairs]}
+  end
+
   # functor(T, Name, Arity)
   #   T gebunden:   Name/Arity von T (atomar: Name = T, Arity = 0)
   #   T ungebunden: T = Name(_, ..., _) mit frischen Variablen
