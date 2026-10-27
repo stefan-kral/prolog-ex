@@ -59,6 +59,9 @@ defmodule Conf do
   def tr({:struct, "forall", [c, act]}), do: mk("forall", [tr(c), tr(act)])
   def tr(g), do: g
 
+  # Klauseln außerhalb eines Objekts gehören zu user
+  def target, do: if(Process.get(:lgt_in_object), do: "lgt", else: "user")
+
   def logtalk?({:struct, "::", _}), do: true
   def logtalk?({:struct, _, args}), do: Enum.any?(args, &logtalk?/1)
   def logtalk?([h | t]), do: logtalk?(h) or logtalk?(t)
@@ -160,6 +163,7 @@ results =
 
     reader = new_reader.()
     db = base_db.(reader)
+    Process.put(:lgt_in_object, false)
 
     {:ok, _, db} =
       Conf.run(db, mk(":", [a("lgt"), mk("assertz", [mk("lgt_dir", [a(work <> "/")])])]), reader)
@@ -213,59 +217,80 @@ results =
         else:
           match?(
             {:ok, [_], _},
-            Conf.run(db, mk(":", [a("lgt"), mk("catch", [Conf.tr(c), a("_"), a("fail")])]), reader)
+            Conf.run(
+              db,
+              mk(":", [a("lgt"), mk("catch", [Conf.tr(c), a("_"), a("fail")])]),
+              reader
+            )
           )
     end
 
-    {_stack, db, tests, unreadable} =
-      Enum.reduce(items, {[], db, [], 0}, fn
-        {:error, _msg}, {stack, db, tests, unr} ->
-          {stack, db, tests, if(Enum.all?(stack, &(&1 == :on)), do: unr + 1, else: unr)}
+    # Zustand: stack (if-Ebenen: :on, :off, :done, :dead), db, in Objekt?,
+    # Terme für user (außerhalb des Objekts), Tests, unlesbare Klauseln
+    st0 = %{stack: [], db: db, obj: false, user: [], tests: [], unr: 0}
 
-        {:term, t}, {stack, db, tests, unr} ->
-          active = Enum.all?(stack, &(&1 == :on))
+    st =
+      Enum.reduce(items, st0, fn
+        {:error, _msg}, st ->
+          if Enum.all?(st.stack, &(&1 == :on)), do: %{st | unr: st.unr + 1}, else: st
+
+        {:term, t}, st ->
+          active = Enum.all?(st.stack, &(&1 == :on))
 
           case t do
             {:struct, ":-", [{:struct, "if", [c]}]} ->
-              st = if active and eval_cond.(db, c), do: :on, else: if(active, do: :off, else: :dead)
-              {[st | stack], db, tests, unr}
-
-            {:struct, ":-", [{:struct, "elif", [c]}]} ->
-              [top | rest] = stack
-              outer = Enum.all?(rest, &(&1 == :on))
-
-              st =
+              top =
                 cond do
-                  top in [:on, :done] -> :done
-                  top == :dead -> :dead
-                  outer and eval_cond.(db, c) -> :on
+                  not active -> :dead
+                  eval_cond.(st.db, c) -> :on
                   true -> :off
                 end
 
-              {[st | rest], db, tests, unr}
+              %{st | stack: [top | st.stack]}
 
-            {:struct, ":-", [{:atom, "else"}]} ->
-              [top | rest] = stack
-              st = if top == :off, do: :on, else: if(top == :on, do: :done, else: top)
-              {[st | rest], db, tests, unr}
+            {:struct, ":-", [{:struct, "elif", [c]}]} ->
+              [top | rest] = st.stack
 
-            {:struct, ":-", [{:atom, "endif"}]} ->
-              {tl(stack), db, tests, unr}
-
-            _ when not active ->
-              {stack, db, tests, unr}
-
-            {:struct, ":-", [{:struct, "dynamic", [spec]}]} ->
-              db =
-                case Conf.run(db, mk(":", [a("lgt"), mk("dynamic", [spec])]), reader) do
-                  {:ok, _, db} -> db
-                  _ -> db
+              top =
+                cond do
+                  top in [:on, :done] -> :done
+                  top == :dead -> :dead
+                  eval_cond.(st.db, c) -> :on
+                  true -> :off
                 end
 
-              {stack, db, tests, unr}
+              %{st | stack: [top | rest]}
+
+            {:struct, ":-", [{:atom, "else"}]} ->
+              [top | rest] = st.stack
+              top = %{off: :on, on: :done, done: :done, dead: :dead}[top]
+              %{st | stack: [top | rest]}
+
+            {:struct, ":-", [{:atom, "endif"}]} ->
+              %{st | stack: tl(st.stack)}
+
+            _ when not active ->
+              st
+
+            {:struct, ":-", [{:struct, "object", _}]} ->
+              %{st | obj: true}
+
+            {:struct, ":-", [{:atom, "end_object"}]} ->
+              %{st | obj: false}
+
+            # außerhalb des Objekts: gewöhnliche Prolog-Datei für user
+            _ when not st.obj ->
+              %{st | user: [t | st.user]}
+
+            # im Objekt: dynamic für lokale Prädikate, sonst Direktiven ignorieren
+            {:struct, ":-", [{:struct, "dynamic", [spec]}]} ->
+              case Conf.run(st.db, mk(":", [a("lgt"), mk("dynamic", [spec])]), reader) do
+                {:ok, _, db} -> %{st | db: db}
+                _ -> st
+              end
 
             {:struct, ":-", [_]} ->
-              {stack, db, tests, unr}
+              st
 
             clause ->
               case Conf.test_clause(clause) do
@@ -277,20 +302,36 @@ results =
                       h -> h
                     end
 
-                  db =
-                    case Conf.run(db, mk(":", [a("lgt"), mk("assertz", [c])]), reader) do
-                      {:ok, _, db} -> db
-                      _ -> db
-                    end
-
-                  {stack, db, tests, unr}
+                  case Conf.run(st.db, mk(":", [a("lgt"), mk("assertz", [c])]), reader) do
+                    {:ok, _, db} -> %{st | db: db}
+                    _ -> st
+                  end
 
                 test ->
-                  {stack, db, [test | tests], unr}
+                  %{st | tests: [test | st.tests]}
               end
           end
       end)
 
+    # den user-Teil als echte Datei laden (Direktiven wie multifile,
+    # discontiguous, op, initialization wirken wie bei uns üblich)
+    user_file = Path.join(work, "lgt_user_part.pl")
+
+    File.write!(
+      user_file,
+      for t <- Enum.reverse(st.user), into: "" do
+        PrologEx.format(t, quoted: true, ignore_ops: true) <> ".\n"
+      end
+    )
+
+    db =
+      case Conf.run(st.db, mk("consult", [a(user_file)]), reader) do
+        {:ok, _, db} -> db
+        _ -> st.db
+      end
+
+    tests = st.tests
+    unreadable = st.unr
     tests = Enum.reverse(tests)
 
     {rs, db_final} =
