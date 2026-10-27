@@ -50,7 +50,7 @@ defmodule D do
   def cmp(label, text) do
     {:ok, r} = PrologEx.GprologReader.start_link()
     PrologEx.Ops.reset()
-    g = PrologEx.Reader.read_terms(r, text)
+    g = PrologEx.GprologReader.read_terms(r, text)
     GenServer.stop(r)
     p = PrologEx.Parser.read_terms(text, ops: PrologEx.Ops.default(), double_quotes: "chars")
     {gn, pn} = {norm(g), norm(p)}
