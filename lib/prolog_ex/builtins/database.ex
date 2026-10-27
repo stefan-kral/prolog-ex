@@ -39,6 +39,9 @@ defmodule PrologEx.Builtins.Database do
         hh -> mkey(m, hh)
       end
 
+    # eingebaute Prädikate (atom/1, ...): permission_error, auch ohne Eintrag
+    check_modifiable!(key)
+
     case Map.fetch(PrologEx.current_db(), key) do
       :error ->
         []

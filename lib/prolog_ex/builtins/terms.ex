@@ -84,7 +84,8 @@ defmodule PrologEx.Builtins.Terms do
     end
   end
 
-  # arg(N, T, A): N-tes Argument; mit offenem N alle Argumente (lazy)
+  # arg(N, T, A): N-tes Argument. ISO 8.5.2.3: N muss eine Zahl sein
+  # (ein offenes N gibt instantiation_error, kein Aufzählen wie in SWI)
   defbuiltin "arg", [n, t, x], nondet: true do
     args =
       case deref(t) do
@@ -108,7 +109,7 @@ defmodule PrologEx.Builtins.Terms do
         PrologEx.Error.domain!("not_less_than_zero", k)
 
       {:var, _} ->
-        arg_enum(n, x, args, 1)
+        PrologEx.Error.instantiation!()
 
       other ->
         PrologEx.Error.type!("integer", resolve(other))
@@ -174,11 +175,6 @@ defmodule PrologEx.Builtins.Terms do
         end
     end
   end
-
-  defp arg_enum(n, x, [a], k), do: [{:unify, [{n, k}, {x, a}]}]
-
-  defp arg_enum(n, x, [a | rest], k),
-    do: [{:unify, [{n, k}, {x, a}]} | fn -> arg_enum(n, x, rest, k + 1) end]
 
   defp atom_name([]), do: "[]"
   defp atom_name({:atom, n}), do: n

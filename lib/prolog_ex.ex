@@ -1093,7 +1093,11 @@ defmodule PrologEx do
     do: step({:struct, "findall", [t, g, l, []]}, cutb, mod, rest, st)
 
   defp step({:struct, "findall", [t, g, l, tail]}, _cutb, mod, rest, st) do
-    case guarded(fn -> collect(run(sub_machine(t, g, mod, st)), :infinity, []) end) do
+    # ISO 8.10.1.3: die Ergebnisliste muss eine (Teil-)Liste sein – vorab
+    case guarded(fn ->
+           partial_list!(l, st.subst)
+           collect(run(sub_machine(t, g, mod, st)), :infinity, [])
+         end) do
       {:ok, {items, :done}} ->
         case unify(l, list(items, tail), st.subst) do
           {:ok, s} -> cont(st, s, rest)
@@ -1979,6 +1983,15 @@ defmodule PrologEx do
 
         {%{st | subst: Map.put(st.subst, @depth_key, level + 1)}, rest}
       end
+    end
+  end
+
+  # Variable oder (Teil-)Liste, sonst type_error(list, L)
+  defp partial_list!(l, subst) do
+    case PrologEx.Builtins.Lists.skip_list(l, subst) do
+      {_, []} -> :ok
+      {_, {:var, _}} -> :ok
+      _ -> PrologEx.Error.type!("list", resolve(l, subst))
     end
   end
 

@@ -109,8 +109,8 @@ defmodule PrologEx.FindallFlagsTest do
       assert all(s("arg", [2, s("f", [a("a"), a("b")]), @a])) == ["A = b"]
       assert all(s("arg", [3, s("f", [a("a"), a("b")]), @a])) == []
       assert all(s("arg", [0, s("f", [a("a")]), @a])) == []
-      assert all(s("arg", [@n, s("f", [a("a"), a("b")]), @a])) == ["A = a, N = 1", "A = b, N = 2"]
-      assert more(s("arg", [@n, s("f", [a("a"), a("b")]), @a])) == [true, false]
+      # ISO 8.5.2.3: offenes N ist ein Fehler (kein Aufzählen wie in SWI)
+      error(s("arg", [@n, s("f", [a("a"), a("b")]), @a]))
       assert all(s("arg", [1, list([a("x")], a("y")), @a])) == ["A = x"]
       assert all(s("arg", [2, list([a("x")], a("y")), @a])) == ["A = y"]
       # Argument eines ground Terms ist wieder markiert (geteilt)

@@ -190,6 +190,11 @@ defmodule PrologEx.Builtins.Core do
 
   defp write_option({:var, _}, _s), do: PrologEx.Error.instantiation!()
 
+  # bekannte Option mit ungebundenem Wert: instantiation_error (ISO 8.14.2.3)
+  defp write_option({:struct, name, [{:var, _}]}, _s)
+       when name in ~w(quoted ignore_ops numbervars max_depth priority spacing variable_names portray),
+       do: PrologEx.Error.instantiation!()
+
   defp write_option({:struct, name, [{:atom, b}]}, _s)
        when is_map_key(@bool_options, name) and b in ["true", "false"],
        do: {@bool_options[name], b == "true"}

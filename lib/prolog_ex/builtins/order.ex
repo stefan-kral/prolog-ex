@@ -87,6 +87,8 @@ defmodule PrologEx.Builtins.Order do
   # term_variables(T, Vs): Variablen von T, Tiefensuche von links, ohne
   # Wiederholung
   defbuiltin "term_variables", [t, vs] do
+    # ISO 8.5.5.3: Vs muss eine (Teil-)Liste sein
+    check_partial_list!(vs, subst())
     {:unify, [{vs, list(variables(t, subst()))}]}
   end
 

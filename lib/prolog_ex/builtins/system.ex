@@ -119,8 +119,18 @@ defmodule PrologEx.Builtins.System do
     {_tag, "$clause", [head2, body2]} =
       PrologEx.copy_fresh({:struct, "$clause", [head, body]}, %{})
 
-    {:unify, [{h, head2}, {b, body2}]}
+    {:unify, [{h, head2}, {b, converted_body(body2)}]}
   end
+
+  # ISO 7.6.1: im gespeicherten Rumpf steht jede Variable an Zielstelle
+  # als call(V) – clause/2 zeigt das so
+  defp converted_body({:var, _} = v), do: mk("call", [v])
+
+  defp converted_body({tag, op, [x, y]})
+       when tag in [:struct, :gstruct] and op in [",", ";", "->", "*->"],
+       do: mk(op, [converted_body(x), converted_body(y)])
+
+  defp converted_body(t), do: t
 
   defbuiltin "current_prolog_flag", [flag, value], nondet: true do
     case deref(flag) do

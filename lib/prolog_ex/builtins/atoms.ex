@@ -203,6 +203,8 @@ defmodule PrologEx.Builtins.Atoms do
     out = {b, l, af, sub}
 
     cond do
+      # negative Werte: keine Lösung (ISO 8.16.3.3 sieht keinen Fehler vor;
+      # SICStus wirft domain_error(not_less_than_zero, _))
       Enum.any?([bb, ll, aa], &(&1 != nil and &1 < 0)) ->
         []
 

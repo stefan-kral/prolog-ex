@@ -453,6 +453,12 @@ defmodule PrologEx.Builtins.IO do
     do: {:encoding, :utf8}
 
   defp open_option!({:var, _}), do: Error.instantiation!()
+
+  # bekannte Option mit ungebundenem Wert: instantiation_error (ISO 8.11.5.3)
+  defp open_option!({:struct, name, [{:var, _}]})
+       when name in ~w(type reposition alias eof_action encoding),
+       do: Error.instantiation!()
+
   defp open_option!(other), do: Error.domain!("stream_option", other)
 
   # Optionenliste: Elemente aufgelöst; Teilliste oder Variable darin:
@@ -474,9 +480,11 @@ defmodule PrologEx.Builtins.IO do
 
   defp check_stream_arg!({:var, _}), do: :ok
 
-  defp check_stream_arg!({tag, "$stream", [id]})
-       when tag in [:struct, :gstruct] and is_integer(id),
-       do: :ok
+  # ein geschlossener Stream ist kein Stream mehr (ISO 8.11.1.3)
+  defp check_stream_arg!({tag, "$stream", [id]} = t)
+       when tag in [:struct, :gstruct] and is_integer(id) do
+    if id in S.all(), do: :ok, else: Error.domain!("stream", t)
+  end
 
   defp check_stream_arg!(other), do: Error.domain!("stream", other)
 
