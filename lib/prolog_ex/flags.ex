@@ -24,7 +24,11 @@ defmodule PrologEx.Flags do
     "double_quotes" => {:chars, [:chars, :codes, :atom]},
     "unknown" => {:error, [:error, :fail, :warning]},
     "occurs_check" => {false, [false, true, :error]},
-    "debug" => {false, [true, false]},
+    # ISO 7.11.2: debug und char_conversion mit on/off; char_conversion
+    # schaltet (noch) keine Umsetzung ein, char_conversion/2 fehlt
+    "debug" => {:off, [:off, :on]},
+    "char_conversion" => {:off, [:off, :on]},
+    "max_arity" => {:unbounded, :read_only},
     "last_call_optimisation" => {true, :read_only},
     "dialect" => {:prolog_ex, :read_only},
     # Toplevel: Antworten ohne Rückfrage zeigen, solange keine Seiteneffekte

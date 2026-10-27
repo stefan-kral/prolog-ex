@@ -168,11 +168,21 @@ defmodule PrologEx.FindallFlagsTest do
     test "Flags überstehen Backtracking" do
       goal =
         s(",", [
-          s(";", [s(",", [s("set_prolog_flag", [a("debug"), a("true")]), a("fail")]), a("true")]),
+          s(";", [s(",", [s("set_prolog_flag", [a("debug"), a("on")]), a("fail")]), a("true")]),
           s("current_prolog_flag", [a("debug"), @x])
         ])
 
-      assert all(goal) == ["X = true"]
+      assert all(goal) == ["X = on"]
+    end
+
+    # ISO 7.11.2
+    test "debug und char_conversion mit on/off, max_arity unbounded (nur lesbar)" do
+      assert all(s("current_prolog_flag", [a("debug"), @x])) == ["X = off"]
+      assert all(s("current_prolog_flag", [a("char_conversion"), @x])) == ["X = off"]
+      assert all(s("current_prolog_flag", [a("max_arity"), @x])) == ["X = unbounded"]
+      error(s("set_prolog_flag", [a("max_arity"), 40]))
+      error(s("set_prolog_flag", [a("debug"), a("trace")]))
+      error(s("set_prolog_flag", [a("debug"), a("true")]))
     end
 
     test "unknown: error, fail, warning" do
