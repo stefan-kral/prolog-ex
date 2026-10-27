@@ -7,8 +7,6 @@ defmodule PrologEx.ArithCompileTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   @ops2 ~w(+ - * / // mod rem div min max ** ^ >> << /\\ \\/ xor atan2 copysign gcd log)
   @ops1 ~w(- abs sign sqrt sin exp log float integer truncate round floor ceiling \\ msb succ)
   @leaves [

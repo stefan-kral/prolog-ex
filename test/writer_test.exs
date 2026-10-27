@@ -60,8 +60,6 @@ defmodule PrologEx.WriterTest do
   end
 
   describe "über den Reader" do
-    @describetag :gprolog
-
     setup do
       {:ok, r} = Reader.start_link()
       {:ok, reader: r}

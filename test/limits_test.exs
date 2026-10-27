@@ -3,7 +3,6 @@ defmodule PrologEx.LimitsTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
   @moduletag timeout: 30_000
 
   # count(N) kostet 2N+1 Inferenzen (je Ebene count/1 und is/2, dazu count(0))

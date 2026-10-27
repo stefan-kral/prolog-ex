@@ -6,8 +6,6 @@ defmodule PrologEx.ReifTest do
   use ExUnit.Case, async: false
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
-
   @user """
   ist_a(X, T) :- =(X, a, T).
   gross(X, T) :- ( X > 5 -> T = true ; T = false ).

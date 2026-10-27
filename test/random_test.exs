@@ -2,8 +2,6 @@ defmodule PrologEx.RandomTest do
   use ExUnit.Case, async: false
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
-
   @prog """
   :- use_module(library(random)).
   :- use_module(library(lists)).

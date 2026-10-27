@@ -2,8 +2,6 @@ defmodule PrologEx.ExpansionTest do
   use ExUnit.Case, async: false
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
-
   setup do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)

@@ -50,7 +50,7 @@ defmodule PrologEx.Toplevel do
     {:ok, reader} = Reader.start_link()
     Reader.put_current(reader)
     PrologEx.put_db(%{})
-    st = %{db: %{}, reader: reader, dq: "chars"}
+    st = %{db: %{}, reader: reader}
 
     try do
       st = Enum.reduce(files, st, &load_source/2)
@@ -79,7 +79,7 @@ defmodule PrologEx.Toplevel do
           {:ok, reader} = Reader.start()
           Reader.put_current(reader)
           PrologEx.put_db(%{})
-          {%{db: %{}, reader: reader, dq: "chars"}, false}
+          {%{db: %{}, reader: reader}, false}
 
         %{st: st, pdict: pdict} ->
           Enum.each(pdict, fn {k, v} -> Process.put(k, v) end)
@@ -157,7 +157,7 @@ defmodule PrologEx.Toplevel do
   defp load_source(file, st) do
     PrologEx.put_db(st.db)
     Consult.load_file(file)
-    sync_flags(%{st | db: PrologEx.current_db()})
+    %{st | db: PrologEx.current_db()}
   rescue
     e in PrologEx.Error -> err("#{file}: #{Exception.message(e)}", st)
   end
@@ -170,7 +170,7 @@ defmodule PrologEx.Toplevel do
     {db, msgs} = Consult.load(st.db, items)
     PrologEx.put_db(db)
     Enum.each(msgs, &IO.puts(:stderr, "#{name}: #{&1}"))
-    sync_flags(%{st | db: db})
+    %{st | db: db}
   end
 
   # [user]: bis end_of_file., Ctrl-D oder Dateiende (siehe PrologEx.Terminal)
@@ -222,22 +222,10 @@ defmodule PrologEx.Toplevel do
     end
   end
 
-  # Hat eine Anfrage double_quotes geändert, muss der Reader es wissen
-  defp sync_flags(st) do
-    {:atom, dq} = PrologEx.Flags.get("double_quotes")
-
-    if dq != st.dq do
-      Reader.set_double_quotes(st.reader, dq)
-      %{st | dq: dq}
-    else
-      st
-    end
-  end
-
   defp run_text(text, st, mode) do
     Enum.reduce(Reader.read_terms(st.reader, text), st, fn
       {:error, msg}, st -> err(msg, st)
-      {:term, t, _names}, st -> sync_flags(run_query(PrologEx.unmark(t), st, mode))
+      {:term, t, _names}, st -> run_query(PrologEx.unmark(t), st, mode)
     end)
   end
 
@@ -251,6 +239,9 @@ defmodule PrologEx.Toplevel do
   end
 
   defp run_query({:struct, "consult", [f]}, st, mode), do: run_query([f], st, mode)
+
+  # ?- :- G. wie eine Direktive: G ausführen (z. B. op/3)
+  defp run_query({:struct, ":-", [g]}, st, mode), do: run_query(g, st, mode)
 
   defp run_query(goal, st, mode) do
     answers = PrologEx.solutions(st.db, PrologEx.Builtins.Expansion.expand_query(st.db, goal))

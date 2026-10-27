@@ -92,6 +92,9 @@ defmodule PrologEx.Builtins.Terms do
     end
   end
 
+  # mehr Argumente auf einmal anzulegen ist sinnlos (je ~50 Byte)
+  @max_build 268_435_456
+
   defbuiltin "functor", [t, name, arity] do
     case deref(t) do
       {:var, _} ->
@@ -118,6 +121,10 @@ defmodule PrologEx.Builtins.Terms do
             if Core.compound?(n),
               do: PrologEx.Error.type!("atomic", n),
               else: PrologEx.Error.type!("atom", n)
+
+          # max_arity ist unbeschränkt, der Speicher nicht
+          ar > @max_build ->
+            PrologEx.Error.resource!("memory")
 
           true ->
             {:unify, [{t, mk(atom_name(n), Enum.map(1..ar, fn _ -> fresh_var() end))}]}

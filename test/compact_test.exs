@@ -6,8 +6,6 @@ defmodule PrologEx.CompactTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   @program """
   build(0, T, T) :- !.
   build(N, [N|T0], T) :- N1 is N - 1, build(N1, T0, T).

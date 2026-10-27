@@ -39,9 +39,28 @@ defmodule PrologEx.WriterOpsTest do
   # immer ein Leerzeichen (gprolog: dynamic-a, multifile'x')
   @alpha ~r/\b(dynamic|discontiguous|initialization|meta_predicate|module_transparent|multifile|table|attribute) (?=[^\w\s(])/
 
+  # gprolog als Vergleich (ein Kindprozess je Testprozess)
+  defp gp do
+    case Process.get(:gp_reader) do
+      nil ->
+        {:ok, gp} = PrologEx.GprologReader.start_link()
+        Process.put(:gp_reader, gp)
+        gp
+
+      gp ->
+        gp
+    end
+  end
+
   defp check(r, t) do
     ours = Writer.format(t, quoted: true, numbervars: true)
-    {:ok, gp} = Reader.gprolog_writeq(r, Writer.format(t, quoted: true, ignore_ops: true))
+
+    {:ok, gp} =
+      PrologEx.GprologReader.gprolog_writeq(
+        gp(),
+        Writer.format(t, quoted: true, ignore_ops: true)
+      )
+
     ours_n = norm(ours)
 
     assert ours_n == norm(gp) or

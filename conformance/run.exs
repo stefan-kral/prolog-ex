@@ -70,7 +70,15 @@ defmodule Conf do
 
   # Datei in Termen lesen: op-Direktiven und double_quotes wirken sofort,
   # :- include(F) wird eingesetzt; Logtalks Voreinstellung double_quotes=codes
+  # (das Flag gilt nur fürs Lesen: danach wieder wie vorher)
   def read_items(reader, path) do
+    saved = Process.get(:prolog_ex_flags)
+    items = read_items1(reader, path)
+    if saved, do: Process.put(:prolog_ex_flags, saved), else: Process.delete(:prolog_ex_flags)
+    items
+  end
+
+  defp read_items1(reader, path) do
     Reader.set_double_quotes(reader, "codes")
     :ok = Reader.open_file(reader, path)
 
@@ -191,11 +199,16 @@ defmodule Conf do
   def tr_opts(_), do: []
 
   # eine Anfrage in einem eigenen Prozess: {:ok, antworten, db} | :timeout
+  # Operatoren und Flags liegen im Prozess: mitgeben und danach übernehmen
+  @state [:prolog_ex_ops, :prolog_ex_flags]
+
   def run(db, goal, reader, timeout \\ 5000) do
     parent = self()
+    state = for k <- @state, do: {k, Process.get(k)}
 
     pid =
       spawn(fn ->
+        for {k, v} <- state, v != nil, do: Process.put(k, v)
         Reader.put_current(reader)
         {:ok, io} = StringIO.open("")
         Process.group_leader(self(), io)
@@ -203,7 +216,7 @@ defmodule Conf do
         res =
           try do
             ans = db |> PrologEx.query(goal) |> Enum.take(1)
-            {:ok, ans, PrologEx.current_db()}
+            {:ok, ans, PrologEx.current_db(), for(k <- @state, do: {k, Process.get(k)})}
           rescue
             e -> {:error, Exception.message(e) |> String.slice(0, 300)}
           catch
@@ -214,7 +227,12 @@ defmodule Conf do
       end)
 
     receive do
-      {:done, ^pid, res} -> res
+      {:done, ^pid, {:ok, ans, db, state}} ->
+        for {k, v} <- state, do: if(v, do: Process.put(k, v), else: Process.delete(k))
+        {:ok, ans, db}
+
+      {:done, ^pid, res} ->
+        res
     after
       timeout ->
         Process.exit(pid, :kill)
@@ -229,6 +247,7 @@ new_reader = fn ->
   {:ok, r} = Reader.start_link()
   Reader.put_current(r)
   PrologEx.Ops.reset()
+  PrologEx.Flags.reset()
   for {p, t, n} <- lgt_ops, do: Reader.op(r, p, t, n)
   r
 end

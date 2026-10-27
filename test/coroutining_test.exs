@@ -3,8 +3,6 @@ defmodule PrologEx.CoroutiningTest do
   import ExUnit.CaptureIO
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
-
   @prog """
   :- use_module(library(lists)).
   p(a).

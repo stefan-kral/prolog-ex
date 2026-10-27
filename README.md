@@ -14,13 +14,13 @@ Ein Prolog-Kern in Elixir:
 
 ## Loslegen
 
-Voraussetzung: Elixir und GNU Prolog (`brew install gnu-prolog`). gprolog
-dient nur als Term-Reader (Operator-Syntax → kanonische Terme); ausgeführt
-wird alles in PrologEx.
+Voraussetzung: Elixir. Gelesen und ausgeführt wird alles in Elixir. GNU
+Prolog (`brew install gnu-prolog`) ist optional: ein Teil der Tests
+vergleicht Reader und Writer mit gprolog.
 
 ```sh
-mix compile                          # Elixir und den Reader (gplc) übersetzen;
-                                     # GPLC=/pfad/zu/gplc falls nicht im PATH
+mix compile                          # übersetzen (mit gplc auch den
+                                     # Vergleichs-Reader, siehe unten)
 mix prolog                           # interaktiver Toplevel
 mix prolog examples/demo.pl          # Datei laden, dann Toplevel
 mix prolog examples/demo.pl -g main -q   # laden, main ausführen, Ende
@@ -28,7 +28,8 @@ cat prog.pl | mix prolog - -g main   # Programm von stdin
 ```
 
 Bauen: `mix compile` übersetzt neben dem Elixir-Code auch den gprolog-Reader
-(`priv/gprolog/reader.pl`), sobald die Quelle neuer ist als das Programm –
+(`priv/gprolog/reader.pl`, nur noch Vergleichsorakel für Tests; fehlt
+`gplc`, gibt es nur eine Warnung), sobald die Quelle neuer ist als das Programm –
 also auch bei `mix test`, `mix run` und `mix prolog`. `mix clean` löscht
 beides, `mix rebuild` baut alles neu (wie `make clean && make all`).
 `mix prolog.build_reader` übersetzt nur den Reader, immer.
@@ -134,8 +135,7 @@ Abwechselnd `assertz` und Aufruf bleibt quadratisch (Kopie der
 Klauselliste, klein: 8000 Runden ≈ 0,4 s).
 
 Zahlen im Quelltext: Zifferngruppen wie in SWI (`1_000_000`, nach `_` darf
-Leerraum folgen) und Ganzzahl-Literale beliebiger Größe; beides schreibt
-`PrologEx.NumberSyntax` vor dem gprolog-Reader um.
+Leerraum folgen) und Ganzzahl-Literale beliebiger Größe (auch `0x…`).
 
 Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
 `error(Formal, Kontext)` (`type_error`, `instantiation_error`,
@@ -172,14 +172,10 @@ T = f('a b', _A), V = ['X'=_A].
 ```
 
 `read/1` liest genau einen Term: das Ende (der einzelne `.` vor Leerraum)
-findet ein kleiner Scanner in Elixir, den Term selbst liest gprolog. So
-lassen sich `read/2` und `get_char/2` auf demselben Stream mischen.
-Gelesene Direktiven (`:- op(...)`) werden dabei nicht ausgeführt.
-
-Grenze des gprolog-Readers: sehr tief verschachtelte Terme (etwa 10 000
-Ebenen `f(f(...))`) bringen gprolog zum Absturz. Das gibt einen Fehler
-(„Reader (gprolog) beendet … – neu gestartet“), der Reader startet neu und
-liest danach normal weiter.
+findet ein kleiner Scanner, den Term selbst liest `PrologEx.Parser` (siehe
+„Reader“ unten). So lassen sich `read/2` und `get_char/2` auf demselben
+Stream mischen. Gelesene Direktiven (`:- op(...)`) werden dabei nicht
+ausgeführt.
 
 ## Formatierte Ausgabe: `format/1,2,3`
 
@@ -225,7 +221,7 @@ wird sicher (`:safe`, nur Prolog-Terme) – kaputte oder fremde Daten geben
 
 `write/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2` und die
 Antworten im Toplevel schreiben mit Operatoren, nach ISO und im Stil von
-gprolog (mit dem wir auch lesen); jede `writeq`-Ausgabe liest sich wieder als
+gprolog; jede `writeq`-Ausgabe liest sich wieder als
 derselbe Term:
 
 ```
@@ -650,24 +646,33 @@ mix run conformance/run.exs /pfad/logtalk3 [predicates/atom_length_2] [--failure
 Stand: Alle Tests aus der ISO-Norm und aus dem Konformitätsrahmen von
 Szabó/Szeredi bestehen. Bewusst anders als SICStus: `sub_atom/5` mit
 negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Gesamt:
-3 947 bestanden, 137 fehlgeschlagen, 205 übersprungen. Die übrigen
+4 072 bestanden, 134 fehlgeschlagen, 206 übersprungen. Die übrigen
 Fehlschläge betreffen Logtalk-, ECLiPSe- und „commons“-Erweiterungen
 (Klauselreferenzen, `evaluable_property/2`, `atomic_concat/3`, die
-logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4` und
-Grenzen des gprolog-Readers (Großzahlen beim Laden von Dateien, einige
-Escapes).
+logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
+Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
+Syntaxfehler) und `functor/3` mit Stelligkeit 10^45 (`resource_error`).
 
-## Eigener Reader in Elixir (im Aufbau)
+## Reader
 
-`PrologEx.Parser` liest Prolog-Text ohne gprolog: Tokenizer nach ISO 6.4,
-Operator-Präzedenz-Parser nach 6.3, gleiches Ergebnisformat wie
-`PrologEx.Reader.read_terms/2`. Noch nicht eingebunden – gelesen wird
-weiter mit gprolog. Stand:
+`PrologEx.Parser` liest Prolog-Text: Tokenizer nach ISO 6.4,
+Operator-Präzedenz-Parser nach 6.3. Gelesen wird im Sitzungsprozess mit
+dessen Operatortabelle (`op/3`, `current_op/3`) und Flag `double_quotes`;
+Änderungen gelten ab dem nächsten Term – beim Laden einer Datei also ab
+dem Term nach der Direktive, im Toplevel ab der nächsten Anfrage
+(`?- :- G.` führt G wie eine Direktive aus). `PrologEx.Reader` ist die
+Schnittstelle dazu (Texte, Dateien in Abschnitten bis zur nächsten
+Direktive). Der frühere gprolog-Reader (`PrologEx.GprologReader`) dient
+nur noch als Vergleich.
 
   * Auf den `.pl`- und `.lgt`-Dateien von Logtalk (gut 5 100 Dateien,
     190 000 Terme) liefert er dieselben Terme wie gprolog, außer wo
     gprolog an eigene Grenzen stößt (Ganzzahlen über 2^60 in Hex,
-    Unicode-Escapes über 255, Byte-Order-Mark) – rund doppelt so schnell.
+    Unicode-Escapes über 255, Byte-Order-Mark, sehr tief verschachtelte
+    Terme) – rund doppelt so schnell.
+  * Ein Operator allein ist ein ganzer Term (`- .` liest `-`, wie gprolog).
+  * In Quotes sind Steuerzeichen (Tab, Zeilenumbruch, …) nur als
+    Escape-Sequenz erlaubt (ISO 6.4.2.1).
   * ISO-Regeln: `- 1` und `'-'1` sind die Zahl -1, `-(1)` nicht; ein
     Operator als Atom hat Priorität 1201 (erlaubt als Argument, in
     Klammern und in `{}`), also Fehler bei `- = a` oder `'<<'/2`; nach
@@ -685,7 +690,7 @@ oder `--cases conformance/reader_cases.txt` (gut 200 Grenzfälle).
 ## Entwicklung
 
 ```sh
-mix test                  # Tests (Integrationstests mit gprolog nur,
-                          # wenn der Reader übersetzt ist)
+mix test                  # Tests (Vergleiche mit gprolog nur,
+                          # wenn dessen Reader übersetzt ist)
 mix run bench/bench.exs   # Speicher- und Laufzeitmessung
 ```

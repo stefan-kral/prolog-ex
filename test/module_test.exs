@@ -3,7 +3,6 @@ defmodule PrologEx.ModuleTest do
   import ExUnit.CaptureIO
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
   @dir Path.expand("fixtures/modules", __DIR__)
 
   setup do

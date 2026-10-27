@@ -2,7 +2,6 @@ defmodule PrologEx.SkipListTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
   @moduletag timeout: 20_000
 
   setup_all do

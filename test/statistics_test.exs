@@ -3,8 +3,6 @@ defmodule PrologEx.StatisticsTest do
   import ExUnit.CaptureIO
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   @program """
   app([], L, L).
   app([H|T], L, [H|R]) :- app(T, L, R).

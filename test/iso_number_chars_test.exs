@@ -6,8 +6,6 @@ defmodule PrologEx.IsoNumberCharsTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   @cases [
     {1, "number_chars(1.2,['1',.,'2']).", true},
     {2, "number_chars(1.0e9,['1',.,'0','E','9']).", true},

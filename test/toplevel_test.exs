@@ -2,8 +2,6 @@ defmodule PrologEx.ToplevelTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
 
-  @moduletag :gprolog
-
   setup do
     PrologEx.Flags.reset()
     on_exit(fn -> PrologEx.Toplevel.reset_session() end)
@@ -104,6 +102,28 @@ defmodule PrologEx.ToplevelTest do
 
       assert out =~ "F = 3."
       assert out =~ "domain_error(flag_value"
+    end
+  end
+
+  describe "Lesen" do
+    test ":- G wie eine Direktive; op/3 gilt ab der nächsten Anfrage" do
+      out = top(":- op(700, xfx, ===>).\nX = (a ===> b), X =.. L.\n")
+      assert out =~ "L = [===>, a, b], X = (a===>b)."
+    end
+
+    test "double_quotes gilt ab der nächsten Anfrage; read/1 liest weiter von der Eingabe" do
+      out =
+        top("set_prolog_flag(double_quotes, atom).\nX = \"ab\".\nread(T).\nfoo(- 1, \"x\").\n")
+
+      assert out =~ "X = ab."
+      assert out =~ "T = foo(-1, x)."
+    end
+
+    test "Syntaxfehler mit Zeile und Spalte, danach geht es weiter" do
+      err = capture_io(:stderr, fn -> send(self(), {:out, top("X = f(.\nX = ok.\n")}) end)
+      assert_received {:out, out}
+      assert err =~ "Syntaxfehler: Zeile 1, Spalte 7"
+      assert out =~ "X = ok."
     end
   end
 

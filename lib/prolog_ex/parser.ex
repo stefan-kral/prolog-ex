@@ -34,17 +34,39 @@ defmodule PrologEx.Parser do
   # Schnittstelle
 
   def read_terms(text, opts \\ []) do
-    ctx = %{
-      ops: Keyword.get_lazy(opts, :ops, &PrologEx.Ops.table/0),
-      dq: Keyword.get_lazy(opts, :double_quotes, &flag_dq/0),
-      bq: Keyword.get(opts, :back_quotes, "atom"),
-      text: text
-    }
+    ctx = context(text, opts)
 
     # Byte-Order-Mark am Anfang überspringen
     case text do
       <<0xEF, 0xBB, 0xBF, rest::binary>> -> read_all(rest, 3, ctx, [])
       _ -> read_all(text, 0, ctx, [])
+    end
+  end
+
+  @doc """
+  Lesekontext für `read_term/3`: Operatortabelle und double_quotes (aus
+  den Optionen, sonst die der Sitzung zu diesem Zeitpunkt), `text` ist
+  der ganze Text (für Zeile/Spalte in Fehlermeldungen).
+  """
+  def context(text, opts \\ []) do
+    %{
+      ops: Keyword.get_lazy(opts, :ops, &PrologEx.Ops.table/0),
+      dq: Keyword.get_lazy(opts, :double_quotes, &flag_dq/0),
+      bq: Keyword.get(opts, :back_quotes, "atom"),
+      text: text
+    }
+  end
+
+  @doc """
+  Genau einen Term (für read_term/2,3): `{:term, t, names}`,
+  `{:error, meldung}` oder `:eof`. Anders als `read_terms/2` ist
+  `end_of_file` hier ein gewöhnlicher Term, und Direktiven wirken nicht.
+  """
+  def read_one(text) do
+    case read_term(text, 0, context(text)) do
+      {:term, t, names, _, _} -> {:term, t, names}
+      {:error, msg, _, _} -> {:error, msg}
+      :eof -> :eof
     end
   end
 
@@ -93,7 +115,7 @@ defmodule PrologEx.Parser do
             |> MapSet.new()
 
           Process.put(:prolog_ex_parser_anon, {0, vars})
-          {t, _p, [{:end, _, _}]} = parse(toks, 1200, ctx) |> expect_end(ctx)
+          {t, _p, [{:end, _, _}]} = whole(toks, ctx)
           names = for n <- vars, n != "_", into: %{}, do: {n, n}
           {:term, t, names, rest, pos}
         catch
@@ -502,7 +524,7 @@ defmodule PrologEx.Parser do
 
   defp char_code(<<?', _::binary>>, pos), do: {:error, "0'' statt 0''' ", pos}
 
-  defp char_code(<<c::utf8, rest::binary>>, pos) when c not in [?\n, ?\r, ?\t],
+  defp char_code(<<c::utf8, rest::binary>>, pos) when c >= 32 and c != 127,
     do: {:ok, c, rest, pos + byte_size(<<c::utf8>>)}
 
   defp char_code(_, pos), do: {:error, "Zeichen nach 0' fehlt", pos}
@@ -526,6 +548,10 @@ defmodule PrologEx.Parser do
 
       <<?\n, _::binary>> ->
         {:error, "Zeilenumbruch in Quotes", pos}
+
+      # ISO 6.4.2.1: von den Steuerzeichen nur das Leerzeichen direkt
+      <<c, _::binary>> when c < 32 or c == 127 ->
+        {:error, "Steuerzeichen in Quotes (nur als Escape-Sequenz)", pos}
 
       <<c::utf8, rest::binary>> ->
         quoted(rest, q, pos + byte_size(<<c::utf8>>), [acc, <<c::utf8>>])
@@ -580,6 +606,13 @@ defmodule PrologEx.Parser do
 
   # ---------------------------------------------------------------------
   # Parser (ISO 6.3)
+
+  # ein Operator allein ist ein ganzer Term (wie gprolog: "- ." liest -,
+  # als Operand in "x :- - ." nicht)
+  defp whole([{{kind, name}, _, _}, {:end, _, _} = e], _ctx) when kind in [:name, :qname],
+    do: {a(name), 0, [e]}
+
+  defp whole(toks, ctx), do: parse(toks, 1200, ctx) |> expect_end(ctx)
 
   defp expect_end({t, p, [{:end, _, _}] = rest}, _ctx), do: {t, p, rest}
   defp expect_end({_t, _p, [{tok, _, at} | _]}, _ctx), do: syntax!("Operator erwartet", at, tok)

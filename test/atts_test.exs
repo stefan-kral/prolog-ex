@@ -3,7 +3,6 @@ defmodule PrologEx.AttsTest do
   import ExUnit.CaptureIO
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
   @dir Path.expand("fixtures/atts", __DIR__)
 
   setup do

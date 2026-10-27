@@ -2,8 +2,6 @@ defmodule PrologEx.ListUtilsTest do
   use ExUnit.Case, async: false
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
-
   setup_all do
     {:ok, r} = Reader.start_link()
 

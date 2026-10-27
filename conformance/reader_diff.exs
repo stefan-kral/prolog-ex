@@ -48,7 +48,7 @@ defmodule D do
   def ren(x, m), do: {x, m}
 
   def cmp(label, text) do
-    {:ok, r} = PrologEx.Reader.start_link()
+    {:ok, r} = PrologEx.GprologReader.start_link()
     PrologEx.Ops.reset()
     g = PrologEx.Reader.read_terms(r, text)
     GenServer.stop(r)

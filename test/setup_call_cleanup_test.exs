@@ -4,8 +4,6 @@ defmodule PrologEx.SetupCallCleanupTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   @program """
   :- dynamic(v/1).
   det(1).

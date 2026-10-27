@@ -4,8 +4,6 @@ defmodule PrologEx.BagofTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   @program """
   age(peter, 7). age(ann, 11). age(pat, 8). age(tom, 5). age(mike, 11).
   pf(f(_, b), 1). pf(f(_, a), 2). pf(f(_, b), 3).

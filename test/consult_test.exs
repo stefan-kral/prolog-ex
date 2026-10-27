@@ -4,8 +4,6 @@ defmodule PrologEx.ConsultTest do
   import ExUnit.CaptureIO
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
-
   setup do
     {:ok, r} = Reader.start_link()
     {:ok, reader: r}

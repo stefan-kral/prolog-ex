@@ -5,7 +5,6 @@ defmodule PrologEx.DeclarationsTest do
   import ExUnit.CaptureIO
   alias PrologEx.Reader
 
-  @moduletag :gprolog
   @moduletag :tmp_dir
 
   setup_all do

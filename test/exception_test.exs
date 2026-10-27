@@ -3,8 +3,6 @@ defmodule PrologEx.ExceptionTest do
   import ExUnit.CaptureIO
   alias PrologEx.{Consult, Reader}
 
-  @moduletag :gprolog
-
   @prog """
   :- use_module(library(lists)).
   :- use_module(library(apply)).

@@ -22,7 +22,7 @@ defmodule PrologEx.Builtins.IO do
   permission_error(input, past_end_of_stream, S)).
   """
   use PrologEx.Builtin
-  alias PrologEx.{Error, Reader, Writer}
+  alias PrologEx.{Error, Writer}
   alias PrologEx.Stream, as: S
   alias PrologEx.Builtins.Lists
 
@@ -693,22 +693,18 @@ defmodule PrologEx.Builtins.IO do
 
   defp read_option!(other, s), do: Error.domain!("read_option", PrologEx.resolve(other, s))
 
-  # Text (Term samt Punkt) mit gprolog lesen. Verpackt als '$pure'((...)),
-  # damit der Reader Direktiven wie ":- op(...)" nicht ausführt.
+  # Text (Term samt Punkt) lesen; Direktiven wirken dabei nicht
   defp parse(text, t, options) do
-    body = text |> String.trim_trailing() |> String.trim_trailing(".")
-
-    case Reader.read_terms(Reader.current(), "'$pure'((" <> body <> "\n)).\n") do
-      [{:term, wrapped, names}] ->
-        {:struct, "$pure", [term]} = PrologEx.unmark_top(wrapped)
+    case PrologEx.Parser.read_one(text) do
+      {:term, term, names} ->
         {term, vars, named, singles} = fresh(term, names)
         {:unify, [{t, term} | read_results(options, vars, named, singles)]}
 
-      [{:error, msg} | _] ->
+      {:error, msg} ->
         Error.syntax!(syntax_text(msg))
 
-      _ ->
-        Error.syntax!("unreadable")
+      :eof ->
+        Error.syntax!("end_of_file_in_term")
     end
   end
 

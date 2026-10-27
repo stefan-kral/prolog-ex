@@ -3,8 +3,6 @@ defmodule PrologEx.PermutationTest do
   alias PrologEx.{Consult, Reader}
   alias PrologEx.Builtins.Lists
 
-  @moduletag :gprolog
-
   # klassische Definition wie in SWI als Referenz
   @ref """
   :- use_module(library(lists)).

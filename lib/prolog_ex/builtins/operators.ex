@@ -2,47 +2,86 @@ defmodule PrologEx.Builtins.Operators do
   @moduledoc """
   `op/3` und `current_op/3` (ISO 8.14.3, 8.14.4).
 
-  Die Operatortabelle gehört dem Reader (gprolog liest alle Terme), also
-  führt `op/3` die Änderung dort aus – gprolog prüft dabei wie ISO:
-  instantiation_error, type_error(integer|atom|list),
-  domain_error(operator_priority|operator_specifier),
-  permission_error(modify, operator, ',') und permission_error(create,
-  operator, Op) für `[]`, `{}`, `|` (außer als Infix mit Priorität ≥ 1001)
-  und für Infix neben Postfix desselben Namens. Der Fehler kommt als
-  error(Formal, _) zurück. Operatoren sind global (wie im Modulsystem
-  festgelegt) und gelten ab dem nächsten gelesenen Term.
+  `op/3` prüft wie ISO (mit Cor. 3): instantiation_error,
+  type_error(integer|atom|list), domain_error(operator_priority |
+  operator_specifier), permission_error(modify, operator, ',') und
+  permission_error(create, operator, Op) für `[]`, `{}`, `|` (außer als
+  Infix mit Priorität ≥ 1001 oder 0) und für Infix neben Postfix
+  desselben Namens. Erst wenn alle Namen geprüft sind, ändert sich die
+  Tabelle. Operatoren sind global (wie im Modulsystem festgelegt) und
+  gelten ab dem nächsten gelesenen Term.
 
   `current_op(?P, ?Typ, ?Op)` zählt die aktuelle Tabelle auf (dazu gehören
-  auch gprologs eigene Operatoren und die Deklarationen wie
-  `dynamic`, `meta_predicate`).
+  die Deklarationen wie `dynamic`, `meta_predicate`).
   """
   use PrologEx.Builtin
-  alias PrologEx.{Error, Reader, Writer}
+  alias PrologEx.{Error, Ops}
 
   @specs ~w(xfx xfy yfx fy fx xf yf)
-  # gprolog liest Ganzzahlen nur bis ±2^60
-  @gp_max 576_460_752_303_423_488
 
   defbuiltin "op", [p, t, ops] do
-    precheck(resolve(p), resolve(t), resolve(ops))
-    # kanonisch: gprolog liest das sicher, unabhängig von Operatoren
-    args =
-      Enum.map_join(
-        [p, t, ops],
-        ", ",
-        &Writer.format(resolve(&1), quoted: true, ignore_ops: true)
-      )
+    {p, t, ops} = {resolve(p), resolve(t), PrologEx.unmark(resolve(ops))}
+    names = check!(p, t, ops)
+    {:atom, type} = t
+    for name <- names, do: Ops.add(p, type, name)
+    :ok
+  end
 
-    case Reader.op_call(Reader.current(), args) do
-      :ok ->
-        # Spiegel für den Writer nachziehen (gprolog hat schon geprüft)
-        mirror(resolve(p), resolve(t), resolve(ops))
-        :ok
+  defp check!(p, t, ops) do
+    if match?({:var, _}, p) or match?({:var, _}, t), do: Error.instantiation!()
+    names = op_names!(ops)
+    unless is_integer(p), do: Error.type!("integer", p)
+    unless match?({:atom, _}, t), do: Error.type!("atom", t)
+    unless p in 0..1200, do: Error.domain!("operator_priority", p)
+    {:atom, type} = t
+    unless type in @specs, do: Error.domain!("operator_specifier", t)
 
-      {:error, formal} ->
-        Error.error!(formal)
+    for name <- names do
+      if name == ",", do: Error.permission!("modify", "operator", a(","))
+      if name in ["[]", "{}"], do: Error.permission!("create", "operator", a(name))
+
+      if name == "|" and (Ops.class(type) != :infix or (p > 0 and p < 1001)),
+        do: Error.permission!("create", "operator", a("|"))
+
+      # ISO: kein Name zugleich Infix und Postfix
+      other = %{infix: :postfix, postfix: :infix}[Ops.class(type)]
+
+      if p > 0 and other && Ops.lookup(Ops.table(), name, other),
+        do: Error.permission!("create", "operator", a(name))
+    end
+
+    names
+  end
+
+  # Atom oder Liste von Atomen; [] ist das Atom '[]' (ISO)
+  defp op_names!({:var, _}), do: Error.instantiation!()
+  defp op_names!([]), do: ["[]"]
+  defp op_names!({:atom, n}), do: [n]
+
+  defp op_names!([_ | _] = l) do
+    {items, tail} = items(l, [])
+
+    case tail do
+      [] -> :ok
+      {:var, _} -> Error.instantiation!()
+      _ -> Error.type!("list", l)
+    end
+
+    if Enum.any?(items, &match?({:var, _}, &1)), do: Error.instantiation!()
+
+    for item <- items do
+      case item do
+        {:atom, n} -> n
+        [] -> "[]"
+        other -> Error.type!("atom", other)
+      end
     end
   end
+
+  defp op_names!(other), do: Error.type!("list", other)
+
+  defp items([h | t], acc), do: items(t, [h | acc])
+  defp items(tail, acc), do: {Enum.reverse(acc), tail}
 
   @doc "op(P, T, Ops) in den Spiegel der Operatortabelle übernehmen (schon geprüft)"
   def mirror(p, {:atom, type}, ops) when is_integer(p) do
@@ -81,27 +120,11 @@ defmodule PrologEx.Builtins.Operators do
       other -> Error.type!("atom", resolve(other))
     end
 
-    for {prio, type, name} <- Reader.current_ops(Reader.current()),
+    for {name, classes} <- Ops.table(),
+        {_class, {prio, type}} <- classes,
         match?({:var, _}, pp) or pp == prio,
         match?({:var, _}, tt) or tt == {:atom, type},
         match?({:var, _}, oo) or oo == a(name),
         do: {:unify, [{p, prio}, {t, a(type)}, {op, a(name)}]}
   end
-
-  # Ganzzahlen, die gprolog nicht lesen könnte: die Fehler hier melden
-  defp precheck(p, t, ops) do
-    if big?(p), do: Error.domain!("operator_priority", p)
-    if big?(t), do: Error.type!("atom", t)
-    if big?(ops), do: Error.type!("list", ops)
-    each_elem(ops, fn e -> if big?(e), do: Error.type!("atom", e) end)
-  end
-
-  defp big?(n), do: is_integer(n) and abs(n) >= @gp_max
-
-  defp each_elem([h | t], f) do
-    f.(h)
-    each_elem(t, f)
-  end
-
-  defp each_elem(_, _f), do: :ok
 end

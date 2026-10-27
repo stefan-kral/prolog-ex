@@ -1,76 +1,78 @@
 defmodule PrologEx.ReaderTest do
-  use ExUnit.Case, async: false
+  # PrologEx.Reader: Lesen im Sitzungsprozess mit PrologEx.Parser
+  use ExUnit.Case, async: true
   alias PrologEx.Reader
 
-  @moduletag :gprolog
+  @moduletag :tmp_dir
 
-  # Jede Leseanfrage schickt ihre Endemarke zweimal; die zweite Antwort
-  # kann (unter Last) erst ankommen, wenn der Reader schon die nächste
-  # Datei-Anfrage bearbeitet – etwa nach op/3 aus einer Direktive, während
-  # die Datei pausiert. Hier erzwungen: veraltete Marke hinter der Anfrage.
-  @tag :tmp_dir
-  test "veraltete Endemarke beim Weiterlesen einer Datei wird ignoriert", %{tmp_dir: dir} do
+  defp file(c, name, text) do
+    path = Path.join(c.tmp_dir, name)
+    File.write!(path, text)
+    path
+  end
+
+  defp names(items), do: for({:term, t, _} <- items, do: PrologEx.format(t, quoted: true))
+
+  test "Dateien in Abschnitten bis zur nächsten Direktive", c do
+    path = file(c, "a.pl", "a.\nb.\n:- d1.\nc.\n:- d2.\n")
+    assert Reader.open_file(nil, path) == :ok
+    assert {items, :pause} = Reader.next_chunk(nil)
+    assert names(items) == ["a", "b", ":-d1"]
+    assert {items, :pause} = Reader.next_chunk(nil)
+    assert names(items) == ["c", ":-d2"]
+    assert {[], :eof} = Reader.next_chunk(nil)
+    # nichts mehr offen
+    assert {[], :eof} = Reader.next_chunk(nil)
+  end
+
+  test "zwischen den Abschnitten gesetzte Operatoren und Flags gelten sofort", c do
+    path = file(c, "a.pl", ":- op(700, xfx, ===>).\na ===> b.\n:- dq.\nx(\"ab\").\n")
+    :ok = Reader.open_file(nil, path)
+    assert {[_], :pause} = Reader.next_chunk(nil)
+    PrologEx.Ops.add(700, "xfx", "===>")
+    assert {items, :pause} = Reader.next_chunk(nil)
+    assert names(items) == ["a===>b", ":-dq"]
+    Reader.set_double_quotes(nil, "atom")
+    assert {[{:term, {:gstruct, "x", [{:atom, "ab"}]}, _}], :eof} = Reader.next_chunk(nil)
+  end
+
+  test "ohne die Direktive auszuführen gilt der Operator nicht", c do
+    path = file(c, "a.pl", ":- op(700, xfx, ===>).\na ===> b.\nok.\n")
+    :ok = Reader.open_file(nil, path)
+    assert {[_], :pause} = Reader.next_chunk(nil)
+    assert {[{:error, msg}, {:term, {:atom, "ok"}, _}], :eof} = Reader.next_chunk(nil)
+    assert msg =~ "Zeile 2"
+  end
+
+  test "Stapel: eine in einer Direktive geöffnete Datei wird zuerst gelesen", c do
+    outer = file(c, "outer.pl", "o1.\n:- inc.\no2.\n")
+    inner = file(c, "inner.pl", "i1.\ni2.\n")
+    :ok = Reader.open_file(nil, outer)
+    assert {items, :pause} = Reader.next_chunk(nil)
+    assert names(items) == ["o1", ":-inc"]
+    :ok = Reader.open_file(nil, inner)
+    assert {items, :eof} = Reader.next_chunk(nil)
+    assert names(items) == ["i1", "i2"]
+    assert {items, :eof} = Reader.next_chunk(nil)
+    assert names(items) == ["o2"]
+  end
+
+  test "end_of_file beendet die Datei; Byte-Order-Mark", c do
+    path = file(c, "a.pl", <<0xEF, 0xBB, 0xBF>> <> "a.\nend_of_file.\nb.\n")
+    :ok = Reader.open_file(nil, path)
+    assert {items, :eof} = Reader.next_chunk(nil)
+    assert names(items) == ["a"]
+  end
+
+  test "fehlende Datei", c do
+    assert {:error, msg} = Reader.open_file(nil, Path.join(c.tmp_dir, "fehlt.pl"))
+    assert msg =~ "fehlt.pl"
+  end
+
+  test "read_terms: Prozess-Schnittstelle ohne gprolog" do
     {:ok, r} = Reader.start_link()
-    file = Path.join(dir, "f.pl")
-    File.write!(file, ":- dir.\na(1).\nb(2).\n")
-
-    assert Reader.open_file(r, file) == :ok
-    assert {[{:term, _, _}], :pause} = Reader.next_chunk(r)
-    assert Reader.op(r, 700, "xfx", "===>") == :ok
-
-    port = :sys.get_state(r).port
-    :sys.suspend(r)
-    task = Task.async(fn -> Reader.next_chunk(r) end)
-    # warten, bis die Anfrage im Postfach des Readers liegt
-    wait_queued(r)
-    send(r, {port, {:data, {:eol, "batch_end(99)."}}})
-    :sys.resume(r)
-
-    assert {items, :eof} = Task.await(task)
-    assert [{:term, {_, "a", [1]}, _}, {:term, {_, "b", [2]}, _}] = items
-
-    # der Operator gilt
-    assert [{:term, {:gstruct, "===>", [1, 2]}, _}] = Reader.read_terms(r, "1 ===> 2.")
-  end
-
-  defp wait_queued(r) do
-    case Process.info(r, :message_queue_len) do
-      {:message_queue_len, n} when n > 0 -> :ok
-      _ -> Process.sleep(1) && wait_queued(r)
-    end
-  end
-
-  # gprolog hat keine Speicherbereinigung: die Leseschleife muss
-  # fehlschlag-getrieben sein, sonst wächst der globale Stack mit jedem Term
-  @tag timeout: 120_000
-  @tag :tmp_dir
-  test "viele Terme lesen: kein global stack overflow (kleiner Stack)", %{tmp_dir: dir} do
-    {:ok, r} = PrologEx.Reader.start_link(env: [{"GLOBALSZ", "4096"}])
-
-    # einzeln (wie read/1, Anfragen im Toplevel)
-    for i <- 1..20_000 do
-      [{:term, _, _}] = PrologEx.Reader.read_terms(r, "p(#{i}, f(#{i}, [a, b, c]), 'Name').")
-    end
-
-    # eine große Datei ohne Direktiven (ein einziger Abschnitt)
-    file = Path.join(dir, "gross.pl")
-    File.write!(file, for(i <- 1..30_000, into: "", do: "q(#{i}, g(#{i}, [x, y, z]), 'Wert').\n"))
-    PrologEx.Reader.put_current(r)
-    PrologEx.put_db(%{})
-    {:ok, _} = PrologEx.Consult.load_file(file)
-    assert PrologEx.current_db() |> Map.has_key?({"user", "q", 3})
-  end
-
-  test "gprolog stirbt (zu tief verschachtelt): Fehler, Reader läuft weiter" do
-    {:ok, r} = PrologEx.Reader.start_link()
-    # 10 000: stirbt nach dem Einlesen; 100 000: schon beim Schreiben (epipe)
-    for n <- [10_000, 100_000] do
-      deep = String.duplicate("f(", n) <> "a" <> String.duplicate(")", n) <> "."
-      res = PrologEx.Reader.read_terms(r, deep)
-      assert {:error, msg} = List.last(res)
-      assert msg =~ "beendet"
-      assert Process.alive?(r)
-      assert [{:term, {:atom, "ok"}, _}] = PrologEx.Reader.read_terms(r, "ok.")
-    end
+    assert [{:term, {:struct, "f", [{:var, "X"}]}, %{"X" => "X"}}] = Reader.read_terms(r, "f(X).")
+    assert Reader.available?()
+    Reader.stop(r)
   end
 end

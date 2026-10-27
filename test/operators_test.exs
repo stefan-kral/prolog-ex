@@ -5,8 +5,6 @@ defmodule PrologEx.OperatorsTest do
   import ExUnit.CaptureIO
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   setup do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
@@ -68,6 +66,8 @@ defmodule PrologEx.OperatorsTest do
     assert err(c, "op(1000, xfy, ',').") =~ "permission_error(modify, operator, ',')"
     assert err(c, "op(700, xfx, '|').") =~ "permission_error(create, operator, '|')"
     assert ask(c, "op(1100, xfy, '|').") == ["true"]
+    # Priorität 0 entfernt, das ist auch für | erlaubt
+    assert ask(c, "op(0, xfy, '|').") == ["true"]
     assert err(c, "op(700, xfx, []).") =~ "permission_error(create, operator, [])"
     assert err(c, "op(700, xfx, {}).") =~ "permission_error(create, operator, {})"
     # Infix und Postfix mit demselben Namen

@@ -54,8 +54,6 @@ defmodule PrologEx.NumberSyntaxTest do
   end
 
   describe "über den gprolog-Reader" do
-    @describetag :gprolog
-
     setup do
       {:ok, r} = Reader.start_link()
       {:ok, reader: r}

@@ -2,8 +2,6 @@ defmodule PrologEx.AtomsTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   setup_all do
     {:ok, r} = Reader.start_link()
     {:ok, reader: r}

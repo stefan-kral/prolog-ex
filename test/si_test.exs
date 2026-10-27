@@ -3,8 +3,6 @@ defmodule PrologEx.SiTest do
   import PrologEx, only: [a: 1, mk: 2, list: 1, v: 1]
   alias PrologEx.Reader
 
-  @moduletag :gprolog
-
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)

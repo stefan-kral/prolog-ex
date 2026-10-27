@@ -4,7 +4,6 @@ defmodule PrologEx.LambdaTest do
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  @moduletag :gprolog
   @fixtures Path.expand("fixtures/lambda", __DIR__)
 
   setup_all do

@@ -50,7 +50,9 @@ defmodule PrologEx.ParserTest do
     assert r1("x(- (1,2), -(1,2), \\+ (a,b))") == "x(-(','(1,2)),-(1,2),\\+(','(a,b)))"
     assert r1("x('<<'/2)") == :error
     assert r1("x((<<)/2)") == "x(/(<<,2))"
-    assert r1("- ") == :error
+    # allein ist ein Operator ein ganzer Term (wie gprolog), als Operand nicht
+    assert r("- .\n:- .\n") == ["-", ":-"]
+    assert r1("x :- - ") == :error
     # fx verlangt ein Argument niedrigerer Priorität, fy nicht
     assert r1("x((:- :- a))") == :error
     assert r1("x((?- \\+ \\+ a))") == "x(?-(\\+(\\+(a))))"
@@ -102,6 +104,9 @@ defmodule PrologEx.ParserTest do
     assert r1("x('\\e')") == :error
     assert r1("x('\\x41')") == :error
     assert r1("x('a\nb')") == :error
+    assert r1("x('a\tb')") == :error
+    assert r1("x(\"a\tb\")") == :error
+    assert r1("x(0'\t)") == :error
     assert r1("x('\\x1F600\\')") == "x('😀')"
   end
 
