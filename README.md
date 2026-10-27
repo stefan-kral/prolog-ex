@@ -364,6 +364,33 @@ pro Sekunde:
 `statistics/0` gibt eine Übersicht aus. Das Zählen der Inferenzen kostet
 etwa 25 ns je Aufruf (rund 1–2 %).
 
+## Ressourcen begrenzen: `call_with_inference_limit/3`
+
+Wie SWI und Scryer: `call_with_inference_limit(G, L, R)` ruft `G` mit
+höchstens `L` Inferenzen (Prädikataufrufen) *je Lösung* – beim Backtracking
+in `G` gibt es ein frisches Kontingent. `R` ist `!` (G deterministisch
+gelungen), `true` (Choice Points offen) oder `inference_limit_exceeded`
+(`G` wurde abgebrochen, keine weiteren Lösungen).
+
+```prolog
+?- call_with_inference_limit(member(X, [a, b]), 10, R).
+R = true, X = a ;
+R = !, X = b.
+?- assertz((loop :- loop)), call_with_inference_limit(loop, 1000, R).
+R = inference_limit_exceeded.
+```
+
+  * Verschachtelt gelten alle Grenzen, die strengere gewinnt: eine innere
+    Grenze kann eine äußere nicht verlängern.
+  * Abgebrochen wird mit der Ausnahme `inference_limit_exceeded`; fängt `G`
+    sie selbst (`catch(_, _, ...)`), wird sie beim nächsten Schritt erneut
+    geworfen – die Grenze lässt sich nicht verschlucken.
+  * Unteranfragen (`findall/3`, `\+`, `forall/2`, ...) zählen mit.
+  * Kosten ohne Grenze: ein Vergleich je Schritt, im nrev-Benchmark nicht
+    messbar; mit aktiver Grenze ebenso.
+  * Was in einem eingebauten Prädikat (Elixir) geschieht, zählt als eine
+    Inferenz und wird nicht unterbrochen.
+
 ## Coroutining
 
 `freeze/2`, `frozen/2`, `dif/2`, `when/2` (Bedingungen `nonvar/1`,

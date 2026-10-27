@@ -922,7 +922,11 @@ defmodule PrologEx do
             catch_off: MapSet.new(),
             # Inferenzzähler der Sitzung (:counters, je Prozess einer);
             # Unter-Maschinen (findall, \\+, ...) teilen ihn
-            icount: nil
+            icount: nil,
+            # aktive Inferenzgrenzen (call_with_inference_limit/3):
+            # [{id, Grenze}] und die kleinste davon (nil: keine aktiv)
+            ilimits: [],
+            ilimit: nil
 
   # (vor dem Wecken nicht kompaktieren: $wake braucht die Attribute der
   # eben gebundenen Variablen)
@@ -937,7 +941,11 @@ defmodule PrologEx do
       [{goal, cutb, mod} | rest] ->
         goal = unmark_top(walk(goal, st.subst))
         count_inference(goal, st.icount)
-        step(goal, cutb, mod, rest, st)
+
+        # ohne aktive Inferenzgrenze nur dieser eine Vergleich
+        if st.ilimit != nil and :counters.get(st.icount, 1) > st.ilimit,
+          do: throw_ball({:atom, "inference_limit_exceeded"}, st),
+          else: step(goal, cutb, mod, rest, st)
     end
   end
 
@@ -1375,6 +1383,55 @@ defmodule PrologEx do
         )
   end
 
+  # call_with_inference_limit(G, L, R) wie SWI und Scryer: höchstens L
+  # Inferenzen je Lösung von G. R = ! (G deterministisch gelungen), true
+  # (Choice Points offen) oder inference_limit_exceeded – dann wird G mit der
+  # Ausnahme inference_limit_exceeded abgebrochen und hier gefangen.
+  #
+  # Der Rahmen ist ein Choice Point unter G (wie bei catch/3): Eintritt
+  # aktiviert die Grenze (aktueller Zählerstand + L), der Ausgang setzt sie
+  # aus; bleiben Choice Points, kommt darüber ein Wiedereintritts-Choice-
+  # Point, der beim Backtracking in G eine frische Grenze setzt. Scheitert G
+  # endgültig, nimmt der Rahmen-Choice-Point die Grenze weg.
+  #
+  # Verschachtelt gilt jede aktive Grenze: geprüft wird gegen die kleinste
+  # (die strengere gewinnt). Fängt G die Ausnahme selbst (catch-all), wird
+  # sie beim nächsten Schritt erneut geworfen – die Grenze bleibt in Kraft.
+  defp step({:struct, "call_with_inference_limit", [g, l, r]}, _cutb, mod, rest, st) do
+    case walk(l, st.subst) do
+      {:var, _} ->
+        throw_error(st, &PrologEx.Error.instantiation!/0)
+
+      n when is_integer(n) and n >= 0 ->
+        id = make_ref()
+        h = st.height
+        st = add_ilimit(st, id, :counters.get(st.icount, 1) + n)
+        st = push(st, {:ilimit, id, r, rest, mod, st.subst, st.answer})
+        goal = unmark_top(walk(g, st.subst))
+        run(%{st | goals: [{goal, h + 1, mod}, {{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest]})
+
+      n when is_integer(n) ->
+        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
+
+      other ->
+        throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
+    end
+  end
+
+  defp step({:"$ilimit_exit", id, n, h, r}, _cutb, _mod, rest, st) do
+    st = remove_ilimit(st, id)
+
+    {st, res} =
+      if st.height == h + 1,
+        do: {%{st | cps: tl(st.cps), height: h}, "!"},
+        else: {push(st, {:ilimit_reenter, id, n}), "true"}
+
+    case unify(r, {:atom, res}, st.subst) do
+      {:ok, s} -> cont(st, s, rest)
+      :error -> backtrack(st)
+    end
+  end
+
   # call_nth(G, N): zählt die Lösungen von G mit einem Zähler, den
   # Backtracking NICHT zurücksetzt (st.counters). Ist N eine Zahl, wird bei
   # der N-ten Lösung abgeschnitten (deterministisch). Ein Choice Point unter G
@@ -1790,6 +1847,29 @@ defmodule PrologEx do
 
   defp next_solution(_done_or_halted, _mod, _rest, st), do: backtrack(st)
 
+  defp add_ilimit(st, id, limit) do
+    ls = [{id, limit} | st.ilimits]
+    %{st | ilimits: ls, ilimit: min_ilimit(ls)}
+  end
+
+  defp remove_ilimit(%{ilimits: []} = st, _id), do: st
+
+  defp remove_ilimit(st, id) do
+    ls = List.keydelete(st.ilimits, id, 0)
+    %{st | ilimits: ls, ilimit: min_ilimit(ls)}
+  end
+
+  defp min_ilimit([]), do: nil
+  defp min_ilimit(ls), do: ls |> Enum.map(&elem(&1, 1)) |> Enum.min()
+
+  # ist die Grenze dieses Rahmens aktiv und überschritten?
+  defp ilimit_exceeded?(st, id) do
+    case List.keyfind(st.ilimits, id, 0) do
+      {_, limit} -> :counters.get(st.icount, 1) > limit
+      nil -> false
+    end
+  end
+
   defp now_us, do: System.monotonic_time(:microsecond)
 
   # bisher gelaufene Zeit von time/1 (µs), einschließlich des laufenden Abschnitts
@@ -1951,6 +2031,14 @@ defmodule PrologEx do
         report_time(time_stop(st, ref))
         backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
 
+      # G von call_with_inference_limit/3 erschöpft: Grenze weg
+      {:ilimit, id, _r, _rest, _mod, _subst, _answer} ->
+        backtrack(remove_ilimit(st, id))
+
+      # zurück in G: frische Grenze für die nächste Lösung
+      {:ilimit_reenter, id, n} ->
+        backtrack(add_ilimit(st, id, :counters.get(st.icount, 1) + n))
+
       # zurück in G (time/1): die Uhr läuft weiter
       {:time_reenter, ref} ->
         {total, _} = Map.get(st.counters, ref, {0, nil})
@@ -2010,6 +2098,21 @@ defmodule PrologEx do
         :error ->
           unwind(ball, below, h - 1, st)
       end
+    end
+  end
+
+  # Rahmen von call_with_inference_limit/3: fängt nur die eigene
+  # Überschreitung; sonst Grenze weg (G wird verlassen) und weiter
+  defp unwind(ball, [{:ilimit, id, r, rest, _mod, subst, answer} | below], h, st) do
+    if ball == {:atom, "inference_limit_exceeded"} and ilimit_exceeded?(st, id) do
+      st = remove_ilimit(%{st | cps: below, height: h - 1, answer: answer}, id)
+
+      case unify(r, ball, subst) do
+        {:ok, s} -> cont(st, s, rest)
+        :error -> backtrack(st)
+      end
+    else
+      unwind(ball, below, h - 1, remove_ilimit(st, id))
     end
   end
 

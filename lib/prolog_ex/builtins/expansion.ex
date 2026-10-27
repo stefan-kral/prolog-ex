@@ -43,7 +43,8 @@ defmodule PrologEx.Builtins.Expansion do
     {"forall", 2} => [0, 0],
     {"once", 1} => [0],
     {"ignore", 1} => [0],
-    {"time", 1} => [0]
+    {"time", 1} => [0],
+    {"call_with_inference_limit", 3} => [0, "+", "-"]
   }
 
   # im Kontextmodul des Aufrufers (ohne meta_predicate: eine vom Benutzer
