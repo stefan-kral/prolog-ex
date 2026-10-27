@@ -74,6 +74,54 @@ defmodule PrologEx.ListUtilsTest do
     assert err(c, "sum_list([a], S).") =~ "type_error"
   end
 
+  test "member/2 mit gebundenem X: unpassende Zellen ohne Choice Point übersprungen", c do
+    assert ask(c, "member(b, [a, b, c, b]).") == ["true", "true"]
+
+    assert ask(c, "member(f(X), [a, g(1), f(1), Y, f(2, 3), [f(2)]]).") ==
+             ["X = 1", "Y = f(X)"]
+
+    assert ask(c, "member([H|_], [a, [], [1], f(x), [2, 3]]).") == ["H = 1", "H = 2"]
+    assert ask(c, "member(1, [1.0, 1, X]).") == ["true", "X = 1"]
+    assert ask(c, "member(1.0, [1, 1.0]).") == ["true"]
+
+    assert ask(c, "member(a, [B, a, C | T]).") |> Enum.take(4) == [
+             "B = a",
+             "true",
+             "C = a",
+             "T = [a|_A]"
+           ]
+
+    # letzte passende Zelle am Listenende: deterministisch
+    assert det?(c, "member(c, [a, b, c]).")
+    assert det?(c, "member(c, [c, b, a]).") == false
+    assert ask(c, "member(z, [a, b | c]).") == []
+    assert det?(c, "member(c, [a, f(_), c]).")
+    assert det?(c, "member(f(1), [a, f(_)]).")
+  end
+
+  test "member/2: Filter aus dem ersten Argument" do
+    import PrologEx, only: [a: 1, mk: 2, v: 1]
+    alias PrologEx.Builtins.Lists
+    m = fn x, h -> Lists.member_match(Lists.member_key(x), h) end
+
+    assert m.(a("a"), a("a")) == :eq
+    assert m.(a("a"), a("b")) == :skip
+    assert m.(1, 1) == :eq
+    assert m.(1, 1.0) == :skip
+    assert m.(1.0, 1.0) == :unify
+    assert m.(1.0, 1) == :skip
+    assert m.(1, v("X")) == :unify
+    assert m.(mk("f", [v("X")]), mk("f", [1])) == :unify
+    assert m.(mk("f", [v("X")]), mk("f", [1, 2])) == :skip
+    assert m.(mk("f", [v("X")]), mk("g", [1])) == :skip
+    assert m.(mk("f", [v("X")]), a("f")) == :skip
+    assert m.([v("H") | v("T")], PrologEx.list([1])) == :unify
+    assert m.([v("H") | v("T")], [v("H") | v("T")]) == :unify
+    assert m.([v("H") | v("T")], []) == :skip
+    assert m.([v("H") | v("T")], mk("f", [1, 2])) == :skip
+    assert m.(v("X"), a("a")) == :unify
+  end
+
   test "max_member/2, min_member/2: Standardordnung", c do
     assert ask(c, "max_member(M, [b, f(a), 3, a]).") == ["M = f(a)"]
     assert ask(c, "min_member(M, [b, f(a), 3, a]).") == ["M = 3"]

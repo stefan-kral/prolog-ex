@@ -223,7 +223,10 @@ defmodule PrologEx.Builtins.Lists do
   end
 
   defbuiltin "member", [x, l], nondet: true, protected: false, helpers: [{"$member", 2}] do
-    member_cells(x, deref(l), subst())
+    s = subst()
+    # einmal vorab: X dereferenzieren und daraus den Filter bestimmen, der
+    # für alle Zellen gilt (ändert sich auch nach Backtracking nicht)
+    member_scan(x, member_key(PrologEx.walk(x, s)), deref(l), s)
   end
 
   defbuiltin "between", [lo, hi, x], nondet: true, protected: false, module: "system" do
@@ -403,6 +406,80 @@ defmodule PrologEx.Builtins.Lists do
   end
 
   defp join({:items, items}, y, _subst), do: PrologEx.list(items, y)
+
+  @doc false
+  # Filter für member/2: Konstante (Vergleich mit ===), Funktor/Stelligkeit,
+  # oder alles (X ungebunden)
+  def member_key({:var, _}), do: :any
+  def member_key({tag, f, args}) when tag in [:struct, :gstruct], do: {:fn, f, length(args)}
+  def member_key([_ | _]), do: :list
+  def member_key({:glist, _}), do: :list
+  def member_key(c), do: {:const, c}
+
+  @doc false
+  # :eq (gleich, nichts zu binden), :unify oder :skip
+  def member_match(_k, {:var, _}), do: :unify
+  def member_match(:any, _h), do: :unify
+  # Gleitkommazahlen: wie die Unifikation entscheidet (-0.0 und 0.0)
+  def member_match({:const, c}, h) when is_float(c),
+    do: if(is_float(h), do: :unify, else: :skip)
+
+  def member_match({:const, c}, h), do: if(h === c, do: :eq, else: :skip)
+
+  def member_match({:fn, f, n}, {tag, f, args})
+      when tag in [:struct, :gstruct] and length(args) == n,
+      do: :unify
+
+  def member_match(:list, [_ | _]), do: :unify
+  def member_match(:list, {:glist, _}), do: :unify
+  def member_match(_k, _h), do: :skip
+
+  # Zellen ohne Choice Point überspringen, bis eine passen kann
+  defp member_scan(x, k, [h | t], s) do
+    hd = PrologEx.walk(h, s)
+
+    case member_match(k, hd) do
+      :skip ->
+        case PrologEx.walk(t, s) do
+          [_ | _] = next -> member_scan(x, k, next, s)
+          {:glist, cells} -> member_scan_raw(x, k, cells)
+          {:var, _} = next -> member_cells(x, next, s)
+          _end -> []
+        end
+
+      m ->
+        r = if m == :eq, do: :ok, else: {:unify, [{x, h}]}
+
+        case PrologEx.walk(t, s) do
+          next when is_list(next) and next != [] -> [r | fn -> member_scan(x, k, next, s) end]
+          {:glist, _} = next -> [r | fn -> member_scan(x, k, next, s) end]
+          {:var, _} = next -> [r | fn -> member_cells(x, next, s) end]
+          _end -> [r]
+        end
+    end
+  end
+
+  defp member_scan(x, k, {:glist, cells}, _s), do: member_scan_raw(x, k, cells)
+  defp member_scan(x, _k, {:var, _} = rest, s), do: member_cells(x, rest, s)
+  defp member_scan(_x, _k, _not_a_list, _s), do: []
+
+  defp member_scan_raw(x, k, [h | t]) do
+    case member_match(k, h) do
+      :skip ->
+        case t do
+          [_ | _] -> member_scan_raw(x, k, t)
+          _ -> []
+        end
+
+      m ->
+        r = if m == :eq, do: :ok, else: {:unify, [{x, h}]}
+
+        case t do
+          [_ | _] -> [r | fn -> member_scan_raw(x, k, t) end]
+          _ -> [r]
+        end
+    end
+  end
 
   # member/2: eine Lösung pro Zelle; ist der Rest [], ist es die letzte
   # Weiter geht es nur, wenn der Rest eine Liste oder ungebunden ist;
