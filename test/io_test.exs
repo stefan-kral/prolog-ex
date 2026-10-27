@@ -369,4 +369,28 @@ defmodule PrologEx.IOTest do
       end
     end
   end
+
+  # gefunden mit Logtalks Konformitätstests (ISO 6.3.7.1)
+  test "read/2 beachtet double_quotes, das in derselben Anfrage gesetzt wird", c do
+    File.write!("dq.txt", ~s("jim". "". ))
+
+    try do
+      assert ask(
+               c,
+               "set_prolog_flag(double_quotes, atom), open('dq.txt', read, S), read(S, A), read(S, B), close(S)."
+             )
+             |> hd() =~ "A = jim, B = ''"
+
+      assert ask(
+               c,
+               "set_prolog_flag(double_quotes, codes), open('dq.txt', read, S), read(S, A), close(S)."
+             )
+             |> hd() =~ "A = [106, 105, 109]"
+    after
+      PrologEx.Flags.reset()
+    end
+
+    # nach dem Zurücksetzen wieder chars
+    assert ask(c, "open('dq.txt', read, S), read(S, A), close(S).") |> hd() =~ ~s(A = "jim")
+  end
 end

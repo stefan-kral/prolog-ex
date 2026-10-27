@@ -149,8 +149,8 @@ defmodule Conf do
   end
 
   defp test_head({:struct, "test", [n]}, b), do: {n, a("true"), [], b}
-  defp test_head({:struct, "test", [n, o]}, b), do: {n, o, [], b}
-  defp test_head({:struct, "test", [n, o, opts]}, b), do: {n, o, opts, b}
+  defp test_head({:struct, "test", [n, o]}, b), do: {n, tr_outcome(o), [], b}
+  defp test_head({:struct, "test", [n, o, opts]}, b), do: {n, tr_outcome(o), opts, b}
   defp test_head({:struct, "succeeds", [n]}, b), do: {n, a("true"), [], b}
   defp test_head({:struct, "deterministic", [n]}, b), do: {n, a("deterministic"), [], b}
   defp test_head({:struct, "fails", [n]}, b), do: {n, a("false"), [], b}
@@ -161,6 +161,12 @@ defmodule Conf do
   end
 
   defp test_head(_, _), do: nil
+
+  # Zusicherungen im Ausgang können selbst {...} enthalten
+  defp tr_outcome({:struct, k, [x]}) when k in ["true", "deterministic", "exists", "all"],
+    do: mk(k, [tr(x)])
+
+  defp tr_outcome(o), do: o
 
   # Optionen übersetzen (Ziele in condition/setup/cleanup)
   def tr_opts(opts) when is_list(opts) do

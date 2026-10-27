@@ -1055,7 +1055,12 @@ defmodule PrologEx do
   defp step({:struct, "call", [g | extra]}, _cutb, mod, rest, st) do
     case guarded(fn ->
            goal = add_args(unmark_top(walk(g, st.subst)), extra)
-           to_body(goal, goal, st.subst)
+
+           # oben eine Variable: instantiation_error (nur innen wird sie call(V))
+           case walk(goal, st.subst) do
+             {:var, _} -> PrologEx.Error.instantiation!()
+             _ -> to_body(goal, goal, st.subst)
+           end
          end) do
       {:ok, goal} -> run(%{st | goals: [{goal, st.height, mod} | rest]})
       {:thrown, ball} -> throw_ball(ball, st)

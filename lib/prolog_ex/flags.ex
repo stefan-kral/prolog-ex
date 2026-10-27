@@ -75,6 +75,7 @@ defmodule PrologEx.Flags do
 
   @doc "Alle Flags auf Standardwerte zurücksetzen (für Tests)"
   def reset do
+    if Map.has_key?(Process.get(@key, %{}), "double_quotes"), do: sync_reader("chars")
     Process.delete(@key)
     Process.delete(PrologEx.occurs_key())
   end
@@ -89,7 +90,18 @@ defmodule PrologEx.Flags do
   defp apply_side_effect("occurs_check", {:atom, "error"}),
     do: Process.put(PrologEx.occurs_key(), :error)
 
+  # double_quotes: der Reader muss es sofort wissen (read/1 in derselben
+  # Anfrage, Direktiven beim Laden)
+  defp apply_side_effect("double_quotes", {:atom, v}), do: sync_reader(v)
+
   defp apply_side_effect(_, _), do: :ok
+
+  defp sync_reader(v) do
+    if PrologEx.Reader.available?(),
+      do: PrologEx.Reader.set_double_quotes(PrologEx.Reader.current(), v)
+
+    :ok
+  end
 
   defp term(v) when is_atom(v), do: a(Atom.to_string(v))
   defp term(v), do: v

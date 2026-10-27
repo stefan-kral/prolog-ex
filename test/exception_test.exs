@@ -160,6 +160,11 @@ defmodule PrologEx.ExceptionTest do
   test "call/N: Fehler beim Zusammensetzen des Ziels fängt catch/3", c do
     assert ask(c, "catch(call(X, _), error(E, _), true).") == ["E = instantiation_error"]
     assert ask(c, "catch(call(3, _), error(E, _), true).") == ["E = type_error(callable, 3)"]
+    # oben eine Variable: instantiation_error (früher: Endlosschleife)
+    assert ask(c, "catch(call(_), error(E, _), true).") == ["E = instantiation_error"]
+
+    assert ask(c, "catch((Y = (true, X), call(Y)), error(E, _), true).") ==
+             ["E = instantiation_error"]
   end
 
   test "call/1 wandelt den Rumpf wie ISO 7.6.2 um", c do
