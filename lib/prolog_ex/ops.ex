@@ -1,13 +1,11 @@
 defmodule PrologEx.Ops do
   @moduledoc """
-  Spiegel der Operatortabelle für den Writer.
-
-  Gelesen wird mit gprolog (`PrologEx.Reader`), dort liegt die eigentliche
-  Tabelle. Damit der Writer nicht bei jedem Term gprolog fragen muss, führt
-  Elixir eine Kopie im Sitzungsprozess (Prozess-Dictionary), die alle
-  Änderungen nachzieht: `op/3`, Operatoren aus Bibliotheken
-  (`Reader.op/4`) und aus `module/2`-Exportlisten. Ohne Änderungen gilt die
-  Standardtabelle (gprolog plus die Deklarationsoperatoren des Readers).
+  Die Operatortabelle der Sitzung (Prozess-Dictionary), für Reader
+  (`PrologEx.Parser`) und Writer. Änderungen kommen von `op/3`, aus
+  Bibliotheken (`Reader.op/4`) und aus `module/2`-Exportlisten. Ohne
+  Änderungen gilt die Standardtabelle: ISO, dazu wie gprolog und SWI die
+  Deklarationsoperatoren (`dynamic`, ...), `=@=`, `\\=@=`, `xor` (Cor. 2) und
+  die CLP(FD)-Operatoren.
 
   Tabelle: `%{name => %{prefix: {p, typ}, infix: {p, typ}, postfix: {p, typ}}}`
   (nur die vorhandenen Klassen).
@@ -15,8 +13,8 @@ defmodule PrologEx.Ops do
 
   @key :prolog_ex_ops
 
-  # gprolog 1.4/1.5 und priv/gprolog/reader.pl (dynamic, ..., attribute,
-  # =@=, \\=@=, xor)
+  # wie gprolog 1.4/1.5 samt den Deklarationsoperatoren (dynamic, ...,
+  # attribute), =@=, \\=@=, xor
   @default_list [
     {1200, "xfx", "-->"},
     {1200, "fx", ":-"},

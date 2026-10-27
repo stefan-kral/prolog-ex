@@ -73,7 +73,7 @@ defmodule PrologEx.OperatorsTest do
     # Infix und Postfix mit demselben Namen
     assert ask(c, "op(200, xf, yy).") == ["true"]
     assert err(c, "op(200, xfx, yy).") =~ "permission_error(create, operator, yy)"
-    # Zahlen jenseits von gprologs Bereich
+    # große Zahlen
     assert err(c, "op(100000000000000000000, xfx, foo).") =~ "domain_error(operator_priority"
     assert err(c, "op(700, xfx, [a, 100000000000000000000]).") =~ "type_error(atom, 1000"
     # fangbar als error(Formal, _)

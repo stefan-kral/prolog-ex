@@ -199,31 +199,34 @@ defmodule PrologEx.ParserTest do
     assert {:struct, "f", [{:var, "Ärger"}, {:atom, "über"}, {:atom, "→≠"}]} = PrologEx.unmark(t)
   end
 
-  describe "gleich wie der gprolog-Reader" do
-    @describetag :gprolog
+  describe "gleich wie gprolog" do
+    # gprologs Lesart der Fälle aus conformance/reader_cases.txt,
+    # aufgezeichnet (tools/gprolog/record_reads.exs)
+    @reads Path.expand("fixtures/reader/gprolog_reads.txt", __DIR__)
+    @external_resource @reads
 
     # bewusste Abweichungen: gprolog verbietet NUL in Atomen, liest
     # Backquotes ohne Escapes und 1.0e400 als inf
     @deviations ["x('\\0\\').", "x(`a\\nb`).", "x(1.0e400)."]
 
     test "conformance/reader_cases.txt" do
-      {:ok, reader} = PrologEx.Reader.start_link()
+      expected =
+        for line <- File.read!(@reads) |> String.split("\n", trim: true),
+            not String.starts_with?(line, "#"),
+            into: %{},
+            do: line |> Code.eval_string() |> elem(0)
 
       cases =
         File.read!("conformance/reader_cases.txt")
         |> String.split("\n")
         |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#") or &1 in @deviations))
+        # mehrzeilige Fälle stehen über zwei Zeilen; nur einzeilige vergleichen
+        |> Enum.filter(&String.ends_with?(&1, "."))
 
-      # mehrzeilige Fälle stehen über zwei Zeilen; nur einzeilige vergleichen
-      for c <- cases, String.ends_with?(c, ".") do
-        g =
-          for item <- PrologEx.Reader.read_terms(reader, c <> "\n") do
-            case item do
-              {:term, t, _} -> PrologEx.format(t, quoted: true, ignore_ops: true)
-              {:error, _} -> :error
-            end
-          end
+      assert length(cases) > 200
 
+      for c <- cases do
+        g = Map.fetch!(expected, c)
         assert {c, normalize(r(c <> "\n", double_quotes: "chars"))} == {c, normalize(g)}
       end
     end

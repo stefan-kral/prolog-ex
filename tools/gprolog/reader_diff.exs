@@ -1,9 +1,12 @@
-# Vergleicht PrologEx.Parser mit dem gprolog-Reader.
-#   mix run conformance/reader_diff.exs datei...
-#   mix run conformance/reader_diff.exs --list dateiliste
-#   mix run conformance/reader_diff.exs --cases conformance/reader_cases.txt
+# Vergleicht PrologEx.Parser mit dem gprolog-Reader (braucht gplc).
+#   mix run tools/gprolog/reader_diff.exs datei...
+#   mix run tools/gprolog/reader_diff.exs --list dateiliste
+#   mix run tools/gprolog/reader_diff.exs --cases conformance/reader_cases.txt
 # Fehler zählen nur als vorhanden/nicht vorhanden (Wiederaufsetzen ist
 # implementierungsabhängig); Standardoperatoren, double_quotes=chars.
+Code.require_file("gprolog.ex", __DIR__)
+PrologEx.Tools.Gprolog.ensure_loaded()
+
 defmodule D do
   # Terme vergleichen; Fehler nur als Anzahl (Wiederaufsetzen nach
   # Zerlegungsfehlern ist implementierungsabhängig)

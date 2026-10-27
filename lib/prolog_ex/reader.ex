@@ -17,8 +17,7 @@ defmodule PrologEx.Reader do
     * `{:error, message}` – Syntaxfehler (mit Zeile und Spalte)
 
   Die Prozess-Schnittstelle (`start_link/1`, `current/0`, ...) stammt aus
-  der Zeit des gprolog-Readers (heute `PrologEx.GprologReader`, nur noch
-  für Vergleichstests); der Prozess selbst hält keinen Zustand mehr.
+  der Zeit, als gprolog las; der Prozess selbst hält keinen Zustand mehr.
   """
 
   alias PrologEx.Parser

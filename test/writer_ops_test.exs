@@ -1,13 +1,27 @@
 defmodule PrologEx.WriterOpsTest do
-  # Writer mit Operatoren: gleiche Ausgabe wie gprologs writeq (über den
-  # Reader, '$writeq'), und jede Ausgabe liest sich als derselbe Term.
+  # Writer mit Operatoren: gleiche Ausgabe wie gprologs writeq, und jede
+  # Ausgabe liest sich als derselbe Term. gprologs Ausgaben stehen in
+  # fixtures/writer/gprolog_writeq.txt; fehlen welche (neue Fälle), mit
+  # GPROLOG_RECORD=1 mix test test/writer_ops_test.exs aufzeichnen (braucht
+  # gprolog, siehe tools/gprolog).
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
   import PrologEx, only: [a: 1, mk: 2, list: 1, v: 1]
   alias PrologEx.{Reader, Writer}
 
-  @moduletag :gprolog
   @cases Path.expand("fixtures/writer/gprolog_cases.txt", __DIR__)
+  @golden_file Path.expand("fixtures/writer/gprolog_writeq.txt", __DIR__)
+  @external_resource @golden_file
+  @golden (case File.read(@golden_file) do
+             {:ok, text} ->
+               for line <- String.split(text, "\n", trim: true),
+                   not String.starts_with?(line, "#"),
+                   into: %{},
+                   do: line |> Code.eval_string() |> elem(0)
+
+             _ ->
+               %{}
+           end)
 
   setup_all do
     {:ok, r} = Reader.start_link()
@@ -39,27 +53,45 @@ defmodule PrologEx.WriterOpsTest do
   # immer ein Leerzeichen (gprolog: dynamic-a, multifile'x')
   @alpha ~r/\b(dynamic|discontiguous|initialization|meta_predicate|module_transparent|multifile|table|attribute) (?=[^\w\s(])/
 
-  # gprolog als Vergleich (ein Kindprozess je Testprozess)
-  defp gp do
-    case Process.get(:gp_reader) do
-      nil ->
-        {:ok, gp} = PrologEx.GprologReader.start_link()
-        Process.put(:gp_reader, gp)
-        gp
+  # gprologs writeq-Ausgabe zum kanonischen Text (aufgezeichnet)
+  # (Variablen als _: ihre Namen ändern sich von Lauf zu Lauf; norm/1
+  # vergleicht ohnehin ohne Namen)
+  defp gprolog_writeq(canonical) do
+    canonical = norm(canonical)
 
-      gp ->
-        gp
+    case Map.fetch(@golden, canonical) do
+      {:ok, out} -> out
+      :error -> record(canonical)
     end
+  end
+
+  defp record(canonical) do
+    unless System.get_env("GPROLOG_RECORD"),
+      do: flunk("kein Vergleichswert für #{canonical}: mit GPROLOG_RECORD=1 aufzeichnen")
+
+    oracle = PrologEx.Tools.Gprolog.ensure_loaded()
+
+    gp =
+      Process.get(:gp_reader) ||
+        (fn ->
+           {:ok, gp} = oracle.start_link()
+           Process.put(:gp_reader, gp)
+           gp
+         end).()
+
+    {:ok, out} = oracle.gprolog_writeq(gp, canonical)
+
+    File.write!(@golden_file, inspect({canonical, out}, printable_limit: :infinity) <> "\n", [
+      :append
+    ])
+
+    out
   end
 
   defp check(r, t) do
     ours = Writer.format(t, quoted: true, numbervars: true)
 
-    {:ok, gp} =
-      PrologEx.GprologReader.gprolog_writeq(
-        gp(),
-        Writer.format(t, quoted: true, ignore_ops: true)
-      )
+    gp = gprolog_writeq(Writer.format(t, quoted: true, ignore_ops: true))
 
     ours_n = norm(ours)
 
@@ -83,7 +115,8 @@ defmodule PrologEx.WriterOpsTest do
 
   test "Zufallsterme wie gprolog", c do
     :rand.seed(:exsss, {7, 8, 9})
-    ops = PrologEx.Ops.default() |> Map.keys() |> Enum.reject(&(&1 == "|"))
+    # sortiert: die Reihenfolge der Map-Schlüssel hängt von der OTP-Version ab
+    ops = PrologEx.Ops.default() |> Map.keys() |> Enum.sort() |> Enum.reject(&(&1 == "|"))
     q = &Writer.atom(&1, %{quoted: true})
 
     atoms =

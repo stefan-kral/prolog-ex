@@ -1,11 +1,7 @@
-# Vergleiche mit gprolog nur, wenn dessen Reader übersetzt ist (das
-# erledigt mix compile, wenn gplc da ist; siehe mix.exs).
-if PrologEx.GprologReader.available?() do
-  ExUnit.start()
-else
-  IO.puts("Hinweis: gprolog-Reader fehlt, Vergleiche mit gprolog (:gprolog) werden übersprungen")
-  ExUnit.start(exclude: [:gprolog])
-end
+ExUnit.start()
+
+# gprolog-Orakel für Aufzeichnungen (GPROLOG_RECORD=1), siehe tools/gprolog
+Code.require_file("../tools/gprolog/gprolog.ex", __DIR__)
 
 defmodule PrologEx.TestLibs do
   @moduledoc false

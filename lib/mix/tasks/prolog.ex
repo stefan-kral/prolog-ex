@@ -15,17 +15,12 @@ defmodule Mix.Tasks.Prolog do
 
   Zeilenbearbeitung und Verlauf: `rlwrap mix prolog` (rlwrap installieren,
   z. B. `brew install rlwrap`).
-
-  Benötigt den gprolog-Reader; `mix compile` übersetzt ihn mit, wenn er
-  fehlt oder `reader.pl` neuer ist (dafür muss `gplc` im PATH sein oder
-  über `GPLC=...` angegeben werden).
   """
 
   use Mix.Task
 
   @impl true
   def run(args) do
-    # übersetzt auch den Reader, wenn nötig (siehe mix.exs)
     Mix.Task.run("compile")
 
     code = PrologEx.Toplevel.main(args)

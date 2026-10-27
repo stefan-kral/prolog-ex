@@ -1,9 +1,10 @@
 defmodule PrologEx.GprologReader do
   @moduledoc """
-  Liest Prolog-Text (mit Operatoren) über einen GNU-Prolog-Kindprozess.
+  Vergleichsorakel (nicht Teil von PrologEx, nicht im Build): liest
+  Prolog-Text über einen GNU-Prolog-Kindprozess, so wie PrologEx früher.
 
-  Der Prozess besitzt einen Port zu `priv/gprolog/reader` (übersetzt von
-  `mix compile`, siehe `mix.exs`). Operator-Definitionen bleiben über mehrere
+  Der Prozess besitzt einen Port zu `tools/gprolog/reader` (bei Bedarf mit
+  `gplc` aus `reader.pl` übersetzt). Operator-Definitionen bleiben über mehrere
   Aufrufe hinweg erhalten – wie in einer Prolog-Sitzung.
 
       {:ok, r} = PrologEx.GprologReader.start_link()
@@ -110,31 +111,66 @@ defmodule PrologEx.GprologReader do
     :ok
   end
 
-  @doc "Pfad zum übersetzten Reader-Programm"
-  def executable do
-    priv =
-      case :code.priv_dir(:prolog_ex) do
-        {:error, _} -> "priv"
-        dir -> List.to_string(dir)
-      end
+  @src Path.join(__DIR__, "reader.pl")
+  @out Path.join(__DIR__, "reader")
 
-    Path.join([priv, "gprolog", "reader"])
+  @doc """
+  Pfad zum übersetzten Reader; übersetzt `reader.pl` mit `gplc`, wenn das
+  Programm fehlt oder älter ist (`gplc` im PATH oder über `GPLC=...`).
+  """
+  def executable do
+    if stale?() do
+      case build() do
+        :ok -> :ok
+        {:error, msg} -> raise msg
+      end
+    end
+
+    @out
   end
 
-  def available?, do: File.exists?(executable())
+  defp stale? do
+    case {File.stat(@out), File.stat(@src)} do
+      {{:ok, o}, {:ok, s}} -> o.mtime < s.mtime
+      _ -> true
+    end
+  end
+
+  defp build do
+    gplc =
+      case System.get_env("GPLC") do
+        g when g in [nil, ""] -> System.find_executable("gplc")
+        g -> g
+      end
+
+    if gplc do
+      case System.cmd(gplc, ["--no-top-level", "-o", @out, @src], stderr_to_stdout: true) do
+        {_, 0} -> :ok
+        {output, code} -> {:error, "gplc ist mit Status #{code} gescheitert:\n#{output}"}
+      end
+    else
+      {:error, "gplc nicht gefunden (GNU Prolog installieren oder GPLC=/pfad/zu/gplc setzen)"}
+    end
+  end
+
+  @doc "Läuft das Orakel hier (gplc oder schon übersetzt)?"
+  def available? do
+    not stale?() or System.find_executable("gplc") != nil or
+      System.get_env("GPLC") not in [nil, ""]
+  end
 
   # ---------------------------------------------------------------------
 
   @impl true
   def init(opts) do
     if available?() do
+      executable()
       # stirbt gprolog beim Schreiben (epipe), soll das nur den Port treffen
       Process.flag(:trap_exit, true)
       env = Keyword.get(opts, :env, [])
       {:ok, %{port: open_port(env), env: env, batch: 0, buf: "", lines: 0}}
     else
-      {:stop,
-       {:reader_missing, "#{executable()} fehlt – bitte `mix compile` (braucht gplc) ausführen"}}
+      {:stop, {:reader_missing, "gprolog-Reader nicht verfügbar – braucht gplc (GNU Prolog)"}}
     end
   end
 

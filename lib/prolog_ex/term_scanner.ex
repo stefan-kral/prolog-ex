@@ -15,7 +15,8 @@ defmodule PrologEx.TermScanner do
     * `{:eof_inside, n}` – Dateiende mitten in einem Term (Syntaxfehler),
     * `:more` – der Text reicht nicht, es muss nachgelesen werden.
 
-  Den Term selbst liest dann gprolog; hier wird nur die Grenze gesucht.
+  Den Term selbst liest dann `PrologEx.Parser`; hier wird nur die Grenze
+  gesucht.
   """
 
   @symbol ~c"#$&*+-./:<=>?@^~\\\\"

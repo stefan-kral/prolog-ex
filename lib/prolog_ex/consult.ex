@@ -12,8 +12,9 @@ defmodule PrologEx.Consult do
     * Direktiven `:- G` werden an ihrer Stelle im Quellmodul ausgeführt;
       vorher wird kompiliert, was bis dahin geladen ist. Besonders
       behandelt: `module/2`, `dynamic/1`, `meta_predicate/1`,
-      `initialization/1`, `discontiguous/1`, `multifile/1`. `op/3` wirkt
-      schon beim Einlesen (gprolog), Fehler meldet die Direktive.
+      `initialization/1`, `discontiguous/1`, `multifile/1`. Was eine
+      Direktive an Operatoren, Flags oder Zeichenumsetzung ändert, gilt ab
+      dem nächsten Term.
     * `initialization(G)` läuft am Ende des Ladevorgangs.
     * Expansion (siehe `PrologEx.Builtins.Expansion`): gibt es im Quellmodul
       oder in `user` einen Hook `term_expansion/2`, geht jeder gelesene Term
@@ -601,8 +602,6 @@ defmodule PrologEx.Consult do
   defp directive({:struct, "initialization", [g | _]}, st),
     do: %{st | init: [{g, st.module} | st.init]}
 
-  # op/3 hat gprolog beim Lesen schon ausgeführt (für die folgenden
-  # Terme); hier noch einmal über op/3, damit Fehler gemeldet werden
   defp directive({:struct, kind, [spec]}, st) when kind in ["discontiguous", "multifile"] do
     k = String.to_atom(kind)
 

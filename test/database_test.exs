@@ -1,5 +1,5 @@
 defmodule PrologEx.DatabaseTest do
-  # assert/retract, dynamic, acyclic_term/1, call/N – über den gprolog-Reader
+  # assert/retract, dynamic, acyclic_term/1, call/N
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
   alias PrologEx.{Consult, Reader}

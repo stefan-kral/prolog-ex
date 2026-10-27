@@ -1,5 +1,5 @@
 defmodule PrologEx.ConsultTest do
-  # Integrationstests über den echten gprolog-Reader
+  # Integrationstests: Laden über den Reader
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
   alias PrologEx.{Consult, Reader}

@@ -410,8 +410,8 @@ defmodule PrologEx.Writer do
   defp graphic_bytes?(<<>>), do: true
   defp graphic_bytes?(_), do: false
 
-  # Nur ASCII ungequotet: der gprolog-Reader liest Nicht-ASCII nur in
-  # Hochkommas (SWI würde 'äb' ohne schreiben)
+  # Nur ASCII ungequotet (ISO kennt nur diese Buchstaben; so liest jedes
+  # System den Text zurück – SWI und unser Reader auch 'äb' ohne)
   defp lower?(c), do: is_integer(c) and c in ?a..?z
 
   defp escape_text(text, q), do: text |> escape(q) |> IO.iodata_to_binary()

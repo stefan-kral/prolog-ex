@@ -14,25 +14,18 @@ Ein Prolog-Kern in Elixir:
 
 ## Loslegen
 
-Voraussetzung: Elixir. Gelesen und ausgeführt wird alles in Elixir. GNU
-Prolog (`brew install gnu-prolog`) ist optional: ein Teil der Tests
-vergleicht Reader und Writer mit gprolog.
+Voraussetzung: nur Elixir (ab 1.14, OTP 25). Gelesen und ausgeführt wird
+alles in Elixir; keine weiteren Programme, keine Abhängigkeiten.
 
 ```sh
-mix compile                          # übersetzen (mit gplc auch den
-                                     # Vergleichs-Reader, siehe unten)
+mix compile                          # übersetzen
 mix prolog                           # interaktiver Toplevel
 mix prolog examples/demo.pl          # Datei laden, dann Toplevel
 mix prolog examples/demo.pl -g main -q   # laden, main ausführen, Ende
 cat prog.pl | mix prolog - -g main   # Programm von stdin
 ```
 
-Bauen: `mix compile` übersetzt neben dem Elixir-Code auch den gprolog-Reader
-(`priv/gprolog/reader.pl`, nur noch Vergleichsorakel für Tests; fehlt
-`gplc`, gibt es nur eine Warnung), sobald die Quelle neuer ist als das Programm –
-also auch bei `mix test`, `mix run` und `mix prolog`. `mix clean` löscht
-beides, `mix rebuild` baut alles neu (wie `make clean && make all`).
-`mix prolog.build_reader` übersetzt nur den Reader, immer.
+`mix rebuild` baut alles neu (wie `make clean && make all`).
 
 Zeilenbearbeitung und Verlauf (↑/↓, Ctrl-R, …) bekommt man mit
 [rlwrap](https://github.com/hanslub42/rlwrap) (`brew install rlwrap`):
@@ -672,8 +665,7 @@ dessen Operatortabelle (`op/3`, `current_op/3`) und Flag `double_quotes`;
 dem Term nach der Direktive, im Toplevel ab der nächsten Anfrage
 (`?- :- G.` führt G wie eine Direktive aus). `PrologEx.Reader` ist die
 Schnittstelle dazu (Texte, Dateien in Abschnitten bis zur nächsten
-Direktive). Der frühere gprolog-Reader (`PrologEx.GprologReader`) dient
-nur noch als Vergleich.
+Direktive).
 
   * Auf den `.pl`- und `.lgt`-Dateien von Logtalk (gut 5 100 Dateien,
     190 000 Terme) liefert er dieselben Terme wie gprolog, außer wo
@@ -702,13 +694,23 @@ nur noch als Vergleich.
   * Nach einem Syntaxfehler geht es hinter dem nächsten Endepunkt weiter
     (wie gprolog, aber Kommentare zählen als Ganzes).
 
-Vergleich mit gprolog: `mix run conformance/reader_diff.exs datei...`
-oder `--cases conformance/reader_cases.txt` (gut 200 Grenzfälle).
+Die Tests vergleichen Reader und Writer mit gprolog über aufgezeichnete
+Ergebnisse (`test/fixtures/reader/gprolog_reads.txt`,
+`test/fixtures/writer/gprolog_writeq.txt`) – gprolog braucht man dafür
+nicht. Zum Aufzeichnen und für Vergleiche ganzer Dateien liegt das
+frühere gprolog-Orakel in `tools/gprolog/` (nicht im Build; braucht
+`gplc`, übersetzt sich bei Bedarf selbst):
+
+```sh
+mix run tools/gprolog/reader_diff.exs datei...      # Terme wie gprolog?
+mix run tools/gprolog/reader_diff.exs --cases conformance/reader_cases.txt
+mix run tools/gprolog/record_reads.exs              # Lesarten neu aufzeichnen
+GPROLOG_RECORD=1 mix test test/writer_ops_test.exs  # fehlende writeq-Werte
+```
 
 ## Entwicklung
 
 ```sh
-mix test                  # Tests (Vergleiche mit gprolog nur,
-                          # wenn dessen Reader übersetzt ist)
+mix test                  # Tests
 mix run bench/bench.exs   # Speicher- und Laufzeitmessung
 ```
