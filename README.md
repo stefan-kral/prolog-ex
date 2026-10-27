@@ -598,6 +598,14 @@ git clone --depth 1 https://github.com/LogtalkDotOrg/logtalk3 /pfad/logtalk3
 mix run conformance/run.exs /pfad/logtalk3 [predicates/atom_length_2] [--failures datei]
 ```
 
+Stand: Alle Tests aus der ISO-Norm und aus dem Konformitätsrahmen von
+Szabó/Szeredi bestehen. Bewusst anders als SICStus: `sub_atom/5` mit
+negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Die übrigen
+Fehlschläge betreffen De-facto-Prädikate, die (noch) fehlen – vor allem
+`format/2,3`, `setup_call_cleanup/3`, `numbervars/3`, `plus/3`,
+`atomic_list_concat/2,3` –, Unicode-Optionen von `open/4` und Grenzen des
+gprolog-Readers (Großzahlen beim Laden von Dateien, einige Escapes).
+
 ## Entwicklung
 
 ```sh
