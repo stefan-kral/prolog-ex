@@ -6,6 +6,22 @@ defmodule PrologEx.WriterTest do
   # als Argument gelesen: höchstens Priorität 999
   defp q(t), do: Writer.format(t, quoted: true, strings: true, priority: 999)
 
+  test "write_canonical: Listen und {} funktional (ISO 7.10.5, 8.14.2.4)" do
+    c = &Writer.format(&1, quoted: true, ignore_ops: true)
+    assert c.([1, 2, 3]) == "'.'(1,'.'(2,'.'(3,[])))"
+    assert c.([a("a") | v("T")]) == "'.'(a,T)"
+    assert c.({:glist, [1, 2]}) == "'.'(1,'.'(2,[]))"
+    assert c.([1 | {:glist, [2]}]) == "'.'(1,'.'(2,[]))"
+    assert c.([]) == "[]"
+    assert c.(mk("{}", [mk(",", [a("x"), a("y")])])) == "{}(','(x,y))"
+    # Zeichenlisten auch bei strings: true nicht als "..."
+    assert Writer.format([a("a"), a("b")], quoted: true, ignore_ops: true, strings: true) ==
+             "'.'(a,'.'(b,[]))"
+
+    # ohne ignore_ops wie bisher
+    assert Writer.format([1, 2], quoted: true) == "[1,2]"
+  end
+
   test "Atome: wann Hochkommas" do
     for n <- ~w(a abc a1 a_B [] {} ! ; + - ** =.. \\+ :- @>= ~) do
       assert q(a(n)) == n, n

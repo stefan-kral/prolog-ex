@@ -26,7 +26,8 @@ defmodule PrologEx.Writer do
   Optionen:
 
     * `quoted: true` – Atome, wo nötig, in Hochkommas (`writeq/1`).
-    * `ignore_ops: true` – kanonisch, `+(1,2)` (`write_canonical/1`).
+    * `ignore_ops: true` – kanonisch, `+(1,2)`, auch Listen als
+      `'.'(1,'.'(2,[]))` und `{}(a)` (`write_canonical/1`, ISO 7.10.5).
     * `numbervars: true` – `'$VAR'(N)` als Variablenname `A`, `B`, ...,
       `Z`, `A1`, ...
     * `strings: true` – Listen aus Zeichen als `"..."` (bei
@@ -97,6 +98,14 @@ defmodule PrologEx.Writer do
 
   defp descend({tag, f, args}, max, _role, d, o, st) when tag in [:struct, :gstruct],
     do: compound(f, args, max, d, o, st)
+
+  # ignore_ops (write_canonical, ISO 7.10.5): auch Listen in funktionaler
+  # Schreibweise, '.'(H,T)
+  defp descend([h | t], max, _role, d, %{ignore_ops: true} = o, st),
+    do: compound(".", [h, t], max, d, o, st)
+
+  defp descend({:glist, l}, max, role, d, %{ignore_ops: true} = o, st),
+    do: descend(l, max, role, d, o, st)
 
   defp descend([_ | _] = l, _max, _role, d, o, st), do: list(l, d, o, st)
   defp descend({:glist, l}, _max, _role, d, o, st), do: list(l, d, o, st)

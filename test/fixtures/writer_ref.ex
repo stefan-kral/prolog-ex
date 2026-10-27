@@ -69,6 +69,12 @@ defmodule PrologEx.WriterRef do
       else: piece(text)
   end
 
+  # (nachgezogen: ignore_ops schreibt Listen funktional, ISO 7.10.5)
+  defp w([h | t], max, role, d, %{ignore_ops: true} = o),
+    do: compound(".", [h, t], max, role, d, o)
+
+  defp w({:glist, l}, max, role, d, %{ignore_ops: true} = o), do: w(l, max, role, d, o)
+
   defp w([_ | _] = l, _max, _role, d, o), do: list(l, d, o)
   defp w({:glist, l}, _max, _role, d, o), do: list(l, d, o)
 

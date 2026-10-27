@@ -204,7 +204,8 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     einer Zahl, Leerzeichen, wo Zeichen sonst zu einem Token verschmölzen
     (`1- -1`, `a- -b`, `N+\\ \\X^G`).
   * `writeq`/`print` quoten Atome (`'1'`, `'hello world'`, `'.'`), `write`
-    nicht; `write_canonical` schreibt ohne Operatoren (`+(1,2)`).
+    nicht; `write_canonical` schreibt ohne Operatoren (`+(1,2)`), auch Listen
+    und `{}` funktional wie ISO 8.14.2.4 verlangt: `'.'(1,'.'(2,[]))`, `{}(a)`.
   * `'$VAR'(N)` erscheint als `A`, `B`, …, `Z`, `A1`, … (außer bei
     `write_canonical`).
   * Zeichenlisten bei `double_quotes=chars` wie Scryer als `"..."`

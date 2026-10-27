@@ -212,8 +212,9 @@ defmodule PrologEx.WriterOpsTest do
       assert out(c, "print(#{t}).") == q
       wc = out(c, "write_canonical(#{t}).")
 
+      # ISO 7.10.5: auch Listen in funktionaler Schreibweise
       assert wc =~
-               ~r/^f\('A b',\+\(1,\*\(2,3\)\),:-\(a,','\(b,c\)\),-\(1\),\[x\|\w+\],'\$VAR'\(1\),\[a,b\]\)$/
+               ~r/^f\('A b',\+\(1,\*\(2,3\)\),:-\(a,','\(b,c\)\),-\(1\),'\.'\(x,\w+\),'\$VAR'\(1\),'\.'\(a,'\.'\(b,\[\]\)\)\)$/
 
       assert out(c, "write_term(f(X, 'a b'), [quoted(true), variable_names(['Foo'=X])]).") ==
                "f(Foo,'a b')"
