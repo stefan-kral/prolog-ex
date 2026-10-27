@@ -25,7 +25,7 @@ defmodule PrologEx.Flags do
     "unknown" => {:error, [:error, :fail, :warning]},
     "occurs_check" => {false, [false, true, :error]},
     # ISO 7.11.2: debug und char_conversion mit on/off; char_conversion
-    # schaltet (noch) keine Umsetzung ein, char_conversion/2 fehlt
+    # schaltet die Zeichenumsetzung beim Lesen ein (PrologEx.CharConversion)
     "debug" => {:off, [:off, :on]},
     "char_conversion" => {:off, [:off, :on]},
     "max_arity" => {:unbounded, :read_only},

@@ -13,6 +13,9 @@ defmodule PrologEx.Builtins.Operators do
 
   `current_op(?P, ?Typ, ?Op)` zählt die aktuelle Tabelle auf (dazu gehören
   die Deklarationen wie `dynamic`, `meta_predicate`).
+
+  Dazu `char_conversion/2` und `current_char_conversion/2` (siehe
+  `PrologEx.CharConversion`).
   """
   use PrologEx.Builtin
   alias PrologEx.{Error, Ops}
@@ -95,6 +98,34 @@ defmodule PrologEx.Builtins.Operators do
   defp names([h | t]), do: names(h) ++ names(t)
   defp names({:glist, l}), do: names(l)
   defp names(_), do: []
+
+  # --- Zeichenumsetzung (ISO 8.14.5, 8.14.6; Fehler wie gprolog/SICStus) ---
+
+  defbuiltin "char_conversion", [i, o] do
+    {ii, oo} = {resolve(i), resolve(o)}
+    if match?({:var, _}, ii) or match?({:var, _}, oo), do: Error.instantiation!()
+    PrologEx.CharConversion.put(char!(ii), char!(oo))
+    :ok
+  end
+
+  # nur Paare mit In ≠ Out (Zeichen ohne Eintrag stehen nicht in der Tabelle)
+  defbuiltin "current_char_conversion", [i, o], nondet: true do
+    {ii, oo} = {resolve(i), resolve(o)}
+    unless match?({:var, _}, ii), do: char!(ii)
+    unless match?({:var, _}, oo), do: char!(oo)
+
+    for {c, d} <- Enum.sort(PrologEx.CharConversion.table()),
+        do: {:unify, [{i, a(<<c::utf8>>)}, {o, a(<<d::utf8>>)}]}
+  end
+
+  defp char!({:atom, s} = x) do
+    case String.to_charlist(s) do
+      [c] -> c
+      _ -> Error.type!("character", x)
+    end
+  end
+
+  defp char!(other), do: Error.type!("character", other)
 
   defbuiltin "current_op", [p, t, op], nondet: true do
     pp = deref(p)

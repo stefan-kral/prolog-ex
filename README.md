@@ -673,6 +673,14 @@ nur noch als Vergleich.
   * Ein Operator allein ist ein ganzer Term (`- .` liest `-`, wie gprolog).
   * In Quotes sind Steuerzeichen (Tab, Zeilenumbruch, …) nur als
     Escape-Sequenz erlaubt (ISO 6.4.2.1).
+  * Zeichenumsetzung (ISO 8.14.5/6): `char_conversion/2`,
+    `current_char_conversion/2` (nur Paare In ≠ Out; Fehler
+    `type_error(character, X)` wie gprolog und SICStus). Mit dem Flag
+    `char_conversion` auf `on` setzt der Reader jedes Zeichen außerhalb von
+    Quotes, `0'c` und Kommentaren um, bevor er zerlegt – auch zu `.`, `%`
+    oder Quotes. gprolog setzt zusätzlich in Strings und `0'c` um; hier
+    gilt der Wortlaut „unquoted“ (wie SWI und SICStus). Die Tabelle gehört
+    der Sitzung; beim Laden gilt eine Direktive ab dem nächsten Term.
   * ISO-Regeln: `- 1` und `'-'1` sind die Zahl -1, `-(1)` nicht; ein
     Operator als Atom hat Priorität 1201 (erlaubt als Argument, in
     Klammern und in `{}`), also Fehler bei `- = a` oder `'<<'/2`; nach

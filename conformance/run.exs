@@ -200,7 +200,7 @@ defmodule Conf do
 
   # eine Anfrage in einem eigenen Prozess: {:ok, antworten, db} | :timeout
   # Operatoren und Flags liegen im Prozess: mitgeben und danach übernehmen
-  @state [:prolog_ex_ops, :prolog_ex_flags]
+  @state [:prolog_ex_ops, :prolog_ex_flags, :prolog_ex_char_conversion]
 
   def run(db, goal, reader, timeout \\ 5000) do
     parent = self()

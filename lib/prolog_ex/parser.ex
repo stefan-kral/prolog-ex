@@ -53,6 +53,7 @@ defmodule PrologEx.Parser do
       ops: Keyword.get_lazy(opts, :ops, &PrologEx.Ops.table/0),
       dq: Keyword.get_lazy(opts, :double_quotes, &flag_dq/0),
       bq: Keyword.get(opts, :back_quotes, "atom"),
+      conv: Keyword.get_lazy(opts, :char_conversion, &PrologEx.CharConversion.active/0),
       text: text
     }
   end
@@ -99,6 +100,22 @@ defmodule PrologEx.Parser do
   `{:term, t, names, rest, pos}`, `{:error, meldung, rest, pos}` oder
   `:eof` (nur noch Leerraum und Kommentare).
   """
+  def read_term(rest, pos, %{conv: conv} = ctx) when conv != nil do
+    # Zeichenumsetzung: den Text eines Terms umsetzen und lesen; Zeile und
+    # Spalte in Meldungen bleiben die des Originals (davor steht der
+    # Originaltext), weiter geht es im Original hinter dem Term
+    {chunk, used} = PrologEx.CharConversion.convert_term(rest, conv)
+    prefix = binary_part(ctx.text, 0, pos)
+    sub = %{ctx | conv: nil, text: prefix <> chunk}
+    rest2 = binary_part(rest, used, byte_size(rest) - used)
+
+    case read_term(chunk, pos, sub) do
+      {:term, t, names, _, _} -> {:term, t, names, rest2, pos + used}
+      {:error, msg, _, _} -> {:error, msg, rest2, pos + used}
+      :eof -> :eof
+    end
+  end
+
   def read_term(rest, pos, ctx) do
     case tokens(rest, pos, []) do
       :eof ->
