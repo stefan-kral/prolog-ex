@@ -657,6 +657,31 @@ logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4` und
 Grenzen des gprolog-Readers (Großzahlen beim Laden von Dateien, einige
 Escapes).
 
+## Eigener Reader in Elixir (im Aufbau)
+
+`PrologEx.Parser` liest Prolog-Text ohne gprolog: Tokenizer nach ISO 6.4,
+Operator-Präzedenz-Parser nach 6.3, gleiches Ergebnisformat wie
+`PrologEx.Reader.read_terms/2`. Noch nicht eingebunden – gelesen wird
+weiter mit gprolog. Stand:
+
+  * Auf den `.pl`- und `.lgt`-Dateien von Logtalk (gut 5 100 Dateien,
+    190 000 Terme) liefert er dieselben Terme wie gprolog, außer wo
+    gprolog an eigene Grenzen stößt (Ganzzahlen über 2^60 in Hex,
+    Unicode-Escapes über 255, Byte-Order-Mark) – rund doppelt so schnell.
+  * ISO-Regeln: `- 1` und `'-'1` sind die Zahl -1, `-(1)` nicht; ein
+    Operator als Atom hat Priorität 1201 (erlaubt als Argument, in
+    Klammern und in `{}`), also Fehler bei `- = a` oder `'<<'/2`; nach
+    dem Endepunkt muss Leerraum oder `%` folgen; Gleitkommazahlen brauchen
+    Nachkommastellen (`1e10` ist ein Fehler); `(a|b)` ist `'|'(a, b)`.
+  * Bewusst anders als gprolog: Backquotes werden mit Escapes gelesen
+    (ISO 6.4.7), `\0\` ist im Atom erlaubt, `1.0e400` ist ein
+    Syntaxfehler statt `inf`.
+  * Nach einem Syntaxfehler geht es hinter dem nächsten Endepunkt weiter
+    (wie gprolog, aber Kommentare zählen als Ganzes).
+
+Vergleich mit gprolog: `mix run conformance/reader_diff.exs datei...`
+oder `--cases conformance/reader_cases.txt` (gut 200 Grenzfälle).
+
 ## Entwicklung
 
 ```sh
