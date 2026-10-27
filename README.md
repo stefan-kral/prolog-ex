@@ -105,7 +105,7 @@ Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
 ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
 Prolog-Fassung `library(memberd_pl)`, `mix run bench/memberd_bench.exs`), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
-`findall/3,4`, `forall/2`, `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
+`findall/3,4`, `forall/2`, `once/1`, `ignore/1`, `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
 `V^G`; Gruppen nach Zeugen sortiert wie SICStus/SWI), `=@=/2`, `\=@=/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
 `occurs_check`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,

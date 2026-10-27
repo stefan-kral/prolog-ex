@@ -42,6 +42,18 @@ defmodule PrologEx.FastRWTest do
     assert ask(c, "forall(_, true)") == {:error, "instantiation_error"}
   end
 
+  test "once/1 (ISO), ignore/1", c do
+    assert ask(c, "once(member(X, [1, 2]))") == ["X = 1"]
+    assert ask(c, "once(fail)") == []
+    assert ask(c, "once((X = 1 ; X = 2)), Y = 3") == ["X = 1, Y = 3"]
+    # Cut in once/1 ist lokal
+    assert ask(c, "(once(!), X = 1 ; X = 2)") == ["X = 1", "X = 2"]
+    assert ask(c, "catch(once(_), error(E, _), true)") == ["E = instantiation_error"]
+    assert ask(c, "ignore(fail)") == ["true"]
+    assert ask(c, "ignore(member(X, [1, 2]))") == ["X = 1"]
+    assert ask(c, "ignore(member(X, [1, 2])), X > 1") == []
+  end
+
   test "fast_write/2, fast_read/2: Terme bleiben gleich", c do
     t =
       "f(X, Y, X, [a, \"str\", 1.5, -7, 100000000000000000000000], 'Ä b', g(h([])), {x}, -(1), [_|T], T)"

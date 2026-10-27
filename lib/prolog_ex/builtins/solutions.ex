@@ -35,15 +35,23 @@ defmodule PrologEx.Builtins.Solutions do
       {"system", "bagof", ["?", "^", "-"]},
       {"system", "setof", ["?", "^", "-"]},
       {"system", "^", ["?", 0]},
-      {"system", "forall", [0, 0]}
+      {"system", "forall", [0, 0]},
+      {"system", "once", [0]},
+      {"system", "ignore", [0]}
     ]
   end
 
   # forall(Cond, Action): für jede Lösung von Cond gelingt Action
+  # once(G) (ISO): die erste Lösung von G; ignore(G): G einmal, sonst true
   def library do
-    import PrologEx, only: [s: 2, v: 1, rule: 2]
-    [c, act] = [v("C"), v("A")]
-    [rule(s("forall", [c, act]), [s("\\+", [s(",", [c, s("\\+", [act])])])])]
+    import PrologEx, only: [s: 2, v: 1, rule: 2, a: 1]
+    [c, act, g] = [v("C"), v("A"), v("G")]
+
+    [
+      rule(s("forall", [c, act]), [s("\\+", [s(",", [c, s("\\+", [act])])])]),
+      rule(s("once", [g]), [s("call", [g]), a("!")]),
+      rule(s("ignore", [g]), [s(";", [s("->", [s("call", [g]), a("true")]), a("true")])])
+    ]
   end
 
   defbuiltin "bagof", [t, g, l] do
