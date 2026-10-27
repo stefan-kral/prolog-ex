@@ -62,6 +62,72 @@ defmodule Conf do
   def tr({:struct, "forall", [c, act]}), do: mk("forall", [tr(c), tr(act)])
   def tr(g), do: g
 
+  # Datei in Termen lesen: op-Direktiven und double_quotes wirken sofort,
+  # :- include(F) wird eingesetzt; Logtalks Voreinstellung double_quotes=codes
+  def read_items(reader, path) do
+    Reader.set_double_quotes(reader, "codes")
+    :ok = Reader.open_file(reader, path)
+
+    Stream.unfold(:go, fn
+      :eof ->
+        nil
+
+      :go ->
+        {items, status} = Reader.next_chunk(reader)
+
+        {Enum.flat_map(items, &item(&1, reader, Path.dirname(path))),
+         if(status == :pause, do: :go, else: :eof)}
+    end)
+    |> Enum.flat_map(& &1)
+  end
+
+  defp item({:term, t, _}, reader, dir) do
+    t = PrologEx.unmark(t)
+
+    case t do
+      {:struct, ":-", [{:struct, "op", [p, {:atom, ty}, n]}]} ->
+        ns = if is_list(n), do: n, else: [n]
+
+        for {:atom, name} <- ns do
+          try do
+            Reader.op(reader, p, ty, name)
+          rescue
+            _ -> :ok
+          end
+        end
+
+        [{:term, t}]
+
+      {:struct, ":-", [{:struct, f, [{:atom, "double_quotes"}, {:atom, v}]}]}
+      when f in ["set_logtalk_flag", "set_prolog_flag"] and v in ["codes", "chars", "atom"] ->
+        Reader.set_double_quotes(reader, v)
+        [{:term, t}]
+
+      {:struct, ":-", [{:atom, "end_object"}]} ->
+        Reader.set_double_quotes(reader, "codes")
+        [{:term, t}]
+
+      {:struct, ":-", [{:struct, "include", [{:atom, f}]}]} ->
+        path = Enum.find([f <> ".lgt", f <> ".pl", f], &File.exists?(Path.join(dir, &1)))
+
+        if path do
+          for it <- Reader.read_terms(reader, File.read!(Path.join(dir, path))) do
+            case it do
+              {:term, t, _} -> {:term, PrologEx.unmark(t)}
+              other -> other
+            end
+          end
+        else
+          [{:term, t}]
+        end
+
+      _ ->
+        [{:term, t}]
+    end
+  end
+
+  defp item(other, _reader, _dir), do: [other]
+
   # Klauseln außerhalb eines Objekts gehören zu user
   def target, do: if(Process.get(:lgt_in_object), do: "lgt", else: "user")
 
@@ -160,7 +226,7 @@ end
 results =
   for file <- files do
     rel = Path.relative_to(file, tests_root) |> String.replace_suffix("/tests.lgt", "")
-    work = Path.join(work_root, rel)
+    work = Path.join(work_root, Path.rootname(Path.relative_to(file, tests_root)))
     File.mkdir_p!(work)
     File.cp_r!(Path.dirname(file), work)
 
@@ -171,47 +237,20 @@ results =
     {:ok, _, db} =
       Conf.run(db, mk(":", [a("lgt"), mk("assertz", [mk("lgt_dir", [a(work <> "/")])])]), reader)
 
-    # Datei lesen; op-Direktiven wirken sofort
-    :ok = Reader.open_file(reader, Path.join(work, Path.basename(file)))
+    # Datei lesen (op, double_quotes, include wirken sofort); dazu die
+    # user-Klauseln aus tester.lgt (z. B. portray/1), ohne initialization
+    tester = Path.join(work, "tester.lgt")
 
-    items =
-      Stream.unfold(:go, fn
-        :eof ->
-          nil
+    tester_items =
+      if File.exists?(tester) do
+        for {:term, t} = it <- Conf.read_items(reader, tester),
+            not match?({:struct, ":-", [{:struct, "initialization", _}]}, t),
+            do: it
+      else
+        []
+      end
 
-        :go ->
-          {items, status} = Reader.next_chunk(reader)
-
-          items =
-            Enum.map(items, fn
-              {:term, t, _} ->
-                t = PrologEx.unmark(t)
-
-                case t do
-                  {:struct, ":-", [{:struct, "op", [p, ty, n]}]} ->
-                    ns = if is_list(n), do: n, else: [n]
-
-                    for {:atom, name} <- ns,
-                        do:
-                          (try do
-                             Reader.op(reader, p, elem(ty, 1), name)
-                           rescue
-                             _ -> :ok
-                           end)
-
-                  _ ->
-                    :ok
-                end
-
-                {:term, t}
-
-              other ->
-                other
-            end)
-
-          {items, if(status == :pause, do: :go, else: :eof)}
-      end)
-      |> Enum.flat_map(& &1)
+    items = tester_items ++ Conf.read_items(reader, Path.join(work, Path.basename(file)))
 
     # bedingte Übersetzung (:- if/elif/else/endif), Klauseln und Tests
     eval_cond = fn db, c ->
