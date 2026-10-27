@@ -35,11 +35,12 @@ defmodule PrologEx.Parser do
 
   def read_terms(text, opts \\ []) do
     ctx = context(text, opts)
+    lc = if Keyword.get(opts, :lines), do: {1, 0}
 
     # Byte-Order-Mark am Anfang überspringen
     case text do
-      <<0xEF, 0xBB, 0xBF, rest::binary>> -> read_all(rest, 3, ctx, [])
-      _ -> read_all(text, 0, ctx, [])
+      <<0xEF, 0xBB, 0xBF, rest::binary>> -> read_all(rest, 3, ctx, [], lc)
+      _ -> read_all(text, 0, ctx, [], lc)
     end
   end
 
@@ -65,7 +66,7 @@ defmodule PrologEx.Parser do
   """
   def read_one(text) do
     case read_term(text, 0, context(text)) do
-      {:term, t, names, _, _} -> {:term, t, names}
+      {:term, t, names, _, _, _} -> {:term, t, names}
       {:error, msg, _, _} -> {:error, msg}
       :eof -> :eof
     end
@@ -78,26 +79,42 @@ defmodule PrologEx.Parser do
     end
   end
 
-  defp read_all(rest, pos, ctx, acc) do
+  # lc: {Zeile, Byte-Position} für die Zeilennummern (inkrementell), oder
+  # nil ohne Option lines:
+  defp read_all(rest, pos, ctx, acc, lc) do
     case read_term(rest, pos, ctx) do
       :eof ->
         Enum.reverse(acc)
 
       # wie beim Laden in ISO-Systemen: der Term end_of_file beendet den Text
-      {:term, {:atom, "end_of_file"}, _, _, _} ->
+      {:term, {:atom, "end_of_file"}, _, _, _, _} ->
         Enum.reverse(acc)
 
-      {:term, t, names, rest, pos} ->
-        read_all(rest, pos, directive(t, ctx), [{:term, t, names} | acc])
+      {:term, t, names, rest, pos, start} when lc != nil ->
+        {line, _} = lc = line_at(ctx.text, lc, start)
+        read_all(rest, pos, directive(t, ctx), [{:term, t, names, line} | acc], lc)
+
+      {:term, t, names, rest, pos, _} ->
+        read_all(rest, pos, directive(t, ctx), [{:term, t, names} | acc], lc)
 
       {:error, msg, rest, pos} ->
-        read_all(rest, pos, ctx, [{:error, msg} | acc])
+        read_all(rest, pos, ctx, [{:error, msg} | acc], lc)
     end
   end
 
   @doc """
+  Zeilennummer an Byte-Position `pos` von `text`, ausgehend von einer
+  bekannten `{zeile, position}` davor: `{zeile, pos}`.
+  """
+  def line_at(text, {line, from}, pos) when pos >= from do
+    n = length(:binary.matches(text, "\n", scope: {from, pos - from}))
+    {line + n, pos}
+  end
+
+  @doc """
   Liest einen Term ab `rest` (Byte-Position `pos` in `ctx.text`):
-  `{:term, t, names, rest, pos}`, `{:error, meldung, rest, pos}` oder
+  `{:term, t, names, rest, pos, start}` (start: Byte-Position des ersten
+  Tokens), `{:error, meldung, rest, pos}` oder
   `:eof` (nur noch Leerraum und Kommentare).
   """
   def read_term(rest, pos, %{conv: conv} = ctx) when conv != nil do
@@ -110,7 +127,7 @@ defmodule PrologEx.Parser do
     rest2 = binary_part(rest, used, byte_size(rest) - used)
 
     case read_term(chunk, pos, sub) do
-      {:term, t, names, _, _} -> {:term, t, names, rest2, pos + used}
+      {:term, t, names, _, _, start} -> {:term, t, names, rest2, pos + used, start}
       {:error, msg, _, _} -> {:error, msg, rest2, pos + used}
       :eof -> :eof
     end
@@ -134,7 +151,8 @@ defmodule PrologEx.Parser do
           Process.put(:prolog_ex_parser_anon, {0, vars})
           {t, _p, [{:end, _, _}]} = whole(toks, ctx)
           names = for n <- vars, n != "_", into: %{}, do: {n, n}
-          {:term, t, names, rest, pos}
+          [{_, _, start} | _] = toks
+          {:term, t, names, rest, pos, start}
         catch
           {:syntax, msg, at} ->
             {rest, pos} = skip_to_end(binary_part(ctx.text, at, byte_size(ctx.text) - at), at)

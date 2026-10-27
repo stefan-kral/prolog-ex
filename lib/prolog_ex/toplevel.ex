@@ -166,7 +166,7 @@ defmodule PrologEx.Toplevel do
   defp eof_to_text(text), do: text
 
   defp load_text(text, name, st) do
-    items = Reader.read_terms(st.reader, text)
+    items = Reader.read_terms(st.reader, text, lines: true)
     {db, msgs} = Consult.load(st.db, items)
     PrologEx.put_db(db)
     Enum.each(msgs, &IO.puts(:stderr, "#{name}: #{&1}"))

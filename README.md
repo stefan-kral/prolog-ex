@@ -562,6 +562,16 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     aneinandergehängt (sonst ersetzt die zuletzt geladene Datei die
     Definition). `multifile`/`discontiguous` deklarieren das Prädikat:
     ohne Klauseln scheitert ein Aufruf statt `existence_error`.
+  * Warnungen beim Laden (wie SWI), mit Zeile und bei `include` mit Datei:
+    Singleton-Variablen einer Klausel oder DCG-Regel (nicht in
+    Direktiven; `_X` gilt als Absicht, mehrfach verwendet gibt es eine
+    eigene Warnung) und nicht zusammenhängende Klauseln ohne
+    `discontiguous/1` (einmal je Prädikat; Klauseln, die `term_expansion`
+    aus einem Term macht, dürfen sich abwechseln). Abschalten mit
+    `style_check(-singleton)`, `style_check(-(discontiguous))` – die
+    Klammern braucht ISO, weil `discontiguous` ein Präfixoperator ist;
+    `style_check(?(X))` fragt ab. Fehler in Direktiven nennen ebenfalls die
+    Zeile.
   * `:- include(F)`: die Terme von F stehen an dieser Stelle (relativ zur
     einschließenden Datei, `.pl` darf fehlen).
   * `:- if(C)` … `:- elif(C)` … `:- else` … `:- endif` (verschachtelbar,

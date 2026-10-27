@@ -32,6 +32,32 @@ defmodule PrologEx.Builtins.System do
   # current_predicate(PI), PI = Name/Arity oder M:Name/Arity: in M (sonst
   # im Kontextmodul) definierte oder dorthin importierte Prädikate
   # (keine von system). Mit ungebundenem M: alle Module.
+  # style_check(+Art) / style_check(-Art) wie SWI: Warnungen beim Laden
+  # (singleton, discontiguous) ein- und ausschalten; ?(Art) fragt ab
+  defbuiltin "style_check", [spec] do
+    case resolve(spec) do
+      {:var, _} ->
+        PrologEx.Error.instantiation!()
+
+      {:struct, sign, [x]} when sign in ["+", "-", "?"] ->
+        kind =
+          case x do
+            {:var, _} when sign != "?" -> PrologEx.Error.instantiation!()
+            {:atom, k} when k in ["singleton", "discontiguous"] -> String.to_atom(k)
+            other -> PrologEx.Error.domain!("style_name", other)
+          end
+
+        case sign do
+          "+" -> PrologEx.StyleCheck.set(kind, true)
+          "-" -> PrologEx.StyleCheck.set(kind, false)
+          "?" -> if PrologEx.StyleCheck.on?(kind), do: :ok, else: :fail
+        end
+
+      other ->
+        PrologEx.Error.domain!("style_name", other)
+    end
+  end
+
   defbuiltin "current_predicate", [pi], nondet: true do
     db = db()
 

@@ -90,6 +90,8 @@ defmodule PrologEx.ArithCompileTest do
       |> Enum.with_index()
       |> Enum.map_join("\n", fn {e, i} -> "c#{i}(A, B, X) :- X is #{e}." end)
 
+    # nicht jeder Ausdruck braucht A und B
+    PrologEx.StyleCheck.set(:singleton, false)
     {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
 
     checked =
@@ -126,6 +128,8 @@ defmodule PrologEx.ArithCompileTest do
       |> Enum.with_index()
       |> Enum.map_join("\n", fn {{l, op, r}, i} -> "k#{i}(A, B) :- (#{l}) #{op} (#{r})." end)
 
+    # nicht jeder Ausdruck braucht A und B
+    PrologEx.StyleCheck.set(:singleton, false)
     {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
 
     for {{l, op, r}, i} <- Enum.with_index(cases),

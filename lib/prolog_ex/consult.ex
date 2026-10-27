@@ -60,14 +60,24 @@ defmodule PrologEx.Consult do
       module: into || "user",
       into: into,
       declared: nil,
-      file: Keyword.get(opts, :file)
+      file: Keyword.get(opts, :file),
+      # für Warnungen: Zeile des aktuellen Terms, eingebundene Datei
+      # (include), zuletzt gesehenes Prädikat, alle gesehenen, gemeldete
+      line: nil,
+      src: nil,
+      # Prädikate mit Klauseln aus dem aktuellen gelesenen Term (nach
+      # term_expansion können es mehrere sein) und aus dem davor
+      group: MapSet.new(),
+      prev_group: MapSet.new(),
+      seen: MapSet.new(),
+      warned: MapSet.new()
     }
 
     st = st |> feed.() |> eof_expansion() |> flush()
 
     st =
       Enum.reduce(Enum.reverse(st.init), st, fn {g, m}, st ->
-        run_directive(g, %{st | module: m}, "initialization")
+        run_directive(g, %{st | module: m, line: nil, src: nil}, "initialization")
       end)
 
     {st.db, Enum.reverse(st.msgs), st.declared}
@@ -109,7 +119,7 @@ defmodule PrologEx.Consult do
   end
 
   defp read_chunks(reader, st) do
-    {items, status} = Reader.next_chunk(reader)
+    {items, status} = Reader.next_chunk(reader, lines: true)
     st = Enum.reduce(items, st, &item/2)
     if status == :pause, do: read_chunks(reader, st), else: st
   end
@@ -134,12 +144,128 @@ defmodule PrologEx.Consult do
   defp item({:error, _msg}, %{cond: [top | _]} = st) when top != :on, do: st
   defp item({:error, msg}, st), do: msg(st, msg)
 
-  defp item({:term, t, _names} = it, st) do
+  # mit Zeilennummer (Reader-Option lines: true)
+  defp item({:term, t, names, line}, st), do: item({:term, t, names}, %{st | line: line})
+
+  defp item({:term, t, names} = it, st) do
     case conditional(PrologEx.unmark_top(t), st) do
       {:handled, st} -> st
       :skip -> st
-      :go -> expand_item(it, st)
+      :go -> expand_item(it, singletons(t, names, next_group(st)))
     end
+  end
+
+  # --- Warnungen ------------------------------------------------------------
+
+  # Singleton-Variablen einer Klausel (wie SWI): benannte Variablen, die nur
+  # einmal vorkommen (außer _Name), und _Name, die mehrfach vorkommen.
+  # Direktiven nicht.
+  defp singletons(t, names, st) do
+    t = PrologEx.unmark(t)
+
+    if names == %{} or directive_term?(t) or not PrologEx.StyleCheck.on?(:singleton) do
+      st
+    else
+      {order, counts} = occurrences(t, names, {[], %{}})
+      order = Enum.reverse(order)
+      single = for n <- order, counts[n] == 1, not String.starts_with?(n, "_"), do: n
+      multi = for n <- order, counts[n] > 1, String.starts_with?(n, "_"), do: n
+      pi = clause_indicator(t)
+
+      st =
+        if single == [],
+          do: st,
+          else: warn(st, "Singleton-Variablen: [#{Enum.join(single, ", ")}] in #{pi}")
+
+      if multi == [],
+        do: st,
+        else: warn(st, "mehrfach verwendete _-Variablen: [#{Enum.join(multi, ", ")}] in #{pi}")
+    end
+  end
+
+  defp directive_term?({:struct, op, [_]}) when op in [":-", "?-"], do: true
+  defp directive_term?(_), do: false
+
+  defp occurrences({:var, n}, names, {order, counts}) when is_map_key(names, n) do
+    case counts do
+      %{^n => c} -> {order, Map.put(counts, n, c + 1)}
+      _ -> {[n | order], Map.put(counts, n, 1)}
+    end
+  end
+
+  defp occurrences({:struct, _, args}, names, acc),
+    do: Enum.reduce(args, acc, &occurrences(&1, names, &2))
+
+  defp occurrences([h | t], names, acc), do: occurrences(t, names, occurrences(h, names, acc))
+  defp occurrences(_, _names, acc), do: acc
+
+  defp clause_indicator(t) do
+    {head, extra} =
+      case t do
+        {:struct, ":-", [h, _]} -> {h, 0}
+        {:struct, "-->", [h, _]} -> {h, 2}
+        h -> {h, 0}
+      end
+
+    head =
+      case head do
+        {:struct, ":", [_, h]} -> h
+        h -> h
+      end
+
+    case head do
+      {:struct, name, args} -> indicator(name, length(args) + extra)
+      {:atom, name} -> indicator(name, extra)
+      _ -> "?"
+    end
+  end
+
+  defp indicator(name, ar), do: PrologEx.format(mk("/", [a(name), ar]), quoted: true)
+
+  defp next_group(%{group: g} = st) do
+    if MapSet.size(g) == 0, do: st, else: %{st | prev_group: g, group: MapSet.new()}
+  end
+
+  # Klauseln eines Prädikats nicht zusammenhängend (ohne discontiguous/1):
+  # einmal je Prädikat und Ladevorgang melden. Zusammenhängend heißt: aus
+  # demselben oder dem vorigen gelesenen Term (so dürfen sich Klauseln, die
+  # term_expansion aus einem Term macht, abwechseln)
+  defp contiguity(st, {m, n, ar} = key) do
+    cond do
+      MapSet.member?(st.group, key) ->
+        st
+
+      MapSet.member?(st.prev_group, key) ->
+        %{st | group: MapSet.put(st.group, key)}
+
+      MapSet.member?(st.seen, key) and not MapSet.member?(st.warned, key) and
+        not PrologEx.has_property?(st.db, key, :discontiguous) and
+          PrologEx.StyleCheck.on?(:discontiguous) ->
+        pi = if m == st.module, do: indicator(n, ar), else: "#{m}:#{indicator(n, ar)}"
+
+        st
+        |> warn("Klauseln von #{pi} nicht zusammenhängend (:- discontiguous(#{pi}) fehlt?)")
+        |> Map.update!(:warned, &MapSet.put(&1, key))
+        |> Map.update!(:group, &MapSet.put(&1, key))
+
+      true ->
+        %{st | group: MapSet.put(st.group, key), seen: MapSet.put(st.seen, key)}
+    end
+  end
+
+  defp warn(st, text), do: located(st, "Warnung", text)
+
+  # "Warnung (Zeile 3): ...", "Fehler (teil.pl, Zeile 2): ..."
+  defp located(st, kind, text) do
+    where =
+      case {st.src, st.line} do
+        {nil, nil} -> ""
+        {nil, l} -> " (Zeile #{l})"
+        {f, nil} -> " (#{f})"
+        {f, l} -> " (#{f}, Zeile #{l})"
+      end
+
+    msg(st, "#{kind}#{where}: #{text}")
   end
 
   # :- if(C), :- elif(C), :- else, :- endif (wie SWI, SICStus, GNU):
@@ -173,7 +299,7 @@ defmodule PrologEx.Consult do
             {:handled, %{st | cond: [top | rest]}}
 
           [] ->
-            {:handled, msg(st, "Fehler: elif ohne if")}
+            {:handled, located(st, "Fehler", "elif ohne if")}
         end
 
       {:atom, "else"} ->
@@ -183,13 +309,13 @@ defmodule PrologEx.Consult do
             {:handled, %{st | cond: [top | rest]}}
 
           [] ->
-            {:handled, msg(st, "Fehler: else ohne if")}
+            {:handled, located(st, "Fehler", "else ohne if")}
         end
 
       {:atom, "endif"} ->
         case st.cond do
           [_ | rest] -> {:handled, %{st | cond: rest}}
-          [] -> {:handled, msg(st, "Fehler: endif ohne if")}
+          [] -> {:handled, located(st, "Fehler", "endif ohne if")}
         end
 
       _ ->
@@ -278,7 +404,7 @@ defmodule PrologEx.Consult do
 
     case result do
       {:ok, x} -> {st, x}
-      {:error, m} -> {msg(st, "Fehler in #{what}: #{m}"), nil}
+      {:error, m} -> {located(st, "Fehler", "in #{what}: #{m}"), nil}
     end
   end
 
@@ -321,7 +447,7 @@ defmodule PrologEx.Consult do
       fact -> add_clause({fact, a("true")}, st)
     end
   rescue
-    e in [RuntimeError, PrologEx.Error] -> msg(st, "Fehler: #{Exception.message(e)}")
+    e in [RuntimeError, PrologEx.Error] -> located(st, "Fehler", Exception.message(e))
   end
 
   defp add_clause({head, body}, st) do
@@ -370,6 +496,7 @@ defmodule PrologEx.Consult do
     end
 
     pkey = {m, name, arity}
+    st = contiguity(st, pkey)
     st = if PrologEx.has_property?(st.db, pkey, :multifile), do: remember_base(st, pkey), else: st
 
     %{
@@ -420,8 +547,8 @@ defmodule PrologEx.Consult do
   defp directive({:struct, "module", [{:atom, m}, exports]}, st) do
     st = flush(st)
 
-    # op(P, T, N) in der Exportliste: gprolog hat sie beim Lesen gesetzt,
-    # der Writer braucht sie auch
+    # op(P, T, N) in der Exportliste: für die Sitzung setzen (der Reader hat
+    # sie für den Rest dieser Datei schon)
     for {:struct, "op", [p, t, n]} <- prolog_list(exports) |> Enum.map(&PrologEx.unmark/1),
         do: PrologEx.Builtins.Operators.mirror(p, t, n)
 
@@ -452,17 +579,22 @@ defmodule PrologEx.Consult do
 
     case File.read(path) do
       {:ok, text} ->
-        items = Reader.read_terms(Reader.current(), text)
+        items = Reader.read_terms(Reader.current(), text, lines: true)
         outer = Process.put(:prolog_ex_load_dir, Path.dirname(Path.expand(path)))
 
         try do
-          Enum.reduce(items, st, &item/2)
+          st = Enum.reduce(items, %{st | src: Path.basename(path)}, &item/2)
+          %{st | src: nil}
         after
           Process.put(:prolog_ex_load_dir, outer)
         end
 
       {:error, _} ->
-        msg(st, "Fehler: include(#{PrologEx.format(f, quoted: true)}): Datei nicht gefunden")
+        located(
+          st,
+          "Fehler",
+          "include(#{PrologEx.format(f, quoted: true)}): Datei nicht gefunden"
+        )
     end
   end
 
@@ -509,7 +641,7 @@ defmodule PrologEx.Consult do
     end
   rescue
     e in [RuntimeError, PrologEx.Error] ->
-      msg(st, "Fehler in #{what} #{PrologEx.format(g)}: #{Exception.message(e)}")
+      located(st, "Fehler", "in #{what} #{PrologEx.format(g)}: #{Exception.message(e)}")
   end
 
   # Exporte von m in das Modul into importieren (lokale Definitionen dort

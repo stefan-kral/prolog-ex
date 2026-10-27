@@ -46,9 +46,10 @@ defmodule PrologEx.Reader do
   Alle Terme eines Textes. `:- op/3`, `:- module/2` (Exportliste) und
   `:- set_prolog_flag(double_quotes, _)` gelten für den Rest des Textes
   (nicht für die Sitzung – dafür muss die Direktive ausgeführt werden);
-  der Term `end_of_file` beendet den Text.
+  der Term `end_of_file` beendet den Text. Mit `lines: true` kommt die
+  Zeile des Termanfangs dazu: `{:term, t, names, zeile}`.
   """
-  def read_terms(_reader, text), do: Parser.read_terms(text)
+  def read_terms(_reader, text, opts \\ []), do: Parser.read_terms(text, opts)
 
   @doc "Setzt das Flag double_quotes (codes, chars, atom)"
   def set_double_quotes(_reader, value) when value in ["codes", "chars", "atom"] do
@@ -77,7 +78,7 @@ defmodule PrologEx.Reader do
             _ -> {text, 0}
           end
 
-        Process.put(@files, [{text, rest, pos} | Process.get(@files, [])])
+        Process.put(@files, [{text, rest, pos, {1, 0}} | Process.get(@files, [])])
         :ok
 
       {:error, reason} ->
@@ -92,35 +93,37 @@ defmodule PrologEx.Reader do
   open_file/next_chunk), bevor es weitergeht – Operatoren und
   double_quotes, die sie setzt, gelten dann schon für den Rest der Datei.
   Bei `:eof` (Dateiende oder der Term `end_of_file`) ist die Datei
-  geschlossen.
+  geschlossen. Mit `lines: true` wie bei `read_terms/3`.
   """
-  def next_chunk(_reader) do
+  def next_chunk(_reader, opts \\ []) do
     case Process.get(@files, []) do
       [] -> {[], :eof}
-      [{text, rest, pos} | more] -> chunk(text, rest, pos, more, [])
+      [{text, rest, pos, lc} | more] -> chunk(text, rest, pos, lc, more, [], opts[:lines])
     end
   end
 
-  defp chunk(text, rest, pos, more, acc) do
+  # lc: {Zeile, Position} für inkrementelle Zeilennummern
+  defp chunk(text, rest, pos, lc, more, acc, lines?) do
     case Parser.read_term(rest, pos, Parser.context(text)) do
       :eof ->
         close(more, acc)
 
-      {:term, {:atom, "end_of_file"}, _, _, _} ->
+      {:term, {:atom, "end_of_file"}, _, _, _, _} ->
         close(more, acc)
 
-      {:term, t, names, rest, pos} ->
-        acc = [{:term, t, names} | acc]
+      {:term, t, names, rest, pos, start} ->
+        {line, _} = lc = Parser.line_at(text, lc, start)
+        acc = [if(lines?, do: {:term, t, names, line}, else: {:term, t, names}) | acc]
 
         if directive?(t) do
-          Process.put(@files, [{text, rest, pos} | more])
+          Process.put(@files, [{text, rest, pos, lc} | more])
           {Enum.reverse(acc), :pause}
         else
-          chunk(text, rest, pos, more, acc)
+          chunk(text, rest, pos, lc, more, acc, lines?)
         end
 
       {:error, msg, rest, pos} ->
-        chunk(text, rest, pos, more, [{:error, msg} | acc])
+        chunk(text, rest, pos, lc, more, [{:error, msg} | acc], lines?)
     end
   end
 
