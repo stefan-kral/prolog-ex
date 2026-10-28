@@ -1414,7 +1414,21 @@ defmodule PrologEx do
   # Melde-Choice-Point sofort entfernt – time(G) ist dann so
   # deterministisch wie G; sonst kommt über die Lösung ein Choice Point,
   # der die Uhr beim Wiedereintritt neu startet.
-  defp step({:struct, "time", [g]}, _cutb, mod, rest, st) do
+  # time/1: eingebaut, außer im Modul gibt es ein eigenes oder ein
+  # importiertes (library(time) wie Scryer)
+  defp step({:struct, "time", [g]} = goal, _cutb, mod, rest, st) do
+    db = current_db()
+
+    if Map.has_key?(db, {mod, "time", 1}) or Map.has_key?(db, {:import, mod, "time", 1}),
+      do: call_pred(goal, mod, rest, st),
+      else: builtin_time(g, mod, rest, st)
+  end
+
+  defp step({:"$time_exit", ref, h}, _cutb, _mod, rest, st) do
+    time_exit(ref, h, rest, st)
+  end
+
+  defp builtin_time(g, mod, rest, st) do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
@@ -1423,7 +1437,7 @@ defmodule PrologEx do
     run(%{st | goals: [{goal, h + 1, mod}, {{:"$time_exit", ref, h}, 0, mod} | rest]})
   end
 
-  defp step({:"$time_exit", ref, h}, _cutb, _mod, rest, st) do
+  defp time_exit(ref, h, rest, st) do
     total = time_stop(st, ref)
     report_time(total)
 

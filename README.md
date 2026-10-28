@@ -327,6 +327,19 @@ ist jeweils am Dateianfang vermerkt.
   Dazu kommt `portray_clause/1,2` mit Scryers Einrückung. `listing/1`
   sucht dabei im Modul des Aufrufers; bei Scryer ist das Modulsystem
   lockerer.
+* `library(time)` (BSD-Lizenz) enthält:
+  * `current_time/1`. Der Zeitstempel hat dieselbe Form wie bei
+    `library(files)`.
+  * `format_time//2` mit `%Y %m %d %H %M %S %y %b %B %a %A %w %u %U %W %j
+    %D %x %v %%`, z. B. `phrase(format_time("%d.%m.%Y", T), Cs)`.
+  * `sleep/1`, `max_sleep_time/1`.
+  * `time/1`, das wie Scryer `% CPU time: 0.000s, 1 inference` je Lösung
+    und beim Scheitern ausgibt. Gemessen wird direkt um das Ziel herum,
+    also zählt nur das Ziel (`time(true)` meldet 1 Inferenz).
+
+  Nach `use_module(library(time))` gilt dieses `time/1` statt des
+  eingebauten. `statistics/2` bleibt das eingebaute, eine Obermenge von
+  Scryers vorläufigem.
 * Dafür neu in der Maschine:
   * DCG-Pushback (`H, PB --> B`) nach dem Entwurf des DCG-Standards,
   * die Schreiboption `double_quotes(true)` (Zeichenlisten als `"..."`,

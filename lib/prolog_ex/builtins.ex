@@ -56,7 +56,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Format,
     PrologEx.Builtins.Pio,
     PrologEx.Builtins.Files,
-    PrologEx.Builtins.Charsio
+    PrologEx.Builtins.Charsio,
+    PrologEx.Builtins.ScryerPrims
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
@@ -110,7 +111,8 @@ defmodule PrologEx.Builtins do
 
   # system: geschützt sind die als geschützt markierten und die der Maschine
   @protected for({{"system", n, a}, {_, _, true}} <- @all, into: MapSet.new(), do: {n, a})
-             |> MapSet.union(MapSet.new(@engine))
+             # time/1 nicht: library(time) bringt Scryers (siehe PrologEx, step)
+             |> MapSet.union(MapSet.new(@engine -- [{"time", 1}]))
 
   @system_keys (for({"system", n, a} <- Map.keys(@all), do: {n, a}) ++ @engine)
                |> MapSet.new()
