@@ -461,7 +461,8 @@ Upper), dazu `between/3`, `repeat/1` und `numlist/2,3`.
 
 ## Zufall: `library(random)`
 
-Wie SICStus: `random/1` (Float in [0,1)), `random/3` (Ganzzahlen: L =< X < U,
+Wie SICStus: `maybe/0` (gelingt mit Wahrscheinlichkeit 1/2, wie auch in
+SWI und Scryer), `random/1` (Float in [0,1)), `random/3` (Ganzzahlen: L =< X < U,
 sonst Float), `random_member/2`, `random_select/3` (auch Einfügen),
 `random_subseq/3`, `random_permutation/2`, `randseq/3` (K verschiedene
 Zahlen aus 1..N in zufälliger Reihenfolge – `randseq(N, N, L)` ist ein

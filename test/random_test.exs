@@ -54,6 +54,24 @@ defmodule PrologEx.RandomTest do
     assert err(c, "setrand(foo).") =~ "domain_error(random_state"
   end
 
+  test "maybe/0: etwa jedes zweite Mal, deterministisch, reproduzierbar", c do
+    [ans] = ask(c, "findall(x, (between(1, 4000, _), maybe), L), length(L, N).")
+    [_, n] = Regex.run(~r/N = (\d+)/, ans)
+    assert String.to_integer(n) in 1800..2200
+
+    assert ask(
+             c,
+             "set_random(seed(3)), findall(B, (between(1, 30, _), (maybe -> B = 1 ; B = 0)), L1), " <>
+               "set_random(seed(3)), findall(B, (between(1, 30, _), (maybe -> B = 1 ; B = 0)), L2), " <>
+               "L1 == L2, sort(L1, [0, 1])."
+           )
+           |> length() == 1
+
+    # kein Choice Point: höchstens eine Lösung
+    assert ask(c, "between(1, 50, _), maybe, !.") |> length() == 1
+    assert ask(c, "findall(x, maybe, L), length(L, N), N =< 1.") |> length() == 1
+  end
+
   test "randseq/3 und randset/3", c do
     assert ok?(c, "randseq(50, 50, L), numlist(1, 50, N), ist_perm(L, N).")
 

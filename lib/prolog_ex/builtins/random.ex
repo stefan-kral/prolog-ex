@@ -28,6 +28,12 @@ defmodule PrologEx.Builtins.Random do
 
   @key :prolog_ex_random
 
+  # maybe: gelingt mit Wahrscheinlichkeit 1/2 (SICStus, SWI, Scryer);
+  # deterministisch, aus dem Generator der Sitzung
+  defbuiltin "maybe", [] do
+    int_below(2) == 0
+  end
+
   defbuiltin "random", [x] do
     {:unify, [{x, draw(&:rand.uniform_real_s/1)}]}
   end
