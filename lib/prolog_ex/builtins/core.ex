@@ -226,12 +226,18 @@ defmodule PrologEx.Builtins.Core do
 
   # bekannte Option mit ungebundenem Wert: instantiation_error (ISO 8.14.2.3)
   defp write_option({:struct, name, [{:var, _}]}, _s)
-       when name in ~w(quoted ignore_ops numbervars max_depth priority spacing variable_names portray),
+       when name in ~w(quoted ignore_ops numbervars max_depth priority spacing variable_names portray
+                       double_quotes),
        do: PrologEx.Error.instantiation!()
 
   defp write_option({:struct, name, [{:atom, b}]}, _s)
        when is_map_key(@bool_options, name) and b in ["true", "false"],
        do: {@bool_options[name], b == "true"}
+
+  # double_quotes(true): Zeichenlisten als "..." (wie Scryer; keine
+  # ISO-Option)
+  defp write_option({:struct, "double_quotes", [{:atom, b}]}, _s) when b in ["true", "false"],
+    do: {:strings, b == "true"}
 
   defp write_option({:struct, "max_depth", [n]}, _s) when is_integer(n) and n >= 0,
     do: {:max_depth, n}
@@ -282,7 +288,8 @@ defmodule PrologEx.Builtins.Core do
     :ok
   end
 
-  defbuiltin "listing", [spec] do
+  # nicht geschützt: library(format) bringt Scryers listing/1
+  defbuiltin "listing", [spec], protected: false do
     PrologEx.Builtins.IO.out(PrologEx.Listing.listing(db(), resolve(spec), context_module()))
     :ok
   end

@@ -45,6 +45,24 @@ defmodule PrologEx.ConsultTest do
     assert ask(r, db, ~S|phrase(ab, "aab").|) == []
   end
 
+  test "DCG: Pushback (H, PB --> B)", %{reader: r} do
+    {db, []} =
+      load(r, """
+      look(X), [X] --> [X].
+      upto([], W), [W] --> [W], !.
+      upto([C|Cs], W) --> [C], !, upto(Cs, W).
+      upto([], _) --> [].
+      zwei, "ab" --> "x".
+      """)
+
+    assert ask(r, db, ~S|phrase(look(X), "abc", R).|) == [~S|R = "abc", X = a|]
+    assert ask(r, db, ~S|phrase(upto(Cs, ~), "ab~cd", R).|) == [~S|Cs = "ab", R = "~cd"|]
+    assert ask(r, db, ~S|phrase(zwei, "xy", R).|) == [~S|R = "aby"|]
+    # Pushback muss eine Liste sein
+    assert {_, [msg]} = load(r, "p, x --> [].\n")
+    assert msg =~ "type_error(list, x)"
+  end
+
   test "DCG: M:Rumpf läuft im Modul M (wie SWI)", %{reader: r} do
     {db, []} =
       load(r, """

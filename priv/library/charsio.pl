@@ -265,7 +265,7 @@ write_term_to_chars(Term, Options, Chars) :-
     ),
     term_variables(Term, Vars),
     extend_var_list(Vars, VNNames, NewVarNames, numbervars),
-    findall(O, (member(O, Options), \+ (nonvar(O), O = variable_names(_))), Options1),
+    findall(O1, (member(O1, Options), \+ (nonvar(O1), O1 = variable_names(_))), Options1),
     '$write_term_chars'(Term, [variable_names(NewVarNames)|Options1], Chars).
 
 % Encodes Ch character to list of Bytes.

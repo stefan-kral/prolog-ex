@@ -28,9 +28,11 @@ defmodule PrologEx.LoadWarningsTest do
            q(_, _Egal).
            r(X) --> [X, Z].
            s(X, X).
+           t(X), [a] --> [].
            """) == [
              "Warnung (Zeile 1): Singleton-Variablen: [Y] in p/2",
-             "Warnung (Zeile 3): Singleton-Variablen: [Z] in r/3"
+             "Warnung (Zeile 3): Singleton-Variablen: [Z] in r/3",
+             "Warnung (Zeile 5): Singleton-Variablen: [X] in t/3"
            ]
   end
 

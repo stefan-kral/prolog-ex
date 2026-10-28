@@ -204,6 +204,7 @@ defmodule PrologEx.Consult do
     {head, extra} =
       case t do
         {:struct, ":-", [h, _]} -> {h, 0}
+        {:struct, "-->", [{:struct, ",", [h, _]}, _]} -> {h, 2}
         {:struct, "-->", [h, _]} -> {h, 2}
         h -> {h, 0}
       end

@@ -312,6 +312,25 @@ ist jeweils am Dateianfang vermerkt.
   und die DCG-Übersetzung bleiben die eingebauten.
 * `append/2` (Liste von Listen) steht jetzt in `library(lists)`, wie in
   SWI und Scryer.
+* `library(format)` (Markus Triska, gemeinfrei) ist rein deklarativ:
+  `phrase(format_(Fs, Args), Cs)` beschreibt die Zeichenliste. Die
+  Direktiven sind `~w ~q ~a ~s ~d ~Nd ~D ~U ~NL ~f ~Nf ~r ~Nr ~R`,
+  dazu `~n ~i ~~`, Spalten mit `~t ~| ~+` und `` ~`ct ``, sowie `~*`
+  statt einer Zahl. Fehler sind wie in Scryer, z. B.
+  `domain_error(format_string, "~e")`.
+
+  Nach `use_module(library(format))` gelten Scryers `format/2,3`
+  (= `phrase_to_stream(format_(Fs, Args), S)`) und `listing/1` statt der
+  eingebauten. Ohne den Import bleibt das eingebaute `format/2,3` nach
+  PIP 0110 mit `~e ~g ~p ~c`.
+
+  Dazu kommt `portray_clause/1,2` mit Scryers Einrückung. `listing/1`
+  sucht dabei im Modul des Aufrufers; bei Scryer ist das Modulsystem
+  lockerer.
+* Dafür neu in der Maschine:
+  * DCG-Pushback (`H, PB --> B`) nach dem Entwurf des DCG-Standards,
+  * die Schreiboption `double_quotes(true)` (Zeichenlisten als `"..."`,
+    wie Scryer).
 
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 

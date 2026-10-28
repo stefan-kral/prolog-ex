@@ -7,8 +7,9 @@ defmodule PrologEx.DCG do
 
   Unterstützt: Terminallisten (auch Strings, da `double_quotes=chars`),
   Nichtterminale, `,`, `;`, `|`, `->`, `\\+`, `{}`/1, `!`, `[]`,
-  `call//N`, `M:Rumpf` und Variablen (über `phrase/3`). Pushback (`H, PB --> B`)
-  fehlt noch.
+  `call//N`, `M:Rumpf` und Variablen (über `phrase/3`), Pushback
+  (`H, PB --> B`: nach B steht die Liste PB wieder vorn im Rest, wie im
+  Entwurf des DCG-Standards, SWI und Scryer).
   """
 
   import PrologEx, only: [mk: 2, list: 2, a: 1, unmark: 1, uncons: 1]
@@ -17,7 +18,24 @@ defmodule PrologEx.DCG do
   def rule(head, body) do
     s0 = fresh()
     s = fresh()
-    {add_args(unmark(head), s0, s), body(body, s0, s)}
+
+    case unmark(head) do
+      # Pushback: H(S0, S) :- B(S0, S1), S = PB ++ S1
+      {:struct, ",", [nt, pb]} ->
+        s1 = fresh()
+
+        items =
+          case terminals(pb, []) do
+            {:ok, items} -> items
+            :error -> PrologEx.Error.type!("list", pb)
+          end
+
+        {add_args(unmark(nt), s0, s),
+         mk(",", [body(body, s0, s1), mk("=", [s, list(items, s1)])])}
+
+      h ->
+        {add_args(h, s0, s), body(body, s0, s)}
+    end
   end
 
   @doc "Übersetzt einen DCG-Rumpf mit Eingabe `s0` und Rest `s`."

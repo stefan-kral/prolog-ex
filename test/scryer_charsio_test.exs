@@ -148,6 +148,10 @@ defmodule PrologEx.ScryerCharsioTest do
 
     assert ask(c, ~s|write_term_to_chars(- (1), [], Cs)|) == [~s|Cs = "- (1)"|]
     assert ask(c, ~s|write_term_to_chars([a, b], [], Cs)|) == [~s|Cs = "[a,b]"|]
+    # die übrigen Optionen gelten neben variable_names/1
+    assert ask(c, ~s|write_term_to_chars('.', [variable_names([]), quoted(true)], Cs)|) ==
+             [~s|Cs = "'.'"|]
+
     assert ask(c, ~s|write_term_to_chars('$VAR'(1), [numbervars(true)], Cs)|) == [~s|Cs = "B"|]
     assert err(c, "write_term_to_chars(a, _, _)") == ["E = instantiation_error"]
     assert err(c, "write_term_to_chars(a, [foo], _)") == ["E = domain_error(write_option, foo)"]

@@ -44,11 +44,13 @@ defmodule PrologEx.Builtins.Format do
     format(PIO.current_out!(:text), f, [], subst())
   end
 
-  defbuiltin "format", [f, args] do
+  # format/2,3 nicht geschützt: nach use_module(library(format)) gelten
+  # Scryers (format_//2)
+  defbuiltin "format", [f, args], protected: false do
     format(PIO.current_out!(:text), f, args, subst())
   end
 
-  defbuiltin "format", [stream, f, args] do
+  defbuiltin "format", [stream, f, args], protected: false do
     format(PIO.output!(deref(stream), :text), f, args, subst())
   end
 
