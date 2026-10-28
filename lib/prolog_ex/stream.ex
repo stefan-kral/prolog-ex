@@ -245,6 +245,7 @@ defmodule PrologEx.Stream do
 
       case s do
         %{kind: :port_in, dev: port} -> if Port.info(port), do: Port.close(port)
+        %{kind: :socket, dev: sock} -> :gen_tcp.close(sock)
         %{dev: dev} when dev != nil -> :file.close(dev)
         _ -> :ok
       end
@@ -266,7 +267,7 @@ defmodule PrologEx.Stream do
   # --- Eingabe ----------------------------------------------------------------
 
   @doc "Ist der Stream ein Eingabestream?"
-  def input?(id), do: get(id).mode == :read
+  def input?(id), do: get(id).mode in [:read, :read_write]
 
   @doc """
   Nächstes Zeichen ansehen, ohne es zu lesen: {codepoint, bytes} | :eof.
@@ -431,6 +432,17 @@ defmodule PrologEx.Stream do
     end
   end
 
+  # Socket (library(sockets)): was gerade da ist; Lesen ist eine äußere
+  # Wirkung (nicht im Vorausrechnen des Toplevels)
+  defp fill(%{kind: :socket, dev: sock} = s) do
+    PrologEx.Effects.external!()
+
+    case :gen_tcp.recv(sock, 0) do
+      {:ok, data} -> %{s | buf: s.buf <> data}
+      {:error, _} -> %{s | eof: true}
+    end
+  end
+
   defp fill(%{kind: :memory} = s), do: %{s | eof: true}
   defp fill(s), do: %{s | eof: true}
 
@@ -486,11 +498,53 @@ defmodule PrologEx.Stream do
         :stdout -> tap(s, fn _ -> IO.write(text) end)
         :stderr -> tap(s, fn _ -> IO.write(:stderr, text) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, text) end)
+        :socket -> tap(s, fn _ -> socket_send!(s, text) end)
         :memory_out -> %{s | buf: [s.buf | text]}
       end
 
     update(out_position(s, text))
     :ok
+  end
+
+  # Senden auf einem Socket; Gegenseite weg: error(socket_error(Grund), _)
+  # (wie SWI)
+  defp socket_send!(s, data) do
+    PrologEx.Effects.external!()
+
+    case :gen_tcp.send(s.dev, data) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        PrologEx.Error.error!(PrologEx.mk("socket_error", [{:atom, Atom.to_string(reason)}]))
+    end
+  end
+
+  @doc """
+  Socket-Stream (library(sockets)): ein Stream für beide Richtungen
+  (`mode: :read_write`), nicht positionierbar. opts wie bei open_file
+  (type, alias, eof_action).
+  """
+  def open_socket(sock, opts) do
+    t = table()
+    id = t.next
+    alias = Keyword.get(opts, :alias)
+
+    s = %__MODULE__{
+      id: id,
+      kind: :socket,
+      dev: sock,
+      mode: :read_write,
+      type: Keyword.get(opts, :type, :text),
+      aliases: if(alias, do: [alias], else: []),
+      reposition: false,
+      eof_action: Keyword.get(opts, :eof_action, :eof_code)
+    }
+
+    aliases = if alias, do: Map.put(t.aliases, alias, id), else: t.aliases
+    Process.put({@key, id}, s)
+    put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id), aliases: aliases})
+    id
   end
 
   @doc "Byte ausgeben"
@@ -502,6 +556,7 @@ defmodule PrologEx.Stream do
         :stdout -> tap(s, fn _ -> IO.binwrite(<<b>>) end)
         :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, <<b>>) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, <<b>>) end)
+        :socket -> tap(s, fn _ -> socket_send!(s, <<b>>) end)
         :memory_out -> %{s | buf: [s.buf | <<b>>]}
       end
 
@@ -518,6 +573,7 @@ defmodule PrologEx.Stream do
         :stdout -> tap(s, fn _ -> IO.binwrite(bin) end)
         :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, bin) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, bin) end)
+        :socket -> tap(s, fn _ -> socket_send!(s, bin) end)
         :memory_out -> %{s | buf: [s.buf | bin]}
       end
 

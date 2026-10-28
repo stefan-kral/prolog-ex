@@ -441,33 +441,35 @@ defmodule PrologEx.Builtins.IO do
     end
   end
 
-  defp open_option!({:struct, "type", [{:atom, t}]}) when t in ["text", "binary"],
+  @doc false
+  def open_option!({:struct, "type", [{:atom, t}]}) when t in ["text", "binary"],
     do: {:type, String.to_atom(t)}
 
-  defp open_option!({:struct, "reposition", [{:atom, b}]}) when b in ["true", "false"],
+  def open_option!({:struct, "reposition", [{:atom, b}]}) when b in ["true", "false"],
     do: {:reposition, b == "true"}
 
-  defp open_option!({:struct, "alias", [{:atom, al}]}), do: {:alias, al}
+  def open_option!({:struct, "alias", [{:atom, al}]}), do: {:alias, al}
 
-  defp open_option!({:struct, "eof_action", [{:atom, e}]})
-       when e in ["error", "eof_code", "reset"],
-       do: {:eof_action, String.to_atom(e)}
+  def open_option!({:struct, "eof_action", [{:atom, e}]})
+      when e in ["error", "eof_code", "reset"],
+      do: {:eof_action, String.to_atom(e)}
 
-  defp open_option!({:struct, "encoding", [{:atom, e}]}) when e in ["utf8", "UTF-8"],
+  def open_option!({:struct, "encoding", [{:atom, e}]}) when e in ["utf8", "UTF-8"],
     do: {:encoding, :utf8}
 
-  defp open_option!({:var, _}), do: Error.instantiation!()
+  def open_option!({:var, _}), do: Error.instantiation!()
 
   # bekannte Option mit ungebundenem Wert: instantiation_error (ISO 8.11.5.3)
-  defp open_option!({:struct, name, [{:var, _}]})
-       when name in ~w(type reposition alias eof_action encoding),
-       do: Error.instantiation!()
+  def open_option!({:struct, name, [{:var, _}]})
+      when name in ~w(type reposition alias eof_action encoding),
+      do: Error.instantiation!()
 
-  defp open_option!(other), do: Error.domain!("stream_option", other)
+  def open_option!(other), do: Error.domain!("stream_option", other)
 
   # Optionenliste: Elemente aufgelöst; Teilliste oder Variable darin:
   # instantiation_error; keine Liste: type_error(list, ...)
-  defp option_list!(opts, s) do
+  @doc false
+  def option_list!(opts, s) do
     case Lists.skip_list(opts, s) do
       {_, []} -> :ok
       {_, {:var, _}} -> Error.instantiation!()
@@ -499,7 +501,7 @@ defmodule PrologEx.Builtins.IO do
   def input!(st, kind) do
     id = S.lookup!(st)
     s = S.get(id)
-    unless s.mode == :read, do: Error.permission!("input", "stream", st)
+    unless s.mode in [:read, :read_write], do: Error.permission!("input", "stream", st)
     check_type!(s, kind, "input", st)
     id
   end
@@ -789,16 +791,21 @@ defmodule PrologEx.Builtins.IO do
   defp properties(id) do
     s = S.get(id)
 
+    # Socket-Streams (library(sockets)): beides
     ([
        if(s.file_name, do: mk("file_name", [a(s.file_name)])),
-       mk("mode", [a(Atom.to_string(s.mode))]),
-       a(if s.mode == :read, do: "input", else: "output")
+       mk("mode", [a(Atom.to_string(s.mode))])
      ] ++
+       for(
+         {dir, ok} <- [{"input", s.mode in [:read, :read_write]}, {"output", s.mode != :read}],
+         ok,
+         do: a(dir)
+       ) ++
        Enum.map(s.aliases, &mk("alias", [a(&1)])) ++
        [
          mk("position", [S.position(id)]),
-         if(s.mode == :read, do: mk("end_of_stream", [a(Atom.to_string(S.end_of_stream(id)))])),
-         if(s.mode == :read, do: mk("eof_action", [a(Atom.to_string(s.eof_action))])),
+         if(S.input?(id), do: mk("end_of_stream", [a(Atom.to_string(S.end_of_stream(id)))])),
+         if(S.input?(id), do: mk("eof_action", [a(Atom.to_string(s.eof_action))])),
          mk("reposition", [a(to_string(s.reposition and s.kind == :file))]),
          mk("type", [a(Atom.to_string(s.type))])
        ])

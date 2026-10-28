@@ -281,6 +281,45 @@ Das eingebaute `delete_file/1` (wie SWI, auch mit Atom) bleibt
 verfügbar. Nach `use_module(library(files))` gilt das aus `files`, das
 nur Zeichenlisten nimmt.
 
+## Netzwerk: `library(sockets)`
+
+TCP wie in SICStus 4, dazu `current_hostname/1` aus Scryer:
+
+```prolog
+?- use_module(library(sockets)).
+?- socket_server_open(Port, S),                 % freier Port
+   socket_client_open(localhost:Port, C, []),
+   socket_server_accept(S, Client, SS, []),     % Client = '127.0.0.1'
+   write(C, 'hallo.'), nl(C), flush_output(C), read(SS, T),
+   close(C), close(SS), socket_server_close(S).
+```
+
+* `socket_client_open(Addr, S, Opts)`, `socket_server_open(Addr, Srv[,
+  Opts])`, `socket_server_accept(Srv, Client, S, Opts)`,
+  `socket_server_close(Srv)`, `current_host/1`, `current_hostname/1`.
+* Adressen sind `Host:Port` oder `inet(Host, Port)`, beim Server auch
+  `Port` allein. `''` heißt dieser Rechner bzw. alle Schnittstellen. Der
+  Port ist eine Zahl, ein Ziffernatom oder ein Dienstname wie `http`;
+  ist er beim Server offen, wird ein freier gewählt und gebunden.
+* Server-Optionen: `reuseaddr/1`, `loopback/1`, `numeric_nodename/1`,
+  `numeric_servname/1`. Stream-Optionen wie bei `open/4`: `type/1`,
+  `alias/1`, `eof_action/1`, `encoding(utf8)`.
+* Ein Socket-Stream ist **ein** Stream für beide Richtungen, hat also
+  `input` und `output` und `mode(read_write)`, und ist nicht
+  positionierbar. Die Voreinstellung ist Text (UTF-8); SICStus nimmt
+  binär. `Client` ist wie bei SICStus nur die IP-Adresse, ohne Port.
+* Fehler:
+  * Eine abgelehnte Verbindung, ein unbekannter oder unerreichbarer
+    Rechner gibt `existence_error(source_sink, Addr)`.
+  * Ein belegter Port gibt `permission_error(open, source_sink, Addr)`.
+  * Keine Adresse gibt `type_error(socket_address, _)`, ein Port außerhalb
+    0..65535 `domain_error(socket_address, _)`.
+  * Bei einem Server-Socket gibt es `type_error/existence_error(server_socket, _)`.
+  * Senden, wenn die Gegenseite weg ist, gibt `socket_error(Grund)`.
+* Socket-Operationen gelten als äußere Wirkungen: Der Toplevel rechnet sie
+  nicht voraus.
+* `socket_select/7` und `unix(Pfad)` fehlen noch.
+
 ## Bibliotheken aus Scryer Prolog
 
 Als Prolog-Quelltext übernommen (`priv/library/`). Geändert sind nur die
