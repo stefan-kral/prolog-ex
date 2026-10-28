@@ -240,6 +240,47 @@ man es doch, kommt `existence_error(stream, S)`.
 
 Tempo: 300 000 Zeichen zählen dauert 2,1 s, über eine fertige Liste 1,5 s.
 
+## Dateien und Verzeichnisse: `library(files)`
+
+Wie in Scryer Prolog: Pfade sind *Zeichenlisten* (`"a/b.txt"`), keine
+Atome. So lassen sie sich mit DCGs und `library(lists)` zerlegen und gehen
+direkt an `open/3,4`.
+
+| Prädikat | Bedeutung |
+|---|---|
+| `directory_files(D, Fs)` | Einträge (Dateien und Verzeichnisse), sortiert |
+| `file_exists(F)`, `directory_exists(D)` | gewöhnliche Datei / Verzeichnis (Verweise werden verfolgt) |
+| `file_size(F, N)` | Größe in Bytes |
+| `make_directory(D)`, `make_directory_path(D)` | anlegen; `_path` wie `mkdir -p` |
+| `delete_file(F)`, `delete_directory(D)` | löschen (Verzeichnis muss leer sein) |
+| `rename_file(F, G)`, `file_copy(F, G)` | umbenennen, kopieren |
+| `working_directory(D0, D)` | D0 ist das aktuelle Verzeichnis, danach D (`working_directory(D, D)` fragt nur ab) |
+| `path_canonical(P, C)` | absoluter Pfad, `.`/`..` und Verweise aufgelöst; scheitert, wenn es P nicht gibt |
+| `path_segments(P, Ss)` | `"/a/b"` ⇔ `[[], "a", "b"]` |
+| `file_modification_time(F, T)`, `file_access_time(F, T)`, `file_creation_time(F, T)` | Zeitstempel |
+
+**Typprüfungen und Fehler** folgen Scryers `must_be/2` und `can_be/2`:
+* Ein Pfad als Variable oder Teilliste gibt `instantiation_error`.
+* Ein Pfad, der keine Liste ist, gibt `type_error(list, P)`.
+* Ein Element, das kein Zeichen ist, gibt `type_error(character, E)`. Typfehler
+  gehen dabei Instanziierungsfehlern vor.
+* Ein Ergebnisargument, das keine Liste bzw. keine ganze Zahl sein kann,
+  gibt `type_error(list, _)` bzw. `type_error(integer, _)`.
+* Wo eine Datei oder ein Verzeichnis vorhanden sein muss, kommt sonst
+  `existence_error(file, F)` bzw. `existence_error(directory, D)`.
+* Was das Betriebssystem ablehnt (gibt es schon, nicht leer, keine
+  Rechte), scheitert.
+
+**Zeitstempel** wie in Scryer, in Ortszeit:
+`['Y'="2026", m="10", d="28", 'H'="11", ..., finis]` mit den Feldern
+`Y m d H M S y b B a A w u U W j D x v`. Früher heißt `@<`. Die
+Erstellungszeit kennt Erlang unter Unix nicht, dort scheitert
+`file_creation_time/2` (wie in Scryer auf Systemen ohne sie).
+
+Das eingebaute `delete_file/1` (wie SWI, auch mit Atom) bleibt
+verfügbar. Nach `use_module(library(files))` gilt das aus `files`, das
+nur Zeichenlisten nimmt.
+
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 
 Wie SWI (`fast_write/2`, `fast_read/2`, `fast_term_serialized/2`) und SICStus

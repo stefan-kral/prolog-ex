@@ -47,7 +47,9 @@ defmodule PrologEx.Builtins.IO do
     if File.dir?(fs_path!(f, subst())), do: :ok, else: :fail
   end
 
-  defbuiltin "delete_file", [f] do
+  # nicht geschützt: library(files) bringt ein eigenes (Scryer: nur
+  # Zeichenlisten), das nach use_module(library(files)) vorgeht
+  defbuiltin "delete_file", [f], protected: false do
     case File.rm(fs_path!(f, subst())) do
       :ok -> :ok
       {:error, :enoent} -> Error.existence!("file", PrologEx.resolve(f, subst()))
