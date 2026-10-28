@@ -716,6 +716,31 @@ mix run tools/gprolog/record_reads.exs              # Lesarten neu aufzeichnen
 GPROLOG_RECORD=1 mix test test/writer_ops_test.exs  # fehlende writeq-Werte
 ```
 
+## Laufzeit
+
+`mix run bench/suite.exs` misst kleine klassische Programme (beste von N
+Läufen; `--save`/`--compare` für vorher/nachher). Stand (OTP 25, eine
+Maschine im Rechenzentrum, ±5 % Rauschen):
+
+| Programm | Zeit | MLIPS |
+|---|---|---|
+| nrev (30 Elemente, 400-mal) | 271 ms | 0,74 |
+| loop (deterministisch, `is`) | 469 ms | 1,28 |
+| between (Backtracking) | 117 ms | 2,58 |
+| member (300 000 Lösungen) | 199 ms | 1,51 |
+| facts (Klausel-Backtracking) | 176 ms | 1,87 |
+| queens (8, alle) | 77 ms | 0,98 |
+| tak (18, 12, 6) | 193 ms | 1,16 |
+| deriv | 171 ms | 0,65 |
+
+Wohin die Zeit geht (Profil von nrev): knapp die Hälfte in Kopfabgleich
+und Rumpfaufbau der übersetzten Klauseln, gut ein Zehntel in `walk` und
+Map-Zugriffen der Substitution, ein Zehntel in Buchhaltung (Inferenz-
+zähler, Datenbank-Zugriff), der Rest in der Maschinenschleife.
+Gemessen: Closures statt der interpretierten Klausel-IR bringen nichts
+(360 statt 331 ns für Kopf und Rumpf von `app/3`), handgeschriebener
+Elixir-Code wäre 4,4-mal schneller (75 ns) – den Gewinn gäbe es nur mit
+echter Codeerzeugung (BEAM-Module je Prädikat).
 ## Entwicklung
 
 ```sh

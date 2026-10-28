@@ -1950,11 +1950,19 @@ defmodule PrologEx do
       r when r in [:fail, false] ->
         backtrack(st)
 
+      # (werfen kann die Unifikation nur mit occurs_check=error)
       {:unify, pairs} ->
-        case guarded(fn -> unify_pairs(pairs, st.subst) end) do
-          {:ok, {:ok, s}} -> cont(st, s, rest)
-          {:ok, :error} -> backtrack(st)
-          {:thrown, ball} -> throw_ball(ball, st)
+        if Process.get(@occurs_key) == :error do
+          case guarded(fn -> unify_pairs(pairs, st.subst) end) do
+            {:ok, {:ok, s}} -> cont(st, s, rest)
+            {:ok, :error} -> backtrack(st)
+            {:thrown, ball} -> throw_ball(ball, st)
+          end
+        else
+          case unify_pairs(pairs, st.subst) do
+            {:ok, s} -> cont(st, s, rest)
+            :error -> backtrack(st)
+          end
         end
 
       {:call, goal} ->
@@ -2298,10 +2306,16 @@ defmodule PrologEx do
     {:clause, _key, nslots, pats, nfresh, body} = cl
     env = :erlang.make_tuple(nslots, nil)
 
-    # guarded: mit occurs_check=error kann die Kopfunifikation werfen
-    case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var) end) do
-      {:ok, matched} -> clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
-      {:thrown, ball} -> throw_ball(ball, st)
+    # werfen kann die Kopfunifikation nur mit occurs_check=error: nur dann
+    # der try-Block (samt Closure), sonst direkt
+    if Process.get(@occurs_key) == :error do
+      case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var) end) do
+        {:ok, matched} -> clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
+        {:thrown, ball} -> throw_ball(ball, st)
+      end
+    else
+      matched = match_args(pats, args, env, st.subst, st.next_var)
+      clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
     end
   end
 

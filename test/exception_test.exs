@@ -133,6 +133,17 @@ defmodule PrologEx.ExceptionTest do
     assert ans =~ "occurs_check"
   end
 
+  test "occurs_check=error: auch die Unifikation eines Builtin-Ergebnisses ist fangbar", c do
+    g =
+      goal(
+        c,
+        "set_prolog_flag(occurs_check, error), catch((X = f(Y), arg(1, X, X)), error(E, _), true), set_prolog_flag(occurs_check, false)."
+      )
+
+    assert [ans] = c.db |> PrologEx.query(g) |> Enum.map(&PrologEx.format_answer/1)
+    assert ans =~ "occurs_check"
+  end
+
   test "nicht gefangen: Toplevel und consult melden den Fehler", c do
     out = capture_io(fn -> ask_toplevel("throw(oops).\nX is foo + 1.\nfoo(1).\n") end)
     assert out =~ "Fehler: unbehandelte Ausnahme: oops"
