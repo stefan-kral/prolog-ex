@@ -90,14 +90,14 @@ defmodule PrologEx.LambdaTest do
 
       test "Fehler", c do
         assert err(c, "call(\\X^Y^foo(X,Y), 1).") =~
-                 "existence_error(lambda_parameter, user:_^foo(1, _))"
+                 "existence_error(lambda_parameter,user:_^foo(1,_))"
 
-        assert err(c, "call(\\X^true, 1, 2).") =~ "existence_error(procedure, true/1)"
+        assert err(c, "call(\\X^true, 1, 2).") =~ "existence_error(procedure,true/1)"
         assert err(c, "call(\\G, 1).") =~ "instantiation_error"
         assert err(c, "call(\\X^Y, 1).") =~ "instantiation_error"
 
         assert err(c, "maplist(\\X^Y^nosuch(X,Y), [1], L).") =~
-                 "existence_error(procedure, nosuch/2)"
+                 "existence_error(procedure,nosuch/2)"
       end
 
       test "Lambda in einem Modul ruft dessen private Prädikate", c do
@@ -105,18 +105,18 @@ defmodule PrologEx.LambdaTest do
         assert ask(c, "use_module('#{file}').") == ["true"]
         assert ask(c, "doubled([1,2,3], L).") == ["L = [2,4,6]"]
         assert ask(c, "scaled(3, [1,2], L).") == ["L = [3,6]"]
-        assert err(c, "twice(1, X).") =~ "existence_error(procedure, twice/2)"
+        assert err(c, "twice(1, X).") =~ "existence_error(procedure,twice/2)"
       end
 
       test "meta_predicate-Deklarationen", c do
-        assert ask(c, "predicate_property(\\(_, _), meta_predicate(M)).") == ["M = \\(1, ?)"]
+        assert ask(c, "predicate_property(\\(_, _), meta_predicate(M)).") == ["M = \\(1,?)"]
 
         assert ask(c, "predicate_property(+\\(_, _, _), meta_predicate(M)).") == [
-                 "M = +\\(?, 1, ?)"
+                 "M = +\\(?,1,?)"
                ]
 
         assert ask(c, "predicate_property(^(_, _, _, _), meta_predicate(M)).") == [
-                 "M = ^(?, 1, ?, ?)"
+                 "M = ^(?,1,?,?)"
                ]
       end
     end
@@ -125,6 +125,6 @@ defmodule PrologEx.LambdaTest do
   test "ohne use_module: nicht sichtbar", c do
     Reader.put_current(c.reader)
     PrologEx.put_db(%{})
-    assert err(c, "call(\\X^true, 1).") =~ "existence_error(procedure, (\\)/2)"
+    assert err(c, "call(\\X^true, 1).") =~ "existence_error(procedure,(\\)/2)"
   end
 end

@@ -35,7 +35,7 @@ defmodule PrologEx.IsoChecksTest do
     assert err(c, "write_term(a, [numbervars(_)])") == ["E = instantiation_error"]
 
     assert err(c, "write_term(a, [quoted(maybe)])") == [
-             "E = domain_error(write_option, quoted(maybe))"
+             "E = domain_error(write_option,quoted(maybe))"
            ]
 
     File.write!(c.f, "x")
@@ -49,35 +49,35 @@ defmodule PrologEx.IsoChecksTest do
   end
 
   test "findall/3, term_variables/2: Ergebnis muss eine (Teil-)Liste sein", c do
-    assert err(c, "findall(X, X = 1, [_|1])") == ["E = type_error(list, [_A|1])"]
-    assert err(c, "findall(X, X = 1, foo)") == ["E = type_error(list, foo)"]
+    assert err(c, "findall(X, X = 1, [_|1])") == ["E = type_error(list,[_A|1])"]
+    assert err(c, "findall(X, X = 1, foo)") == ["E = type_error(list,foo)"]
     assert ask(c, "findall(X, (X = 1 ; X = 2), [A|B])") == ["A = 1, B = [2]"]
-    assert err(c, "term_variables(t, [_, _|a])") == ["E = type_error(list, [_A,_B|a])"]
+    assert err(c, "term_variables(t, [_, _|a])") == ["E = type_error(list,[_A,_B|a])"]
   end
 
   test "current_input/output mit geschlossenem Stream: domain_error(stream, S)", c do
     File.write!(c.f, "x")
 
     assert ask(c, "open('#{c.f}', read, S), close(S), catch(current_input(S), error(E, _), true)")
-           |> hd() =~ "E = domain_error(stream, '$stream'("
+           |> hd() =~ "E = domain_error(stream,'$stream'("
 
     assert ask(
              c,
              "open('#{c.f}', write, S), close(S), catch(current_output(S), error(E, _), true)"
            )
-           |> hd() =~ "E = domain_error(stream, '$stream'("
+           |> hd() =~ "E = domain_error(stream,'$stream'("
   end
 
   test "retract/1 auf ein eingebautes Prädikat: permission_error", c do
     assert err(c, "retract((atom(X) :- X == '[]'))") ==
-             ["E = permission_error(modify, static_procedure, atom/1)"]
+             ["E = permission_error(modify,static_procedure,atom/1)"]
 
     assert ask(c, "retract(gibts_nicht(1))") == []
   end
 
   test "clause/2: Variablen an Zielstelle als call(V) (ISO 7.6.1)", c do
     assert ask(c, "assertz((legs(A, 7) :- A, A)), clause(legs(C, 7), B)") ==
-             ["B = (call(C), call(C))"]
+             ["B = (call(C),call(C))"]
 
     assert ask(c, "assertz((p(X) :- (X -> true ; fail))), clause(p(Y), B)") ==
              ["B = (call(Y)->true;fail)"]

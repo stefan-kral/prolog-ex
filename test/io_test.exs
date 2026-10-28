@@ -57,7 +57,7 @@ defmodule PrologEx.IOTest do
 
       # Aliase
       ok(c, "open('a.txt', read, _, [alias(ein)]), get_char(ein, h), close(ein).")
-      assert err(c, "get_char(ein, _).") =~ "existence_error(stream, ein)"
+      assert err(c, "get_char(ein, _).") =~ "existence_error(stream,ein)"
     end
 
     test "set_output/set_input leiten write/read um", c do
@@ -95,7 +95,7 @@ defmodule PrologEx.IOTest do
             "mode(read)",
             "input",
             "alias(q)",
-            "position('$stream_position'(0, 1, 0, 0))",
+            "position('$stream_position'(0,1,0,0))",
             "end_of_stream(not)",
             "eof_action(eof_code)",
             "reposition(true)",
@@ -106,34 +106,34 @@ defmodule PrologEx.IOTest do
       assert answer =~ "file_name('"
       ok(c, "stream_property(S, alias(user_error)), S == '$stream'(2).")
       # ISO: hier kein Alias, nur ein Stream-Term
-      assert err(c, "stream_property(user_output, _).") =~ "domain_error(stream, user_output)"
+      assert err(c, "stream_property(user_output, _).") =~ "domain_error(stream,user_output)"
     end
 
     test "Fehler", c do
       assert err(c, "open(_, read, _).") =~ "instantiation_error"
       assert err(c, "open(f, _, _).") =~ "instantiation_error"
       assert err(c, "open(f, read, _, [type(text)|_]).") =~ "instantiation_error"
-      assert err(c, "open(f(x), read, _).") =~ "domain_error(source_sink, f(x))"
-      assert err(c, "open(f, 1, _).") =~ "type_error(atom, 1)"
-      assert err(c, "open(f, rw, _).") =~ "domain_error(io_mode, rw)"
+      assert err(c, "open(f(x), read, _).") =~ "domain_error(source_sink,f(x))"
+      assert err(c, "open(f, 1, _).") =~ "type_error(atom,1)"
+      assert err(c, "open(f, rw, _).") =~ "domain_error(io_mode,rw)"
       assert err(c, "open(f, read, s).") =~ "uninstantiation_error(s)"
-      assert err(c, "open(f, read, _, bogus).") =~ "type_error(list, bogus)"
-      assert err(c, "open(f, read, _, [bogus]).") =~ "domain_error(stream_option, bogus)"
-      assert err(c, "open(nix, read, _).") =~ "existence_error(source_sink, nix)"
-      ok(c, "open('a.txt', write, _, [alias(dop)]).")
+      assert err(c, "open(f, read, _, bogus).") =~ "type_error(list,bogus)"
+      assert err(c, "open(f, read, _, [bogus]).") =~ "domain_error(stream_option,bogus)"
+      assert err(c, "open(nix, read, _).") =~ "existence_error(source_sink,nix)"
+      ok(c, "open('a.txt',write,_,[alias(dop)]).")
 
       assert err(c, "open('b.txt', write, _, [alias(dop)]).") =~
-               "permission_error(open, source_sink, alias(dop))"
+               "permission_error(open,source_sink,alias(dop))"
 
       assert err(c, "close(_).") =~ "instantiation_error"
-      assert err(c, "close(f(x)).") =~ "domain_error(stream_or_alias, f(x))"
-      assert err(c, "close(user_input, [bogus]).") =~ "domain_error(close_option, bogus)"
-      assert err(c, "close('$stream'(99)).") =~ "existence_error(stream, '$stream'(99))"
-      assert err(c, "current_output(foo).") =~ "domain_error(stream, foo)"
-      assert err(c, "set_input(user_output).") =~ "permission_error(input, stream, user_output)"
-      assert err(c, "set_output(user_input).") =~ "permission_error(output, stream, user_input)"
-      assert err(c, "stream_property(foo, _).") =~ "domain_error(stream, foo)"
-      assert err(c, "stream_property(_, bogus).") =~ "domain_error(stream_property, bogus)"
+      assert err(c, "close(f(x)).") =~ "domain_error(stream_or_alias,f(x))"
+      assert err(c, "close(user_input, [bogus]).") =~ "domain_error(close_option,bogus)"
+      assert err(c, "close('$stream'(99)).") =~ "existence_error(stream,'$stream'(99))"
+      assert err(c, "current_output(foo).") =~ "domain_error(stream,foo)"
+      assert err(c, "set_input(user_output).") =~ "permission_error(input,stream,user_output)"
+      assert err(c, "set_output(user_input).") =~ "permission_error(output,stream,user_input)"
+      assert err(c, "stream_property(foo, _).") =~ "domain_error(stream,foo)"
+      assert err(c, "stream_property(_, bogus).") =~ "domain_error(stream_property,bogus)"
     end
   end
 
@@ -170,9 +170,9 @@ defmodule PrologEx.IOTest do
 
       assert err(
                c,
-               "open('e.txt', read, S, [eof_action(error)]), get_char(S, _), get_char(S, _)."
+               "open('e.txt',read,S,[eof_action(error)]), get_char(S,_), get_char(S,_)."
              ) =~
-               "permission_error(input, past_end_of_stream"
+               "permission_error(input,past_end_of_stream"
 
       ok(c, "open('e.txt', read, S), at_end_of_stream(S), close(S).")
 
@@ -206,36 +206,36 @@ defmodule PrologEx.IOTest do
       ok(c, "open('b.bin', write, S, [type(binary)]), close(S).")
 
       assert err(c, "open('b.bin', read, S, [type(binary)]), get_char(S, _).") =~
-               "permission_error(input, binary_stream"
+               "permission_error(input,binary_stream"
 
       assert err(c, "open('z.txt', read, S), get_byte(S, _).") =~
-               "permission_error(input, text_stream"
+               "permission_error(input,text_stream"
 
       assert err(c, "put_byte(user_output, 1).") =~
-               "permission_error(output, text_stream, user_output)"
+               "permission_error(output,text_stream,user_output)"
 
-      assert err(c, "get_char(user_output, _).") =~ "permission_error(input, stream, user_output)"
-      assert err(c, "put_char(user_input, a).") =~ "permission_error(output, stream, user_input)"
-      assert err(c, "open('z.txt', read, S), get_char(S, 1).") =~ "type_error(in_character, 1)"
-      assert err(c, "open('z.txt', read, S), get_char(S, ab).") =~ "type_error(in_character, ab)"
-      assert err(c, "open('z.txt', read, S), get_code(S, a).") =~ "type_error(integer, a)"
+      assert err(c, "get_char(user_output, _).") =~ "permission_error(input,stream,user_output)"
+      assert err(c, "put_char(user_input, a).") =~ "permission_error(output,stream,user_input)"
+      assert err(c, "open('z.txt', read, S), get_char(S, 1).") =~ "type_error(in_character,1)"
+      assert err(c, "open('z.txt', read, S), get_char(S, ab).") =~ "type_error(in_character,ab)"
+      assert err(c, "open('z.txt', read, S), get_code(S, a).") =~ "type_error(integer,a)"
 
       assert err(c, "open('z.txt', read, S), get_code(S, -2).") =~
                "representation_error(in_character_code)"
 
       assert err(c, "open('b.bin', read, S, [type(binary)]), get_byte(S, 256).") =~
-               "type_error(in_byte, 256)"
+               "type_error(in_byte,256)"
 
       assert err(c, "put_char(_).") =~ "instantiation_error"
-      assert err(c, "put_char(ab).") =~ "type_error(character, ab)"
-      assert err(c, "put_code(a).") =~ "type_error(integer, a)"
+      assert err(c, "put_char(ab).") =~ "type_error(character,ab)"
+      assert err(c, "put_code(a).") =~ "type_error(integer,a)"
       assert err(c, "put_code(-1).") =~ "representation_error(character_code)"
 
       assert err(c, "open('b.bin', write, S, [type(binary)]), put_byte(S, 256).") =~
-               "type_error(byte, 256)"
+               "type_error(byte,256)"
 
       assert err(c, "get_char(_, _).") =~ "instantiation_error"
-      assert err(c, "get_char(foo, _).") =~ "existence_error(stream, foo)"
+      assert err(c, "get_char(foo, _).") =~ "existence_error(stream,foo)"
     end
 
     test "Ausgabe auf user_output landet auf stdout", c do
@@ -259,8 +259,8 @@ defmodule PrologEx.IOTest do
                "open('t.pl', read, S), read_term(S, T, [variable_names(V), singletons(Sg), variables(Vs)]), read(S, T2), read(S, T3), read(S, T4), close(S)."
              ) ==
                [
-                 "S = '$stream'(3), Sg = ['_Y'=_A,'Z'=_B], T = foo(_C, 'a b', [1,2], _C, _A, _B), " <>
-                   "T2 = bar(46, \"x.y\", 'q.r', 1.5, a=..b), T3 = (:-op(700, xfx, ~~~)), " <>
+                 "S = '$stream'(3), Sg = ['_Y'=_A,'Z'=_B], T = foo(_C,'a b',[1,2],_C,_A,_B), " <>
+                   "T2 = bar(46,\"x.y\",'q.r',1.5,a=..b), T3 = (:-op(700,xfx,~~~)), " <>
                    "T4 = end_of_file, V = ['X'=_C,'_Y'=_A,'Z'=_B], Vs = [_C,_A,_B]"
                ]
 
@@ -305,10 +305,10 @@ defmodule PrologEx.IOTest do
                "X = b, Y = b"
 
       assert err(c, "set_stream_position(user_input, '$stream_position'(0,1,0,0)).") =~
-               "permission_error(reposition, stream, user_input)"
+               "permission_error(reposition,stream,user_input)"
 
       assert err(c, "open('p.pl', read, S), set_stream_position(S, foo).") =~
-               "domain_error(stream_position, foo)"
+               "domain_error(stream_position,foo)"
     end
 
     test "write/2 & Co. auf Streams", c do
@@ -321,18 +321,18 @@ defmodule PrologEx.IOTest do
     end
 
     test "read_term: Fehler", c do
-      assert err(c, "read_term(user_input, _, [bogus]).") =~ "domain_error(read_option, bogus)"
-      assert err(c, "read_term(user_input, _, foo).") =~ "type_error(list, foo)"
-      assert err(c, "read(user_output, _).") =~ "permission_error(input, stream, user_output)"
+      assert err(c, "read_term(user_input, _, [bogus]).") =~ "domain_error(read_option,bogus)"
+      assert err(c, "read_term(user_input, _, foo).") =~ "type_error(list,foo)"
+      assert err(c, "read(user_output, _).") =~ "permission_error(input,stream,user_output)"
     end
 
     test "term_to_atom/2, read_term_from_atom/3", c do
       assert ask(c, "term_to_atom(f(a, 'b c', 1+2), A).") == ["A = 'f(a,\\'b c\\',1+2)'"]
-      assert ask(c, "term_to_atom(T, 'foo(X, Y, X)').") == ["T = foo(_A, _B, _A)"]
-      assert ask(c, "term_to_atom(T, 'a :- b, c.').") == ["T = (a:-b, c)"]
+      assert ask(c, "term_to_atom(T, 'foo(X, Y, X)').") == ["T = foo(_A,_B,_A)"]
+      assert ask(c, "term_to_atom(T, 'a :- b, c.').") == ["T = (a:-b,c)"]
 
       assert ask(c, "read_term_from_atom('g(A, _B)', T, [variable_names(V)]).") ==
-               ["T = g(_A, _B), V = ['A'=_A,'_B'=_B]"]
+               ["T = g(_A,_B), V = ['A'=_A,'_B'=_B]"]
 
       assert err(c, "term_to_atom(_, 'f(').") =~ "syntax_error"
     end
@@ -401,7 +401,7 @@ defmodule PrologEx.IOTest do
                c,
                "open('o.txt', read, S), catch(read_term(S, _, [#{o}]), error(E, _), true), close(S)."
              )
-             |> hd() =~ "E = domain_error(read_option, ",
+             |> hd() =~ "E = domain_error(read_option,",
              o
     end
   end

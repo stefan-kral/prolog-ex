@@ -78,7 +78,7 @@ defmodule PrologEx.ArithTest do
       {"-1 ^ -4", 1},
       {"2.0 ^ -1", 0.5},
       {"4 ** 0.5", 2.0},
-      {"2 ^ -1", {:error, "type_error(float, 2)"}},
+      {"2 ^ -1", {:error, "type_error(float,2)"}},
       {"0 ^ -1", {:error, "evaluation_error(zero_divisor)"}},
       {"0 ** -1", {:error, "evaluation_error(zero_divisor)"}},
       {"-8 ** 0.5", {:error, "evaluation_error(undefined)"}},
@@ -98,14 +98,14 @@ defmodule PrologEx.ArithTest do
       {"msb(1)", 0},
       {"lsb(1000)", 3},
       {"popcount(255)", 8},
-      {"gcd(12, 18)", 6},
-      {"gcd(-12, 18)", 6},
-      {"gcd(0, 0)", 0},
-      {"msb(0)", {:error, "type_error(positive_integer, 0)"}},
-      {"5.0 /\\ 3", {:error, "type_error(integer, 5.0)"}},
-      {"\\ 2.0", {:error, "type_error(integer, 2.0)"}},
-      {"7.0 // 2", {:error, "type_error(integer, 7.0)"}},
-      {"7 mod 2.0", {:error, "type_error(integer, 2.0)"}}
+      {"gcd(12,18)", 6},
+      {"gcd(-12,18)", 6},
+      {"gcd(0,0)", 0},
+      {"msb(0)", {:error, "type_error(positive_integer,0)"}},
+      {"5.0 /\\ 3", {:error, "type_error(integer,5.0)"}},
+      {"\\ 2.0", {:error, "type_error(integer,2.0)"}},
+      {"7.0 // 2", {:error, "type_error(integer,7.0)"}},
+      {"7 mod 2.0", {:error, "type_error(integer,2.0)"}}
     ])
   end
 
@@ -195,11 +195,11 @@ defmodule PrologEx.ArithTest do
 
   test "Fehler: ungebunden, nicht auswertbar", c do
     assert ev(c, "_ + 1") == {:error, "instantiation_error"}
-    assert ev(c, "foo + 1") == {:error, "type_error(evaluable, foo/0)"}
-    assert ev(c, "foo(1)") == {:error, "type_error(evaluable, foo/1)"}
-    assert ev(c, "foo(1, 2, 3)") == {:error, "type_error(evaluable, foo/3)"}
-    assert ev(c, "[]") == {:error, "type_error(evaluable, []/0)"}
-    assert ev(c, "[1, 2]") == {:error, "type_error(evaluable, '.'/2)"}
+    assert ev(c, "foo + 1") == {:error, "type_error(evaluable,foo/0)"}
+    assert ev(c, "foo(1)") == {:error, "type_error(evaluable,foo/1)"}
+    assert ev(c, "foo(1, 2, 3)") == {:error, "type_error(evaluable,foo/3)"}
+    assert ev(c, "[]") == {:error, "type_error(evaluable,[]/0)"}
+    assert ev(c, "[1, 2]") == {:error, "type_error(evaluable,'.'/2)"}
   end
 
   test "einelementige Liste", c do

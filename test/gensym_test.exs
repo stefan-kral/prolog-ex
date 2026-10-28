@@ -58,13 +58,13 @@ defmodule PrologEx.GensymTest do
 
   test "Fehler wie Scryer", c do
     assert err(c, "gensym(_, _)") == ["E = instantiation_error"]
-    assert err(c, "gensym(1, _)") == ["E = type_error(atom, 1)"]
-    assert err(c, "gensym(f(x), _)") == ["E = type_error(atom, f(x))"]
+    assert err(c, "gensym(1, _)") == ["E = type_error(atom,1)"]
+    assert err(c, "gensym(f(x), _)") == ["E = type_error(atom,f(x))"]
     assert err(c, "gensym(a, a1)") == ["E = uninstantiation_error(a1)"]
     # Unique wird zuerst geprüft (must_be(var, Unique) vor atom_si(Base))
     assert err(c, "gensym(_, x)") == ["E = uninstantiation_error(x)"]
     assert err(c, "reset_gensym(_)") == ["E = instantiation_error"]
-    assert err(c, "reset_gensym(1)") == ["E = type_error(atom, 1)"]
+    assert err(c, "reset_gensym(1)") == ["E = type_error(atom,1)"]
     # ein Fehler zählt nicht hoch
     assert ask(c, "gensym(a, X)") == ["X = a1"]
   end
@@ -92,12 +92,12 @@ defmodule PrologEx.GensymTest do
     assert ask(c, "findall(B, (current_gensym_base(B), gensym(neu, _)), L)") ==
              ["L = [[],z,'ä']"]
 
-    assert err(c, "current_gensym_base(1)") == ["E = type_error(atom, 1)"]
+    assert err(c, "current_gensym_base(1)") == ["E = type_error(atom,1)"]
     assert ask(c, "reset_gensym, current_gensym_base(_)") == []
   end
 
   test "ohne Import nicht sichtbar", c do
     PrologEx.put_db(%{})
-    assert err(c, "gensym(a, _)") == ["E = existence_error(procedure, gensym/2)"]
+    assert err(c, "gensym(a, _)") == ["E = existence_error(procedure,gensym/2)"]
   end
 end

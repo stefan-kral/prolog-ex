@@ -48,11 +48,11 @@ defmodule PrologEx.BlackboardMutablesTest do
       assert ask(c, "bb_put(k, f(a)).") == ["true"]
       assert ask(c, "bb_get(k, X).") == ["X = f(a)"]
       assert ask(c, "bb_update(k, f(A), g(A, A)).") == ["A = a"]
-      assert ask(c, "bb_get(k, X).") == ["X = g(a, a)"]
+      assert ask(c, "bb_get(k, X).") == ["X = g(a,a)"]
       assert ask(c, "bb_update(k, h(_), x).") == []
-      assert ask(c, "bb_get(k, X).") == ["X = g(a, a)"]
+      assert ask(c, "bb_get(k, X).") == ["X = g(a,a)"]
       assert ask(c, "bb_delete(k, h(_)).") == []
-      assert ask(c, "bb_delete(k, X).") == ["X = g(a, a)"]
+      assert ask(c, "bb_delete(k, X).") == ["X = g(a,a)"]
       assert ask(c, "bb_get(k, X).") == []
       assert ask(c, "bb_delete(k, X).") == []
       assert ask(c, "bb_update(k, _, 1).") == []
@@ -60,7 +60,7 @@ defmodule PrologEx.BlackboardMutablesTest do
 
     test "gespeichert wird eine Kopie (Variablen frisch, Sharing erhalten)", c do
       assert ask(c, "bb_put(k, f(X, Y, X)), X = 1.") == ["X = 1"]
-      assert norm(ask(c, "bb_get(k, T).")) == ["T = f(_A, _B, _A)"]
+      assert norm(ask(c, "bb_get(k, T).")) == ["T = f(_A,_B,_A)"]
       assert ask(c, "bb_get(k, f(A, B, C)), A == C, A \\== B.") |> length() == 1
       # bb_update speichert New mit den Bindungen aus Old
       assert ask(c, "bb_put(n, 1), bb_update(n, X, s(X)), bb_get(n, V).") ==
@@ -94,15 +94,15 @@ defmodule PrologEx.BlackboardMutablesTest do
 
     test "Fehler", c do
       assert err(c, "bb_put(K, 1).") =~ "instantiation_error"
-      assert err(c, "bb_get(f(x), V).") =~ "type_error(atomic, f(x))"
-      assert err(c, "bb_put(1.5, x).") =~ "type_error(atomic, 1.5)"
+      assert err(c, "bb_get(f(x), V).") =~ "type_error(atomic,f(x))"
+      assert err(c, "bb_put(1.5, x).") =~ "type_error(atomic,1.5)"
       assert err(c, "bb_put(M:k, 1).") =~ "instantiation_error"
-      assert err(c, "bb_put(1:k, 1).") =~ "type_error(atom, 1)"
+      assert err(c, "bb_put(1:k, 1).") =~ "type_error(atom,1)"
     end
 
     test "nur nach use_module sichtbar", c do
       PrologEx.put_db(%{})
-      assert err(c, "bb_put(k, 1).") =~ "existence_error(procedure, bb_put/2)"
+      assert err(c, "bb_put(k, 1).") =~ "existence_error(procedure,bb_put/2)"
       assert ask(c, "use_module(library(blackboard)), bb_put(k, 1), bb_get(k, V).") == ["V = 1"]
     end
   end
@@ -151,7 +151,7 @@ defmodule PrologEx.BlackboardMutablesTest do
 
       # Restziele von Variablen im Wert
       assert ask(c, "create_mutable(f(X), M), freeze(X, true).") ==
-               ["M = '$mutable'(f(X)), freeze(X, true)"]
+               ["M = '$mutable'(f(X)), freeze(X,true)"]
     end
 
     test "viele Änderungen, auch bei Kompaktierung in jedem Schritt", c do
@@ -177,8 +177,8 @@ defmodule PrologEx.BlackboardMutablesTest do
       assert err(c, "create_mutable(X, M).") =~ "instantiation_error"
       assert err(c, "create_mutable(1, M), update_mutable(X, M).") =~ "instantiation_error"
       assert err(c, "get_mutable(V, M).") =~ "instantiation_error"
-      assert err(c, "get_mutable(V, foo).") =~ "type_error(mutable, foo)"
-      assert err(c, "update_mutable(1, f(x)).") =~ "type_error(mutable, f(x))"
+      assert err(c, "get_mutable(V, foo).") =~ "type_error(mutable,foo)"
+      assert err(c, "update_mutable(1, f(x)).") =~ "type_error(mutable,f(x))"
     end
   end
 end

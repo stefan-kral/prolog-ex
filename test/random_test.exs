@@ -86,7 +86,7 @@ defmodule PrologEx.RandomTest do
     assert ask(c, "randseq(0, 5, L).") == ["L = []"]
     assert err(c, "randseq(6, 5, L).") =~ "domain_error"
     assert err(c, "randseq(K, 5, L).") =~ "instantiation_error"
-    assert err(c, "randseq(a, 5, L).") =~ "type_error(integer, a)"
+    assert err(c, "randseq(a, 5, L).") =~ "type_error(integer,a)"
   end
 
   test "random/1, random/3, random_between/3: Grenzen", c do
@@ -106,8 +106,8 @@ defmodule PrologEx.RandomTest do
     assert ask(c, "random(3, 3, X).") == []
     assert ask(c, "random_between(3, 2, X).") == []
     assert ok?(c, "random_between(5, 5, X), X == 5.")
-    assert err(c, "random(a, 2, X).") =~ "type_error(number, a)"
-    assert err(c, "random_between(1, 2.5, X).") =~ "type_error(integer, 2.5)"
+    assert err(c, "random(a, 2, X).") =~ "type_error(number,a)"
+    assert err(c, "random_between(1, 2.5, X).") =~ "type_error(integer,2.5)"
   end
 
   test "random_member/2, random_select/3, random_subseq/3", c do

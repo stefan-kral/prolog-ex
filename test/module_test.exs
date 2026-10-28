@@ -36,10 +36,10 @@ defmodule PrologEx.ModuleTest do
     load("haupt.pl")
     assert ask(c, "flaeche(rechteck(2, 3), A).") == ["A = 6"]
     assert ask(c, "flaeche(quadrat(4), A).") == ["A = 16"]
-    assert err(c, "mal(2, 3, X).") =~ "existence_error(procedure, mal/3)"
+    assert err(c, "mal(2, 3, X).") =~ "existence_error(procedure,mal/3)"
     # qualifiziert erreichbar
     assert ask(c, "geo:mal(2, 3, X).") == ["X = 6"]
-    assert err(c, "geo:nix.") =~ "existence_error(procedure, geo:nix/0)"
+    assert err(c, "geo:nix.") =~ "existence_error(procedure,geo:nix/0)"
   end
 
   test "Operatoren aus der Exportliste gelten im Rest der ladenden Datei", c do
@@ -51,7 +51,7 @@ defmodule PrologEx.ModuleTest do
   test "Rümpfe laufen im Definitionsmodul; Sichtbarkeit wie SICStus", c do
     load("haupt.pl")
     # geo:benutzt_user/1 ruft hilfe/1, das nur in user steht: unsichtbar
-    assert err(c, "geo:benutzt_user(X).") =~ "existence_error(procedure, geo:hilfe/1)"
+    assert err(c, "geo:benutzt_user(X).") =~ "existence_error(procedure,geo:hilfe/1)"
     assert ask(c, "geo:benutzt_user_q(X).") == ["X = user"]
     # in meta gibt es ein eigenes hilfe/1
     assert ask(c, "meta:hilfe(X).") == ["X = meta"]
@@ -61,12 +61,12 @@ defmodule PrologEx.ModuleTest do
     # kein Autoload, kein Rückgriff auf user: auto hat lists nicht
     # importiert und sieht last/2 nicht, obwohl user es importiert hat
     load("auto.pl")
-    assert err(c, "letztes([1, 2], X).") =~ "existence_error(procedure, auto:last/2)"
+    assert err(c, "letztes([1, 2], X).") =~ "existence_error(procedure,auto:last/2)"
     assert ask(c, "current_predicate(auto:last/2).") == []
     assert ask(c, "last([1, 2], X).") == ["X = 2"]
     # ohne Import auch in user nicht
     PrologEx.put_db(%{})
-    assert err(c, "append([], [], X).") =~ "existence_error(procedure, append/3)"
+    assert err(c, "append([], [], X).") =~ "existence_error(procedure,append/3)"
   end
 
   test "dynamische Prädikate gehören ihrem Modul", c do
@@ -84,7 +84,7 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "retractall(geo:zaehler(_)), \\+ geo:zaehler(_).") == ["true"]
 
     assert err(c, "assertz(geo:mal(1, 1, 1)).") =~
-             "permission_error(modify, static_procedure, geo:mal/3)"
+             "permission_error(modify,static_procedure,geo:mal/3)"
   end
 
   test "meta_predicate: Argumente werden mit dem Kontextmodul qualifiziert", c do
@@ -111,10 +111,10 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "use_module(library(apply), [maplist/2]), maplist(integer, [1]).") == ["true"]
 
     assert err(c, "use_module(library(gibtsnicht)).") =~
-             "existence_error(source_sink, library(gibtsnicht))"
+             "existence_error(source_sink,library(gibtsnicht))"
 
     assert err(c, "use_module(library(lists), [nix/9]).") =~
-             "permission_error(import, private_procedure, lists:nix/9)"
+             "permission_error(import,private_procedure,lists:nix/9)"
 
     load("haupt.pl")
     # zweites Modul mit quadrat/2: der erste Import bleibt (Warnung)
@@ -149,11 +149,11 @@ defmodule PrologEx.ModuleTest do
   test "clause/2, current_predicate/1, listing/1, current_module/1, strip_module/3", c do
     load("haupt.pl")
     assert [ans] = ask(c, "clause(geo:quadrat(A, B), Body).")
-    assert ans =~ "Body = mal(A, A, B)"
+    assert ans =~ "Body = mal(A,A,B)"
     assert ask(c, "clause(quadrat(A, B), Body).") |> length() == 1
 
     assert err(c, "clause(lists:'$append'(_, _, _), _).") =~
-             "permission_error(access, private_procedure, lists:'$append'/3)"
+             "permission_error(access,private_procedure,lists:'$append'/3)"
 
     assert ask(c, "current_predicate(geo:mal/3).") == ["true"]
     assert ask(c, "current_predicate(mal/3).") == []
@@ -161,7 +161,7 @@ defmodule PrologEx.ModuleTest do
     assert ask(c, "current_predicate(M:tick/0).") == ["M = geo"]
 
     out = capture_io(fn -> ask(c, "listing(geo:quadrat/2).") end)
-    assert out == "geo:quadrat(X, Y) :-\n    mal(X, X, Y).\n"
+    assert out == "geo:quadrat(X,Y) :-\n    mal(X,X,Y).\n"
 
     mods = ask(c, "findall(M, current_module(M), L).") |> hd()
     for m <- ~w(user system lists apply geo meta), do: assert(mods =~ m)
@@ -208,7 +208,7 @@ defmodule PrologEx.ModuleTest do
                "L = [defined,compiled,static,imported_from(lists)]"
 
       assert props(c, "maplist(_, _)") ==
-               "L = [defined,compiled,static,imported_from(apply),(meta_predicate maplist(1, ?))]"
+               "L = [defined,compiled,static,imported_from(apply),(meta_predicate maplist(1,?))]"
 
       assert props(c, "flaeche(_, _)") ==
                "L = [defined,compiled,static,imported_from(geo),number_of_clauses(2)]"
@@ -229,7 +229,7 @@ defmodule PrologEx.ModuleTest do
       assert props(c, "mal(_, _, _)") == "L = []"
       assert props(c, "gibtsnicht") == "L = []"
 
-      assert_raise PrologEx.Error, ~r/type_error\(callable, 3\)/, fn ->
+      assert_raise PrologEx.Error, ~r/type_error\(callable,3\)/, fn ->
         ask(c, "predicate_property(3, P).")
       end
     end

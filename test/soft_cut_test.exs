@@ -120,7 +120,7 @@ defmodule PrologEx.SoftCutTest do
              "a*->b;c\n"
 
     assert ask(c, "clause(exp1, B)") == ["B = (neu*->neu;neu)"]
-    assert ask(c, "clause(exp2, B)") == ["B = if(neu, neu, neu)"]
+    assert ask(c, "clause(exp2, B)") == ["B = if(neu,neu,neu)"]
     assert ask(c, "catch(assertz(if(a, b, c)), error(E, _), true)") |> hd() =~ "permission_error"
   end
 end

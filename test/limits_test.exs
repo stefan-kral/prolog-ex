@@ -157,10 +157,10 @@ defmodule PrologEx.LimitsTest do
     assert ask(c, "call_with_inference_limit(true, L, R)") == {:error, "instantiation_error"}
 
     assert ask(c, "call_with_inference_limit(true, -1, R)") ==
-             {:error, "domain_error(not_less_than_zero, -1)"}
+             {:error, "domain_error(not_less_than_zero,-1)"}
 
     assert ask(c, "call_with_inference_limit(true, a, R)") ==
-             {:error, "type_error(integer, a)"}
+             {:error, "type_error(integer,a)"}
 
     assert ask(c, "call_with_inference_limit(G, 10, R)") == {:error, "instantiation_error"}
   end
@@ -287,8 +287,8 @@ defmodule PrologEx.LimitsTest do
     assert ask(c, "call_with_depth_limit(true, L, R)") == {:error, "instantiation_error"}
 
     assert ask(c, "call_with_depth_limit(true, -1, R)") ==
-             {:error, "domain_error(not_less_than_zero, -1)"}
+             {:error, "domain_error(not_less_than_zero,-1)"}
 
-    assert ask(c, "call_with_depth_limit(true, a, R)") == {:error, "type_error(integer, a)"}
+    assert ask(c, "call_with_depth_limit(true, a, R)") == {:error, "type_error(integer,a)"}
   end
 end

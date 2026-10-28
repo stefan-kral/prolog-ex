@@ -78,7 +78,7 @@ defmodule PrologEx.SocketsTest do
            catch(get_byte(SS, _), error(F, _), true),
            close(SS), socket_server_close(S)
            """) == [
-             "A = 200, B = 7, C = <stream>, E = -1, F = permission_error(input, past_end_of_stream, <stream>), S = <socket>, SS = <stream>"
+             "A = 200, B = 7, C = <stream>, E = -1, F = permission_error(input,past_end_of_stream,<stream>), S = <socket>, SS = <stream>"
            ]
   end
 
@@ -115,7 +115,7 @@ defmodule PrologEx.SocketsTest do
              ["S = <socket>"]
 
     assert err(c, "socket_server_open(P, S), socket_server_open(P, _)") |> hd() =~
-             "E = permission_error(open, source_sink, "
+             "E = permission_error(open,source_sink,"
 
     # nach einer Verbindung, die der Server zuerst schließt (TIME_WAIT):
     # wieder öffnen geht nur mit reuseaddr(true)
@@ -152,7 +152,7 @@ defmodule PrologEx.SocketsTest do
                  c,
                  "socket_server_open(P, S, [loopback(true)]), socket_client_open(#{host}:P, _, [])"
                )
-               |> hd() =~ "E = existence_error(source_sink, "
+               |> hd() =~ "E = existence_error(source_sink,"
 
         assert ask(c, """
                socket_server_open(P, S), socket_client_open(#{host}:P, C, []),
@@ -166,13 +166,13 @@ defmodule PrologEx.SocketsTest do
 
     # Dienstname und Port als Ziffernatom
     assert err(c, "socket_client_open(localhost:'1', _, [])") ==
-             ["E = existence_error(source_sink, localhost:'1')"]
+             ["E = existence_error(source_sink,localhost:'1')"]
 
     # Dienstname aus /etc/services (http: 80); ob dort jemand lauscht, ist egal
     refute err(c, "socket_client_open(localhost:http, C, []), close(C)") |> hd() =~ "domain_error"
 
     assert err(c, "socket_client_open(localhost:gibts_nicht_xyz, _, [])") ==
-             ["E = domain_error(socket_address, localhost:gibts_nicht_xyz)"]
+             ["E = domain_error(socket_address,localhost:gibts_nicht_xyz)"]
   end
 
   test "accept wartet auf eine Verbindung", c do
@@ -234,52 +234,52 @@ defmodule PrologEx.SocketsTest do
 
     # abgelehnt / unbekannter Rechner: Fehler
     assert err(c, "socket_client_open(localhost:#{port}, _, [])") ==
-             ["E = existence_error(source_sink, localhost:#{port})"]
+             ["E = existence_error(source_sink,localhost:#{port})"]
 
     assert err(c, "socket_client_open('gibts.invalid':80, _, [])") ==
-             ["E = existence_error(source_sink, 'gibts.invalid':80)"]
+             ["E = existence_error(source_sink,'gibts.invalid':80)"]
 
     assert err(c, "socket_client_open(_, _, [])") == ["E = instantiation_error"]
     assert err(c, "socket_client_open(localhost:_, _, [])") == ["E = instantiation_error"]
-    assert err(c, "socket_client_open(foo, _, [])") == ["E = type_error(socket_address, foo)"]
-    assert err(c, "socket_client_open(1:2, _, [])") == ["E = type_error(socket_address, 1:2)"]
+    assert err(c, "socket_client_open(foo, _, [])") == ["E = type_error(socket_address,foo)"]
+    assert err(c, "socket_client_open(1:2, _, [])") == ["E = type_error(socket_address,1:2)"]
 
     assert err(c, "socket_client_open(localhost:99999, _, [])") ==
-             ["E = domain_error(socket_address, localhost:99999)"]
+             ["E = domain_error(socket_address,localhost:99999)"]
 
     assert err(c, "socket_client_open(localhost:1, x, [])") == ["E = uninstantiation_error(x)"]
 
     assert err(c, "socket_client_open(localhost:1, _, [foo])") == [
-             "E = domain_error(stream_option, foo)"
+             "E = domain_error(stream_option,foo)"
            ]
 
-    assert err(c, "socket_client_open(localhost:1, _, x)") == ["E = type_error(list, x)"]
+    assert err(c, "socket_client_open(localhost:1, _, x)") == ["E = type_error(list,x)"]
 
     assert err(c, "socket_client_open(localhost:1, _, [reposition(true)])") ==
-             ["E = permission_error(open, source_sink, reposition(true))"]
+             ["E = permission_error(open,source_sink,reposition(true))"]
 
-    assert err(c, "socket_server_open(P, _, [foo])") == ["E = domain_error(socket_option, foo)"]
+    assert err(c, "socket_server_open(P, _, [foo])") == ["E = domain_error(socket_option,foo)"]
     assert err(c, "socket_server_open(P, _, [loopback(_)])") == ["E = instantiation_error"]
     assert err(c, "socket_server_open(P, x)") == ["E = uninstantiation_error(x)"]
-    assert err(c, "socket_server_open(f(x), _)") == ["E = type_error(socket_address, f(x))"]
+    assert err(c, "socket_server_open(f(x), _)") == ["E = type_error(socket_address,f(x))"]
 
     assert err(c, "socket_server_open(nohost:P, _, [numeric_nodename(true)])") |> hd() =~
-             "E = domain_error(socket_address, nohost:"
+             "E = domain_error(socket_address,nohost:"
 
     assert err(c, "socket_server_open(http, _, [numeric_servname(true)])") ==
-             ["E = domain_error(socket_address, http)"]
+             ["E = domain_error(socket_address,http)"]
 
-    assert err(c, "socket_server_accept(foo, _, _, [])") == ["E = type_error(server_socket, foo)"]
+    assert err(c, "socket_server_accept(foo, _, _, [])") == ["E = type_error(server_socket,foo)"]
     assert err(c, "socket_server_accept(_, _, _, [])") == ["E = instantiation_error"]
 
     assert err(c, "socket_server_open(_, S), socket_server_close(S), socket_server_close(S)") ==
-             ["E = existence_error(server_socket, <socket>)"]
+             ["E = existence_error(server_socket,<socket>)"]
 
     assert err(
              c,
              "socket_server_open(_, S), socket_server_close(S), socket_server_accept(S, _, _, [])"
            ) ==
-             ["E = existence_error(server_socket, <socket>)"]
+             ["E = existence_error(server_socket,<socket>)"]
   end
 
   test "current_host/1 (SICStus), current_hostname/1 (Scryer)", c do

@@ -47,7 +47,7 @@ defmodule PrologEx.HomesTest do
           {"time(true)", "time/1"},
           {"fast_write(user_output, x)", "fast_write/2"}
         ] do
-      assert err(c, g) == ["E = existence_error(procedure, #{pi})"], g
+      assert err(c, g) == ["E = existence_error(procedure,#{pi})"], g
     end
   end
 
@@ -81,7 +81,7 @@ defmodule PrologEx.HomesTest do
 
     # nur importiert, was die Bibliothek exportiert
     assert err(c, "atomic_list_concat([a], _)", ":- use_module(library(iso_ext)).\n") ==
-             ["E = existence_error(procedure, atomic_list_concat/2)"]
+             ["E = existence_error(procedure,atomic_list_concat/2)"]
 
     # library(swi): alles, was früher ohne Import sichtbar war
     assert ask(
@@ -104,7 +104,7 @@ defmodule PrologEx.HomesTest do
     PrologEx.Flags.reset()
 
     assert err(c, "set_prolog_flag(swi_compat, x)") == [
-             "E = domain_error(flag_value, swi_compat+x)"
+             "E = domain_error(flag_value,swi_compat+x)"
            ]
   end
 
@@ -149,7 +149,7 @@ defmodule PrologEx.HomesTest do
 
     # ebenso delete_file/1 in library(files): Scryers (Zeichenliste), nicht SWIs
     assert err(c, "files:delete_file('/pex_gibts_nicht')") ==
-             ["E = type_error(list, '/pex_gibts_nicht')"]
+             ["E = type_error(list,'/pex_gibts_nicht')"]
   end
 
   test "Bibliotheken des Systems sehen die Prädikate ohne Import", c do

@@ -109,17 +109,17 @@ defmodule PrologEx.PioTest do
              c,
              "phrase_from_file((\"hallo welt\\nzw\", lazy_list_location(P), " <>
                "lazy_list_character_count(N), any(_)), KLEIN)"
-           ) == ["N = 13, P = file(KLEIN, 2, 2, 13)"]
+           ) == ["N = 13, P = file(KLEIN,2,2,13)"]
 
     # am Anfang
     assert ask(c, "phrase_from_file((lazy_list_location(P), any(_)), KLEIN)") ==
-             ["P = file(KLEIN, 1, 0, 0)"]
+             ["P = file(KLEIN,1,0,0)"]
 
     # weit hinten, über Blöcke hinweg
     assert ask(
              c,
              "phrase_from_file((any(_), \"zeile 1500 \", lazy_list_location(P), any(_)), GROSS)"
-           ) == ["P = file(GROSS, 1501, 11, 21401)"]
+           ) == ["P = file(GROSS,1501,11,21401)"]
 
     # genau an einer Blockgrenze, deren Block schon einmal gelesen war
     # (im gescheiterten ersten Zweig)
@@ -139,17 +139,17 @@ defmodule PrologEx.PioTest do
     assert ask(c, "lazy_list_location(P, [a, b], _)") == ["P = end_of_file-2"]
 
     assert ask(c, "catch(lazy_list_location(_, [a|b], _), error(E, _), true)") ==
-             ["E = type_error(lazy_list, [a|b])"]
+             ["E = type_error(lazy_list,[a|b])"]
 
     assert ask(c, "catch(lazy_list_character_count(_, [a|_], _), error(E, _), true)") ==
-             ["E = type_error(lazy_list, [a|_A])"]
+             ["E = type_error(lazy_list,[a|_A])"]
   end
 
   test "syntax_error//1", c do
     File.write!(c.small, "ac")
 
     assert ask(c, "catch(phrase_from_file(pruefe, KLEIN), error(E, P), true)") ==
-             ["E = syntax_error(b_erwartet), P = file(KLEIN, 1, 1, 1)"]
+             ["E = syntax_error(b_erwartet), P = file(KLEIN,1,1,1)"]
   end
 
   test "Stream wird geschlossen (auch bei Ausnahmen)", c do
@@ -190,7 +190,7 @@ defmodule PrologEx.PioTest do
            open(KLEIN, read, S),
            catch((phrase_from_stream(any(_), S), close(S), fail), error(E, _), true)
            """)
-           |> hd() =~ "E = existence_error(stream, "
+           |> hd() =~ "E = existence_error(stream,"
 
     # die faule Liste beginnt an der aktuellen Position; eine zweite beim
     # nächsten ungelesenen Block
@@ -210,16 +210,16 @@ defmodule PrologEx.PioTest do
 
   test "Fehler", c do
     assert ask(c, "catch(phrase_from_file(any(_), 'gibts/nicht'), error(E, _), true)") ==
-             ["E = existence_error(source_sink, 'gibts/nicht')"]
+             ["E = existence_error(source_sink,'gibts/nicht')"]
 
     assert ask(c, "catch(phrase_from_file(any(_), KLEIN, [as(bytes)]), error(E, _), true)") ==
-             ["E = domain_error(oneof([codes,chars]), bytes)"]
+             ["E = domain_error(oneof([codes,chars]),bytes)"]
 
     assert ask(c, "catch(phrase_from_file(any(_), KLEIN, [as(_)]), error(E, _), true)") ==
              ["E = instantiation_error"]
 
     assert ask(c, "catch(phrase_from_file(any(_), KLEIN, [foo]), error(E, _), true)") ==
-             ["E = domain_error(stream_option, foo)"]
+             ["E = domain_error(stream_option,foo)"]
 
     assert ask(c, "catch(phrase_from_file(any(_), _), error(E, _), true)") ==
              ["E = instantiation_error"]
@@ -228,19 +228,19 @@ defmodule PrologEx.PioTest do
            open(KLEIN, write, S),
            catch(stream_to_lazy_list(S, _), error(E, _), true), close(S)
            """)
-           |> hd() =~ "E = permission_error(input, stream, "
+           |> hd() =~ "E = permission_error(input,stream,"
 
     assert ask(c, """
            open(KLEIN, read, S, [type(binary)]),
            catch(stream_to_lazy_list(S, _), error(E, _), true), close(S)
            """)
-           |> hd() =~ "E = permission_error(input, binary_stream, "
+           |> hd() =~ "E = permission_error(input,binary_stream,"
 
     assert ask(c, """
            open(KLEIN, read, S),
            catch(phrase_from_stream(any(_), S, [type(text)]), error(E, _), true), close(S)
            """)
-           |> hd() =~ "E = domain_error(phrase_from_stream_option, type(text))"
+           |> hd() =~ "E = domain_error(phrase_from_stream_option,type(text))"
   end
 
   test "phrase_to_file/2, phrase_to_stream/2 (Scryer)", c do

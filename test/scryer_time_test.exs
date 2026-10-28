@@ -60,7 +60,7 @@ defmodule PrologEx.ScryerTimeTest do
              [~s|Cs = "Thu Thursday Jun 163 % 20"|]
 
     assert err(c, ~s|phrase(format_time("%Q", #{stamp}), _)|) ==
-             ["E = domain_error(time_specifier, 'Q')"]
+             ["E = domain_error(time_specifier,'Q')"]
   end
 
   test "current_time/1: Zeitstempel jetzt", c do
@@ -79,8 +79,8 @@ defmodule PrologEx.ScryerTimeTest do
     assert ask(c, "sleep(0)") == ["true"]
     assert ask(c, "max_sleep_time(T)") == ["T = 18446744073709550591"]
     assert err(c, "sleep(_)") == ["E = instantiation_error"]
-    assert err(c, "sleep(a)") == ["E = type_error(number, a)"]
-    assert err(c, "sleep(-1)") == ["E = domain_error(not_less_than_zero, -1)"]
+    assert err(c, "sleep(a)") == ["E = type_error(number,a)"]
+    assert err(c, "sleep(-1)") == ["E = domain_error(not_less_than_zero,-1)"]
     assert err(c, "sleep(18446744073709550592)") == ["E = representation_error(max_sleep_time)"]
   end
 
@@ -120,7 +120,7 @@ defmodule PrologEx.ScryerTimeTest do
     {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, "p.\n"))
 
     assert ask(c, "catch(time(true), error(E, _), true)", db) ==
-             ["E = existence_error(procedure, time/1)"]
+             ["E = existence_error(procedure,time/1)"]
 
     db = PrologEx.use_library(db, "swi")
     assert capture_io(:stderr, fn -> assert ask(c, "time(true)", db) == ["true"] end) =~ "seconds"

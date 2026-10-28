@@ -54,16 +54,16 @@ defmodule PrologEx.ScryerOsProcessTest do
 
     test "Namen und Werte: Fehler wie Scryer", c do
       assert ask(c, "getenv([], _)") == []
-      assert err(c, "getenv(abc, _)") == ["E = type_error(list, abc)"]
+      assert err(c, "getenv(abc, _)") == ["E = type_error(list,abc)"]
       assert err(c, "getenv(_, _)") == ["E = instantiation_error"]
-      assert err(c, "getenv([a, 1], _)") == ["E = type_error(character, 1)"]
-      assert err(c, ~s|getenv("A B", _)|) == [~s|E = domain_error(env_var, "A B")|]
-      assert err(c, ~s|setenv("A", x)|) == ["E = type_error(list, x)"]
+      assert err(c, "getenv([a, 1], _)") == ["E = type_error(character,1)"]
+      assert err(c, ~s|getenv("A B", _)|) == [~s|E = domain_error(env_var,"A B")|]
+      assert err(c, ~s|setenv("A", x)|) == ["E = type_error(list,x)"]
       assert err(c, ~s|setenv("A", _)|) == ["E = instantiation_error"]
       # "=" lässt Scryers Prüfung durch; so heißt keine Variable
       assert ask(c, ~s|getenv("A=B", _)|) == []
-      assert err(c, ~s|setenv("A=B", "x")|) == [~s|E = domain_error(env_var, "A=B")|]
-      assert err(c, ~s|unsetenv("A=B")|) == [~s|E = domain_error(env_var, "A=B")|]
+      assert err(c, ~s|setenv("A=B", "x")|) == [~s|E = domain_error(env_var,"A=B")|]
+      assert err(c, ~s|unsetenv("A=B")|) == [~s|E = domain_error(env_var,"A=B")|]
     end
 
     test "shell/1,2: mit $SHELL", c do
@@ -89,13 +89,13 @@ defmodule PrologEx.ScryerOsProcessTest do
       assert ask(c, ~s|shell("exit 3")|) == []
       assert ask(c, ~s|shell("echo hi > '#{f}'")|) == ["true"]
       assert File.read!(f) == "hi\n"
-      assert err(c, "shell(abc)") == ["E = type_error(list, abc)"]
-      assert err(c, ~s|shell("true", x)|) == ["E = type_error(integer, x)"]
+      assert err(c, "shell(abc)") == ["E = type_error(list,abc)"]
+      assert err(c, ~s|shell("true", x)|) == ["E = type_error(integer,x)"]
     end
 
     test "pid/1", c do
       assert ask(c, "pid(P)") == ["P = #{System.pid()}"]
-      assert err(c, "pid(x)") == ["E = type_error(integer, x)"]
+      assert err(c, "pid(x)") == ["E = type_error(integer,x)"]
     end
 
     test "argv/1, raw_argv/1: Argumente nach -- beim Start" do
@@ -180,10 +180,10 @@ defmodule PrologEx.ScryerOsProcessTest do
                ["C = end_of_file, O = <stream>"]
 
       assert err(c, ~s|process_create("cat", [], [stdin(file("#{c.tmp_dir}/gibts"))])|) ==
-               [~s|E = permission_error(open, source_sink, "#{c.tmp_dir}/gibts")|]
+               [~s|E = permission_error(open,source_sink,"#{c.tmp_dir}/gibts")|]
 
       assert err(c, ~s|process_create("true", [], [cwd("#{c.tmp_dir}/gibts")])|) ==
-               ["E = permission_error(create, process, process_create/3)"]
+               ["E = permission_error(create,process,process_create/3)"]
     end
 
     test "env/1 und environment/1", c do
@@ -219,13 +219,13 @@ defmodule PrologEx.ScryerOsProcessTest do
 
       assert a =~ "S0 = timeout"
       assert a =~ "S1 = killed(9), S2 = killed(9)"
-      assert a =~ "E = existence_error(process, <process>)"
+      assert a =~ "E = existence_error(process,<process>)"
 
       # beendet: process_release/1; danach existiert das Handle nicht mehr
       assert ask(c, """
              process_create("true", [], [process(P)]), process_release(P),
              catch(process_id(P, _), error(E, _), true)
-             """) == ["E = existence_error(process, <process>), P = <process>"]
+             """) == ["E = existence_error(process,<process>), P = <process>"]
 
       # durch ein Signal von außen: wie die BEAM es meldet
       assert ask(
@@ -237,31 +237,31 @@ defmodule PrologEx.ScryerOsProcessTest do
 
     test "Fehler wie Scryer", c do
       assert err(c, ~s|process_create("gibts_nicht_xyz", [], [])|) ==
-               ["E = permission_error(create, process, process_create/3)"]
+               ["E = permission_error(create,process,process_create/3)"]
 
-      assert err(c, ~s|process_create(echo, [], [])|) == ["E = type_error(list, echo)"]
-      assert err(c, ~s|process_create("echo", [a], [])|) == ["E = type_error(list, a)"]
+      assert err(c, ~s|process_create(echo, [], [])|) == ["E = type_error(list,echo)"]
+      assert err(c, ~s|process_create("echo", [a], [])|) == ["E = type_error(list,a)"]
 
       assert err(c, ~s|process_create("echo", [], [foo(1)])|) ==
-               ["E = domain_error(process_create_option, foo)"]
+               ["E = domain_error(process_create_option,foo)"]
 
       assert err(c, ~s|process_create("echo", [], [stdin(std), stdin(null)])|) ==
-               ["E = domain_error(non_duplicate_options, stdin)"]
+               ["E = domain_error(non_duplicate_options,stdin)"]
 
       assert err(c, ~s|process_create("echo", [], [stdin(bad)])|) ==
-               ["E = domain_error(stdio_spec, bad)"]
+               ["E = domain_error(stdio_spec,bad)"]
 
       assert err(c, ~s|process_create("echo", [], [stdout(_)])|) == ["E = instantiation_error"]
 
       assert err(c, ~s|process_create("echo", [], [env([]), environment([])])|) ==
-               ["E = domain_error(non_conflicting_options, [env([]),environment([])])"]
+               ["E = domain_error(non_conflicting_options,[env([]),environment([])])"]
 
       assert err(c, ~s|process_create("echo", [], [env([a])])|) ==
-               [~s|E = domain_error(process_create_option, env("a"))|]
+               [~s|E = domain_error(process_create_option,env("a"))|]
 
       assert err(c, "process_wait(_, _)") == ["E = instantiation_error"]
-      assert err(c, "process_wait(foo, _)") == ["E = type_error(process, foo)"]
-      assert err(c, "process_kill(foo)") == ["E = type_error(process, foo)"]
+      assert err(c, "process_wait(foo, _)") == ["E = type_error(process,foo)"]
+      assert err(c, "process_kill(foo)") == ["E = type_error(process,foo)"]
 
       # wie Scryer: andere Zeitgrenzen als 0 und infinite scheitern
       assert err(

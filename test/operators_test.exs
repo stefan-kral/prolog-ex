@@ -56,29 +56,29 @@ defmodule PrologEx.OperatorsTest do
     assert err(c, "op(700, xfx, _).") =~ "instantiation_error"
     assert err(c, "op(700, xfx, [a|_]).") =~ "instantiation_error"
     assert err(c, "op(700, xfx, [a, _]).") =~ "instantiation_error"
-    assert err(c, "op(a, xfx, foo).") =~ "type_error(integer, a)"
-    assert err(c, "op(1201, xfx, foo).") =~ "domain_error(operator_priority, 1201)"
-    assert err(c, "op(-1, xfx, foo).") =~ "domain_error(operator_priority, -1)"
-    assert err(c, "op(700, 1, foo).") =~ "type_error(atom, 1)"
-    assert err(c, "op(700, yfy, foo).") =~ "domain_error(operator_specifier, yfy)"
-    assert err(c, "op(700, xfx, f(x)).") =~ "type_error(list, f(x))"
-    assert err(c, "op(700, xfx, [a, 1]).") =~ "type_error(atom, 1)"
-    assert err(c, "op(1000, xfy, ',').") =~ "permission_error(modify, operator, ',')"
-    assert err(c, "op(700, xfx, '|').") =~ "permission_error(create, operator, '|')"
+    assert err(c, "op(a, xfx, foo).") =~ "type_error(integer,a)"
+    assert err(c, "op(1201, xfx, foo).") =~ "domain_error(operator_priority,1201)"
+    assert err(c, "op(-1, xfx, foo).") =~ "domain_error(operator_priority,-1)"
+    assert err(c, "op(700, 1, foo).") =~ "type_error(atom,1)"
+    assert err(c, "op(700, yfy, foo).") =~ "domain_error(operator_specifier,yfy)"
+    assert err(c, "op(700, xfx, f(x)).") =~ "type_error(list,f(x))"
+    assert err(c, "op(700, xfx, [a, 1]).") =~ "type_error(atom,1)"
+    assert err(c, "op(1000, xfy, ',').") =~ "permission_error(modify,operator,',')"
+    assert err(c, "op(700, xfx, '|').") =~ "permission_error(create,operator,'|')"
     assert ask(c, "op(1100, xfy, '|').") == ["true"]
     # Priorität 0 entfernt, das ist auch für | erlaubt
     assert ask(c, "op(0, xfy, '|').") == ["true"]
-    assert err(c, "op(700, xfx, []).") =~ "permission_error(create, operator, [])"
-    assert err(c, "op(700, xfx, {}).") =~ "permission_error(create, operator, {})"
+    assert err(c, "op(700, xfx, []).") =~ "permission_error(create,operator,[])"
+    assert err(c, "op(700, xfx, {}).") =~ "permission_error(create,operator,{})"
     # Infix und Postfix mit demselben Namen
     assert ask(c, "op(200, xf, yy).") == ["true"]
-    assert err(c, "op(200, xfx, yy).") =~ "permission_error(create, operator, yy)"
+    assert err(c, "op(200, xfx, yy).") =~ "permission_error(create,operator,yy)"
     # große Zahlen
     assert err(c, "op(100000000000000000000, xfx, foo).") =~ "domain_error(operator_priority"
-    assert err(c, "op(700, xfx, [a, 100000000000000000000]).") =~ "type_error(atom, 1000"
+    assert err(c, "op(700, xfx, [a, 100000000000000000000]).") =~ "type_error(atom,1000"
     # fangbar als error(Formal, _)
     assert ask(c, "catch(op(1201, xfx, foo), error(E, _), true).") ==
-             ["E = domain_error(operator_priority, 1201)"]
+             ["E = domain_error(operator_priority,1201)"]
   end
 
   test "current_op/3", c do
@@ -100,11 +100,11 @@ defmodule PrologEx.OperatorsTest do
   end
 
   test "current_op/3: Fehler", c do
-    assert err(c, "current_op(1201, T, O).") =~ "domain_error(operator_priority, 1201)"
-    assert err(c, "current_op(a, T, O).") =~ "domain_error(operator_priority, a)"
-    assert err(c, "current_op(P, foo, O).") =~ "domain_error(operator_specifier, foo)"
-    assert err(c, "current_op(P, 1, O).") =~ "domain_error(operator_specifier, 1)"
-    assert err(c, "current_op(P, T, 1).") =~ "type_error(atom, 1)"
+    assert err(c, "current_op(1201, T, O).") =~ "domain_error(operator_priority,1201)"
+    assert err(c, "current_op(a, T, O).") =~ "domain_error(operator_priority,a)"
+    assert err(c, "current_op(P, foo, O).") =~ "domain_error(operator_specifier,foo)"
+    assert err(c, "current_op(P, 1, O).") =~ "domain_error(operator_specifier,1)"
+    assert err(c, "current_op(P, T, 1).") =~ "type_error(atom,1)"
   end
 
   @tag :tmp_dir
@@ -118,7 +118,7 @@ defmodule PrologEx.OperatorsTest do
     """)
 
     out = capture_io(:stderr, fn -> assert ask(c, "consult('#{file}').") == ["true"] end)
-    assert out =~ "domain_error(operator_priority, 1201)"
+    assert out =~ "domain_error(operator_priority,1201)"
     assert ask(c, "regel(X).") == ["X = (a===>b)"]
   end
 end

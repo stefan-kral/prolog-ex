@@ -140,13 +140,13 @@ defmodule PrologEx.ListMoreTest do
 
   test "partition/5", c do
     check(c, [
-      {"partition(cmp_num, [1,5,3,2,4,3], L, E, G)", ["E = [3,3], G = [5,4], L = [1,2]"]},
-      {"partition(cmp_num, [], L, E, G)", ["E = [], G = [], L = []"]},
-      {"partition(cmp_num, [1,5], [1], [], [5])", ["true"]},
-      {"partition(cmp_num, [1,5], [], E, G)", []},
-      {"partition(bad_order, [1], L, E, G)", {:error, "domain_error(order, foo)"}},
-      {"partition(unbound_order, [1], L, E, G)", {:error, "instantiation_error"}},
-      {"partition(\\X^R^compare(R,X,2), [3,1,2], L, E, G)", ["E = [2], G = [3], L = [1]"]}
+      {"partition(cmp_num,[1,5,3,2,4,3],L,E,G)", ["E = [3,3], G = [5,4], L = [1,2]"]},
+      {"partition(cmp_num,[],L,E,G)", ["E = [], G = [], L = []"]},
+      {"partition(cmp_num,[1,5],[1],[],[5])", ["true"]},
+      {"partition(cmp_num,[1,5],[],E,G)", []},
+      {"partition(bad_order,[1],L,E,G)", {:error, "domain_error(order,foo)"}},
+      {"partition(unbound_order,[1],L,E,G)", {:error, "instantiation_error"}},
+      {"partition(\\X^R^compare(R,X,2),[3,1,2],L,E,G)", ["E = [2], G = [3], L = [1]"]}
     ])
   end
 

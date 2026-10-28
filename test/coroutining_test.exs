@@ -41,21 +41,21 @@ defmodule PrologEx.CoroutiningTest do
   describe "call_residue_vars/2 (SWI, SICStus)" do
     test "Beispiel aus dem SICStus-Handbuch", c do
       assert ask(c, "call_residue_vars((dif(X, f(Y)), X = f(Z)), Vars).") ==
-               ["Vars = [Z,Y], X = f(Z), dif(Z, Y)"]
+               ["Vars = [Z,Y], X = f(Z), dif(Z,Y)"]
     end
 
     test "nur während des Ziels entstanden und danach noch offen", c do
-      assert ask(c, "call_residue_vars(freeze(X, true), Vs).") == ["Vs = [X], freeze(X, true)"]
+      assert ask(c, "call_residue_vars(freeze(X, true), Vs).") == ["Vs = [X], freeze(X,true)"]
       assert ask(c, "call_residue_vars((freeze(X, true), X = 1), Vs).") == ["Vs = [], X = 1"]
       # vorher entstanden: gehört nicht dazu
       assert ask(c, "freeze(X, true), call_residue_vars(true, Vs).") ==
-               ["Vs = [], freeze(X, true)"]
+               ["Vs = [], freeze(X,true)"]
 
       # erledigtes dif zählt nicht
       assert ask(c, "call_residue_vars((dif(X, a), X = b), Vs).") == ["Vs = [], X = b"]
 
       assert ask(c, "call_residue_vars(when(nonvar(X), true), Vs).") ==
-               ["Vs = [X], when(nonvar(X), true)"]
+               ["Vs = [X], when(nonvar(X),true)"]
 
       # Y bleibt attributiert, aber sein Eintrag ist erledigt (Done gebunden)
       assert ask(c, "call_residue_vars((when((nonvar(X);nonvar(Y)), true), X = 1), Vs).") ==
@@ -67,7 +67,7 @@ defmodule PrologEx.CoroutiningTest do
 
     test "Reihenfolge des Entstehens", c do
       assert ask(c, "call_residue_vars((freeze(B, true), freeze(A, true)), Vs).") ==
-               ["Vs = [B,A], freeze(A, true), freeze(B, true)"]
+               ["Vs = [B,A], freeze(A,true), freeze(B,true)"]
 
       # viele: die Substitution ist dann eine ungeordnete Hash-Map
       assert ask(c, "\\+ \\+ (length(Xs, 80), call_residue_vars(frz(Xs), Vs), Vs == Xs).") ==
@@ -76,13 +76,13 @@ defmodule PrologEx.CoroutiningTest do
 
     test "auch Variablen, die sonst nirgends vorkommen (Zweck des Prädikats)", c do
       assert ask(c, "call_residue_vars(freeze(_, fail), Vs), Vs = [V], frozen(V, G).") ==
-               ["G = freeze(V, user:fail), Vs = [V], freeze(V, fail)"]
+               ["G = freeze(V,user:fail), Vs = [V], freeze(V,fail)"]
     end
 
     test "nach jeder Lösung; scheitern und Ausnahmen gehen durch", c do
       assert ask(c, "call_residue_vars((p(X), freeze(Y, true)), Vs).") == [
-               "Vs = [Y], X = a, freeze(Y, true)",
-               "Vs = [Y], X = b, freeze(Y, true)"
+               "Vs = [Y], X = a, freeze(Y,true)",
+               "Vs = [Y], X = b, freeze(Y,true)"
              ]
 
       assert ask(c, "call_residue_vars(fail, Vs).") == []
@@ -120,8 +120,8 @@ defmodule PrologEx.CoroutiningTest do
     end
 
     test "offene Ziele als Restziele, auch über frozen/2", c do
-      assert ask(c, "freeze(X, true).") == ["freeze(X, true)"]
-      assert ask(c, "freeze(X, true), frozen(X, G).") |> hd() =~ "G = freeze(X, user:true)"
+      assert ask(c, "freeze(X, true).") == ["freeze(X,true)"]
+      assert ask(c, "freeze(X, true), frozen(X, G).") |> hd() =~ "G = freeze(X,user:true)"
       assert ask(c, "frozen(X, G).") == ["G = true"]
       assert ask(c, "frozen(a, G).") == ["G = true"]
     end
@@ -150,7 +150,7 @@ defmodule PrologEx.CoroutiningTest do
       assert out(c, "freeze(X, write(h)), \\+ X = 1.") == "h"
 
       assert ask(c, "freeze(X, X > 1), findall(X, member(X, [1, 2, 3]), L).") == [
-               "L = [2,3], freeze(X, X>1)"
+               "L = [2,3], freeze(X,X>1)"
              ]
     end
 
@@ -183,7 +183,7 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "dif(X, a), zaehle(3000), dif(Y, X), zaehle(3000), Y = b.",
                compact_threshold: 1
              ) ==
-               ["Y = b, dif(X, a), dif(X, b)"]
+               ["Y = b, dif(X,a), dif(X,b)"]
     end
   end
 
@@ -191,20 +191,20 @@ defmodule PrologEx.CoroutiningTest do
     test "sofort entschieden oder offen", c do
       assert ask(c, "dif(a, b).") == ["true"]
       assert ask(c, "dif(a, a).") == []
-      assert ask(c, "dif(X, a).") == ["dif(X, a)"]
+      assert ask(c, "dif(X, a).") == ["dif(X,a)"]
       assert ask(c, "dif(X, a), X = a.") == []
       assert ask(c, "dif(X, a), X = b.") == ["X = b"]
     end
 
     test "zusammengesetzte Terme und Variablen auf beiden Seiten", c do
-      assert ask(c, "dif(f(X, Y), f(1, 2)), X = 1.") == ["X = 1, dif(Y, 2)"]
+      assert ask(c, "dif(f(X, Y), f(1, 2)), X = 1.") == ["X = 1, dif(Y,2)"]
       assert ask(c, "dif(f(X, Y), f(1, 2)), X = 1, Y = 2.") == []
-      assert ask(c, "dif(f(X, Y, Z), f(1, 2, 3)), X = 1.") == ["X = 1, dif(f(Y, Z), f(2, 3))"]
-      assert ask(c, "dif(f(X, Y, Z), f(1, 2, 3)), Y = 2, X = 1.") == ["X = 1, Y = 2, dif(Z, 3)"]
+      assert ask(c, "dif(f(X, Y, Z), f(1, 2, 3)), X = 1.") == ["X = 1, dif(f(Y,Z),f(2,3))"]
+      assert ask(c, "dif(f(X, Y, Z), f(1, 2, 3)), Y = 2, X = 1.") == ["X = 1, Y = 2, dif(Z,3)"]
       # die Front wird gemeinsam neu unifiziert: einzeln offene Paare, die
       # sich widersprechen, erledigen dif (kein falsches Restziel)
       assert ask(c, "dif(f(X, Y), f(Z, Z)), X = a, Y = b.") == ["X = a, Y = b"]
-      assert ask(c, "dif(f(X, Y), f(Z, Z)), X = a.") == ["X = a, dif(f(Z, Y), f(a, a))"]
+      assert ask(c, "dif(f(X, Y), f(Z, Z)), X = a.") == ["X = a, dif(f(Z,Y),f(a,a))"]
       assert ask(c, "dif(f(X, Y), f(Z, Z)), X = a, Y = a, Z = a.") == []
       assert ask(c, "dif(f(X, Y), f(1, 2)), X = 3.") == ["X = 3"]
       assert ask(c, "dif(X, Y), X = Y.") == []
@@ -249,9 +249,9 @@ defmodule PrologEx.CoroutiningTest do
     end
 
     test "Restziel und Fehler", c do
-      assert ask(c, "when(nonvar(X), true).") == ["when(nonvar(X), true)"]
+      assert ask(c, "when(nonvar(X), true).") == ["when(nonvar(X),true)"]
 
-      assert_raise PrologEx.Error, ~r/domain_error\(when_condition, foo\)/, fn ->
+      assert_raise PrologEx.Error, ~r/domain_error\(when_condition,foo\)/, fn ->
         ask(c, "when(foo, true).")
       end
 
@@ -280,12 +280,12 @@ defmodule PrologEx.CoroutiningTest do
     test "eine Bedingung an mehreren Variablen: einmal geprüft", c do
       assert ask(c, "dif(X, Y), f(X, Y) = f(a, b).") == ["X = a, Y = b"]
       assert ask(c, "dif(X, Y), f(X, Y) = f(a, a).") == []
-      assert ask(c, "dif(f(X, Y), f(Y, X)), X = a.") == ["X = a, dif(Y, a)"]
+      assert ask(c, "dif(f(X, Y), f(Y, X)), X = a.") == ["X = a, dif(Y,a)"]
       assert ask(c, "dif(f(X, Y), f(Y, X)), X = a, Y = a.") == []
     end
 
     test "neu gestellt an den Variablen der Front", c do
-      assert ask(c, "dif(X, f(Y)), X = f(Z).") == ["X = f(Z), dif(Z, Y)"]
+      assert ask(c, "dif(X, f(Y)), X = f(Z).") == ["X = f(Z), dif(Z,Y)"]
       assert ask(c, "dif(X, f(Y)), X = f(Z), Z = Y.") == []
       assert ask(c, "dif(X, a), dif(X, b), dif(X, c), X = d.") == ["X = d"]
       assert ask(c, "dif(X, a), dif(X, b), dif(X, c), X = c.") == []
@@ -319,21 +319,21 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "gross(T), dif(X, T), X = f(a, [1, 2], g(b)).") == []
 
       assert ask(c, "dif(X, f(a, [1, 2], g(b))), X = f(a, [1, 2], g(c)).") ==
-               ["X = f(a, [1,2], g(c))"]
+               ["X = f(a,[1,2],g(c))"]
     end
 
     test "Restziele: einmal je Wert, in Reihenfolge", c do
-      assert ask(c, "dif(X, b), dif(X, a), dif(X, b).") == ["dif(X, b), dif(X, a)"]
-      assert ask(c, "dif(X, a), frozen(X, G).") |> hd() =~ "G = dif(X, a)"
-      assert ask(c, "dif(X, a), dif(X, a), frozen(X, G).") == ["G = dif(X, a), dif(X, a)"]
-      assert ask(c, "dif(X, a), copy_term(X, C, B).") |> hd() =~ "B = dif(C, a)"
+      assert ask(c, "dif(X, b), dif(X, a), dif(X, b).") == ["dif(X,b), dif(X,a)"]
+      assert ask(c, "dif(X, a), frozen(X, G).") |> hd() =~ "G = dif(X,a)"
+      assert ask(c, "dif(X, a), dif(X, a), frozen(X, G).") == ["G = dif(X,a), dif(X,a)"]
+      assert ask(c, "dif(X, a), copy_term(X, C, B).") |> hd() =~ "B = dif(C,a)"
 
       assert ask(c, "dif(X, a), freeze(X, true), frozen(X, G).") |> hd() =~
-               "G = (dif(X, a), freeze(X, user:true))"
+               "G = (dif(X,a),freeze(X,user:true))"
     end
 
     test "Variable an Variable: die Menge geht über", c do
-      assert ask(c, "dif(X, a), dif(Y, b), X = Y.") == ["X = Y, dif(Y, b), dif(Y, a)"]
+      assert ask(c, "dif(X, a), dif(Y, b), X = Y.") == ["X = Y, dif(Y,b), dif(Y,a)"]
       assert ask(c, "dif(X, a), dif(Y, b), X = Y, Y = a.") == []
       assert ask(c, "dif(X, a), dif(Y, b), X = Y, X = b.") == []
       assert ask(c, "dif(X, a), dif(Y, b), X = Y, X = c.") == ["X = c, Y = c"]
@@ -342,16 +342,16 @@ defmodule PrologEx.CoroutiningTest do
     end
 
     test "Bindung an einen Term mit Variablen", c do
-      assert ask(c, "dif(X, f(a)), dif(X, g(b)), X = f(Z).") == ["X = f(Z), dif(Z, a)"]
+      assert ask(c, "dif(X, f(a)), dif(X, g(b)), X = f(Z).") == ["X = f(Z), dif(Z,a)"]
       assert ask(c, "dif(X, f(a)), dif(X, g(b)), X = f(Z), Z = a.") == []
-      assert ask(c, "dif(X, [a, b]), X = [a|T].") == ["X = [a|T], dif(T, \"b\")"]
+      assert ask(c, "dif(X, [a, b]), X = [a|T].") == ["X = [a|T], dif(T,\"b\")"]
       assert ask(c, "dif(X, [a, b]), X = [a|T], T = [b].") == []
-      assert ask(c, "dif(X, f(a, b)), X = f(Y, Z).") == ["X = f(Y, Z), dif(f(Y, Z), f(a, b))"]
-      assert ask(c, "dif(X, f(a, b)), X = f(Y, Z), Y = a.") == ["X = f(a, Z), Y = a, dif(Z, b)"]
+      assert ask(c, "dif(X, f(a, b)), X = f(Y, Z).") == ["X = f(Y,Z), dif(f(Y,Z),f(a,b))"]
+      assert ask(c, "dif(X, f(a, b)), X = f(Y, Z), Y = a.") == ["X = f(a,Z), Y = a, dif(Z,b)"]
     end
 
     test "aus offenen dif wird eine Ausschlussmenge", c do
-      assert ask(c, "dif(X, Y), Y = a.") == ["Y = a, dif(X, a)"]
+      assert ask(c, "dif(X, Y), Y = a.") == ["Y = a, dif(X,a)"]
       assert ask(c, "dif(X, Y), Y = a, X = a.") == []
       assert ask(c, "dif(f(X), f(Y)), Y = a, X = b.") == ["X = b, Y = a"]
     end
@@ -384,7 +384,7 @@ defmodule PrologEx.CoroutiningTest do
                "-ba"
 
       assert ask(c, "freeze(X, true), freeze(Y, true), X = Y.") ==
-               ["X = Y, freeze(Y, true)"]
+               ["X = Y, freeze(Y,true)"]
 
       assert out(
                c,
@@ -397,7 +397,7 @@ defmodule PrologEx.CoroutiningTest do
       assert out(c, "when((nonvar(X), nonvar(Y)), write(w)), X = 1, write(-), Y = 2.") == "-w"
 
       assert ask(c, "when((nonvar(X), nonvar(Y)), true), X = 1.") ==
-               ["X = 1, when((nonvar(1), nonvar(Y)), true)"]
+               ["X = 1, when((nonvar(1),nonvar(Y)),true)"]
     end
   end
 end

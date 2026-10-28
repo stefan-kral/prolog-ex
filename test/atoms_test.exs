@@ -45,10 +45,10 @@ defmodule PrologEx.AtomsTest do
       assert err(c, "number_chars(A, L).") =~ "instantiation_error"
       assert err(c, "number_chars(A, ['1'|_]).") =~ "instantiation_error"
       assert err(c, "number_chars(A, [X]).") =~ "instantiation_error"
-      assert err(c, "number_chars(a, L).") =~ "type_error(number, a)"
-      assert err(c, "number_chars(A, 4).") =~ "type_error(list, 4)"
-      assert err(c, "number_chars(A, ['4', 2]).") =~ "type_error(character, 2)"
-      assert err(c, "number_chars(A, [ab]).") =~ "type_error(character, ab)"
+      assert err(c, "number_chars(a, L).") =~ "type_error(number,a)"
+      assert err(c, "number_chars(A, 4).") =~ "type_error(list,4)"
+      assert err(c, "number_chars(A, ['4', 2]).") =~ "type_error(character,2)"
+      assert err(c, "number_chars(A, [ab]).") =~ "type_error(character,ab)"
       assert err(c, "number_chars(A, []).") =~ "syntax_error"
     end
   end
@@ -94,7 +94,7 @@ defmodule PrologEx.AtomsTest do
       assert ask(c, "number_codes(A, [0'4, 0'2]).") == ["A = 42"]
       assert ask(c, "number_codes(-1.5, L).") == ["L = [45,49,46,53]"]
       assert err(c, "number_codes(A, [0'1, -3]).") =~ "representation_error(character_code)"
-      assert err(c, "number_codes(A, [0'1, a]).") =~ "type_error(integer, a)"
+      assert err(c, "number_codes(A, [0'1, a]).") =~ "type_error(integer,a)"
     end
   end
 

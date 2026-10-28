@@ -109,7 +109,7 @@ defmodule PrologEx.LoadWarningsTest do
     assert PrologEx.query(PrologEx.use_library(%{}, "swi"), g)
            |> Enum.take(1)
            |> Enum.map(&PrologEx.format_answer(&1, PrologEx.query_var_names(g))) == [
-             "A = an, B = aus, E = domain_error(style_name, foo)"
+             "A = an, B = aus, E = domain_error(style_name,foo)"
            ]
   end
 
@@ -118,8 +118,8 @@ defmodule PrologEx.LoadWarningsTest do
 
     assert load(c, "a.\n:- include(teil).\n:- auch_nicht.\n") == [
              "Warnung (teil.pl, Zeile 2): Singleton-Variablen: [V] in t/1",
-             "Fehler (teil.pl, Zeile 3): in Direktive gibts_nicht: existence_error(procedure, gibts_nicht/0)",
-             "Fehler (Zeile 3): in Direktive auch_nicht: existence_error(procedure, auch_nicht/0)"
+             "Fehler (teil.pl, Zeile 3): in Direktive gibts_nicht: existence_error(procedure,gibts_nicht/0)",
+             "Fehler (Zeile 3): in Direktive auch_nicht: existence_error(procedure,auch_nicht/0)"
            ]
   end
 end

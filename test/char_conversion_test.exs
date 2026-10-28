@@ -32,16 +32,16 @@ defmodule PrologEx.CharConversionTest do
     assert ask("catch(char_conversion(a, _), error(E, _), true)") == ["E = instantiation_error"]
 
     assert ask("catch(char_conversion(ab, a), error(E, _), true)") ==
-             ["E = type_error(character, ab)"]
+             ["E = type_error(character,ab)"]
 
     assert ask("catch(char_conversion(a, f(x)), error(E, _), true)") ==
-             ["E = type_error(character, f(x))"]
+             ["E = type_error(character,f(x))"]
 
     assert ask("catch(current_char_conversion(1, _), error(E, _), true)") ==
-             ["E = type_error(character, 1)"]
+             ["E = type_error(character,1)"]
 
     assert ask("catch(current_char_conversion(_, []), error(E, _), true)") ==
-             ["E = type_error(character, [])"]
+             ["E = type_error(character,[])"]
   end
 
   test "Tabelle: eintragen, ersetzen, mit In = Out entfernen; nur Paare In ≠ Out" do
@@ -103,6 +103,6 @@ defmodule PrologEx.CharConversionTest do
 
     capture_io(:stderr, fn -> PrologEx.Consult.load_file(path) end)
     File.rm(path)
-    assert ask("p(X)") == ["X = (a, b)"]
+    assert ask("p(X)") == ["X = (a,b)"]
   end
 end

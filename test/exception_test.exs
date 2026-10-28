@@ -58,7 +58,7 @@ defmodule PrologEx.ExceptionTest do
 
   test "Fehler der Builtins als error(Formal, _)", c do
     assert ask(c, "catch(X is foo + 1, error(E, _), true).") == [
-             "E = type_error(evaluable, foo/0)"
+             "E = type_error(evaluable,foo/0)"
            ]
 
     assert ask(c, "catch(X is Y + 1, error(E, _), true).") == ["E = instantiation_error"]
@@ -70,7 +70,7 @@ defmodule PrologEx.ExceptionTest do
     assert ask(c, "catch(atom_lenght(abc, N), error(existence_error(procedure, PI), _), true).") ==
              ["PI = atom_lenght/2"]
 
-    assert ask(c, "catch(call(1), error(E, _), true).") == ["E = type_error(callable, 1)"]
+    assert ask(c, "catch(call(1), error(E, _), true).") == ["E = type_error(callable,1)"]
     assert ask(c, "catch(G, error(E, _), true).") == ["E = instantiation_error"]
     assert ask(c, "catch(throw(_), error(E, _), true).") == ["E = instantiation_error"]
 
@@ -80,7 +80,7 @@ defmodule PrologEx.ExceptionTest do
     # Kulprit mit gebundenen Variablen wird aufgelöst
     assert ask(
              c,
-             "X = f(Y), Y = 2, catch(atom_codes(X, _), error(type_error(atom, C), _), true)."
+             "X = f(Y), Y = 2, catch(atom_codes(X,_),error(type_error(atom,C),_),true)."
            ) ==
              ["C = f(2), X = f(2), Y = 2"]
   end
@@ -104,7 +104,7 @@ defmodule PrologEx.ExceptionTest do
 
   test "Ausnahmen aus Unter-Maschinen: findall, \\\\+, countall, findnsols, lazy Builtins", c do
     assert ask(c, "catch(findall(X, (p(X), X > a), L), error(E, _), true).") ==
-             ["E = type_error(evaluable, a/0)"]
+             ["E = type_error(evaluable,a/0)"]
 
     assert ask(c, "catch(\\+ throw(x), x, true).") == ["true"]
     assert ask(c, "catch(countall(throw(x), N), x, true).") == ["true"]
@@ -149,8 +149,8 @@ defmodule PrologEx.ExceptionTest do
   test "nicht gefangen: Toplevel und consult melden den Fehler", c do
     out = capture_io(fn -> ask_toplevel("throw(oops).\nX is foo + 1.\nfoo(1).\n") end)
     assert out =~ "Fehler: unbehandelte Ausnahme: oops"
-    assert out =~ "Fehler: type_error(evaluable, foo/0)"
-    assert out =~ "Fehler: existence_error(procedure, foo/1)"
+    assert out =~ "Fehler: type_error(evaluable,foo/0)"
+    assert out =~ "Fehler: existence_error(procedure,foo/1)"
 
     {_db, msgs} = Consult.load(%{}, Reader.read_terms(c.reader, ":- throw(boom).\n"))
     assert Enum.any?(msgs, &(&1 =~ "boom"))
@@ -170,7 +170,7 @@ defmodule PrologEx.ExceptionTest do
   # gefunden mit Logtalks Konformitätstests (conformance/run.exs)
   test "call/N: Fehler beim Zusammensetzen des Ziels fängt catch/3", c do
     assert ask(c, "catch(call(X, _), error(E, _), true).") == ["E = instantiation_error"]
-    assert ask(c, "catch(call(3, _), error(E, _), true).") == ["E = type_error(callable, 3)"]
+    assert ask(c, "catch(call(3, _), error(E, _), true).") == ["E = type_error(callable,3)"]
     # oben eine Variable: instantiation_error (früher: Endlosschleife)
     assert ask(c, "catch(call(_), error(E, _), true).") == ["E = instantiation_error"]
 
@@ -181,10 +181,10 @@ defmodule PrologEx.ExceptionTest do
   test "call/1 wandelt den Rumpf wie ISO 7.6.2 um", c do
     # Nicht-Aufrufbares irgendwo im Gerüst: Fehler, bevor etwas läuft
     assert ask(c, "catch(call((fail, 3)), error(E, _), true).") ==
-             ["E = type_error(callable, (fail, 3))"]
+             ["E = type_error(callable,(fail,3))"]
 
     assert ask(c, "catch(call((write(x), 3)), error(E, _), true).") ==
-             ["E = type_error(callable, (write(x), 3))"]
+             ["E = type_error(callable,(write(x),3))"]
 
     # eine Variable an Zielstelle wird call(V): ein später gebundener Cut ist lokal
     assert ask(c, "findall(Z-X, call((Z = !, p(X), Z)), L).") == ["L = [!-1,!-2,!-3]"]

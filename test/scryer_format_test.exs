@@ -82,21 +82,21 @@ defmodule PrologEx.ScryerFormatTest do
   end
 
   test "format_//2: Fehler wie Scryer", c do
-    assert err(c, ~s|phrase(format_("~d", [a]), _)|) == ["E = type_error(evaluable, a/0)"]
-    assert err(c, ~s|phrase(format_("~d", [1.5]), _)|) == ["E = type_error(integer, 1.5)"]
-    assert err(c, ~s|phrase(format_("~d", []), _)|) == ["E = domain_error(non_empty_list, [])"]
-    assert err(c, ~s|phrase(format_("~a", [x, y]), _)|) == [~s|E = domain_error(empty_list, "y")|]
+    assert err(c, ~s|phrase(format_("~d", [a]), _)|) == ["E = type_error(evaluable,a/0)"]
+    assert err(c, ~s|phrase(format_("~d", [1.5]), _)|) == ["E = type_error(integer,1.5)"]
+    assert err(c, ~s|phrase(format_("~d", []), _)|) == ["E = domain_error(non_empty_list,[])"]
+    assert err(c, ~s|phrase(format_("~a", [x, y]), _)|) == [~s|E = domain_error(empty_list,"y")|]
 
     assert err(c, ~s|phrase(format_("~e", [1.0]), _)|) == [
-             ~s|E = domain_error(format_string, "~e")|
+             ~s|E = domain_error(format_string,"~e")|
            ]
 
     assert err(c, ~s|phrase(format_("~1r", [10]), _)|) == [
-             ~s|E = domain_error(format_string, "~1r")|
+             ~s|E = domain_error(format_string,"~1r")|
            ]
 
-    assert err(c, ~s|phrase(format_(abc, []), _)|) == ["E = type_error(list, abc)"]
-    assert err(c, ~s|phrase(format_("~w", x), _)|) == ["E = type_error(list, x)"]
+    assert err(c, ~s|phrase(format_(abc, []), _)|) == ["E = type_error(list,abc)"]
+    assert err(c, ~s|phrase(format_("~w", x), _)|) == ["E = type_error(list,x)"]
     assert err(c, ~s|phrase(format_(_, []), _)|) == ["E = instantiation_error"]
   end
 
@@ -108,10 +108,10 @@ defmodule PrologEx.ScryerFormatTest do
 
     assert out(c, ~s|format(user_output, "~d", [1])|) == "1"
     # Scryers format/2 gilt, nicht das eingebaute: ~e kennt es nicht
-    assert err(c, ~s|format("~e", [1.0])|) == [~s|E = domain_error(format_string, "~e")|]
+    assert err(c, ~s|format("~e", [1.0])|) == [~s|E = domain_error(format_string,"~e")|]
 
     assert err(c, ~s|format(user_output, "~e", [1.0])|) == [
-             ~s|E = domain_error(format_string, "~e")|
+             ~s|E = domain_error(format_string,"~e")|
            ]
   end
 
@@ -156,6 +156,6 @@ defmodule PrologEx.ScryerFormatTest do
     assert out(c, "listing(gr//0)") == "gr(A,B) :-\n   A=[x|C],\n   gr(C,B).\n"
     assert ask(c, "listing(nix/0)") == []
     assert ask(c, "listing(_)") == []
-    assert err(c, "listing(foo)") == ["E = type_error(predicate_indicator, foo)"]
+    assert err(c, "listing(foo)") == ["E = type_error(predicate_indicator,foo)"]
   end
 end

@@ -27,9 +27,9 @@ defmodule PrologEx.ExpansionTest do
       {db, []} = load(c, "x.")
       assert ask(c, db, "expand_term(foo(X), T)") == ["T = foo(X)"]
 
-      assert ask(c, db, "expand_term((a --> [x]), T)") == ["T = (a(_A, _B):-_A=[x|_B])"]
+      assert ask(c, db, "expand_term((a --> [x]), T)") == ["T = (a(_A,_B):-_A=[x|_B])"]
 
-      assert ask(c, db, "expand_goal((a, b ; c), G)") == ["G = (a, b;c)"]
+      assert ask(c, db, "expand_goal((a, b ; c), G)") == ["G = (a,b;c)"]
       assert ask(c, db, "expand_goal(G0, G)") == ["G0 = G"]
     end
 
@@ -43,12 +43,12 @@ defmodule PrologEx.ExpansionTest do
         """)
 
       assert ask(c, db, "expand_goal((a, alt(1) ; \\+ zweimal(alt(2))), G)") ==
-               ["G = (a, neu(1);\\+ (neu(2), neu(2)))"]
+               ["G = (a,neu(1);\\+ (neu(2),neu(2)))"]
 
-      assert ask(c, db, "expand_goal(findall(X, alt(X), L), G)") == ["G = findall(X, neu(X), L)"]
+      assert ask(c, db, "expand_goal(findall(X, alt(X), L), G)") == ["G = findall(X,neu(X),L)"]
 
       assert ask(c, db, "expand_goal(bagof(X, Y^alt(X-Y), L), G)") == [
-               "G = bagof(X, Y^neu(X-Y), L)"
+               "G = bagof(X,Y^neu(X-Y),L)"
              ]
 
       # Qualifikation bleibt; der Hook aus user gilt auch für m
@@ -171,7 +171,7 @@ defmodule PrologEx.ExpansionTest do
 
       assert [m] = msgs
       assert m =~ "term_expansion"
-      assert m =~ "type_error(evaluable, foo/0)"
+      assert m =~ "type_error(evaluable,foo/0)"
       assert ask(c, db, "boom") == ["true"]
     end
 

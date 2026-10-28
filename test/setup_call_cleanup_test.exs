@@ -148,7 +148,7 @@ defmodule PrologEx.SetupCallCleanupTest do
              ["E = instantiation_error"]
 
     assert ask(c, "catch(setup_call_cleanup(true, 1, true), error(E, _), true)") ==
-             ["E = type_error(callable, 1)"]
+             ["E = type_error(callable,1)"]
 
     assert ask(c, "catch(setup_call_cleanup(true, X = true, X), error(E, _), true)") ==
              ["E = instantiation_error"]

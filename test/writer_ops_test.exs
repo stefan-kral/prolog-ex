@@ -216,17 +216,14 @@ defmodule PrologEx.WriterOpsTest do
       assert Writer.format(mk("f", [1, list([2, 3])]), spacing: :next_argument) == "f(1, [2, 3])"
       assert Writer.format(mk(",", [a("a"), a("b")]), spacing: :next_argument) == "a, b"
 
-      # Toplevel-Stil: Leerzeichen nach Kommas, nur nicht zwischen Listenelementen
+      # Toplevel-Stil (wie Scryer): kompakt; Leerzeichen nur mit spacing
       t = list([1, mk("f", [a("a"), a("b")]), list([2, 3]), mk(",", [a("x"), a("y")])])
 
-      assert Writer.format(t, spacing: :next_argument, compact_lists: true) ==
-               "[1,f(a, b),[2,3],(x, y)]"
-
-      assert Writer.format(t, compact_lists: true) == "[1,f(a,b),[2,3],(x,y)]"
-      assert Writer.format(t, Writer.answer_opts()) == "[1,f(a, b),[2,3],(x, y)]"
+      assert Writer.format(t, Writer.answer_opts()) == "[1,f(a,b),[2,3],(x,y)]"
+      assert Writer.format(t, spacing: :next_argument) == "[1, f(a, b), [2, 3], (x, y)]"
 
       e = %PrologEx.Error{term: mk("error", [mk("type_error", [a("list"), t]), a("c")])}
-      assert Exception.message(e) == "type_error(list, [1,f(a, b),[2,3],(x, y)])"
+      assert Exception.message(e) == "type_error(list,[1,f(a,b),[2,3],(x,y)])"
 
       assert Writer.format(mk(":-", [a("a"), a("b")]), priority: 999) == "(a:-b)"
       assert Writer.format(a("-"), operand: true) == "(-)"
@@ -254,11 +251,11 @@ defmodule PrologEx.WriterOpsTest do
 
     test "op/3 ändert die Ausgabe, Priorität 0 nimmt sie zurück", c do
       PrologEx.put_db(%{})
-      assert ask(c, "X = '~~>'(a, b).") == ["X = ~~>(a, b)"]
+      assert ask(c, "X = '~~>'(a, b).") == ["X = ~~>(a,b)"]
       assert ask(c, "op(700, xfx, ~~>).") == ["true"]
       assert ask(c, "X = '~~>'(a, b), Y = f('~~>'(a, b)).") == ["X = (a~~>b), Y = f(a~~>b)"]
       assert ask(c, "op(0, xfx, ~~>).") == ["true"]
-      assert ask(c, "X = '~~>'(a, b).") == ["X = ~~>(a, b)"]
+      assert ask(c, "X = '~~>'(a, b).") == ["X = ~~>(a,b)"]
     end
 
     test "Operatorname in Hochkommas: Leerzeichen nach einer Ziffer (0'q wäre ein Zeichencode)",
@@ -285,7 +282,7 @@ defmodule PrologEx.WriterOpsTest do
       PrologEx.put_db(%{})
       assert ask(c, "use_module(library(lambda)).") == ["true"]
       # Leerzeichen zwischen +\\ und \\: sonst ein Token +\\\\
-      assert ask(c, "X = '+\\\\'(N, '\\\\'('^'(Y, f(Y, N)))).") == ["X = N+\\ \\Y^f(Y, N)"]
+      assert ask(c, "X = '+\\\\'(N, '\\\\'('^'(Y, f(Y, N)))).") == ["X = N+\\ \\Y^f(Y,N)"]
     end
   end
 
@@ -328,13 +325,13 @@ defmodule PrologEx.WriterOpsTest do
             {"_", "instantiation_error"},
             {"[quoted(true)|_]", "instantiation_error"},
             {"[_]", "instantiation_error"},
-            {"foo", "type_error(list, foo)"},
-            {"[bogus(1)]", "domain_error(write_option, bogus(1))"},
-            {"[quoted(maybe)]", "domain_error(write_option, quoted(maybe))"},
-            {"[max_depth(-1)]", "domain_error(write_option, max_depth(-1))"},
+            {"foo", "type_error(list,foo)"},
+            {"[bogus(1)]", "domain_error(write_option,bogus(1))"},
+            {"[quoted(maybe)]", "domain_error(write_option,quoted(maybe))"},
+            {"[max_depth(-1)]", "domain_error(write_option,max_depth(-1))"},
             {"[variable_names([1=X])]", "domain_error(write_option"}
           ] do
-        [{:term, g, _}] = Reader.read_terms(c.reader, "write_term(a, #{opts}).")
+        [{:term, g, _}] = Reader.read_terms(c.reader, "write_term(a,#{opts}).")
         e = assert_raise(PrologEx.Error, fn -> PrologEx.query(%{}, g) |> Enum.take(1) end)
         assert Exception.message(e) =~ err, opts
       end
@@ -351,7 +348,7 @@ defmodule PrologEx.WriterOpsTest do
     {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, program))
 
     assert PrologEx.Listing.listing(db, {:atom, "max"}) == """
-           max(X, Y, Z) :-
+           max(X,Y,Z) :-
                (   X>=Y
                ->  Z=X
                ;   Z=Y
@@ -359,7 +356,7 @@ defmodule PrologEx.WriterOpsTest do
            """
 
     assert PrologEx.Listing.listing(db, {:atom, "sign"}) == """
-           sign(X, S) :-
+           sign(X,S) :-
                (   X<0
                ->  S=neg
                ;   X=:=0

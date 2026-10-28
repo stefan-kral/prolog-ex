@@ -69,11 +69,11 @@ defmodule PrologEx.FilesTest do
            ]
 
     assert err(c, ~s|delete_directory("DIR/gibts")|) == [
-             ~s|E = existence_error(directory, "DIR/gibts")|
+             ~s|E = existence_error(directory,"DIR/gibts")|
            ]
 
     assert err(c, ~s|delete_directory("DIR/a.txt")|) == [
-             ~s|E = existence_error(directory, "DIR/a.txt")|
+             ~s|E = existence_error(directory,"DIR/a.txt")|
            ]
   end
 
@@ -85,18 +85,18 @@ defmodule PrologEx.FilesTest do
            ]
 
     assert ask(c, ~s|delete_file("DIR/c.txt"), \\+ file_exists("DIR/c.txt")|) == ["true"]
-    assert err(c, ~s|delete_file("DIR/c.txt")|) == [~s|E = existence_error(file, "DIR/c.txt")|]
-    assert err(c, ~s|delete_file("DIR/sub")|) == [~s|E = existence_error(file, "DIR/sub")|]
+    assert err(c, ~s|delete_file("DIR/c.txt")|) == [~s|E = existence_error(file,"DIR/c.txt")|]
+    assert err(c, ~s|delete_file("DIR/sub")|) == [~s|E = existence_error(file,"DIR/sub")|]
 
     assert err(c, ~s|rename_file("DIR/gibts", "DIR/x")|) == [
-             ~s|E = existence_error(file, "DIR/gibts")|
+             ~s|E = existence_error(file,"DIR/gibts")|
            ]
 
     assert err(c, ~s|file_copy("DIR/gibts", "DIR/x")|) == [
-             ~s|E = existence_error(file, "DIR/gibts")|
+             ~s|E = existence_error(file,"DIR/gibts")|
            ]
 
-    assert err(c, ~s|file_size("DIR/gibts", _)|) == [~s|E = existence_error(file, "DIR/gibts")|]
+    assert err(c, ~s|file_size("DIR/gibts", _)|) == [~s|E = existence_error(file,"DIR/gibts")|]
     # Ziel in einem Verzeichnis, das es nicht gibt: scheitert
     assert ask(c, ~s|file_copy("DIR/a.txt", "DIR/gibts/b.txt")|) == []
     assert ask(c, ~s|rename_file("DIR/a.txt", "DIR/gibts/b.txt")|) == []
@@ -107,34 +107,34 @@ defmodule PrologEx.FilesTest do
     assert ask(c, "delete_file('DIR/d.txt')", PrologEx.use_library(%{}, "swi")) == ["true"]
 
     assert ask(c, "catch(delete_file(x), error(E, _), true)", %{}) == [
-             "E = existence_error(procedure, delete_file/1)"
+             "E = existence_error(procedure,delete_file/1)"
            ]
 
-    assert err(c, "delete_file('DIR/d.txt')") == ["E = type_error(list, 'DIR/d.txt')"]
+    assert err(c, "delete_file('DIR/d.txt')") == ["E = type_error(list,'DIR/d.txt')"]
   end
 
   test "Typprüfungen wie Scryers must_be/2, can_be/2", c do
     assert err(c, "file_exists(_)") == ["E = instantiation_error"]
-    assert err(c, "file_exists(foo)") == ["E = type_error(list, foo)"]
+    assert err(c, "file_exists(foo)") == ["E = type_error(list,foo)"]
     assert err(c, "file_exists([a|_])") == ["E = instantiation_error"]
-    assert err(c, "file_exists([a|b])") == ["E = type_error(list, [a|b])"]
+    assert err(c, "file_exists([a|b])") == ["E = type_error(list,[a|b])"]
     assert err(c, "file_exists([a, _])") == ["E = instantiation_error"]
     # Typfehler vor Instanziierungsfehlern
-    assert err(c, "file_exists([a, _, 1])") == ["E = type_error(character, 1)"]
-    assert err(c, "file_exists([0'a])") == ["E = type_error(character, 97)"]
-    assert err(c, "file_exists([ab])") == ["E = type_error(character, ab)"]
-    assert err(c, ~s|file_size("DIR/a.txt", x)|) == ["E = type_error(integer, x)"]
-    assert err(c, ~s|directory_files("DIR", x)|) == ["E = type_error(list, x)"]
-    assert err(c, ~s{directory_files("DIR", [a|b])}) == ["E = type_error(list, [a|b])"]
+    assert err(c, "file_exists([a, _, 1])") == ["E = type_error(character,1)"]
+    assert err(c, "file_exists([0'a])") == ["E = type_error(character,97)"]
+    assert err(c, "file_exists([ab])") == ["E = type_error(character,ab)"]
+    assert err(c, ~s|file_size("DIR/a.txt", x)|) == ["E = type_error(integer,x)"]
+    assert err(c, ~s|directory_files("DIR", x)|) == ["E = type_error(list,x)"]
+    assert err(c, ~s{directory_files("DIR", [a|b])}) == ["E = type_error(list,[a|b])"]
     assert err(c, ~s|rename_file("DIR/a.txt", _)|) == ["E = instantiation_error"]
-    assert err(c, ~s|file_copy("DIR/a.txt", x)|) == ["E = type_error(list, x)"]
-    assert err(c, "make_directory(1)") == ["E = type_error(list, 1)"]
+    assert err(c, ~s|file_copy("DIR/a.txt", x)|) == ["E = type_error(list,x)"]
+    assert err(c, "make_directory(1)") == ["E = type_error(list,1)"]
     assert err(c, "make_directory_path(_)") == ["E = instantiation_error"]
-    assert err(c, "delete_directory(x)") == ["E = type_error(list, x)"]
-    assert err(c, ~s|path_canonical("DIR", x)|) == ["E = type_error(list, x)"]
-    assert err(c, "path_canonical(x, _)") == ["E = type_error(list, x)"]
-    assert err(c, "working_directory(x, _)") == ["E = type_error(list, x)"]
-    assert err(c, "working_directory(_, x)") == ["E = type_error(list, x)"]
+    assert err(c, "delete_directory(x)") == ["E = type_error(list,x)"]
+    assert err(c, ~s|path_canonical("DIR", x)|) == ["E = type_error(list,x)"]
+    assert err(c, "path_canonical(x, _)") == ["E = type_error(list,x)"]
+    assert err(c, "working_directory(x, _)") == ["E = type_error(list,x)"]
+    assert err(c, "working_directory(_, x)") == ["E = type_error(list,x)"]
   end
 
   test "path_canonical/2", c do
@@ -164,9 +164,9 @@ defmodule PrologEx.FilesTest do
     assert ask(c, ~s|path_segments("a/", S)|) == [~s|S = ["a",[]]|]
     assert err(c, "path_segments(_, _)") == ["E = instantiation_error"]
     assert err(c, "path_segments(_, [\"a\"|_])") == ["E = instantiation_error"]
-    assert err(c, "path_segments(_, x)") == ["E = type_error(list, x)"]
-    assert err(c, "path_segments(_, [x])") == ["E = type_error(list, x)"]
-    assert err(c, "path_segments(x, _)") == ["E = type_error(list, x)"]
+    assert err(c, "path_segments(_, x)") == ["E = type_error(list,x)"]
+    assert err(c, "path_segments(_, [x])") == ["E = type_error(list,x)"]
+    assert err(c, "path_segments(x, _)") == ["E = type_error(list,x)"]
   end
 
   test "working_directory/2", c do
@@ -221,7 +221,7 @@ defmodule PrologEx.FilesTest do
 
     # nur Dateien
     assert err(c, ~s|file_modification_time("DIR/sub", _)|) ==
-             [~s|E = existence_error(file, "DIR/sub")|]
+             [~s|E = existence_error(file,"DIR/sub")|]
 
     File.touch!(Path.join([c.tmp_dir, "sub", "b.txt"]), 1_500_000_000)
 
@@ -232,13 +232,13 @@ defmodule PrologEx.FilesTest do
            |> length() == 1
 
     assert err(c, ~s|file_modification_time("DIR/gibts", _)|) ==
-             [~s|E = existence_error(file, "DIR/gibts")|]
+             [~s|E = existence_error(file,"DIR/gibts")|]
 
     # Erstellungszeit kennt Erlang unter Unix nicht
     assert ask(c, ~s|file_creation_time("DIR/a.txt", _)|) == []
 
     assert err(c, ~s|file_creation_time("DIR/gibts", _)|) ==
-             [~s|E = existence_error(file, "DIR/gibts")|]
+             [~s|E = existence_error(file,"DIR/gibts")|]
   end
 
   test "Pfade aus library(files) gehen direkt an open/3", c do

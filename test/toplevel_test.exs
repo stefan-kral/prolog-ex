@@ -158,7 +158,7 @@ defmodule PrologEx.ToplevelTest do
         top("set_prolog_flag(double_quotes, atom).\nX = \"ab\".\nread(T).\nfoo(- 1, \"x\").\n")
 
       assert out =~ "X = ab."
-      assert out =~ "T = foo(-1, x)."
+      assert out =~ "T = foo(-1,x)."
     end
 
     test "Syntaxfehler mit Zeile und Spalte, danach geht es weiter" do

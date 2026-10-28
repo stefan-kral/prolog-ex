@@ -59,10 +59,10 @@ defmodule PrologEx.FastRWTest do
     refute File.exists?(c.f)
 
     assert ask(c, "catch(delete_file('#{c.f}'), error(E, _), true)") ==
-             ["E = existence_error(file, '#{c.f}')"]
+             ["E = existence_error(file,'#{c.f}')"]
 
     assert ask(c, "catch(exists_file(_), error(E, _), true)") == ["E = instantiation_error"]
-    assert ask(c, "catch(exists_file(1), error(E, _), true)") == ["E = type_error(atom, 1)"]
+    assert ask(c, "catch(exists_file(1), error(E, _), true)") == ["E = type_error(atom,1)"]
   end
 
   test "once/1 (ISO), ignore/1", c do
@@ -83,7 +83,7 @@ defmodule PrologEx.FastRWTest do
 
     assert ask(
              c,
-             "T0 = #{t}, open('#{c.f}', write, S, [type(binary)]), fast_write(S, T0), fast_write(S, zwei), close(S), " <>
+             "T0 = #{t}, open('#{c.f}',write,S,[type(binary)]), fast_write(S,T0), fast_write(S,zwei), close(S), " <>
                "open('#{c.f}', read, R, [type(binary)]), fast_read(R, T1), fast_read(R, T2), fast_read(R, T3), close(R), " <>
                "T0 =@= T1, T2 == zwei, T3 == end_of_file"
            )
@@ -120,9 +120,9 @@ defmodule PrologEx.FastRWTest do
     # Textstreams: wie put_byte/get_byte
     assert ask(
              c,
-             "open('#{c.f}', write, S), catch(fast_write(S, x), error(E, _), true), close(S)"
+             "open('#{c.f}',write,S), catch(fast_write(S,x),error(E,_),true), close(S)"
            )
-           |> hd() =~ "permission_error(output, text_stream"
+           |> hd() =~ "permission_error(output,text_stream"
 
     assert ask(c, "catch(fast_term_serialized(T, [1, 2, 3]), error(E, _), true)") ==
              ["E = syntax_error(fast_term)"]

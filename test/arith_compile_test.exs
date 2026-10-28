@@ -163,7 +163,7 @@ defmodule PrologEx.ArithCompileTest do
     assert run(c, db, "k2(X)") == {:error, "evaluation_error(zero_divisor)"}
     assert run(c, db, "k3(X)") == []
     assert run(c, db, "k4(X)") == ["X = 1"]
-    assert run(c, db, "k5(X)") == {:error, "type_error(evaluable, foo/0)"}
+    assert run(c, db, "k5(X)") == {:error, "type_error(evaluable,foo/0)"}
     assert run(c, db, "k6(X, 1)") == ["X = #{2 + :math.pi()}"]
     assert run(c, db, "k6(X, Y)") == {:error, "instantiation_error"}
     assert run(c, db, "k7") == ["true"]

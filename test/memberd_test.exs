@@ -35,19 +35,19 @@ defmodule PrologEx.MemberdTest do
     {"memberd(X, [])", []},
     {"memberd(X, foo)", []},
     {"memberd(X, [a|foo])", ["X = a"]},
-    {"memberd(f(Y), [f(1), g(2), f(Z)])", ["Y = 1", "Y = Z, dif(Z, 1)"]},
-    {"memberd(X, [Y, Z])", ["X = Y", "X = Z, dif(Z, Y)"]},
+    {"memberd(f(Y), [f(1), g(2), f(Z)])", ["Y = 1", "Y = Z, dif(Z,1)"]},
+    {"memberd(X, [Y, Z])", ["X = Y", "X = Z, dif(Z,Y)"]},
     {"memberd(X, [Y, Y])", ["X = Y"]},
     {"memberd(X, [Y, a]), Y = a", ["X = a, Y = a"]},
     {"memberd(X, L)", nil},
     {"memberd(a, [b|L])",
      [
        "L = [a|_A]",
-       "L = [_A,a|_B], dif(_A, a)",
-       "L = [_A,_B,a|_C], dif(_A, a), dif(_B, a)",
-       "L = [_A,_B,_C,a|_D], dif(_A, a), dif(_B, a), dif(_C, a)"
+       "L = [_A,a|_B], dif(_A,a)",
+       "L = [_A,_B,a|_C], dif(_A,a), dif(_B,a)",
+       "L = [_A,_B,_C,a|_D], dif(_A,a), dif(_B,a), dif(_C,a)"
      ]},
-    {"L = [1,2,3,1,2,3], memberd(X, L), X > 1", nil},
+    {"L = [1,2,3,1,2,3], memberd(X,L), X > 1", nil},
     {"dif(X, a), memberd(X, [a,b])", ["X = b"]}
   ]
 

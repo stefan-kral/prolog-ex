@@ -162,7 +162,7 @@ ISO 8.11–8.14 – Streams sind `'$stream'(N)`, dazu die Aliase `user_input`,
 ```prolog
 ?- open('t.pl', write, S), writeq(S, f('a b', X)), write(S, '.'), nl(S), close(S).
 ?- open('t.pl', read, S), read_term(S, T, [variable_names(V)]), close(S).
-T = f('a b', _A), V = ['X'=_A].
+T = f('a b',_A), V = ['X'=_A].
 ```
 
 `read/1` liest genau einen Term: das Ende (der einzelne `.` vor Leerraum)
@@ -433,7 +433,7 @@ derselbe Term:
 
 ```
 ?- X = (a :- b, c ; d), Y = 1 - -1, Z = -(1), W = - a, V = f((a,b), -).
-V = f((a, b), -), W = -a, X = (a:-b, c;d), Y = 1- -1, Z = - (1).
+V = f((a,b),-), W = -a, X = (a:-b,c;d), Y = 1- -1, Z = - (1).
 ?- writeq(f('A b', 1+2*3, (1+2)*3, a mod b, \+ (x,y), [x|T], "ab")).
 f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
 ```
@@ -453,11 +453,12 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     SICStus `_A`, `_B`, …, `_Z`, `_AA`, … – je Antwort neu, in Reihenfolge
     des Auftretens, auch in Restzielen; Namen aus der Anfrage werden nicht
     vergeben (`length(As, N)` → `As = [_A,_B], N = 2`).
-  * Antworten, `listing` und Fehlermeldungen setzen Leerzeichen nach
-    Kommas zwischen Argumenten (`f(a, b)`, `(a, b)`), nicht aber zwischen
-    Listenelementen (`[1,2,3]`, `[a,b|T]`); `writeq` schreibt kompakt
-    (`f(a,b)`) wie ISO, `write_term/2` mit `spacing(next_argument)` wie
-    SWI auch in Listen mit Leerzeichen (`[1, 2]`).
+  * Antworten, `listing` und Fehlermeldungen schreiben Terme kompakt wie
+    Scryer und `writeq` – ohne Leerzeichen nach Kommas (`f(a,b)`,
+    `[1,2,3]`, `(x,y)`); nur die Bindungen einer Antwort trennt `, `
+    (`X = f(a,b), Y = [1,2]`). Leerzeichen nach Kommas gibt es mit
+    `write_term/2` und `spacing(next_argument)` (wie SWI: `f(a, b)`,
+    `[1, 2]`).
   * `write_term/2`: `quoted/1`, `ignore_ops/1`, `numbervars/1`,
     `variable_names/1` (ISO), `max_depth/1`, `spacing/1`, `priority/1` (SWI).
   * Die Operatortabelle für die Ausgabe spiegelt die des Readers: `op/3`,
@@ -484,7 +485,7 @@ Choice Points:
 ```
 ?- tfilter(dif(a), [a,b,X,a,c], Fs).
 Fs = "bc", X = a ;
-Fs = [b,X,c], dif(X, a).
+Fs = [b,X,c], dif(X,a).
 ```
 
 Zwei Fassungen mit denselben Antworten (Vergleichstest auch auf
@@ -698,7 +699,7 @@ zeigt der Toplevel als Restziele:
 
 ```
 ?- dif(f(X, Y), f(1, 2)), X = 1.
-X = 1, dif(Y, 2).
+X = 1, dif(Y,2).
 ```
 
 `dif/2` merkt sich nur die *Front*: die Paare des Unifikators, die noch
@@ -713,7 +714,7 @@ die **Ausschlussmenge** der Variablen statt in eine eigene Bedingung:
 einen ground Wert, kostet das ein Nachschlagen statt k Prüfungen; bei
 X = Y geht die Menge an Y über, bei einem Term mit Variablen (X = f(Z))
 wird jeder Wert wieder ein `dif` (dabei oft eine kleinere Menge, etwa an
-Z). Als Restziele erscheint die Menge wie gewohnt als `dif(X, a), dif(X, b)`
+Z). Als Restziele erscheint die Menge wie gewohnt als `dif(X,a), dif(X,b)`
 (jeder Wert einmal). Ausschlussmengen werden beim Wecken vor den übrigen
 Weckzielen geprüft; alle anderen in der Reihenfolge des Anhängens.
 
@@ -738,7 +739,7 @@ auch unerreichbare attributierte Variablen, die jünger sind als die Marke.
 
 ```prolog
 ?- call_residue_vars((dif(X, f(Y)), X = f(Z)), Vars).
-Vars = [Z,Y], X = f(Z), dif(Z, Y).
+Vars = [Z,Y], X = f(Z), dif(Z,Y).
 ```
 
 ### Attributierte Variablen: `library(atts)` wie SICStus

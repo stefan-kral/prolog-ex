@@ -40,39 +40,39 @@ defmodule PrologEx.ScryerErrorTest do
   end
 
   test "must_be/2: Fehler und Kontexte wie Scryer", c do
-    assert err(c, "must_be(integer, a)") == ["C = must_be/2, E = type_error(integer, a)"]
+    assert err(c, "must_be(integer, a)") == ["C = must_be/2, E = type_error(integer,a)"]
     assert err(c, "must_be(integer, _)") == ["C = must_be/2, E = instantiation_error"]
     assert err(c, "must_be(_, 1)") == ["C = must_be/2, E = instantiation_error"]
-    assert err(c, "must_be(foo, 1)") == ["C = must_be/2, E = type_error(type, foo)"]
+    assert err(c, "must_be(foo, 1)") == ["C = must_be/2, E = type_error(type,foo)"]
     assert err(c, "must_be(var, 1)") == ["C = must_be/2, E = uninstantiation_error(1)"]
     assert err(c, "must_be(chars, [a|_])") == ["C = must_be/2, E = instantiation_error"]
     assert err(c, "must_be(chars, [a, _])") == ["C = must_be/2, E = instantiation_error"]
     # Typfehler vor Instanziierungsfehlern (aus can_be/2)
-    assert err(c, "must_be(chars, [_, 1|_])") == ["C = can_be/2, E = type_error(character, 1)"]
-    assert err(c, "must_be(chars, ab)") == ["C = can_be/2, E = type_error(list, ab)"]
-    assert err(c, "must_be(list, [a|b])") == ["C = must_be/2, E = type_error(list, [a|b])"]
+    assert err(c, "must_be(chars, [_, 1|_])") == ["C = can_be/2, E = type_error(character,1)"]
+    assert err(c, "must_be(chars, ab)") == ["C = can_be/2, E = type_error(list,ab)"]
+    assert err(c, "must_be(list, [a|b])") == ["C = must_be/2, E = type_error(list,[a|b])"]
     assert err(c, "must_be(list, [a|_])") == ["C = must_be/2, E = instantiation_error"]
-    assert err(c, "must_be(character, ab)") == ["C = must_be/2, E = type_error(character, ab)"]
+    assert err(c, "must_be(character, ab)") == ["C = must_be/2, E = type_error(character,ab)"]
 
     assert err(c, "must_be(in_character, 1)") == [
-             "C = must_be/2, E = type_error(in_character, 1)"
+             "C = must_be/2, E = type_error(in_character,1)"
            ]
 
     assert err(c, "must_be(octet_chars, [a, 'ā'])") ==
-             ["C = must_be/2, E = domain_error(octet_character, 'ā')"]
+             ["C = must_be/2, E = domain_error(octet_character,'ā')"]
 
     assert err(c, "must_be(octet_character, 'ā')") ==
-             ["C = must_be/2, E = domain_error(octet_character, 'ā')"]
+             ["C = must_be/2, E = domain_error(octet_character,'ā')"]
 
     assert err(c, "must_be(not_less_than_zero, -1)") ==
-             ["C = must_be/2, E = domain_error(not_less_than_zero, -1)"]
+             ["C = must_be/2, E = domain_error(not_less_than_zero,-1)"]
 
     assert err(c, "must_be(not_less_than_zero, a)") == [
-             "C = must_be/2, E = type_error(integer, a)"
+             "C = must_be/2, E = type_error(integer,a)"
            ]
 
-    assert err(c, "must_be(boolean, x)") == ["C = must_be/2, E = type_error(boolean, x)"]
-    assert err(c, "must_be(pair, x)") == ["C = must_be/2, E = type_error(pair, x)"]
+    assert err(c, "must_be(boolean, x)") == ["C = must_be/2, E = type_error(boolean,x)"]
+    assert err(c, "must_be(pair, x)") == ["C = must_be/2, E = type_error(pair,x)"]
     assert err(c, "must_be(term, f(_))") == ["C = must_be/2, E = instantiation_error"]
   end
 
@@ -82,34 +82,34 @@ defmodule PrologEx.ScryerErrorTest do
       assert ask(c, g) == ["true"], g
     end
 
-    assert err(c, "can_be(list, [a|b])") == ["C = can_be/2, E = type_error(list, [a|b])"]
-    assert err(c, "can_be(integer, a)") == ["C = can_be/2, E = type_error(integer, a)"]
-    assert err(c, "can_be(chars, [a, 1|_])") == ["C = can_be/2, E = type_error(character, 1)"]
+    assert err(c, "can_be(list, [a|b])") == ["C = can_be/2, E = type_error(list,[a|b])"]
+    assert err(c, "can_be(integer, a)") == ["C = can_be/2, E = type_error(integer,a)"]
+    assert err(c, "can_be(chars, [a, 1|_])") == ["C = can_be/2, E = type_error(character,1)"]
 
     assert err(c, "can_be(octet_chars, [a, 'ā'|_])") ==
-             ["C = can_be/2, E = domain_error(octet_character, 'ā')"]
+             ["C = can_be/2, E = domain_error(octet_character,'ā')"]
 
     assert err(c, "can_be(not_less_than_zero, -2)") ==
-             ["C = can_be/2, E = domain_error(not_less_than_zero, -2)"]
+             ["C = can_be/2, E = domain_error(not_less_than_zero,-2)"]
 
-    assert err(c, "can_be(nix, 1)") == ["C = must_be/2, E = type_error(type, nix)"]
+    assert err(c, "can_be(nix, 1)") == ["C = must_be/2, E = type_error(type,nix)"]
   end
 
   test "Fehler werfen; call_with_error_context/2", c do
     assert err(c, "instantiation_error") == ["C = [], E = instantiation_error"]
-    assert err(c, "domain_error(d, x)") == ["C = [], E = domain_error(d, x)"]
-    assert err(c, "type_error(t, x)") == ["C = [], E = type_error(t, x)"]
+    assert err(c, "domain_error(d, x)") == ["C = [], E = domain_error(d,x)"]
+    assert err(c, "type_error(t, x)") == ["C = [], E = type_error(t,x)"]
     assert err(c, "representation_error(r)") == ["C = [], E = representation_error(r)"]
     assert err(c, "resource_error(m)") == ["C = [], E = resource_error(m)"]
     assert err(c, "instantiation_error(k)") == ["C = k, E = instantiation_error"]
-    assert err(c, "domain_error(d, x, k)") == ["C = k, E = domain_error(d, x)"]
-    assert err(c, "type_error(t, x, k)") == ["C = k, E = type_error(t, x)"]
+    assert err(c, "domain_error(d, x, k)") == ["C = k, E = domain_error(d,x)"]
+    assert err(c, "type_error(t, x, k)") == ["C = k, E = type_error(t,x)"]
 
     assert err(c, "call_with_error_context(type_error(t, x), predicate-p/1)") ==
-             ["C = [predicate-p/1], E = type_error(t, x)"]
+             ["C = [predicate-p/1], E = type_error(t,x)"]
 
     assert err(c, "call_with_error_context(true, nopair)") ==
-             ["C = must_be/2, E = type_error(pair, nopair)"]
+             ["C = must_be/2, E = type_error(pair,nopair)"]
 
     assert ask(c, "call_with_error_context((X = 1 ; X = 2), p-q)") == ["X = 1", "X = 2"]
   end

@@ -154,7 +154,7 @@ defmodule PrologEx.DeclarationsTest do
     )
 
     assert ask(c, "neu, y") == ["true"]
-    assert ask(c, "catch(alt, error(E, _), true)") == ["E = existence_error(procedure, alt/0)"]
+    assert ask(c, "catch(alt, error(E, _), true)") == ["E = existence_error(procedure,alt/0)"]
   end
 
   test "Syntaxfehler im inaktiven Zweig: keine Meldung", c do
@@ -177,20 +177,20 @@ defmodule PrologEx.DeclarationsTest do
 
   test "assert: Rumpf muss in ein Ziel umwandelbar sein; Klauseln als Kopf", c do
     assert ask(c, "catch(assertz((foo :- fail, 4)), error(E, _), true)") ==
-             ["E = type_error(callable, (fail, 4))"]
+             ["E = type_error(callable,(fail,4))"]
 
     assert ask(c, "catch(asserta((foo :- X)), error(E, _), true)") == ["true"]
 
     assert ask(c, "catch(asserta(((a :- b) :- true)), error(E, _), true)") ==
-             ["E = permission_error(modify, static_procedure, (:-)/2)"]
+             ["E = permission_error(modify,static_procedure,(:-)/2)"]
 
     assert ask(c, "catch(assertz(((:- b) :- true)), error(E, _), true)") ==
-             ["E = permission_error(modify, static_procedure, (:-)/1)"]
+             ["E = permission_error(modify,static_procedure,(:-)/1)"]
   end
 
   test "current_predicate/1: negative Stelligkeit", c do
     assert ask(c, "catch(current_predicate(f/ -1), error(E, _), true)") ==
-             ["E = type_error(predicate_indicator, f/ -1)"]
+             ["E = type_error(predicate_indicator,f/ -1)"]
   end
 
   test "predicate_property/2: Fehler", c do
@@ -198,6 +198,6 @@ defmodule PrologEx.DeclarationsTest do
              ["E = instantiation_error"]
 
     assert ask(c, "catch(predicate_property(atom(_), foo), error(E, _), true)") ==
-             ["E = domain_error(predicate_property, foo)"]
+             ["E = domain_error(predicate_property,foo)"]
   end
 end

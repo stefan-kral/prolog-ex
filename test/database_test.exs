@@ -71,7 +71,7 @@ defmodule PrologEx.DatabaseTest do
       assert err(r, db, "assertz((foo :- 3)).") =~ "type_error(callable"
 
       assert err(r, db, "assertz(statisch(b)).") =~
-               "permission_error(modify, static_procedure, statisch/1)"
+               "permission_error(modify,static_procedure,statisch/1)"
 
       assert err(r, db, "assertz(call(x)).") =~ "permission_error"
       assert err(r, db, "assertz((a, b)).") =~ "permission_error"
@@ -92,7 +92,7 @@ defmodule PrologEx.DatabaseTest do
         capture_io(fn -> ask(r, db, "assertz((w(Foo, Bar) :- Bar is Foo)), listing(w/2).") end)
 
       assert out =~ ":- dynamic w/2."
-      assert out =~ "w(A, B) :-"
+      assert out =~ "w(A,B) :-"
     end
   end
 
@@ -120,7 +120,7 @@ defmodule PrologEx.DatabaseTest do
       db = load(r)
 
       assert [ans] = ask(r, db, "assertz((h(X) :- X > 1, write(x))), retract((h(Y) :- B)).")
-      assert ans == "B = (Y>1, write(x))"
+      assert ans == "B = (Y>1,write(x))"
 
       assert ask(
                r,
@@ -167,7 +167,7 @@ defmodule PrologEx.DatabaseTest do
                ["true"]
 
       assert err(r, db, "abolish(counter/1), counter(_).") =~
-               "existence_error(procedure, counter/1)"
+               "existence_error(procedure,counter/1)"
 
       assert ask(r, db, "assertz(z(1)), abolish(z/1), \\+ predicate_property(z(_), _).") ==
                ["true"]
@@ -178,7 +178,7 @@ defmodule PrologEx.DatabaseTest do
 
       # mit Modul
       assert err(r, db, "assertz(m:q(1)), abolish(m:q/1), m:q(_).") =~
-               "existence_error(procedure, m:q/1)"
+               "existence_error(procedure,m:q/1)"
 
       assert ask(r, db, "assertz(m:q(1)), m:abolish(q/1), \\+ predicate_property(m:q(_), _).") ==
                ["true"]
@@ -191,7 +191,7 @@ defmodule PrologEx.DatabaseTest do
       assert ask(r, db, "counter(X).") == ["X = 7"]
 
       assert err(r, db, "assertz(counter(8)).") =~
-               "permission_error(modify, static_procedure, counter/1)"
+               "permission_error(modify,static_procedure,counter/1)"
     end
 
     test "unbekannt: kein Fehler", %{reader: r} do
@@ -214,18 +214,17 @@ defmodule PrologEx.DatabaseTest do
             {"abolish(_)", "instantiation_error"},
             {"abolish(foo/_)", "instantiation_error"},
             {"abolish(_/1)", "instantiation_error"},
-            {"abolish(foo)", "type_error(predicate_indicator, foo)"},
-            {"abolish(foo(1))", "type_error(predicate_indicator, foo(1))"},
-            {"abolish(1/1)", "type_error(atom, 1)"},
-            {"abolish(foo/a)", "type_error(integer, a)"},
-            {"abolish(foo/(-1))", "domain_error(not_less_than_zero, -1)"},
+            {"abolish(foo)", "type_error(predicate_indicator,foo)"},
+            {"abolish(foo(1))", "type_error(predicate_indicator,foo(1))"},
+            {"abolish(1/1)", "type_error(atom,1)"},
+            {"abolish(foo/a)", "type_error(integer,a)"},
+            {"abolish(foo/(-1))", "domain_error(not_less_than_zero,-1)"},
             # geladen, also statisch
-            {"abolish(statisch/1)", "permission_error(modify, static_procedure, statisch/1)"},
+            {"abolish(statisch/1)", "permission_error(modify,static_procedure,statisch/1)"},
             # eingebaut und aus einer Bibliothek importiert
-            {"abolish(abolish/1)", "permission_error(modify, static_procedure, abolish/1)"},
-            {"abolish(atom_length/2)",
-             "permission_error(modify, static_procedure, atom_length/2)"},
-            {"abolish(append/3)", "permission_error(modify, static_procedure, append/3)"},
+            {"abolish(abolish/1)", "permission_error(modify,static_procedure,abolish/1)"},
+            {"abolish(atom_length/2)", "permission_error(modify,static_procedure,atom_length/2)"},
+            {"abolish(append/3)", "permission_error(modify,static_procedure,append/3)"},
             {"abolish(m:foo/_)", "instantiation_error"}
           ] do
         assert err(r, db, goal <> ".") =~ e, goal
@@ -334,7 +333,7 @@ defmodule PrologEx.DatabaseTest do
       assert ask(r, db, "countall(between(1, 5, _), 4).") == []
       # Cut ist lokal, Bindungen aus dem Ziel bleiben nicht
       assert ask(r, db, "countall((member(X, [1, 2, 3]), !), N).") == ["N = 1"]
-      assert err(r, db, "countall(true, a).") =~ "type_error(integer, a)"
+      assert err(r, db, "countall(true, a).") =~ "type_error(integer,a)"
       assert err(r, db, "countall(_, N).") =~ "instantiation_error"
     end
 
@@ -371,7 +370,7 @@ defmodule PrologEx.DatabaseTest do
       assert ask(r, db, "call(=, X, a).") == ["X = a"]
       assert ask(r, db, "call(append, X, Y, [1]).") == ["X = [], Y = [1]", "X = [1], Y = []"]
       assert [ans] = ask(r, db, "call(functor, T, f, 2).")
-      assert ans =~ ~r/^T = f\(_\w+, _\w+\)$/
+      assert ans =~ ~r/^T = f\(_\w+,_\w+\)$/
     end
 
     test "volle Stelligkeit bis call/8", %{reader: r} do

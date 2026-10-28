@@ -26,8 +26,8 @@ defmodule PrologEx.BetweenTest do
     assert ask(c, "gen_nat(5)") == ["true"]
     assert ask(c, "gen_nat(0)") == ["true"]
     assert ask(c, "gen_nat(-1)") == []
-    assert ask(c, "gen_nat(a)") == {:error, "type_error(integer, a)"}
-    assert ask(c, "gen_nat(1.0)") == {:error, "type_error(integer, 1.0)"}
+    assert ask(c, "gen_nat(a)") == {:error, "type_error(integer,a)"}
+    assert ask(c, "gen_nat(1.0)") == {:error, "type_error(integer,1.0)"}
     # konstanter Speicher: weit zählen, ohne Liste
     assert ask(c, "gen_nat(N), N >= 100000, !") == ["N = 100000"]
   end
@@ -44,7 +44,7 @@ defmodule PrologEx.BetweenTest do
            ]
 
     assert ask(c, "gen_int(-7)") == ["true"]
-    assert ask(c, "gen_int(f(x))") == {:error, "type_error(integer, f(x))"}
+    assert ask(c, "gen_int(f(x))") == {:error, "type_error(integer,f(x))"}
     assert ask(c, "gen_int(I), I < -50, !") == ["I = -51"]
   end
 
@@ -74,7 +74,7 @@ defmodule PrologEx.BetweenTest do
     assert ask(c, "numlist(L, S, U, N, [X, Y])") == {:error, "instantiation_error"}
     assert ask(c, "numlist(1, 0, 1, N, L)") == {:error, "instantiation_error"}
     assert ask(c, "numlist(1, 0, 1, 3, L)") == ["L = [1,1,1]"]
-    assert ask(c, "numlist(a, 1, 3, N, L)") == {:error, "type_error(integer, a)"}
+    assert ask(c, "numlist(a, 1, 3, N, L)") == {:error, "type_error(integer,a)"}
   end
 
   test "between/3, repeat/1, numlist/2,3 kommen mit (wie SICStus)", c do
@@ -98,6 +98,6 @@ defmodule PrologEx.BetweenTest do
   end
 
   test "nur nach use_module sichtbar", c do
-    assert ask(c, "gen_nat(0)", 1, %{}) == {:error, "existence_error(procedure, gen_nat/1)"}
+    assert ask(c, "gen_nat(0)", 1, %{}) == {:error, "existence_error(procedure,gen_nat/1)"}
   end
 end

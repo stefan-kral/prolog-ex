@@ -55,22 +55,22 @@ defmodule PrologEx.ReifTest do
   test "=/3, dif/3", c do
     assert same(c, "=(a, a, T)") == ["T = true"]
     assert same(c, "=(a, b, T)") == ["T = false"]
-    assert same(c, "=(X, a, T)") == ["T = true, X = a", "T = false, dif(X, a)"]
+    assert same(c, "=(X, a, T)") == ["T = true, X = a", "T = false, dif(X,a)"]
     assert same(c, "=(f(X, b), f(a, Y), T)") |> length() == 2
     assert same(c, "=(X, Y, true)") == ["X = Y"]
-    assert same(c, "=(X, a, false)") == ["dif(X, a)"]
+    assert same(c, "=(X, a, false)") == ["dif(X,a)"]
     assert same(c, "=(a, a, false)") == []
     assert same(c, "=(a, a, foo)") == []
-    assert same(c, "dif(X, a, T)") == ["T = false, X = a", "T = true, dif(X, a)"]
+    assert same(c, "dif(X, a, T)") == ["T = false, X = a", "T = true, dif(X,a)"]
     assert same(c, "dif(a, b, T)") == ["T = true"]
     same(c, "dif(X, Y, T), X = Y")
     same(c, "=(X, Y, T), X = a, Y = b")
   end
 
   test "if_/3", c do
-    assert same(c, "if_(X = a, Y = 1, Y = 2)") == ["X = a, Y = 1", "Y = 2, dif(X, a)"]
+    assert same(c, "if_(X = a, Y = 1, Y = 2)") == ["X = a, Y = 1", "Y = 2, dif(X,a)"]
     # wie reif: dif/3 über =/3, also zuerst der Fall X = a (Else)
-    assert same(c, "if_(dif(X, a), Y = 1, Y = 2)") == ["X = a, Y = 2", "Y = 1, dif(X, a)"]
+    assert same(c, "if_(dif(X, a), Y = 1, Y = 2)") == ["X = a, Y = 2", "Y = 1, dif(X,a)"]
     assert same(c, "if_(a = a, Y = 1, Y = 2)") == ["Y = 1"]
     same(c, "if_((X = a, Y = b), T = 1, T = 0)")
     same(c, "if_((X = a ; Y = b), T = 1, T = 0)")
@@ -81,7 +81,7 @@ defmodule PrologEx.ReifTest do
     same(c, "if_(gross(3), T = 1, T = 0)")
     same(c, "if_(cond_t(X = a, true), T = 1, T = 0)")
     # Fehler
-    assert same(c, "if_(kaputt(x), true, true)") == {:error, "type_error(boolean, kaputt)"}
+    assert same(c, "if_(kaputt(x), true, true)") == {:error, "type_error(boolean,kaputt)"}
     assert same(c, "if_(_, true, true)") |> elem(0) == :error
     assert same(c, "if_(=(_), true, true)") == {:error, "instantiation_error"}
     assert same(c, "if_(foo, true, true)") |> elem(0) == :error

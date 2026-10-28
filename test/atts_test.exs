@@ -40,9 +40,9 @@ defmodule PrologEx.AttsTest do
     test "setzen, ersetzen, entfernen, abfragen", c do
       assert ask(c, "p(X, a(1)), g(X, a(V)).") |> hd() =~ "V = 1"
       assert ask(c, "p(X, a(1)), p(X, a(2)), g(X, a(V)).") |> hd() =~ "V = 2"
-      assert ask(c, "p(X, [a(1), b(2, 3)]), g(X, L).") |> hd() =~ "L = [a(1),b(2, 3)]"
+      assert ask(c, "p(X, [a(1), b(2, 3)]), g(X, L).") |> hd() =~ "L = [a(1),b(2,3)]"
       # Deklarationsreihenfolge, unabhängig von der Setzreihenfolge
-      assert ask(c, "p(X, b(2, 3)), p(X, a(1)), g(X, L).") |> hd() =~ "L = [a(1),b(2, 3)]"
+      assert ask(c, "p(X, b(2, 3)), p(X, a(1)), g(X, L).") |> hd() =~ "L = [a(1),b(2,3)]"
       assert ask(c, "p(X, a(1)), p(X, -a(_)), g(X, L).") |> hd() =~ "L = []"
       assert ask(c, "p(X, a(1)), g(X, -b(_, _)), g(X, +a(_)).") |> length() == 1
       assert ask(c, "p(X, a(1)), g(X, -a(_)).") == []
@@ -55,11 +55,11 @@ defmodule PrologEx.AttsTest do
     end
 
     test "Fehler", c do
-      assert err(c, "p(X, c(1)).") =~ "existence_error(attribute, plain:c/1)"
+      assert err(c, "p(X, c(1)).") =~ "existence_error(attribute,plain:c/1)"
       assert err(c, "p(foo, a(1)).") =~ "uninstantiation_error(foo)"
 
       assert err(c, "use_module(library(atts)), put_atts(X, a(1)).") =~
-               "existence_error(attribute_declaration, user)"
+               "existence_error(attribute_declaration,user)"
     end
   end
 
@@ -84,7 +84,7 @@ defmodule PrologEx.AttsTest do
 
     test "Variable an Variable: Hook bekommt die andere Variable", c do
       assert ask(c, "domain(X, [a, b, c]), domain(Y, [b, c, d]), X = Y.") ==
-               ["X = Y, domain(Y, \"bc\")"]
+               ["X = Y, domain(Y,\"bc\")"]
 
       assert ask(c, "domain(X, [a, b]), domain(Y, [b, c]), X = Y.") == ["X = b, Y = b"]
       assert ask(c, "domain(X, [a, b]), domain(Y, [c]), X = Y.") == []
@@ -120,21 +120,21 @@ defmodule PrologEx.AttsTest do
 
   describe "Restziele: attribute_goal/2, frozen/2, copy_term/3, term_attvars/2" do
     test "Toplevel zeigt attribute_goal", c do
-      assert ask(c, "domain(X, [a, b, c]), domain(X, [a, c]).") == ["domain(X, \"ac\")"]
-      assert ask(c, "myfreeze(X, foo).") == ["myfreeze(X, foo)"]
-      assert ask(c, "dif(X, a), domain(X, [a, b, c]).") == ["dif(X, a), domain(X, \"abc\")"]
+      assert ask(c, "domain(X, [a, b, c]), domain(X, [a, c]).") == ["domain(X,\"ac\")"]
+      assert ask(c, "myfreeze(X, foo).") == ["myfreeze(X,foo)"]
+      assert ask(c, "dif(X, a), domain(X, [a, b, c]).") == ["dif(X,a), domain(X,\"abc\")"]
     end
 
     test "dif neben verify_attributes/3 (Weckziele nach den Hooks)", c do
       assert ask(c, "dif(X, a), domain(X, [a, b, c]), X = a.") == []
       assert ask(c, "dif(X, a), domain(X, [a, b, c]), X = b.") == ["X = b"]
       assert ask(c, "dif(X, Y), domain(X, [a, b]), X = a, Y = a.") == []
-      assert ask(c, "dif(X, Y), domain(X, [a, b]), X = a.") == ["X = a, dif(Y, a)"]
+      assert ask(c, "dif(X, Y), domain(X, [a, b]), X = a.") == ["X = a, dif(Y,a)"]
     end
 
     test "frozen/2 und copy_term/3", c do
       assert ask(c, "domain(X, [a, b]), frozen(X, G).") |> hd() =~
-               "G = domain:domain(X, \"ab\")"
+               "G = domain:domain(X,\"ab\")"
 
       assert ask(c, "frozen(f(a), G).") == ["G = true"]
 

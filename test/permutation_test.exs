@@ -84,11 +84,11 @@ defmodule PrologEx.PermutationTest do
   end
 
   test "Fehler", c do
-    assert_raise PrologEx.Error, ~r/type_error\(list, foo\)/, fn ->
+    assert_raise PrologEx.Error, ~r/type_error\(list,foo\)/, fn ->
       ask(c, "permutation(foo, P).")
     end
 
-    assert_raise PrologEx.Error, ~r/type_error\(list, foo\)/, fn ->
+    assert_raise PrologEx.Error, ~r/type_error\(list,foo\)/, fn ->
       ask(c, "permutation(X, foo).")
     end
   end

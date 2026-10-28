@@ -97,14 +97,14 @@ defmodule PrologEx.SiTest do
 
   test "compare_si/3", c do
     for {q, exp} <- [
-          {"compare_si(O, a, b)", "O = (<)"},
-          {"compare_si(O, f(a, X), f(b, Y))", "O = (<)"},
-          {"compare_si(O, f(X, a), f(X, b))", "O = (<)"},
-          {"compare_si(O, f(X, a), f(Y, b))", :inst},
-          {"compare_si(O, X, X)", "O = (=)"},
-          {"compare_si(O, X, Y)", :inst},
-          {"compare_si(O, X, a)", :inst},
-          {"compare_si(O, 1, X)", :inst},
+          {"compare_si(O,a,b)", "O = (<)"},
+          {"compare_si(O,f(a,X),f(b,Y))", "O = (<)"},
+          {"compare_si(O,f(X,a),f(X,b))", "O = (<)"},
+          {"compare_si(O,f(X,a),f(Y,b))", :inst},
+          {"compare_si(O,X,X)", "O = (=)"},
+          {"compare_si(O,X,Y)", :inst},
+          {"compare_si(O,X,a)", :inst},
+          {"compare_si(O,1,X)", :inst},
           # Stelligkeit und Name entscheiden vor den Argumenten
           {"compare_si(O, f(X), g(Y))", "O = (<)"},
           {"compare_si(O, f(X, Y), g(Z))", "O = (>)"},
@@ -112,8 +112,8 @@ defmodule PrologEx.SiTest do
           {"compare_si(O, 1.0, 1)", "O = (<)"},
           {"compare_si(<, a, b)", true},
           {"compare_si(>, a, b)", :fail},
-          {"compare_si(foo, a, b)", {:error, "domain_error(order, foo)"}},
-          {"compare_si(1, a, b)", {:error, "type_error(atom, 1)"}}
+          {"compare_si(foo, a, b)", {:error, "domain_error(order,foo)"}},
+          {"compare_si(1, a, b)", {:error, "type_error(atom,1)"}}
         ] do
       assert run(c, q) == exp, q
     end
@@ -121,24 +121,24 @@ defmodule PrologEx.SiTest do
 
   test "sort_si/2, msort_si/2, keysort_si/2", c do
     for {q, exp} <- [
-          {"sort_si([cc,aa,bb,aa], L)", "L = [aa,bb,cc]"},
-          {"sort_si([X, X], L)", "L = [X]"},
-          {"sort_si([X], L)", "L = [X]"},
-          {"sort_si([], L)", "L = []"},
-          {"sort_si([X, a], L)", :inst},
-          {"sort_si([X, Y], L)", :inst},
-          {"sort_si([f(a, X), f(b, Y)], L)", "L = [f(a, X),f(b, Y)]"},
-          {"sort_si([f(Y, b), f(X, a)], L)", :inst},
-          {"sort_si([a|_], L)", :inst},
-          {"sort_si(foo, L)", {:error, "type_error(list, foo)"}},
-          {"msort_si([bb,aa,bb], L)", "L = [aa,bb,bb]"},
-          {"msort_si([X, X], L)", "L = [X,X]"},
-          {"msort_si([X, Y], L)", :inst},
-          {"keysort_si([b-1, a-X, b-0], L)", "L = [a-X,b-1,b-0]"},
-          {"keysort_si([X-1, X-2], L)", "L = [X-1,X-2]"},
-          {"keysort_si([K-1, a-2], L)", :inst},
-          {"keysort_si([a-1, _], L)", :inst},
-          {"keysort_si([a-1, b], L)", {:error, "type_error(pair, b)"}}
+          {"sort_si([cc,aa,bb,aa],L)", "L = [aa,bb,cc]"},
+          {"sort_si([X,X],L)", "L = [X]"},
+          {"sort_si([X],L)", "L = [X]"},
+          {"sort_si([],L)", "L = []"},
+          {"sort_si([X,a],L)", :inst},
+          {"sort_si([X,Y],L)", :inst},
+          {"sort_si([f(a,X),f(b,Y)],L)", "L = [f(a,X),f(b,Y)]"},
+          {"sort_si([f(Y,b),f(X,a)],L)", :inst},
+          {"sort_si([a|_],L)", :inst},
+          {"sort_si(foo,L)", {:error, "type_error(list,foo)"}},
+          {"msort_si([bb,aa,bb],L)", "L = [aa,bb,bb]"},
+          {"msort_si([X,X],L)", "L = [X,X]"},
+          {"msort_si([X,Y],L)", :inst},
+          {"keysort_si([b-1,a-X,b-0],L)", "L = [a-X,b-1,b-0]"},
+          {"keysort_si([X-1,X-2],L)", "L = [X-1,X-2]"},
+          {"keysort_si([K-1,a-2],L)", :inst},
+          {"keysort_si([a-1,_],L)", :inst},
+          {"keysort_si([a-1,b],L)", {:error, "type_error(pair,b)"}}
         ] do
       assert run(c, q) == exp, q
     end
@@ -150,7 +150,7 @@ defmodule PrologEx.SiTest do
           {"term_si(f(a, [1, g(b)]))", true},
           {"term_si(_)", :inst},
           {"term_si(f(a, _))", :inst},
-          {"X = b, term_si(f(a, X))", "X = b"},
+          {"X = b, term_si(f(a,X))", "X = b"},
           {"not_si(1 = 2)", true},
           {"not_si(a = a)", :fail},
           {"not_si(X = a)", :inst},
@@ -169,19 +169,19 @@ defmodule PrologEx.SiTest do
 
   test "when_si/2", c do
     for {q, exp} <- [
-          {"when_si(nonvar(X), atom(X))", :inst},
-          {"X = a, when_si(nonvar(X), atom(X))", "X = a"},
-          {"X = 1, when_si(nonvar(X), atom(X))", :fail},
+          {"when_si(nonvar(X),atom(X))", :inst},
+          {"X = a, when_si(nonvar(X),atom(X))", "X = a"},
+          {"X = 1, when_si(nonvar(X),atom(X))", :fail},
           # Reihenfolge zählt (when/2 gäbe hier X = a)
           {"when_si(nonvar(X), atom(X)), X = a", :inst},
           {"when_si(ground(f(a, X)), true)", :inst},
-          {"X = b, when_si(ground(f(a, X)), true)", "X = b"},
+          {"X = b, when_si(ground(f(a,X)),true)", "X = b"},
           {"when_si(?=(X, X), true)", "true"},
           {"when_si(?=(f(X), g(Y)), true)", "true"},
           {"when_si(?=(f(X), f(Y)), true)", :inst},
           {"when_si((nonvar(X) ; nonvar(a)), true)", "true"},
           {"when_si((nonvar(a), nonvar(X)), true)", :inst},
-          {"when_si(foo, true)", {:error, "domain_error(when_condition, foo)"}},
+          {"when_si(foo, true)", {:error, "domain_error(when_condition,foo)"}},
           {"when_si(_, true)", :inst},
           {"when_si(nonvar(a), _)", :inst},
           {"when_si(nonvar(a), (X = 1 ; X = 2))", [%{"X" => 1}, %{"X" => 2}]},
@@ -209,7 +209,7 @@ defmodule PrologEx.SiTest do
   test "nur nach use_module sichtbar", c do
     [{:term, g, _}] = Reader.read_terms(c.reader, "atom_si(a).")
     e = assert_raise(PrologEx.Error, fn -> PrologEx.query(%{}, g) |> Enum.take(1) end)
-    assert Exception.message(e) =~ "existence_error(procedure, atom_si/1)"
+    assert Exception.message(e) =~ "existence_error(procedure,atom_si/1)"
   end
 
   # compare_si entscheidet nur, was unter jeder Bindung gilt: nach

@@ -32,17 +32,17 @@ defmodule PrologEx.AnswerNamesTest do
   end
 
   test "dieselbe Variable, derselbe Name – auch über Bindungen und Restziele hinweg", c do
-    assert ask(c, "copy_term(f(A, B, A), C).") == ["C = f(_A, _B, _A)"]
+    assert ask(c, "copy_term(f(A, B, A), C).") == ["C = f(_A,_B,_A)"]
     assert ask(c, "copy_term(f(Q)-g(Q), X-Y).") == ["X = f(_A), Y = g(_A)"]
-    assert ask(c, "length(L, 2), dif(L, [a, b]).") == ["L = [_A,_B], dif(f(_A, _B), f(a, b))"]
+    assert ask(c, "length(L, 2), dif(L, [a, b]).") == ["L = [_A,_B], dif(f(_A,_B),f(a,b))"]
 
     assert ask(c, "length(L, 2), L = [_, Y], freeze(Y, true).") == [
-             "L = [_A,Y], freeze(Y, true)"
+             "L = [_A,Y], freeze(Y,true)"
            ]
   end
 
   test "Anfragevariablen behalten ihren Namen, ihre Namen werden übersprungen", c do
-    assert ask(c, "X = f(_, Y, _).") == ["X = f(_A, Y, _B)"]
+    assert ask(c, "X = f(_, Y, _).") == ["X = f(_A,Y,_B)"]
     # _A steht in der Anfrage: frische beginnen bei _B
     assert ask(c, "length(L, 3), L = [_A|_].") == ["L = [_A,_B,_C]"]
     assert ask(c, "length(L, 3), L = [_, _B|_].") == ["L = [_A,_B,_C]"]

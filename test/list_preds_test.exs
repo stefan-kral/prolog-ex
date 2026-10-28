@@ -210,10 +210,10 @@ defmodule PrologEx.ListPredsTest do
           do: assert(more(g(q)) == [false], q)
 
       assert all(g("catch(same_length(A, B, x), error(E, _), true)")) ==
-               ["E = type_error(integer, x)"]
+               ["E = type_error(integer,x)"]
 
       assert all(g("catch(same_length(A, B, 1.0), error(E, _), true)")) ==
-               ["E = type_error(integer, 1.0)"]
+               ["E = type_error(integer,1.0)"]
     end
   end
 

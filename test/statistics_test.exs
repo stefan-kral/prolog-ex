@@ -192,8 +192,8 @@ defmodule PrologEx.StatisticsTest do
 
   test "Fehler", c do
     assert err(c, "statistics(K, V).") =~ "instantiation_error"
-    assert err(c, "statistics(foo, V).") =~ "domain_error(statistics_key, foo)"
-    assert err(c, "statistics(1, V).") =~ "type_error(atom, 1)"
+    assert err(c, "statistics(foo, V).") =~ "domain_error(statistics_key,foo)"
+    assert err(c, "statistics(1, V).") =~ "type_error(atom,1)"
   end
 
   # time/1 misst nur die Zeit, in der G läuft: Wartezeit zwischen den

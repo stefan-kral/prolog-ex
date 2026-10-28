@@ -50,7 +50,7 @@ defmodule PrologEx.BagofTest do
 
     test "freie Variablen: eine Lösung je Gruppe, nach Zeugen sortiert", c do
       assert ask(c, "bagof(1, (Y = 1 ; Y = 2), L).") == ["L = [1], Y = 1 ;", "L = [1], Y = 2"]
-      assert ask(c, "bagof(f(X, Y), (X = a ; Y = b), L).") == ["L = [f(a, _A),f(_B, b)]"]
+      assert ask(c, "bagof(f(X, Y), (X = a ; Y = b), L).") == ["L = [f(a,_A),f(_B,b)]"]
 
       assert ask(c, "bagof(X, (X = Y ; X = Z ; Y = 1), S).") ==
                ["S = [Y,Z] ;", "S = [_A], Y = 1"]
@@ -69,8 +69,8 @@ defmodule PrologEx.BagofTest do
       # sortiert: f(_1, b) < f(_2, a) < f(_3, b) (Variablen nach Alter);
       # f(_1, b) und f(_3, b) sind Varianten
       assert ask(c, "bagof(T, pf(W, T), L).") == [
-               "L = [1,3], W = f(_A, b) ;",
-               "L = [2], W = f(_A, a)"
+               "L = [1,3], W = f(_A,b) ;",
+               "L = [2], W = f(_A,a)"
              ]
     end
 
@@ -101,9 +101,9 @@ defmodule PrologEx.BagofTest do
     test "Fehler", c do
       assert err(c, "bagof(X, G, L).") =~ "instantiation_error"
       assert err(c, "bagof(X, Y^Z, L).") =~ "instantiation_error"
-      assert err(c, "bagof(X, 1, L).") =~ "type_error(callable, 1)"
-      assert err(c, "bagof(X, true, foo).") =~ "type_error(list, foo)"
-      assert err(c, "bagof(X, true, [a|b]).") =~ "type_error(list, [a|b])"
+      assert err(c, "bagof(X, 1, L).") =~ "type_error(callable,1)"
+      assert err(c, "bagof(X, true, foo).") =~ "type_error(list,foo)"
+      assert err(c, "bagof(X, true, [a|b]).") =~ "type_error(list,[a|b])"
     end
   end
 
@@ -114,7 +114,7 @@ defmodule PrologEx.BagofTest do
       assert ask(c, "setof(X, (X = 2 ; X = 2), S).") == ["S = [2]"]
       assert ask(c, "setof(X, fail, S).") == []
       assert ask(c, "setof(1, (Y = 2 ; Y = 1), L).") == ["L = [1], Y = 1 ;", "L = [1], Y = 2"]
-      assert ask(c, "setof(f(X, Y), X = Y, L).") == ["L = [f(_A, _A)]"]
+      assert ask(c, "setof(f(X, Y), X = Y, L).") == ["L = [f(_A,_A)]"]
       assert ask(c, "setof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [_A,1,2]"]
     end
 

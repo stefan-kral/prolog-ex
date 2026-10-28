@@ -39,10 +39,10 @@ defmodule PrologEx.AtomPredsTest do
 
     test "Fehler", c do
       assert err(c, "atom_length(X, 4).") =~ "instantiation_error"
-      assert err(c, "atom_length(123, N).") =~ "type_error(atom, 123)"
-      assert err(c, "atom_length(f(a), N).") =~ "type_error(atom, f(a))"
-      assert err(c, "atom_length(atom, '4').") =~ "type_error(integer, '4')"
-      assert err(c, "atom_length(atom, -1).") =~ "domain_error(not_less_than_zero, -1)"
+      assert err(c, "atom_length(123, N).") =~ "type_error(atom,123)"
+      assert err(c, "atom_length(f(a), N).") =~ "type_error(atom,f(a))"
+      assert err(c, "atom_length(atom, '4').") =~ "type_error(integer,'4')"
+      assert err(c, "atom_length(atom, -1).") =~ "domain_error(not_less_than_zero,-1)"
     end
   end
 
@@ -70,9 +70,9 @@ defmodule PrologEx.AtomPredsTest do
     test "Fehler", c do
       assert err(c, "atom_concat(A, iso, C).") =~ "instantiation_error"
       assert err(c, "atom_concat(iso, B, C).") =~ "instantiation_error"
-      assert err(c, "atom_concat(f(a), x, C).") =~ "type_error(atom, f(a))"
-      assert err(c, "atom_concat(x, 1, C).") =~ "type_error(atom, 1)"
-      assert err(c, "atom_concat(A, B, 7).") =~ "type_error(atom, 7)"
+      assert err(c, "atom_concat(f(a), x, C).") =~ "type_error(atom,f(a))"
+      assert err(c, "atom_concat(x, 1, C).") =~ "type_error(atom,1)"
+      assert err(c, "atom_concat(A, B, 7).") =~ "type_error(atom,7)"
     end
   end
 
@@ -124,9 +124,9 @@ defmodule PrologEx.AtomPredsTest do
 
     test "Fehler", c do
       assert err(c, "sub_atom(W, 3, 2, S, T).") =~ "instantiation_error"
-      assert err(c, "sub_atom(f(a), B, L, A, S).") =~ "type_error(atom, f(a))"
-      assert err(c, "sub_atom(abc, a, L, A, S).") =~ "type_error(integer, a)"
-      assert err(c, "sub_atom(abc, B, L, A, 1).") =~ "type_error(atom, 1)"
+      assert err(c, "sub_atom(f(a), B, L, A, S).") =~ "type_error(atom,f(a))"
+      assert err(c, "sub_atom(abc, a, L, A, S).") =~ "type_error(integer,a)"
+      assert err(c, "sub_atom(abc, B, L, A, 1).") =~ "type_error(atom,1)"
     end
   end
 
@@ -153,12 +153,12 @@ defmodule PrologEx.AtomPredsTest do
       assert err(c, "atom_chars(X, Y).") =~ "instantiation_error"
       assert err(c, "atom_chars(X, [a|_]).") =~ "instantiation_error"
       assert err(c, "atom_chars(X, [a, _]).") =~ "instantiation_error"
-      assert err(c, "atom_chars(1, L).") =~ "type_error(atom, 1)"
-      assert err(c, "atom_chars(X, a).") =~ "type_error(list, a)"
-      assert err(c, "atom_chars(X, [a|b]).") =~ "type_error(list, [a|b])"
-      assert err(c, "atom_chars(X, [ab]).") =~ "type_error(character, ab)"
+      assert err(c, "atom_chars(1, L).") =~ "type_error(atom,1)"
+      assert err(c, "atom_chars(X, a).") =~ "type_error(list,a)"
+      assert err(c, "atom_chars(X, [a|b]).") =~ "type_error(list,[a|b])"
+      assert err(c, "atom_chars(X, [ab]).") =~ "type_error(character,ab)"
       # Elemente werden auch bei gebundenem Atom geprüft (wie number_chars)
-      assert err(c, "atom_chars(a, [f(x)|_]).") =~ "type_error(character, f(x))"
+      assert err(c, "atom_chars(a, [f(x)|_]).") =~ "type_error(character,f(x))"
       assert err(c, "atom_codes(X, Y).") =~ "instantiation_error"
       assert err(c, "atom_codes(X, [-1]).") =~ "representation_error(character_code)"
     end
@@ -175,12 +175,12 @@ defmodule PrologEx.AtomPredsTest do
     end
 
     test "Fehler", c do
-      assert err(c, "char_code(ab, Code).") =~ "type_error(character, ab)"
+      assert err(c, "char_code(ab, Code).") =~ "type_error(character,ab)"
       assert err(c, "char_code(C, D).") =~ "instantiation_error"
-      assert err(c, "char_code(C, x).") =~ "type_error(integer, x)"
-      assert err(c, "char_code(a, x).") =~ "type_error(integer, x)"
+      assert err(c, "char_code(C, x).") =~ "type_error(integer,x)"
+      assert err(c, "char_code(a, x).") =~ "type_error(integer,x)"
       assert err(c, "char_code(C, -2).") =~ "representation_error(character_code)"
-      assert err(c, "char_code(1, C).") =~ "type_error(character, 1)"
+      assert err(c, "char_code(1, C).") =~ "type_error(character,1)"
     end
   end
 
@@ -200,8 +200,8 @@ defmodule PrologEx.AtomPredsTest do
 
     test "Fehler", c do
       assert err(c, "atom_number(A, N).") =~ "instantiation_error"
-      assert err(c, "atom_number(1, N).") =~ "type_error(atom, 1)"
-      assert err(c, "atom_number(A, foo).") =~ "type_error(number, foo)"
+      assert err(c, "atom_number(1, N).") =~ "type_error(atom,1)"
+      assert err(c, "atom_number(A, foo).") =~ "type_error(number,foo)"
     end
   end
 

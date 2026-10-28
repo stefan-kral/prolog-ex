@@ -114,9 +114,9 @@ defmodule PrologEx.ScryerCharsioTest do
   end
 
   test "char_type/2: Fehler", c do
-    assert err(c, "char_type(ab, alpha)") == ["E = type_error(character, ab)"]
-    assert err(c, "char_type(1, alpha)") == ["E = type_error(character, 1)"]
-    assert err(c, "char_type(a, foo)") == ["E = domain_error(char_type, foo)"]
+    assert err(c, "char_type(ab, alpha)") == ["E = type_error(character,ab)"]
+    assert err(c, "char_type(1, alpha)") == ["E = type_error(character,1)"]
+    assert err(c, "char_type(a, foo)") == ["E = domain_error(char_type,foo)"]
     assert err(c, "char_type(_, _)") == ["E = instantiation_error"]
   end
 
@@ -129,13 +129,13 @@ defmodule PrologEx.ScryerCharsioTest do
     assert ask(c, ~s|read_from_chars("   ", T)|) == ["T = end_of_file"]
     assert err(c, ~s|read_from_chars("f(", _)|) == ["E = syntax_error(end_of_file_in_term)"]
     assert err(c, "read_from_chars(_, _)") == ["E = instantiation_error"]
-    assert err(c, "read_from_chars(abc, _)") == ["E = type_error(list, abc)"]
+    assert err(c, "read_from_chars(abc, _)") == ["E = type_error(list,abc)"]
 
     assert ask(c, ~s|read_term_from_chars("g(X, _Y).", T, [variable_names(Vs)])|) ==
-             ["T = g(_A, _B), Vs = ['X'=_A,'_Y'=_B]"]
+             ["T = g(_A,_B), Vs = ['X'=_A,'_Y'=_B]"]
 
     assert err(c, ~s|read_term_from_chars("a.", _, [nix])|) == [
-             "E = domain_error(read_option, nix)"
+             "E = domain_error(read_option,nix)"
            ]
   end
 
@@ -154,10 +154,10 @@ defmodule PrologEx.ScryerCharsioTest do
 
     assert ask(c, ~s|write_term_to_chars('$VAR'(1), [numbervars(true)], Cs)|) == [~s|Cs = "B"|]
     assert err(c, "write_term_to_chars(a, _, _)") == ["E = instantiation_error"]
-    assert err(c, "write_term_to_chars(a, [foo], _)") == ["E = domain_error(write_option, foo)"]
+    assert err(c, "write_term_to_chars(a, [foo], _)") == ["E = domain_error(write_option,foo)"]
     assert err(c, "write_term_to_chars(a, [], x)") == ["E = uninstantiation_error(x)"]
     # Optionen zuerst
-    assert err(c, "write_term_to_chars(a, [foo], x)") == ["E = domain_error(write_option, foo)"]
+    assert err(c, "write_term_to_chars(a, [foo], x)") == ["E = domain_error(write_option,foo)"]
   end
 
   test "chars_utf8bytes/2, chars_base64/3", c do
@@ -169,8 +169,8 @@ defmodule PrologEx.ScryerCharsioTest do
     assert ask(c, ~s|chars_base64(X, "-w==", [charset(url)])|) == [~s|X = "û"|]
     assert ask(c, ~s|chars_base64(X, "+w==", [])|) == [~s|X = "û"|]
     assert ask(c, ~s|chars_base64(_, "%%", [])|) == []
-    assert err(c, ~s|chars_base64("ā", _, [])|) == ["E = domain_error(octet_character, 'ā')"]
-    assert err(c, ~s|chars_base64("a", _, [charset(x)])|) == ["E = domain_error(charset, x)"]
+    assert err(c, ~s|chars_base64("ā", _, [])|) == ["E = domain_error(octet_character,'ā')"]
+    assert err(c, ~s|chars_base64("a", _, [charset(x)])|) == ["E = domain_error(charset,x)"]
     assert err(c, ~s|chars_base64("a", _, [_])|) == ["E = instantiation_error"]
   end
 
@@ -215,6 +215,6 @@ defmodule PrologEx.ScryerCharsioTest do
     assert ask(c, "append([[1], [2, 3], []], L)") == ["L = [1,2,3]"]
     assert ask(c, "append([X, [3]], [1, 2, 3])") |> hd() == "X = [1,2]"
     assert err(c, "append([[1]|_], _)") == ["E = instantiation_error"]
-    assert err(c, "append(a, _)") == ["E = type_error(list, a)"]
+    assert err(c, "append(a, _)") == ["E = type_error(list,a)"]
   end
 end

@@ -60,7 +60,7 @@ defmodule PrologEx.ConsultTest do
     assert ask(r, db, ~S|phrase(zwei, "xy", R).|) == [~S|R = "aby"|]
     # Pushback muss eine Liste sein
     assert {_, [msg]} = load(r, "p, x --> [].\n")
-    assert msg =~ "type_error(list, x)"
+    assert msg =~ "type_error(list,x)"
   end
 
   test "DCG: M:Rumpf läuft im Modul M (wie SWI)", %{reader: r} do
@@ -122,7 +122,7 @@ defmodule PrologEx.ConsultTest do
   test "listing zeigt den Quelltext", %{reader: r} do
     {db, []} = load(r, "app([], L, L).\napp([H|T], L, [H|R]) :- app(T, L, R).\n")
     out = capture_io(fn -> ask(r, db, "listing(app/3).") end)
-    assert out == "app([], L, L).\napp([H|T], L, [H|R]) :-\n    app(T, L, R).\n"
+    assert out == "app([],L,L).\napp([H|T],L,[H|R]) :-\n    app(T,L,R).\n"
   end
 
   test "Toplevel: Programm von stdin mit -g" do

@@ -102,7 +102,7 @@ defmodule PrologEx.LibraryTest do
     end
 
     test "baut" do
-      assert all(s("=..", [@t, list([a("h"), @x, 2])])) == ["T = h(X, 2)"]
+      assert all(s("=..", [@t, list([a("h"), @x, 2])])) == ["T = h(X,2)"]
       assert all(s("=..", [@t, list([a("foo")])])) == ["T = foo"]
       assert all(s("=..", [@t, list([a("."), 1, list([])])])) == ["T = [1]"]
     end
@@ -315,7 +315,7 @@ defmodule PrologEx.LibraryTest do
     test "listing(append/3) zeigt das klassische Hilfsprädikat" do
       out = capture_io(fn -> all(s("listing", [s("/", [a("append"), 3])])) end)
       assert out =~ "% lists:append/3: eingebaut, in Elixir realisiert"
-      assert out =~ "lists:'$append'([H|T], L, [H|R]) :-"
+      assert out =~ "lists:'$append'([H|T],L,[H|R]) :-"
     end
   end
 
@@ -434,13 +434,13 @@ defmodule PrologEx.LibraryTest do
       out = capture_io(fn -> all(s("listing", [a("numlist")])) end)
 
       assert out ==
-               "lists:numlist(N, L) :-\n    numlist(1, N, L).\n\n" <>
+               "lists:numlist(N,L) :-\n    numlist(1,N,L).\n\n" <>
                  "% lists:numlist/3: eingebaut, in Elixir realisiert (PrologEx.Builtins.Lists)\n"
 
       # Hilfsprädikate explizit verlangt: werden gezeigt; listing/0 zeigt
       # nur Benutzerprädikate
       out = capture_io(fn -> all(s("listing", [a("$append")])) end)
-      assert out =~ "lists:'$append'([], L, L)."
+      assert out =~ "lists:'$append'([],L,L)."
       out = capture_io(fn -> all(a("listing")) end)
       refute out =~ "numlist"
     end
