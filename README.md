@@ -694,6 +694,14 @@ Direktive).
   * Nach einem Syntaxfehler geht es hinter dem nächsten Endepunkt weiter
     (wie gprolog, aber Kommentare zählen als Ganzes).
 
+Neumerkels Konformitätstabelle zur ISO-Syntax (in der Fassung von Scryer
+Prolog, 266 Fälle zum Lesen und Schreiben): 259 bestehen.
+`mix run conformance/neumerkel/run.exs /pfad/scryer-prolog` (Checkout
+von github.com/mthom/scryer-prolog). Die übrigen sieben sind Absicht oder
+von ISO offen gelassen: Backquotes lesen sich als Atom (#113; ISO: kein
+Term), `|` ist wie bei gprolog und SWI vordefiniert (#285), dazu Abstände
+und Variablennamen in der Ausgabe (#142, #151, #226, #227, #260).
+
 Die Tests vergleichen Reader und Writer mit gprolog über aufgezeichnete
 Ergebnisse (`test/fixtures/reader/gprolog_reads.txt`,
 `test/fixtures/writer/gprolog_writeq.txt`) – gprolog braucht man dafür

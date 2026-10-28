@@ -174,6 +174,36 @@ defmodule PrologEx.WriterOpsTest do
     end
   end
 
+  # aus Neumerkels Konformitätstabelle (#131–#156): sonst läse sich die
+  # Ausgabe als anderer Term zurück
+  test "rechts offener linker Operand wird geklammert; Quotes kleben nicht", c do
+    for {p, t, n} <- [{9, "fy", "fy"}, {9, "yf", "yf"}, {9, "yfx", "yfx"}, {9, "xfy", "xfy"}],
+        do: PrologEx.Ops.add(p, t, n)
+
+    PrologEx.Ops.add(100, "fx", " op")
+
+    for {canonical, expected} <- [
+          {"yf(fy(1))", "(fy 1)yf"},
+          {"fy(yf(1))", "fy 1 yf"},
+          {"yfx(fy(1),2)", "(fy 1) yfx 2"},
+          {"fy(yfx(1,2))", "fy 1 yfx 2"},
+          {"yf(xfy(1,2))", "(1 xfy 2)yf"},
+          {"xfy(1,yf(2))", "1 xfy 2 yf"},
+          {"yf(+(a,fy(1)))", "(a+fy 1)yf"},
+          {"' op'('1 ')", "' op' '1 '"},
+          {"' op'([])", "' op'[]"}
+        ] do
+      {:ok, t} = read_canonical(c.reader, canonical)
+      out = Writer.format(t, quoted: true)
+      assert out == expected
+      assert [{:term, back, _}] = Reader.read_terms(c.reader, out <> " .\n"), out
+      assert canon(back) == canon(t), out
+    end
+
+    # Steuerzeichen ohne eigenes Escape einheitlich als \xH\ (#225, #250)
+    assert Writer.format(a(<<0, ?a, 27>>), quoted: true) == "'\\x0\\a\\x1B\\'"
+  end
+
   describe "Optionen" do
     test "numbervars, max_depth, spacing, priority, operand, variable_names" do
       t = mk("f", [mk("$VAR", [0]), mk("$VAR", [25]), mk("$VAR", [26]), mk("$VAR", [a("x")])])

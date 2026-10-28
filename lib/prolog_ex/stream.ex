@@ -315,13 +315,13 @@ defmodule PrologEx.Stream do
 
   @doc """
   Liest den Text bis zum Ende des nächsten Terms (siehe
-  PrologEx.TermScanner): {:term, text} | :eof | {:incomplete, text} (Datei
+  PrologEx.Parser.scan_end/2): {:term, text} | :eof | {:incomplete, text} (Datei
   endet mitten im Term).
   """
   def read_term_text(id) do
     s = get(id)
 
-    case PrologEx.TermScanner.scan(s.buf, s.eof) do
+    case PrologEx.Parser.scan_end(s.buf, s.eof) do
       {:end, n} ->
         {text, rest} = :erlang.split_binary(s.buf, n)
         update(consume(%{s | buf: rest}, text))

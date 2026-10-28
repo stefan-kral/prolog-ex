@@ -32,6 +32,12 @@ defmodule PrologEx.ParserTest do
     assert r1("x(1e10)") == :error
     assert r1("x(1.0e400)") == :error
     assert r1("x(0'')") == :error
+    # kein gültiges Zeichen nach 0': 0 allein, das Quote beginnt ein Token
+    assert r(":- op(100, xfx, '').\nx(0''1).\n") |> List.last() == "x(''(0,1))"
+    assert r1("x(0'\\\n+'1)") == "x(+(0,1))"
+    # Spalten hinter Gleitkommazahlen mit Exponent stimmen
+    assert [{:error, msg}] = Parser.read_terms("x(1.5e3 1).", ops: PrologEx.Ops.default())
+    assert msg =~ "Spalte 9"
   end
 
   test "negative Zahlen: - vor einer Zahl in Operandenstellung (ISO 6.3.4.1)" do

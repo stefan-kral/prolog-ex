@@ -123,6 +123,10 @@ defmodule PrologEx.SetupCallCleanupTest do
     assert ask(c, "catch(setup_call_cleanup(true, true, throw(c)), E, true)") == ["E = c"]
   end
 
+  test "call_cleanup/2 (SWI) ist setup_call_cleanup(true, G, C)", c do
+    assert ask(c, "call_cleanup(ndet(X), log(cc)), !, logs(L)") == ["L = [cc], X = aa"]
+  end
+
   test "Fehler: alle drei müssen aufrufbar sein (C nach dem Setup)", c do
     assert ask(c, "catch(setup_call_cleanup(_, true, true), error(E, _), true)") ==
              ["E = instantiation_error"]

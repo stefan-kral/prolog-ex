@@ -117,6 +117,7 @@ defmodule PrologEx.WriterRef do
 
   defp infix(f, {p, type}, l, r, max, d, o) do
     {lp, rp} = infix_args(p, type)
+    lp = if right_open(l, lp, o) >= p, do: 0, else: lp
     {lio, lf, ll} = w(l, lp, :operand, d + 1, o)
     {rio, rf, rl} = w(r, rp, :operand, d + 1, o)
 
@@ -162,9 +163,10 @@ defmodule PrologEx.WriterRef do
 
   defp postfix(f, {p, type}, x, max, d, o) do
     ap = if type == "yf", do: p, else: p - 1
+    ap = if right_open(x, ap, o) >= p, do: 0, else: ap
     {aio, af, al} = w(x, ap, :operand, d + 1, o)
     op = atom(f, o)
-    sep = if alpha?(op) or glue?(al, first(op)), do: " ", else: ""
+    sep = if glue?(al, first(op)), do: " ", else: ""
     wrap({[aio, sep, op], af || first(op), last(op)}, p, max)
   end
 
@@ -173,6 +175,23 @@ defmodule PrologEx.WriterRef do
     name = atom(f, o)
     {[name, "(", Enum.intersperse(items, o.comma), ")"], first(name), ?)}
   end
+
+  # rechtes Ende des Terms: größte Priorität, die es noch aufnimmt
+  defp right_open({tag, f, args}, max, o) when tag in [:struct, :gstruct] do
+    case {args, Map.get(o.ops, f)} do
+      {[_, _], %{infix: {p, type}}} when p <= max ->
+        {_, rp} = infix_args(p, type)
+        rp
+
+      {[_], %{prefix: {p, type}}} when p <= max ->
+        if type == "fy", do: p, else: p - 1
+
+      _ ->
+        -1
+    end
+  end
+
+  defp right_open(_t, _max, _o), do: -1
 
   defp infix_args(p, "xfx"), do: {p - 1, p - 1}
   defp infix_args(p, "xfy"), do: {p - 1, p}
@@ -251,7 +270,9 @@ defmodule PrologEx.WriterRef do
   defp glue?(a, b) when is_nil(a) or is_nil(b), do: false
 
   defp glue?(a, b),
-    do: (alnum?(a) and alnum?(b)) or (symbol?(a) and symbol?(b)) or (digit?(a) and b == ?')
+    do:
+      (alnum?(a) and alnum?(b)) or (symbol?(a) and symbol?(b)) or (digit?(a) and b == ?') or
+        (a == b and a in [?', ?", ?`])
 
   # als Guards: zur Übersetzungszeit zu Vergleichen aufgelöst
   defp symbol?(c) when c in @symbol, do: true
@@ -328,7 +349,6 @@ defmodule PrologEx.WriterRef do
         ?\b -> "\\b"
         ?\f -> "\\f"
         ?\v -> "\\v"
-        0 -> "\\0\\"
         c when c < 32 or c == 127 -> ["\\x", Integer.to_string(c, 16), "\\"]
         c -> <<c::utf8>>
       end

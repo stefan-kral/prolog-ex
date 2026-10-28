@@ -189,6 +189,7 @@ defmodule PrologEx.Writer do
     case {args, entry} do
       {[l, r], %{infix: {p, type}}} ->
         {lp, rp} = infix_args(p, type)
+        lp = left_max(l, lp, p, o)
         descend(l, lp, :operand, d + 1, o, [{:infix_l, f, p, max, r, rp, d} | st])
 
       {[x], %{prefix: {p, type}}} ->
@@ -197,6 +198,7 @@ defmodule PrologEx.Writer do
 
       {[x], %{postfix: {p, type}}} ->
         ap = if type == "yf", do: p, else: p - 1
+        ap = left_max(x, ap, p, o)
         descend(x, ap, :operand, d + 1, o, [{:postfix, f, p, max} | st])
 
       {[], _} ->
@@ -229,7 +231,8 @@ defmodule PrologEx.Writer do
 
   defp ret([{:postfix, f, p, max} | st], {aio, af, al}, o) do
     op = atom(f, o)
-    sep = if alpha?(op) or glue?(al, first(op)), do: " ", else: ""
+    # Leerzeichen nur, wo Zeichen verschmölzen: 1 yf, aber (fy 1)yf
+    sep = if glue?(al, first(op)), do: " ", else: ""
     ret(st, wrap({[aio, sep, op], af || first(op), last(op)}, p, max), o)
   end
 
@@ -277,6 +280,35 @@ defmodule PrologEx.Writer do
     sep = if af == ?( or alpha?(op) or glue?(last(op), af), do: " ", else: ""
     wrap({[op, sep, aio], first(op), al || last(op)}, p, max)
   end
+
+  # Linker Operand vor einem Infix- oder Postfixoperator der Priorität p:
+  # endet er rechts offen – mit einem Präfixoperator oder dem rechten
+  # Argument eines Infixoperators, das Terme bis Priorität >= p nimmt –,
+  # läse der Reader den folgenden Operator dort hinein ("fy 1 yf" ist
+  # fy(yf(1))). Dann Klammern: (fy 1)yf, (1 xfy 2)yf (ISO 7.10.5).
+  defp left_max(l, lp, p, o), do: if(right_open(l, lp, o) >= p, do: 0, else: lp)
+
+  # größte Priorität, die das rechte Ende des (so geschriebenen) Terms
+  # noch aufnimmt; -1: rechts geschlossen. Tiefer muss man nicht schauen:
+  # ein Operator im rechten Argument hat höchstens dessen Priorität, nimmt
+  # also nicht mehr auf.
+  defp right_open({tag, f, args}, max, o) when tag in [:struct, :gstruct] do
+    entry = Map.get(o.ops, f)
+
+    case {args, entry} do
+      {[_, _], %{infix: {p, type}}} when p <= max ->
+        {_, rp} = infix_args(p, type)
+        rp
+
+      {[_], %{prefix: {p, type}}} when p <= max ->
+        if type == "fy", do: p, else: p - 1
+
+      _ ->
+        -1
+    end
+  end
+
+  defp right_open(_t, _max, _o), do: -1
 
   defp infix_args(p, "xfx"), do: {p - 1, p - 1}
   defp infix_args(p, "xfy"), do: {p - 1, p}
@@ -351,8 +383,11 @@ defmodule PrologEx.Writer do
 
   defp glue?(a, b) when is_nil(a) or is_nil(b), do: false
 
+  # zwei Quotes nebeneinander wären ein verdoppeltes Quote: ' op' '1 '
   defp glue?(a, b),
-    do: (alnum?(a) and alnum?(b)) or (symbol?(a) and symbol?(b)) or (digit?(a) and b == ?')
+    do:
+      (alnum?(a) and alnum?(b)) or (symbol?(a) and symbol?(b)) or (digit?(a) and b == ?') or
+        (a == b and a in [?', ?", ?`])
 
   # als Guards: zur Übersetzungszeit zu Vergleichen aufgelöst
   defp symbol?(c) when c in @symbol, do: true
@@ -429,7 +464,6 @@ defmodule PrologEx.Writer do
         ?\b -> "\\b"
         ?\f -> "\\f"
         ?\v -> "\\v"
-        0 -> "\\0\\"
         c when c < 32 or c == 127 -> ["\\x", Integer.to_string(c, 16), "\\"]
         c -> <<c::utf8>>
       end

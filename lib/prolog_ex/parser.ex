@@ -103,6 +103,46 @@ defmodule PrologEx.Parser do
   end
 
   @doc """
+  Ende des nächsten Terms in `text` (für read/1 von einem Stream, der
+  stückweise gefüllt wird), mit demselben Tokenizer wie beim Lesen:
+
+    * `{:end, n}` – die ersten n Bytes sind der Term samt Endepunkt; das
+      folgende Layoutzeichen bleibt im Stream (ISO 8.14.1.4),
+    * `:empty` – bis zum Dateiende nur Leerraum und Kommentare,
+    * `{:eof_inside, n}` – Dateiende mitten in einem Term,
+    * `:more` – der Text reicht nicht (`eof?` falsch), nachlesen.
+
+  Bei einem Fehler im Term (etwa einer unbekannten Escape-Sequenz) endet
+  er wie beim Wiederaufsetzen am nächsten Endepunkt; den Fehler meldet
+  dann das Lesen.
+  """
+  def scan_end(text, eof?) do
+    size = byte_size(text)
+
+    case tokens(text, 0, []) do
+      :eof ->
+        if eof?, do: :empty, else: :more
+
+      # am Pufferende kann der Punkt noch zu einer Symbolfolge gehören
+      {:ok, _toks, _rest, pos} when pos >= size and not eof? ->
+        :more
+
+      {:ok, _toks, _rest, pos} ->
+        {:end, pos}
+
+      {:lex_error, _msg, _at, _rest, pos} when pos >= size ->
+        cond do
+          not eof? -> :more
+          size > 0 and :binary.last(text) == ?. -> {:end, size}
+          true -> {:eof_inside, size}
+        end
+
+      {:lex_error, _msg, _at, _rest, pos} ->
+        {:end, pos}
+    end
+  end
+
+  @doc """
   Zeilennummer an Byte-Position `pos` von `text`, ausgehend von einer
   bekannten `{zeile, position}` davor: `{zeile, pos}`.
   """
@@ -438,10 +478,17 @@ defmodule PrologEx.Parser do
 
   # --- Zahlen -------------------------------------------------------------
 
-  defp number(<<"0'", rest::binary>>, pos, lay) do
+  # 0'c; folgt kein gültiges Zeichen (0'' ohne drittes Quote, 0'\ vor
+  # Zeilenumbruch, ...), ist 0 eine Zahl für sich und das Quote beginnt
+  # ein neues Token (ISO 6.4.4; so liest "0''1" sich als 0 '' 1)
+  defp number(<<"0'", rest::binary>> = r, pos, lay) do
     case char_code(rest, pos + 2) do
-      {:ok, c, rest, npos} -> {{:num, c}, lay, pos, rest, npos}
-      {:error, msg, at} -> {:error, msg, at, rest, pos + 2}
+      {:ok, c, rest, npos} ->
+        {{:num, c}, lay, pos, rest, npos}
+
+      {:error, _msg, _at} ->
+        <<_, quote_on::binary>> = r
+        {{:num, 0}, lay, pos, quote_on, pos + 1}
     end
   end
 
@@ -464,7 +511,7 @@ defmodule PrologEx.Parser do
         {exp, rest3} = exponent(rest2)
         len = used + 1 + byte_size(frac) + byte_size(exp)
 
-        case float(int <> "." <> frac <> normalize_exp(exp)) do
+        case float(int <> "." <> frac <> exp) do
           {:ok, f} -> {{:num, f}, lay, pos, rest3, pos + len}
           :error -> {:error, "Gleitkommazahl nicht darstellbar", pos, rest3, pos + len}
         end
@@ -473,9 +520,6 @@ defmodule PrologEx.Parser do
         {{:num, String.to_integer(int)}, lay, pos, rest, pos + used}
     end
   end
-
-  defp normalize_exp(""), do: ""
-  defp normalize_exp(e), do: "e" <> String.slice(e, 1..-1//1)
 
   defp float(s) do
     case Float.parse(s) do
@@ -541,7 +585,7 @@ defmodule PrologEx.Parser do
   defp exponent(<<e, d, _::binary>> = r) when e in [?e, ?E] and d in ?0..?9 do
     <<_, more::binary>> = r
     {ds, rest} = digits(more, 0)
-    {<<e, ?+>> <> ds, rest}
+    {<<e>> <> ds, rest}
   end
 
   defp exponent(r), do: {"", r}

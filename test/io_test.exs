@@ -338,9 +338,7 @@ defmodule PrologEx.IOTest do
     end
   end
 
-  describe "TermScanner" do
-    alias PrologEx.TermScanner, as: T
-
+  describe "Termende beim Lesen von Streams (Parser.scan_end/2)" do
     # das Layoutzeichen nach dem Punkt gehört nicht mehr zum Term (ISO 8.14.1.4)
     test "Ende eines Terms" do
       for {text, eof, expected} <- [
@@ -363,9 +361,16 @@ defmodule PrologEx.IOTest do
             {"'it''s.'. x.", true, {:end, 9}},
             {"/* offen", false, :more},
             {"/* offen", true, {:eof_inside, 8}},
-            {"a =", false, :more}
+            {"a =", false, :more},
+            # Escapes mit abschließendem Backslash (früher falsch erkannt)
+            {"writeq('\\7\\'). x.", true, {:end, 14}},
+            {"X is 0'\\\n+'1. y.", true, {:end, 13}},
+            # Fehler im Term: Ende wie beim Wiederaufsetzen
+            {"x('\\e'). y.", true, {:end, 8}},
+            {"x('\\e').", true, {:end, 8}},
+            {"x('\\e')", true, {:eof_inside, 7}}
           ] do
-        assert T.scan(text, eof) == expected, inspect(text)
+        assert PrologEx.Parser.scan_end(text, eof) == expected, inspect(text)
       end
     end
   end
