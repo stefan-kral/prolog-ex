@@ -40,6 +40,22 @@ defmodule PrologEx.SetupCallCleanupTest do
     end
   end
 
+  test "Cleanup mit den aktuellen Bindungen übersteht die Kompaktierung", c do
+    # viele Bindungen in G: die Substitution wird kompaktiert, solange der
+    # Rahmen noch liegt; C muss S und X danach noch sehen
+    long = "length(_L, 20000), maplist(=(a), _L)"
+
+    assert ask(c, "setup_call_cleanup(S = 1, (X = 2, #{long}), log(S-X)), logs(Z)") ==
+             ["S = 1, X = 2, Z = [1-2]"]
+
+    assert ask(c, "setup_call_cleanup(S = 1, (X = 2, #{long}, ndet(_)), log(S-X)), !, logs(Z)") ==
+             ["S = 1, X = 2, Z = [1-2]"]
+
+    # gescheitert: C mit den Bindungen nach S (X frei)
+    assert ask(c, "\\+ setup_call_cleanup(S = 1, (X = 2, #{long}, fail), log(S-X)), logs([Z])") ==
+             ["Z = 1-_A"]
+  end
+
   test "deterministisch: Cleanup sofort, seine Bindungen bleiben", c do
     assert ask(c, "setup_call_cleanup(true, det(X), D = done)") == ["D = done, X = 1"]
     # Scheitern des Cleanups zählt nicht

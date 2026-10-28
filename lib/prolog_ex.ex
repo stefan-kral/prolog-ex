@@ -1560,7 +1560,9 @@ defmodule PrologEx do
   #   * S läuft wie once/1; scheitert oder wirft S, gibt es kein Cleanup.
   #   * Danach müssen G und C aufrufbar sein (sonst Fehler, bevor G läuft).
   #   * Ein Rahmen-Choice-Point {:scc, ...} unter G merkt sich C und die
-  #     Bindungen nach S.
+  #     Bindungen nach S, dazu C für die jeweils aktuellen Bindungen (das
+  #     letzte Feld; die Kompaktierung schreibt es mit um, siehe
+  #     maybe_compact/1).
   #   * G deterministisch gelungen: C sofort, mit den aktuellen Bindungen,
   #     die bleiben; Scheitern von C zählt nicht, Ausnahmen gehen weiter.
   #   * G scheitert endgültig (Backtracking erreicht den Rahmen) oder wirft
@@ -1594,7 +1596,7 @@ defmodule PrologEx do
 
     case checked do
       {:ok, gb} ->
-        st = push(%{st | scc: true}, {:scc, make_ref(), c, mod, st.subst, st.answer})
+        st = push(%{st | scc: true}, {:scc, make_ref(), c, mod, st.subst, st.answer, c})
         goals = [{gb, h + 1, mod}, {{:"$scc_exit", h}, 0, mod} | rest]
         run(%{st | goals: pre ++ goals})
 
@@ -1606,7 +1608,7 @@ defmodule PrologEx do
   defp step({:"$scc_exit", h}, _cutb, _mod, rest, st) do
     if st.height == h + 1 do
       # G deterministisch: Rahmen weg, C jetzt
-      [{:scc, _id, c, cmod, _s, _a} | cps] = st.cps
+      [{:scc, _id, _c, cmod, _s, _a, c} | cps] = st.cps
       run(%{st | goals: [cleanup_goal(c, cmod, h) | rest], cps: cps, height: h})
     else
       run(%{st | goals: rest})
@@ -2058,7 +2060,7 @@ defmodule PrologEx do
 
   defp cleanups(cps, h) do
     Enum.flat_map(cps, fn
-      {:scc, _id, c, mod, _s, _a} -> [cleanup_goal(c, mod, h)]
+      {:scc, _id, _c, mod, _s, _a, c} -> [cleanup_goal(c, mod, h)]
       # eine aufbewahrte Unter-Maschine (findnsols) mit eigenen Rahmen
       {:findnsols, %{scc: true, cps: sub}, _, _, _, _, _, _} -> cleanups(sub, h)
       _ -> []
@@ -2090,7 +2092,7 @@ defmodule PrologEx do
   # Bindungen nach dem Setup: {:ok, _} | {:thrown, ball}
   # Ohne Inferenzgrenzen: beim Abwickeln einer Überschreitung wäre die
   # Grenze sonst schon überschritten und bräche auch das Cleanup ab.
-  defp run_cleanup({:scc, _id, c, mod, subst, _answer}, st) do
+  defp run_cleanup({:scc, _id, c, mod, subst, _answer, _cur}, st) do
     sub = %{
       st
       | goals: [cleanup_goal(c, mod, 0)],
@@ -2404,7 +2406,7 @@ defmodule PrologEx do
         backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
 
       # G von setup_call_cleanup/3 endgültig gescheitert: Cleanup, dann weiter
-      {:scc, _, _, _, _, _} = frame ->
+      {:scc, _, _, _, _, _, _} = frame ->
         case run_cleanup(frame, st) do
           {:thrown, ball} -> throw_ball(ball, st)
           _ -> backtrack(st)
@@ -2496,7 +2498,7 @@ defmodule PrologEx do
   end
 
   # Rahmen von setup_call_cleanup/3: Cleanup, dessen Ausnahmen zählen nicht
-  defp unwind(ball, [{:scc, _, _, _, _, _} = frame | below], h, st) do
+  defp unwind(ball, [{:scc, _, _, _, _, _, _} = frame | below], h, st) do
     _ = run_cleanup(frame, st)
     unwind(ball, below, h - 1, st)
   end
@@ -2551,6 +2553,22 @@ defmodule PrologEx do
         {{n, t}, acc}
       end)
 
+    # Cleanups von setup_call_cleanup/3, die mit den aktuellen Bindungen
+    # laufen werden (G gelungen, Cut): ihr C gehört zu den Wurzeln
+    {cps, {memo, size}} =
+      if st.scc do
+        Enum.map_reduce(st.cps, {memo, size}, fn
+          {:scc, id, c, mod, s, a, cur}, acc ->
+            {cur, acc} = compact(cur, st.subst, acc)
+            {{:scc, id, c, mod, s, a, cur}, acc}
+
+          cp, acc ->
+            {cp, acc}
+        end)
+      else
+        {st.cps, {memo, size}}
+      end
+
     # Attribute der noch lebenden attributierten Variablen mitnehmen (sie
     # können selbst wieder solche enthalten)
     # während call_residue_vars/2: auch unerreichbare attributierte
@@ -2585,6 +2603,7 @@ defmodule PrologEx do
       st
       | goals: goals,
         answer: answer,
+        cps: cps,
         subst: attrs,
         counters: counters,
         threshold: max(st.min_threshold, 2 * size)
