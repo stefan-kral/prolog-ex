@@ -97,6 +97,12 @@ defmodule PrologEx.ToplevelTest do
 
       refute File.exists?(f)
 
+      # die Wirkung steht im Memo des Toplevels (wie Ausgaben und
+      # Änderungen am Interpreter)
+      before = PrologEx.Toplevel.state_snapshot()
+      PrologEx.Effects.external!()
+      refute PrologEx.Toplevel.state_snapshot() == before
+
       # mit ; läuft es
       top("""
       use_module(library(os)).

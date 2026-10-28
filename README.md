@@ -363,6 +363,9 @@ ist jeweils am Dateianfang vermerkt.
 * Der Toplevel rechnet beim Vorausrechnen keine Antwort voraus, die einen
   Prozess startet, `shell/1,2` aufruft oder die Umgebung ändert. Solche
   Wirkungen ließen sich nicht zurücknehmen, sie passieren erst nach `;`.
+  Außerhalb des Vorausrechnens werden sie im Memo des Toplevels vermerkt
+  wie Ausgaben und Änderungen am Interpreter. Nach einer Antwort mit
+  solcher Wirkung wird also gar nicht erst vorausgerechnet.
 * Dafür neu in der Maschine:
   * DCG-Pushback (`H, PB --> B`) nach dem Entwurf des DCG-Standards,
   * die Schreiboption `double_quotes(true)` (Zeichenlisten als `"..."`,
