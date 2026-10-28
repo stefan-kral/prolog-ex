@@ -295,6 +295,23 @@ ist jeweils am Dateianfang vermerkt.
   `type_error/2,3`, `representation_error/1`, `resource_error/1` und
   `call_with_error_context/2`. Fehlerterme und Kontexte sind wie bei Scryer:
   ohne Kontext steht `[]`, sonst `must_be/2` bzw. `can_be/2`.
+* `library(charsio)` (BSD-Lizenz, siehe `priv/library/SCRYER-LICENSE`):
+  * `char_type/2` mit Scryers Klassen. Die ISO-Klassen des Lesers
+    (`graphic`, `solo`, `layout`, `meta`, ...) sind genau, die
+    Unicode-Klassen folgen den allgemeinen Kategorien (`alphabetic` = L
+    und Nl, `lower` = Ll, `upper` = Lu, `numeric` = N). `upper(U)` und
+    `lower(L)` geben eine Zeichenliste (ß → `"SS"`).
+  * `read_from_chars/2` und `read_term_from_chars/3`: Der Term braucht
+    den Schlusspunkt, leerer Text gibt `end_of_file`.
+  * `write_term_to_chars/3`: Freie Variablen heißen `A`, `B`, ... wie in
+    Scryer.
+  * `chars_utf8bytes/2`, `chars_base64/3`, `get_line_to_chars/3`,
+    `get_n_chars/3` und `get_single_char/1`. Letzteres ist bei uns
+    zeilengepuffert.
+* `library(dcgs)` bietet `seq//1`, `seqq//1` und `...//0`. `phrase/2,3`
+  und die DCG-Übersetzung bleiben die eingebauten.
+* `append/2` (Liste von Listen) steht jetzt in `library(lists)`, wie in
+  SWI und Scryer.
 
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 

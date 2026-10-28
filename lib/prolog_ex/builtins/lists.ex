@@ -46,6 +46,10 @@ defmodule PrologEx.Builtins.Lists do
     n = v("N")
 
     [
+      # append(Ls, L): L ist die Verkettung der Listen in Ls (SWI, Scryer)
+      rule(s("append", [h, l]), [s("$must_be_list", [h]), s("$append2", [h, l])]),
+      fact(s("$append2", [[], []])),
+      rule(s("$append2", [[h | t], l]), [s("append", [h, r, l]), s("$append2", [t, r])]),
       fact(s("$append", [[], l, l])),
       rule(s("$append", [[h | t], l, [h | r]]), [s("$append", [t, l, r])]),
       rule(s("numlist", [n, l]), [s("numlist", [1, n, l])]),
@@ -264,6 +268,16 @@ defmodule PrologEx.Builtins.Lists do
       n when is_integer(n) -> if n >= l and (h == :inf or n <= h), do: [:ok], else: []
       {:var, _} -> between_from(l, h, x)
       other -> PrologEx.Error.type!("integer", other)
+    end
+  end
+
+  # Liste prüfen (für append/2): Teilliste instantiation_error, sonst
+  # type_error(list, L)
+  defbuiltin "$must_be_list", [l] do
+    case skip_list(l, subst()) do
+      {_, []} -> :ok
+      {_, {:var, _}} -> PrologEx.Error.instantiation!()
+      _ -> PrologEx.Error.type!("list", resolve(l))
     end
   end
 

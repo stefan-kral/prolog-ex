@@ -55,7 +55,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.FastRW,
     PrologEx.Builtins.Format,
     PrologEx.Builtins.Pio,
-    PrologEx.Builtins.Files
+    PrologEx.Builtins.Files,
+    PrologEx.Builtins.Charsio
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
