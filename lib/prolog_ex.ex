@@ -267,8 +267,10 @@ defmodule PrologEx do
   # im gebundenen Term vorkommen KÖNNTE: allgemeine Unifikation und Write-
   # Modus im Klauselkopf. (Bindung an Konstanten oder markierte ground
   # Terme im Kopf braucht keinen Check und nimmt bind/3.)
-  # Der Modus liegt unter einem eigenen Schlüssel im Prozess: bei false
-  # kostet das ein Process.get je Bindung.
+  # Der Modus liegt unter einem eigenen Schlüssel im Prozess. Gelesen wird
+  # er einmal je Unifikation (unify/3), Klauselversuch (try_clauses) bzw.
+  # Builtin-Ergebnis und dann als Argument durchgereicht (unify/4,
+  # bind_checked/4, match_args/6) – nicht bei jeder Bindung.
   # ---------------------------------------------------------------------
 
   @occurs_key :prolog_ex_occurs_check
@@ -276,8 +278,12 @@ defmodule PrologEx do
   @doc false
   def occurs_key, do: @occurs_key
 
-  def bind_checked(var, t, subst) do
-    case Process.get(@occurs_key) do
+  def bind_checked(var, t, subst), do: bind_checked(var, t, subst, Process.get(@occurs_key))
+
+  @doc false
+  # mode: Wert des Flags occurs_check (nil = false, true, :error)
+  def bind_checked(var, t, subst, mode) do
+    case mode do
       nil ->
         {:ok, bind(var, t, subst)}
 
@@ -304,7 +310,11 @@ defmodule PrologEx do
     end
   end
 
-  def unify(x, y, subst) do
+  def unify(x, y, subst), do: unify(x, y, subst, Process.get(@occurs_key))
+
+  @doc false
+  # mode: siehe bind_checked/4
+  def unify(x, y, subst, mode) do
     x = walk(x, subst)
     y = walk(y, subst)
 
@@ -315,16 +325,16 @@ defmodule PrologEx do
 
       # normale Variable an attributierte binden, nicht umgekehrt (kein Wecken)
       match?({:var, {:attv, _}}, x) and match?({:var, _}, y) and not attv?(y) ->
-        bind_checked(y, x, subst)
+        bind_checked(y, x, subst, mode)
 
       match?({:var, _}, x) ->
-        bind_checked(x, y, subst)
+        bind_checked(x, y, subst, mode)
 
       match?({:var, _}, y) ->
-        bind_checked(y, x, subst)
+        bind_checked(y, x, subst, mode)
 
       true ->
-        unify_struct(x, y, subst)
+        unify_struct(x, y, subst, mode)
     end
   end
 
@@ -340,43 +350,43 @@ defmodule PrologEx do
   end
 
   # Zwei markierte Terme sind nur bei == gleich – und das wurde schon geprüft.
-  defp unify_struct(x, y, _subst) when is_marked(x) and is_marked(y), do: :error
+  defp unify_struct(x, y, _subst, _mode) when is_marked(x) and is_marked(y), do: :error
 
-  defp unify_struct({t1, f, xs}, {t2, f, ys}, subst)
+  defp unify_struct({t1, f, xs}, {t2, f, ys}, subst, mode)
        when t1 in [:struct, :gstruct] and t2 in [:struct, :gstruct] and
               length(xs) == length(ys),
-       do: unify_args(xs, ys, subst)
+       do: unify_args(xs, ys, subst, mode)
 
-  defp unify_struct({:glist, [x | xs]}, [y | ys], subst) do
-    case unify(x, y, subst) do
-      {:ok, s} -> unify(glist_tail(xs), ys, s)
+  defp unify_struct({:glist, [x | xs]}, [y | ys], subst, mode) do
+    case unify(x, y, subst, mode) do
+      {:ok, s} -> unify(glist_tail(xs), ys, s, mode)
       :error -> :error
     end
   end
 
-  defp unify_struct([x | xs], {:glist, [y | ys]}, subst) do
-    case unify(x, y, subst) do
-      {:ok, s} -> unify(xs, glist_tail(ys), s)
+  defp unify_struct([x | xs], {:glist, [y | ys]}, subst, mode) do
+    case unify(x, y, subst, mode) do
+      {:ok, s} -> unify(xs, glist_tail(ys), s, mode)
       :error -> :error
     end
   end
 
   # Listen: Kopf unifizieren, dann per Tail Call mit dem Rest weiter –
   # keine Rekursionstiefe entlang der Liste.
-  defp unify_struct([x | xs], [y | ys], subst) do
-    case unify(x, y, subst) do
-      {:ok, s} -> unify(xs, ys, s)
+  defp unify_struct([x | xs], [y | ys], subst, mode) do
+    case unify(x, y, subst, mode) do
+      {:ok, s} -> unify(xs, ys, s, mode)
       :error -> :error
     end
   end
 
-  defp unify_struct(_, _, _), do: :error
+  defp unify_struct(_, _, _, _), do: :error
 
-  defp unify_args([], [], subst), do: {:ok, subst}
+  defp unify_args([], [], subst, _mode), do: {:ok, subst}
 
-  defp unify_args([x | xs], [y | ys], subst) do
-    case unify(x, y, subst) do
-      {:ok, s} -> unify_args(xs, ys, s)
+  defp unify_args([x | xs], [y | ys], subst, mode) do
+    case unify(x, y, subst, mode) do
+      {:ok, s} -> unify_args(xs, ys, s, mode)
       :error -> :error
     end
   end
@@ -765,26 +775,27 @@ defmodule PrologEx do
 
   # --- Kopf matchen (Read-Modus) ---------------------------------------
 
-  defp match_args([], [], env, s, nv), do: {:ok, env, s, nv}
+  # mode: Wert des Flags occurs_check (einmal je Klauselversuch gelesen)
+  defp match_args([], [], env, s, nv, _mode), do: {:ok, env, s, nv}
 
-  defp match_args([p | ps], [t | ts], env, s, nv) do
-    case m(p, t, env, s, nv) do
-      {:ok, env, s, nv} -> match_args(ps, ts, env, s, nv)
+  defp match_args([p | ps], [t | ts], env, s, nv, mode) do
+    case m(p, t, env, s, nv, mode) do
+      {:ok, env, s, nv} -> match_args(ps, ts, env, s, nv, mode)
       :error -> :error
     end
   end
 
-  defp m(:void, _t, env, s, nv), do: {:ok, env, s, nv}
-  defp m({:first, i}, t, env, s, nv), do: {:ok, put_elem(env, i, t), s, nv}
+  defp m(:void, _t, env, s, nv, _mode), do: {:ok, env, s, nv}
+  defp m({:first, i}, t, env, s, nv, _mode), do: {:ok, put_elem(env, i, t), s, nv}
 
-  defp m({:val, i}, t, env, s, nv) do
-    case unify(elem(env, i), t, s) do
+  defp m({:val, i}, t, env, s, nv, mode) do
+    case unify(elem(env, i), t, s, mode) do
       {:ok, s} -> {:ok, env, s, nv}
       :error -> :error
     end
   end
 
-  defp m({:const, c}, t, env, s, nv) do
+  defp m({:const, c}, t, env, s, nv, _mode) do
     case walk(t, s) do
       ^c -> {:ok, env, s, nv}
       {:var, _} = v -> {:ok, env, bind(v, c, s), nv}
@@ -792,30 +803,30 @@ defmodule PrologEx do
     end
   end
 
-  defp m({:ground, c}, t, env, s, nv) do
+  defp m({:ground, c}, t, env, s, nv, mode) do
     case walk(t, s) do
       {:var, _} = v ->
         {:ok, env, bind(v, c, s), nv}
 
       t ->
-        case unify(t, c, s) do
+        case unify(t, c, s, mode) do
           {:ok, s} -> {:ok, env, s, nv}
           :error -> :error
         end
     end
   end
 
-  defp m({:list, ph, pt} = p, t, env, s, nv) do
+  defp m({:list, ph, pt} = p, t, env, s, nv, mode) do
     case walk(t, s) do
       [h | tl] ->
-        case m(ph, h, env, s, nv) do
-          {:ok, env, s, nv} -> m(pt, tl, env, s, nv)
+        case m(ph, h, env, s, nv, mode) do
+          {:ok, env, s, nv} -> m(pt, tl, env, s, nv, mode)
           :error -> :error
         end
 
       {:glist, [h | tl]} ->
-        case m(ph, h, env, s, nv) do
-          {:ok, env, s, nv} -> m(pt, glist_tail(tl), env, s, nv)
+        case m(ph, h, env, s, nv, mode) do
+          {:ok, env, s, nv} -> m(pt, glist_tail(tl), env, s, nv, mode)
           :error -> :error
         end
 
@@ -824,7 +835,7 @@ defmodule PrologEx do
         # ggf. mit Occurs-Check binden
         {term, env, nv} = build(p, env, nv)
 
-        case bind_checked(v, term, s) do
+        case bind_checked(v, term, s, mode) do
           {:ok, s} -> {:ok, env, s, nv}
           :error -> :error
         end
@@ -834,17 +845,17 @@ defmodule PrologEx do
     end
   end
 
-  defp m({:struct, f, n, ps} = p, t, env, s, nv) do
+  defp m({:struct, f, n, ps} = p, t, env, s, nv, mode) do
     case walk(t, s) do
       {tag, ^f, args} when tag in [:struct, :gstruct] and length(args) == n ->
-        match_args(ps, args, env, s, nv)
+        match_args(ps, args, env, s, nv, mode)
 
       {:var, _} = v ->
         # Write-Modus: der gebaute Term kann Slot-Inhalte enthalten, also
         # ggf. mit Occurs-Check binden
         {term, env, nv} = build(p, env, nv)
 
-        case bind_checked(v, term, s) do
+        case bind_checked(v, term, s, mode) do
           {:ok, s} -> {:ok, env, s, nv}
           :error -> :error
         end
@@ -1952,14 +1963,16 @@ defmodule PrologEx do
 
       # (werfen kann die Unifikation nur mit occurs_check=error)
       {:unify, pairs} ->
-        if Process.get(@occurs_key) == :error do
-          case guarded(fn -> unify_pairs(pairs, st.subst) end) do
+        mode = Process.get(@occurs_key)
+
+        if mode == :error do
+          case guarded(fn -> unify_pairs(pairs, st.subst, mode) end) do
             {:ok, {:ok, s}} -> cont(st, s, rest)
             {:ok, :error} -> backtrack(st)
             {:thrown, ball} -> throw_ball(ball, st)
           end
         else
-          case unify_pairs(pairs, st.subst) do
+          case unify_pairs(pairs, st.subst, mode) do
             {:ok, s} -> cont(st, s, rest)
             :error -> backtrack(st)
           end
@@ -1982,11 +1995,11 @@ defmodule PrologEx do
     end
   end
 
-  defp unify_pairs([], s), do: {:ok, s}
+  defp unify_pairs([], s, _mode), do: {:ok, s}
 
-  defp unify_pairs([{x, y} | more], s) do
-    case unify(x, y, s) do
-      {:ok, s} -> unify_pairs(more, s)
+  defp unify_pairs([{x, y} | more], s, mode) do
+    case unify(x, y, s, mode) do
+      {:ok, s} -> unify_pairs(more, s, mode)
       :error -> :error
     end
   end
@@ -2308,13 +2321,15 @@ defmodule PrologEx do
 
     # werfen kann die Kopfunifikation nur mit occurs_check=error: nur dann
     # der try-Block (samt Closure), sonst direkt
-    if Process.get(@occurs_key) == :error do
-      case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var) end) do
+    mode = Process.get(@occurs_key)
+
+    if mode == :error do
+      case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var, mode) end) do
         {:ok, matched} -> clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
         {:thrown, ball} -> throw_ball(ball, st)
       end
     else
-      matched = match_args(pats, args, env, st.subst, st.next_var)
+      matched = match_args(pats, args, env, st.subst, st.next_var, mode)
       clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
     end
   end

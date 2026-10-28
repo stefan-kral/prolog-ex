@@ -1,7 +1,8 @@
 defmodule PrologEx.LoadWarningsTest do
   # Warnungen beim Laden: Singleton-Variablen, nicht zusammenhängende
   # Klauseln, style_check/1; Meldungen mit Zeile (und eingebundener Datei)
-  use ExUnit.Case, async: true
+  # nicht async: fängt stderr ab (andere Tests schreiben dorthin, z. B. time/1)
+  use ExUnit.Case, async: false
   import ExUnit.CaptureIO
 
   @moduletag :tmp_dir
