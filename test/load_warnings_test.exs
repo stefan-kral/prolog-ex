@@ -85,7 +85,9 @@ defmodule PrologEx.LoadWarningsTest do
     assert load(c, "p(1).\n:- dynamic(z/0).\np(2).\n") == []
   end
 
-  test "style_check/1 schaltet ab und wieder an", c do
+  test "style_check/1 schaltet ab und wieder an (library(swi))", c do
+    PrologEx.put_db(PrologEx.use_library(%{}, "swi"))
+
     assert load(c, """
            :- style_check(-singleton).
            p(X).
@@ -104,7 +106,7 @@ defmodule PrologEx.LoadWarningsTest do
           "catch(style_check(+foo), error(E, _), true) ."
       )
 
-    assert PrologEx.query(%{}, g)
+    assert PrologEx.query(PrologEx.use_library(%{}, "swi"), g)
            |> Enum.take(1)
            |> Enum.map(&PrologEx.format_answer(&1, PrologEx.query_var_names(g))) == [
              "A = an, B = aus, E = domain_error(style_name, foo)"

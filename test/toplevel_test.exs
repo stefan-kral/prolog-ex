@@ -11,7 +11,10 @@ defmodule PrologEx.ToplevelTest do
   # Toplevel mit Eingabe; Seiten mit höchstens n Antworten (ohne Terminal)
   defp top(input, n \\ 3) do
     Process.put(:prolog_ex_force_chunk, true)
-    input = "use_module(library(lists)).\nset_prolog_flag(answer_chunk, #{n}).\n" <> input
+
+    input =
+      "use_module(library(lists)).\nuse_module(library(between)).\n" <>
+        "set_prolog_flag(answer_chunk, #{n}).\n" <> input
 
     capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)
     |> String.split("set_prolog_flag(answer_chunk, #{n}).")
@@ -198,5 +201,12 @@ defmodule PrologEx.ToplevelTest do
 
       assert Task.await(task) =~ "X = 7."
     end
+  end
+
+  test "existence_error eines Builtins mit Heimat: Hinweis auf die Bibliothek" do
+    out = top("succ(1, X).\nm:(true *-> true ; true).\nfoo.\n")
+    assert out =~ "% succ/2 liegt in library(iso_ext): :- use_module(library(iso_ext))."
+    assert out =~ "% (*->)/2 liegt in library(swi)"
+    refute out =~ "foo/0 liegt"
   end
 end

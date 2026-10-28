@@ -12,7 +12,7 @@ defmodule PrologEx.BagofTest do
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
-    db = Enum.reduce(["lists"], %{}, &PrologEx.use_library(&2, &1, "user"))
+    db = Enum.reduce(["lists", "between", "swi"], %{}, &PrologEx.use_library(&2, &1, "user"))
     {db, []} = PrologEx.Consult.load(db, Reader.read_terms(r, @program))
     {:ok, reader: r, db: db}
   end

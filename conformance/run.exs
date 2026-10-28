@@ -254,6 +254,8 @@ new_reader = fn ->
   Reader.put_current(r)
   PrologEx.Ops.reset()
   PrologEx.Flags.reset()
+  # die Tests setzen voraus, was Logtalk-Backends wie SWI ohne Import haben
+  PrologEx.Flags.set("swi_compat", {:atom, "true"})
   for {p, t, n} <- lgt_ops, do: Reader.op(r, p, t, n)
   r
 end

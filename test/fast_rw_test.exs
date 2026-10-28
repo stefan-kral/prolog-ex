@@ -13,7 +13,15 @@ defmodule PrologEx.FastRWTest do
     Reader.put_current(c.reader)
     PrologEx.Stream.reset()
     PrologEx.Flags.reset()
-    PrologEx.put_db(PrologEx.use_library(%{}, "lists", "user"))
+
+    PrologEx.put_db(
+      Enum.reduce(
+        ["lists", "fastrw", "iso_ext", "swi"],
+        %{},
+        &PrologEx.use_library(&2, &1, "user")
+      )
+    )
+
     {:ok, f: Path.join(c.tmp_dir, "t.bin")}
   end
 

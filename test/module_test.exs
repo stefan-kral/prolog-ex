@@ -166,7 +166,10 @@ defmodule PrologEx.ModuleTest do
     mods = ask(c, "findall(M, current_module(M), L).") |> hd()
     for m <- ~w(user system lists apply geo meta), do: assert(mods =~ m)
 
-    assert ask(c, "strip_module(a:b:foo(x), M, P).") == ["M = b, P = foo(x)"]
+    # strip_module/3: library(swi)
+    assert ask(c, "use_module(library(swi)), strip_module(a:b:foo(x), M, P).") ==
+             ["M = b, P = foo(x)"]
+
     assert ask(c, "strip_module(foo, M, P).") == ["M = user, P = foo"]
   end
 
@@ -255,7 +258,12 @@ defmodule PrologEx.ModuleTest do
   end
 
   test "library(lists) gibt maplist/N, include/3, exclude/3, partition/4 weiter", c do
-    assert ask(c, "use_module(library(lists)), maplist(succ, [1, 2], L).") == ["L = [2, 3]"]
+    assert ask(
+             c,
+             "use_module(library(lists)), use_module(library(iso_ext)), maplist(succ, [1, 2], L)."
+           ) ==
+             ["L = [2, 3]"]
+
     assert ask(c, "include(integer, [a, 1], L).") == ["L = [1]"]
     assert ask(c, "exclude(integer, [a, 1], L).") == ["L = \"a\""]
     assert ask(c, "partition(integer, [a, 1], I, E).") == ["E = \"a\", I = [1]"]

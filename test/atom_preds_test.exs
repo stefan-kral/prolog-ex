@@ -17,7 +17,8 @@ defmodule PrologEx.AtomPredsTest do
   defp ask(c, text) do
     g = goal(c, text)
 
-    %{}
+    # atom_number/2: library(swi)
+    PrologEx.use_library(%{}, "swi")
     |> PrologEx.query(g)
     |> Enum.take(10)
     |> Enum.map(&PrologEx.format_answer(&1, PrologEx.query_var_names(g)))

@@ -11,6 +11,7 @@ defmodule PrologEx.FindallFlagsTest do
   @n v("N")
   @c v("C")
 
+  # findnsols/4,5: library(swi)
   defp db do
     consult([
       fact(s("p", [1])),
@@ -18,6 +19,7 @@ defmodule PrologEx.FindallFlagsTest do
       fact(s("p", [3])),
       fact(s("q", [s("f", [@x, @x])]))
     ])
+    |> PrologEx.use_library("swi")
   end
 
   defp all(goal, opts \\ []),

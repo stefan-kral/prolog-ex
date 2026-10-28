@@ -14,7 +14,8 @@ defmodule PrologEx.DefactoTest do
   setup c do
     Reader.put_current(c.reader)
     PrologEx.Stream.reset()
-    PrologEx.put_db(%{})
+    # die SWI-Prädikate dieser Tests: library(swi)
+    PrologEx.put_db(PrologEx.use_library(%{}, "swi"))
     {:ok, f: Path.join(c.tmp_dir, "x.txt")}
   end
 

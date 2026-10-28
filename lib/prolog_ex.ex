@@ -578,7 +578,11 @@ defmodule PrologEx do
   """
   def locate(db, mod, name, arity) do
     with :none <- visible(db, mod, name, arity) do
-      local(db, "system", name, arity)
+      # Prädikate mit Heimat-Bibliothek (iso_ext, swi, ...): nur nach dem
+      # Import, in den Modulen des Systems oder mit swi_compat
+      if PrologEx.Builtins.home(name, arity) == nil or home_visible?(mod),
+        do: local(db, "system", name, arity),
+        else: :none
     end
   end
 
@@ -1040,12 +1044,15 @@ defmodule PrologEx do
       {:struct, "->", [c, t]} ->
         if_then_else(c, t, g2, cutb, mod, rest, st)
 
-      {:struct, "*->", [c, t]} ->
-        soft_if(c, t, g2, cutb, mod, rest, st)
+      # Soft-Cut (library(swi)): unsichtbar wie eine gewöhnliche
+      # Disjunktion, deren linker Zweig dann existence_error gibt
+      {:struct, "*->", [c, t]} = sc ->
+        if engine_visible?("*->", 2, mod),
+          do: soft_if(c, t, g2, cutb, mod, rest, st),
+          else: disjunction(sc, g2, cutb, mod, rest, st)
 
       _ ->
-        st = push(st, {:alt, {g2, cutb, mod}, rest, st.subst, st.answer})
-        run(%{st | goals: [{g1, cutb, mod} | rest]})
+        disjunction(g1, g2, cutb, mod, rest, st)
     end
   end
 
@@ -1053,8 +1060,8 @@ defmodule PrologEx do
     do: if_then_else(c, t, {:atom, "fail"}, cutb, mod, rest, st)
 
   # C *-> T ohne Else: wie (C, T), Cut in C lokal (wie SWI)
-  defp step({:struct, "*->", [c, t]}, cutb, mod, rest, st),
-    do: run(%{st | goals: [{c, st.height, mod}, {t, cutb, mod} | rest]})
+  defp step({:struct, "*->", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   # if(C, T, E) (SICStus): wie (C *-> T ; E)
   defp step({:struct, "if", [c, t, e]}, cutb, mod, rest, st),
@@ -1103,8 +1110,8 @@ defmodule PrologEx do
     end
   end
 
-  defp step({:struct, "not", [g]}, cutb, mod, rest, st),
-    do: step({:struct, "\\+", [g]}, cutb, mod, rest, st)
+  defp step({:struct, "not", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   defp step({:struct, "=", [x, y]}, _cutb, _mod, rest, st) do
     case guarded(fn -> unify(x, y, st.subst) end) do
@@ -1147,56 +1154,16 @@ defmodule PrologEx do
 
   # countall(G, N): Anzahl der Lösungen von G, ohne sie zu sammeln
   # (konstanter Speicher, anders als findall + length)
-  defp step({:struct, "countall", [g, n]}, _cutb, mod, rest, st) do
-    counted =
-      guarded(fn ->
-        case walk(n, st.subst) do
-          x when is_integer(x) or (is_tuple(x) and elem(x, 0) == :var) -> :ok
-          x -> PrologEx.Error.type!("integer", x)
-        end
-
-        count(run(sub_machine([], g, mod, st)), 0)
-      end)
-
-    case counted do
-      {:ok, k} ->
-        case unify(n, k, st.subst) do
-          {:ok, s} -> cont(st, s, rest)
-          :error -> backtrack(st)
-        end
-
-      {:thrown, ball} ->
-        throw_ball(ball, st)
-    end
-  end
+  defp step({:struct, "countall", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   # findnsols(N, T, G, L) / findnsols(N, T, G, L, Rest) (wie SWI): jeweils
   # höchstens N Lösungen; beim Backtracking die nächsten N. Die Unter-
   # Maschine wird dazu im Choice Point aufbewahrt und fortgesetzt. Ist ein
   # Teil kürzer als N, ist es der letzte (deterministisch); ging es genau
   # auf, folgt wie bei SWI noch ein leerer Teil.
-  defp step({:struct, "findnsols", [n, t, g, l]}, cutb, mod, rest, st),
-    do: step({:struct, "findnsols", [n, t, g, l, []]}, cutb, mod, rest, st)
-
-  defp step({:struct, "findnsols", [n, t, g, l, tail]}, _cutb, mod, rest, st) do
-    chunk =
-      guarded(fn ->
-        k =
-          case walk(n, st.subst) do
-            k when is_integer(k) and k >= 1 -> k
-            k when is_integer(k) -> PrologEx.Error.domain!("not_less_than_one", k)
-            {:var, _} -> PrologEx.Error.instantiation!()
-            other -> PrologEx.Error.type!("integer", other)
-          end
-
-        {k, collect(run(sub_machine(t, g, mod, st)), k, [])}
-      end)
-
-    case chunk do
-      {:ok, {k, collected}} -> findnsols_chunk(collected, k, l, tail, rest, st)
-      {:thrown, ball} -> throw_ball(ball, st)
-    end
-  end
+  defp step({:struct, "findnsols", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   defp step({:struct, "is", [x, expr]}, _cutb, _mod, rest, st) do
     case guarded(fn -> unify(x, eval(expr, st.subst), st.subst) end) do
@@ -1416,13 +1383,8 @@ defmodule PrologEx do
   # der die Uhr beim Wiedereintritt neu startet.
   # time/1: eingebaut, außer im Modul gibt es ein eigenes oder ein
   # importiertes (library(time) wie Scryer)
-  defp step({:struct, "time", [g]} = goal, _cutb, mod, rest, st) do
-    db = current_db()
-
-    if Map.has_key?(db, {mod, "time", 1}) or Map.has_key?(db, {:import, mod, "time", 1}),
-      do: call_pred(goal, mod, rest, st),
-      else: builtin_time(g, mod, rest, st)
-  end
+  defp step({:struct, "time", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   defp step({:"$time_exit", ref, h}, _cutb, _mod, rest, st) do
     time_exit(ref, h, rest, st)
@@ -1442,26 +1404,8 @@ defmodule PrologEx do
   # Verschachtelt gilt jede aktive Grenze: geprüft wird gegen die kleinste
   # (die strengere gewinnt). Fängt G die Ausnahme selbst (catch-all), wird
   # sie beim nächsten Schritt erneut geworfen – die Grenze bleibt in Kraft.
-  defp step({:struct, "call_with_inference_limit", [g, l, r]}, _cutb, mod, rest, st) do
-    case walk(l, st.subst) do
-      {:var, _} ->
-        throw_error(st, &PrologEx.Error.instantiation!/0)
-
-      n when is_integer(n) and n >= 0 ->
-        id = make_ref()
-        h = st.height
-        st = add_ilimit(st, id, :counters.get(st.icount, 1) + n)
-        st = push(st, {:ilimit, id, r, rest, mod, st.subst, st.answer})
-        goal = unmark_top(walk(g, st.subst))
-        run(%{st | goals: [{goal, h + 1, mod}, {{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest]})
-
-      n when is_integer(n) ->
-        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
-
-      other ->
-        throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
-    end
-  end
+  defp step({:struct, "call_with_inference_limit", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   defp step({:"$ilimit_exit", id, n, h, r}, _cutb, _mod, rest, st) do
     st = remove_ilimit(st, id)
@@ -1496,29 +1440,8 @@ defmodule PrologEx do
   # schon eines (Endrekursion: konstanter Speicher). Ohne aktive Grenze
   # wird nichts mitgeführt. Größte Ebene und "überschritten" stehen in
   # :atomics je Rahmen – sie überstehen Backtracking und Unter-Maschinen.
-  defp step({:struct, "call_with_depth_limit", [g, l, r]}, _cutb, mod, rest, st) do
-    case walk(l, st.subst) do
-      {:var, _} ->
-        throw_error(st, &PrologEx.Error.instantiation!/0)
-
-      n when is_integer(n) and n >= 0 ->
-        ref = :atomics.new(2, signed: true)
-        if n >= 1, do: :atomics.put(ref, 1, 1)
-        base = Map.get(st.subst, @depth_key, 0)
-        frame = {ref, base, base + n - 1}
-        h = st.height
-        st = add_dlimit(%{st | subst: Map.put(st.subst, @depth_key, base)}, frame)
-        st = push(st, {:dlimit, frame, r, rest, mod, st.subst, st.answer})
-        goal = unmark_top(walk(g, st.subst))
-        run(%{st | goals: [{goal, h + 1, mod}, {{:"$dlimit_exit", frame, h, r}, 0, mod} | rest]})
-
-      n when is_integer(n) ->
-        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
-
-      other ->
-        throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
-    end
-  end
+  defp step({:struct, "call_with_depth_limit", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   defp step({:"$dlimit_exit", {ref, _, _} = frame, h, r}, _cutb, _mod, rest, st) do
     st = remove_dlimit(st, frame)
@@ -1555,16 +1478,8 @@ defmodule PrologEx do
   #     abschneidet (cut_to/3, auch once/1, ->, call_nth/2) oder eine
   #     Unter-Maschine mit ihm verworfen wird (\\+, discard/3) – mit den
   #     aktuellen Bindungen, innen vor außen.
-  defp step({:struct, "setup_call_cleanup", [s, g, c]}, _cutb, mod, rest, st) do
-    case guarded(fn -> callable_goal!(s, st.subst) end) do
-      {:ok, sb} ->
-        h = st.height
-        run(%{st | goals: [{sb, h, mod}, {{:"$scc_setup", h, g, c}, 0, mod} | rest]})
-
-      {:thrown, ball} ->
-        throw_ball(ball, st)
-    end
-  end
+  defp step({:struct, "setup_call_cleanup", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   defp step({:"$scc_setup", h, g, c}, _cutb, mod, rest, st) do
     # once(S): Alternativen von S abschneiden (Cleanups darin laufen zuerst)
@@ -1603,7 +1518,62 @@ defmodule PrologEx do
   # der N-ten Lösung abgeschnitten (deterministisch). Ein Choice Point unter G
   # räumt den Zähler auf, wenn G erschöpft ist; hinterlässt G bei Erfolg
   # keine Choice Points, wird er gleich entfernt (wie bei time/1).
-  defp step({:struct, "call_nth", [g, n]}, cutb, mod, rest, st) do
+  defp step({:struct, "call_nth", _} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
+
+  defp step({:"$nth", ref, n, h}, _cutb, _mod, rest, st), do: nth_exit(ref, n, h, rest, st)
+
+  # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
+  defp step(goal, _cutb, mod, rest, st), do: call_pred(goal, mod, rest, st)
+
+  # Steuerkonstrukte, die nur nach dem Import ihrer Bibliothek sichtbar sind
+  # (PrologEx.Builtins.home/2: iso_ext, swi, ...): die Klausel von step/5
+  # fragt die Sichtbarkeit, die Ausführung steht hier. Ein eigenes oder
+  # anders importiertes Prädikat gleichen Namens geht vor; unsichtbar:
+  # gewöhnlicher Aufruf (also existence_error).
+  defp disjunction(g1, g2, cutb, mod, rest, st) do
+    st = push(st, {:alt, {g2, cutb, mod}, rest, st.subst, st.answer})
+    run(%{st | goals: [{g1, cutb, mod} | rest]})
+  end
+
+  # Builtins mit Heimat-Bibliothek (between/3 usw.): aus system importiert
+  # oder ohne Import sichtbar, sonst wie üblich locate/4 (mod definiert es
+  # hier nicht selbst: das prüft call_pred/4 vorher)
+  defp homed_located(entry, db, mod, name, arity) do
+    if engine_visible?(db, name, arity, mod),
+      do: {:builtin, "system", entry},
+      else: locate(db, mod, name, arity)
+  end
+
+  defp homed_step({:struct, name, args} = goal, cutb, mod, rest, st) do
+    if engine_visible?(name, length(args), mod),
+      do: engine_step(goal, cutb, mod, rest, st),
+      else: call_pred(goal, mod, rest, st)
+  end
+
+  defp engine_visible?(name, arity, mod), do: engine_visible?(current_db(), name, arity, mod)
+
+  # Builtin mit Heimat-Bibliothek: sichtbar, wenn mod es aus system
+  # importiert hat, oder wenn mod es weder selbst definiert (in der
+  # Datenbank oder als Bibliotheks-Builtin, etwa files:delete_file/1) noch
+  # die Heimat verbirgt (ein Import schließt eine eigene Definition aus:
+  # Laden und assert entfernen ihn)
+  defp engine_visible?(db, name, arity, mod) do
+    case Map.fetch(db, {:import, mod, name, arity}) do
+      {:ok, src} ->
+        src == "system"
+
+      :error ->
+        not Map.has_key?(db, {mod, name, arity}) and
+          home_visible?(mod) and
+          PrologEx.Builtins.lookup(mod, name, arity) == nil
+    end
+  end
+
+  def home_visible?(mod),
+    do: PrologEx.Builtins.system_module?(mod) or PrologEx.Flags.get("swi_compat") == a("true")
+
+  defp engine_step({:struct, "call_nth", [g, n]}, cutb, mod, rest, st) do
     case walk(n, st.subst) do
       {:var, _} ->
         call_nth(g, n, cutb, mod, rest, st)
@@ -1619,10 +1589,118 @@ defmodule PrologEx do
     end
   end
 
-  defp step({:"$nth", ref, n, h}, _cutb, _mod, rest, st), do: nth_exit(ref, n, h, rest, st)
+  defp engine_step({:struct, "findnsols", [n, t, g, l]}, cutb, mod, rest, st),
+    do: step({:struct, "findnsols", [n, t, g, l, []]}, cutb, mod, rest, st)
 
-  # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
-  defp step(goal, _cutb, mod, rest, st), do: call_pred(goal, mod, rest, st)
+  defp engine_step({:struct, "findnsols", [n, t, g, l, tail]}, _cutb, mod, rest, st) do
+    chunk =
+      guarded(fn ->
+        k =
+          case walk(n, st.subst) do
+            k when is_integer(k) and k >= 1 -> k
+            k when is_integer(k) -> PrologEx.Error.domain!("not_less_than_one", k)
+            {:var, _} -> PrologEx.Error.instantiation!()
+            other -> PrologEx.Error.type!("integer", other)
+          end
+
+        {k, collect(run(sub_machine(t, g, mod, st)), k, [])}
+      end)
+
+    case chunk do
+      {:ok, {k, collected}} -> findnsols_chunk(collected, k, l, tail, rest, st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
+
+  defp engine_step({:struct, "countall", [g, n]}, _cutb, mod, rest, st) do
+    counted =
+      guarded(fn ->
+        case walk(n, st.subst) do
+          x when is_integer(x) or (is_tuple(x) and elem(x, 0) == :var) -> :ok
+          x -> PrologEx.Error.type!("integer", x)
+        end
+
+        count(run(sub_machine([], g, mod, st)), 0)
+      end)
+
+    case counted do
+      {:ok, k} ->
+        case unify(n, k, st.subst) do
+          {:ok, s} -> cont(st, s, rest)
+          :error -> backtrack(st)
+        end
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+    end
+  end
+
+  defp engine_step({:struct, "not", [g]}, cutb, mod, rest, st),
+    do: step({:struct, "\\+", [g]}, cutb, mod, rest, st)
+
+  defp engine_step({:struct, "time", [g]}, _cutb, mod, rest, st),
+    do: builtin_time(g, mod, rest, st)
+
+  defp engine_step({:struct, "*->", [c, t]}, cutb, mod, rest, st),
+    do: run(%{st | goals: [{c, st.height, mod}, {t, cutb, mod} | rest]})
+
+  defp engine_step({:struct, "call_with_inference_limit", [g, l, r]}, _cutb, mod, rest, st) do
+    case walk(l, st.subst) do
+      {:var, _} ->
+        throw_error(st, &PrologEx.Error.instantiation!/0)
+
+      n when is_integer(n) and n >= 0 ->
+        id = make_ref()
+        h = st.height
+        st = add_ilimit(st, id, :counters.get(st.icount, 1) + n)
+        st = push(st, {:ilimit, id, r, rest, mod, st.subst, st.answer})
+        goal = unmark_top(walk(g, st.subst))
+        run(%{st | goals: [{goal, h + 1, mod}, {{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest]})
+
+      n when is_integer(n) ->
+        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
+
+      other ->
+        throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
+    end
+  end
+
+  defp engine_step({:struct, "call_with_depth_limit", [g, l, r]}, _cutb, mod, rest, st) do
+    case walk(l, st.subst) do
+      {:var, _} ->
+        throw_error(st, &PrologEx.Error.instantiation!/0)
+
+      n when is_integer(n) and n >= 0 ->
+        ref = :atomics.new(2, signed: true)
+        if n >= 1, do: :atomics.put(ref, 1, 1)
+        base = Map.get(st.subst, @depth_key, 0)
+        frame = {ref, base, base + n - 1}
+        h = st.height
+        st = add_dlimit(%{st | subst: Map.put(st.subst, @depth_key, base)}, frame)
+        st = push(st, {:dlimit, frame, r, rest, mod, st.subst, st.answer})
+        goal = unmark_top(walk(g, st.subst))
+        run(%{st | goals: [{goal, h + 1, mod}, {{:"$dlimit_exit", frame, h, r}, 0, mod} | rest]})
+
+      n when is_integer(n) ->
+        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
+
+      other ->
+        throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
+    end
+  end
+
+  defp engine_step({:struct, "setup_call_cleanup", [s, g, c]}, _cutb, mod, rest, st) do
+    case guarded(fn -> callable_goal!(s, st.subst) end) do
+      {:ok, sb} ->
+        h = st.height
+        run(%{st | goals: [{sb, h, mod}, {{:"$scc_setup", h, g, c}, 0, mod} | rest]})
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+    end
+  end
+
+  defp engine_step(goal, _cutb, mod, rest, st), do: call_pred(goal, mod, rest, st)
 
   # das eingebaute time/1 (step/5 für time/1 entscheidet, ob es gilt)
   defp builtin_time(g, mod, rest, st) do
@@ -1728,9 +1806,10 @@ defmodule PrologEx do
 
       :error ->
         found =
-          case PrologEx.Builtins.protected_entry(name, arity) do
+          case PrologEx.Builtins.fast_entry(name, arity) do
+            {:protected, entry} -> {:builtin, "system", entry}
+            {:homed, entry} -> homed_located(entry, db, mod, name, arity)
             nil -> locate(db, mod, name, arity)
-            entry -> {:builtin, "system", entry}
           end
 
         call_located(found, goal, name, args, mod, rest, st)

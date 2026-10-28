@@ -102,9 +102,14 @@ defmodule PrologEx.FilesTest do
     assert ask(c, ~s|rename_file("DIR/a.txt", "DIR/gibts/b.txt")|) == []
   end
 
-  test "delete_file/1: ohne library(files) das eingebaute (auch Atome)", c do
+  test "delete_file/1: library(swi) hat eines, das auch Atome nimmt", c do
     File.write!(Path.join(c.tmp_dir, "d.txt"), "")
-    assert ask(c, "delete_file('DIR/d.txt')", %{}) == ["true"]
+    assert ask(c, "delete_file('DIR/d.txt')", PrologEx.use_library(%{}, "swi")) == ["true"]
+
+    assert ask(c, "catch(delete_file(x), error(E, _), true)", %{}) == [
+             "E = existence_error(procedure, delete_file/1)"
+           ]
+
     assert err(c, "delete_file('DIR/d.txt')") == ["E = type_error(list, 'DIR/d.txt')"]
   end
 

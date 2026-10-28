@@ -10,6 +10,8 @@
 
 defmodule Suite do
   @program """
+  :- use_module(library(between)).
+
   % naive reverse (30 Elemente: 496 Inferenzen)
   app([], L, L).
   app([H|T], L, [H|R]) :- app(T, L, R).

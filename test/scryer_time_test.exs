@@ -11,7 +11,11 @@ defmodule PrologEx.ScryerTimeTest do
     {db, []} =
       PrologEx.Consult.load(
         %{},
-        Reader.read_terms(r, ":- use_module(library(time)).\n:- use_module(library(lists)).\n")
+        Reader.read_terms(
+          r,
+          ":- use_module(library(time)).\n:- use_module(library(lists)).\n" <>
+            ":- use_module(library(between)).\n"
+        )
       )
 
     {:ok, reader: r, db: db}
@@ -112,8 +116,13 @@ defmodule PrologEx.ScryerTimeTest do
              "% CPU time: T, 1_502 inferences\n"
   end
 
-  test "ohne library(time): das eingebaute time/1", c do
+  test "ohne library(time) kein time/1; library(swi) hat SWIs", c do
     {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, "p.\n"))
+
+    assert ask(c, "catch(time(true), error(E, _), true)", db) ==
+             ["E = existence_error(procedure, time/1)"]
+
+    db = PrologEx.use_library(db, "swi")
     assert capture_io(:stderr, fn -> assert ask(c, "time(true)", db) == ["true"] end) =~ "seconds"
   end
 

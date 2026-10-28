@@ -11,7 +11,11 @@ defmodule PrologEx.BlackboardMutablesTest do
     Reader.put_current(c.reader)
 
     db =
-      Enum.reduce(["lists", "blackboard", "mutables"], %{}, &PrologEx.use_library(&2, &1, "user"))
+      Enum.reduce(
+        ["lists", "blackboard", "mutables", "between"],
+        %{},
+        &PrologEx.use_library(&2, &1, "user")
+      )
 
     PrologEx.put_db(db)
     :ok

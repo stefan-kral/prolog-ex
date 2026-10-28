@@ -14,6 +14,7 @@ defmodule PrologEx.AttsTest do
         do: {:ok, _} = Consult.load_file(Path.join(@dir, f <> ".pl"))
 
     PrologEx.update_db(&PrologEx.use_library(&1, "lists"))
+    PrologEx.update_db(&PrologEx.use_library(&1, "swi"))
     {:ok, reader: r}
   end
 

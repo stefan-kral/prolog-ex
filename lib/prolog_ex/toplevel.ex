@@ -253,7 +253,9 @@ defmodule PrologEx.Toplevel do
     try do
       show(answers, mode, PrologEx.query_var_names(goal))
     rescue
-      e in [RuntimeError, PrologEx.Error] -> IO.puts("Fehler: #{Exception.message(e)}")
+      e in [RuntimeError, PrologEx.Error] ->
+        IO.puts("Fehler: #{Exception.message(e)}")
+        if hint = home_hint(e), do: IO.puts(hint)
     end
 
     if mode != :goal, do: IO.puts("")
@@ -408,6 +410,23 @@ defmodule PrologEx.Toplevel do
   rescue
     PrologEx.Error -> PrologEx.format(t)
   end
+
+  # existence_error eines Builtins mit Heimat-Bibliothek: wo es liegt
+  defp home_hint(%PrologEx.Error{term: t}) do
+    with {_, "error", [{_, "existence_error", [{:atom, "procedure"}, pi]}, _]} <- t,
+         {_, "/", [{:atom, n}, a]} = pi when is_integer(a) <- strip_pi(PrologEx.unmark(pi)),
+         lib when lib != nil <- PrologEx.Builtins.home(n, a) do
+      "% #{PrologEx.Writer.format(pi, quoted: true)} liegt in library(#{lib}): " <>
+        ":- use_module(library(#{lib})). (oder set_prolog_flag(swi_compat, true))"
+    else
+      _ -> nil
+    end
+  end
+
+  defp home_hint(_), do: nil
+
+  defp strip_pi({_, ":", [_, pi]}), do: pi
+  defp strip_pi(pi), do: pi
 
   defp err(msg, st) do
     IO.puts(:stderr, msg)

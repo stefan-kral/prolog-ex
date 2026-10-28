@@ -71,7 +71,8 @@ fertigen Anfrage); `halt.` führt auch zurück zu iex, `reset_session` beginnt
 neu. Von Hand: `iex --erl "+Bc" -S mix`, dann `PrologEx.Toplevel.repl()`.
 Offene Datei-Streams überstehen den Abbruch nicht.
 
-Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`, `M:Rumpf` wie SWI), Direktiven (`op/3`,
+Unterstützt (was weder ISO noch SICStus eingebaut haben, erst nach Import
+seiner Heimat-Bibliothek, siehe Module): Klauseln, DCG (`-->`, `phrase/2,3`, `M:Rumpf` wie SWI), Direktiven (`op/3`,
 `dynamic/1`, `initialization/1`, `multifile/1`, `discontiguous/1`,
 `include/1`, bedingte Übersetzung mit `if/1`, `elif/1`, `else/0`,
 `endif/0`, beliebige Ziele), Reconsult (erneutes
@@ -87,7 +88,7 @@ Floats; alle ISO-Funktionen dazu die üblichen aus SWI/SICStus: `sin` … `atanh
 `evaluation_error(zero_divisor)`, siehe `PrologEx.Arith`; `is/2` und
 Vergleiche im Klauselrumpf übersetzt der Compiler in einen Codebaum, statt
 den Ausdruck bei jedem Aufruf als Term zu bauen – 4–13 % schneller,
-gleiche Werte und Fehler), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `between/3`, `select/3`, `permutation/2`, `memberchk/2`, `last/2`, `reverse/2`,
+gleiche Werte und Fehler), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `select/3`, `permutation/2`, `memberchk/2`, `last/2`, `reverse/2`,
 `proper_length/2`, `sum_list/2`, `max_list/2`, `min_list/2`, `max_member/2`,
 `min_member/2`, `delete/3`, `list_to_set/2`, `nextto/3`, `subtract/3`,
 `intersection/3`, `union/3`, `include/3`, `exclude/3`, `partition/4`, `foldl/4..6`,
@@ -376,8 +377,8 @@ ist jeweils am Dateianfang vermerkt.
     und beim Scheitern ausgibt. Gemessen wird direkt um das Ziel herum,
     also zählt nur das Ziel (`time(true)` meldet 1 Inferenz).
 
-  Nach `use_module(library(time))` gilt dieses `time/1` statt des
-  eingebauten. `statistics/2` bleibt das eingebaute, eine Obermenge von
+  Nach `use_module(library(time))` gilt dieses `time/1`, nach
+  `use_module(library(swi))` das SWI-artige. `statistics/2` bleibt das eingebaute, eine Obermenge von
   Scryers vorläufigem.
 * `library(os)` (Markus Triska, gemeinfrei):
   * `getenv/2`, `setenv/2`, `unsetenv/1` mit Namen und Werten als
@@ -413,7 +414,8 @@ ist jeweils am Dateianfang vermerkt.
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 
 Wie SWI (`fast_write/2`, `fast_read/2`, `fast_term_serialized/2`) und SICStus
-(`library(fastrw)`, dazu `fast_write/1`, `fast_read/1`): Terme als
+(`library(fastrw)`, dazu `fast_write/1`, `fast_read/1`), nach
+`:- use_module(library(fastrw)).` (`fast_term_serialized/2`: `library(swi)`): Terme als
 Datensätze im External Term Format der BEAM auf einen Binärstream
 (`open(F, write, S, [type(binary)])`); am Ende liest `fast_read` den Term
 `end_of_file`. Variablen bleiben geteilt, Attribute fallen weg. Gelesen
@@ -496,7 +498,8 @@ Closure (`tfilter(gross, L, Fs)`) etwa gleich schnell.
 Wie SICStus: `gen_nat/1` (0, 1, 2, … ohne Ende), `gen_int/1` (0, 1, -1, 2,
 -2, …), `numlist/5` (`numlist(L, 2, U, N, [1,X,Y,Z])` gibt `L = 1, U = 7,
 N = 4, X = 3, Y = 5, Z = 7`; Länge aus Length, der Liste oder Lower/Step/
-Upper), dazu `between/3`, `repeat/1` und `numlist/2,3`.
+Upper), dazu `between/3`, `repeat/1` und `numlist/2,3` – `between/3` und
+`repeat/1` gibt es nur hier (siehe Module: Heimat-Bibliotheken).
 
 ## Zufall: `library(random)`
 
@@ -605,7 +608,8 @@ etwa 25 ns je Aufruf (rund 1–2 %).
 
 ## Ressourcen begrenzen: `call_with_inference_limit/3`, `call_with_depth_limit/3`
 
-Wie SWI und Scryer: `call_with_inference_limit(G, L, R)` ruft `G` mit
+Wie SWI und Scryer (`library(iso_ext)`; `call_with_depth_limit/3`:
+`library(swi)`): `call_with_inference_limit(G, L, R)` ruft `G` mit
 höchstens `L` Inferenzen (Prädikataufrufen) *je Lösung* – beim Backtracking
 in `G` gibt es ein frisches Kontingent. `R` ist `!` (G deterministisch
 gelungen), `true` (Choice Points offen) oder `inference_limit_exceeded`
@@ -766,6 +770,28 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     Bibliotheksprädikate wie `append/3`, `member/2`, `maplist/2..8` gibt es
     nur nach `:- use_module(library(lists)).` bzw. `library(apply)` – auch
     im Toplevel. Eigene Definitionen gehen Importen vor.
+  * Eingebaut ohne Import ist nur, was ISO vorschreibt oder SICStus
+    eingebaut hat. Alles andere hat eine *Heimat-Bibliothek* (nach Inhalt,
+    nicht nach Herkunft) und ist erst nach deren Import sichtbar – auch
+    die Steuerkonstrukte der Maschine wie `*->/2` oder `not/1`; ohne
+    Import gibt es `existence_error(procedure, PI)`:
+
+    | Bibliothek | Prädikate |
+    |---|---|
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`; weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `copy_term/3`, `bb_get/2`, `bb_put/2` |
+    | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
+    | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
+    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3` – und gibt alle obigen weiter |
+
+    `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
+    und nach in Bibliotheken, zu denen sie inhaltlich passen. Eigene
+    Definitionen gleichen Namens sind erlaubt und gelten; eine Bibliothek
+    mit eigener Fassung (Scryers `time/1` in `library(time)`,
+    `delete_file/1` in `library(files)`) behält sie. Bibliotheken des
+    Systems sehen alle Prädikate ohne Import.
+  * Flag `swi_compat` (Voreinstellung `false`): mit
+    `set_prolog_flag(swi_compat, true)` ist alles aus der Tabelle wie bei
+    SWI ohne Import sichtbar (die Logtalk-Testsammlung läuft so).
   * `library(lists)` gibt wie bei SICStus auch `maplist/2..8`, `include/3`,
     `exclude/3` und `partition/4` aus `library(apply)` weiter (Re-Export:
     importiert wird aus `apply`, beide zusammen ergeben keinen Konflikt).

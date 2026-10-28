@@ -12,6 +12,9 @@ defmodule PrologEx.DatabaseTest do
   @prog """
   :- use_module(library(lists)).
   :- use_module(library(apply)).
+  :- use_module(library(between)).
+  :- use_module(library(iso_ext)).
+  :- use_module(library(swi)).
   :- dynamic counter/1, leer/0.
   counter(0).
   inc :- retract(counter(N)), N1 is N + 1, assertz(counter(N1)).
@@ -285,6 +288,7 @@ defmodule PrologEx.DatabaseTest do
     test "viele asserts, retracts und abwechselnde Aufrufe bleiben schnell", %{reader: r} do
       db =
         load(r, """
+        :- use_module(library(between)).
         :- dynamic f/1.
         fill(N) :- between(1, N, I), assertz(f(I)), fail.
         fill(_).

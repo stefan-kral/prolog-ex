@@ -14,7 +14,9 @@ defmodule PrologEx.ExpansionTest do
   defp ask(c, db, q) do
     [{:term, g, _}] = Reader.read_terms(c.reader, q <> ".")
 
+    # expand_goal/2: library(swi)
     db
+    |> PrologEx.use_library("swi")
     |> PrologEx.query(g)
     |> Enum.take(10)
     |> Enum.map(&PrologEx.format_answer(&1, PrologEx.query_var_names(g)))
@@ -59,7 +61,12 @@ defmodule PrologEx.ExpansionTest do
       {db, []} = load(c, "goal_expansion(a, b).\ngoal_expansion(b, a).")
 
       [{:term, g, _}] = Reader.read_terms(c.reader, "expand_goal(a, G).")
-      e = assert_raise PrologEx.Error, fn -> PrologEx.query(db, g) |> Enum.take(1) end
+
+      e =
+        assert_raise PrologEx.Error, fn ->
+          db |> PrologEx.use_library("swi") |> PrologEx.query(g) |> Enum.take(1)
+        end
+
       assert Exception.message(e) =~ "resource_error(goal_expansion)"
     end
   end

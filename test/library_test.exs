@@ -11,7 +11,11 @@ defmodule PrologEx.LibraryTest do
   @l v("L")
   @t v("T")
 
-  defp db, do: consult([fact(s("p", [1]))]) |> libs()
+  defp db,
+    do:
+      consult([fact(s("p", [1]))])
+      |> libs()
+      |> PrologEx.use_library("swi")
 
   defp all(goal, limit \\ 20),
     do: db() |> query(goal) |> Enum.take(limit) |> Enum.map(&format_answer/1)

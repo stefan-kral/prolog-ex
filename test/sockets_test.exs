@@ -8,7 +8,14 @@ defmodule PrologEx.SocketsTest do
     Reader.put_current(r)
 
     {db, []} =
-      PrologEx.Consult.load(%{}, Reader.read_terms(r, ":- use_module(library(sockets)).\n"))
+      PrologEx.Consult.load(
+        %{},
+        Reader.read_terms(
+          r,
+          ":- use_module(library(sockets)).\n:- use_module(library(iso_ext)).\n" <>
+            ":- use_module(library(between)).\n"
+        )
+      )
 
     {:ok, reader: r, db: db}
   end

@@ -230,6 +230,12 @@ defmodule PrologEx.Stream do
   @doc "Ist der Alias schon vergeben?"
   def alias_taken?(name), do: Map.has_key?(table().aliases, name)
 
+  defp close_port(port) do
+    Port.close(port)
+  rescue
+    ArgumentError -> :ok
+  end
+
   @doc """
   Stream schließen. Standardstreams bleiben offen (ISO: close auf ihnen
   tut nichts); war er aktueller Ein-/Ausgabestrom, gilt wieder user_input
@@ -244,7 +250,9 @@ defmodule PrologEx.Stream do
       s = get(id)
 
       case s do
-        %{kind: :port_in, dev: port} -> if Port.info(port), do: Port.close(port)
+        # der Port kann sich zwischen Prüfen und Schließen selbst beenden
+        # (Kindprozess fertig): badarg ist dann kein Fehler
+        %{kind: :port_in, dev: port} -> close_port(port)
         %{kind: :socket, dev: sock} -> :gen_tcp.close(sock)
         %{dev: dev} when dev != nil -> :file.close(dev)
         _ -> :ok

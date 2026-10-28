@@ -6,6 +6,7 @@ defmodule PrologEx.RandomTest do
   :- use_module(library(random)).
   :- use_module(library(lists)).
   :- use_module(library(apply)).
+  :- use_module(library(between)).
   ist_perm(L, P) :- msort(L, S), msort(P, S).
   teilfolge([], _).
   teilfolge([X|Xs], [X|Ys]) :- !, teilfolge(Xs, Ys).

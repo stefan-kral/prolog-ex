@@ -25,6 +25,13 @@ defmodule PrologEx.Builtins do
       Prädikate außer `$...`-Hilfsprädikaten. Sichtbar nur nach `use_module(library(...))`
       (kein Autoload, wie SICStus). Eigene Definitionen im importierenden
       Modul gehen vor.
+    * Heimat-Bibliotheken (`@homes`: `iso_ext`, `between`, `fastrw`, `swi`)
+      – Builtins in `system`, die weder ISO noch SICStus eingebaut haben:
+      sie liegen in `system`, sichtbar aber nur nach Import der Heimat
+      (die sie aus `system` weitergibt), in Bibliotheksmodulen des Systems
+      und mit dem Flag `swi_compat`. Nicht geschützt: eigene Definitionen
+      sind erlaubt. Die Maschine prüft das für ihre Steuerkonstrukte
+      (`not/1`, `*->/2`, ...) selbst (`PrologEx.home_visible?/1`).
   """
 
   @modules [
@@ -59,7 +66,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Charsio,
     PrologEx.Builtins.ScryerPrims,
     PrologEx.Builtins.OS,
-    PrologEx.Builtins.Sockets
+    PrologEx.Builtins.Sockets,
+    PrologEx.Builtins.IsoExt
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
@@ -72,6 +80,29 @@ defmodule PrologEx.Builtins do
           |> Enum.map(fn s ->
             [n, a] = Regex.run(~r{^(.*)/(\d+)$}, s, capture: :all_but_first)
             {n, String.to_integer(a)}
+          end)
+
+  # Heimat eingebauter Prädikate, die nicht zu ISO gehören und die auch
+  # SICStus nicht eingebaut hat: sichtbar erst nach dem Import der Bibliothek
+  # (in den Modulen des Systems und mit dem Flag swi_compat immer). Die
+  # Implementierung bleibt in system bzw. in der Maschine. library(swi) ist
+  # der Übergang für das, was (noch) keine inhaltliche Heimat hat.
+  @homes (for {lib, keys} <- [
+                {"iso_ext", ~w(forall/2 succ/2 setup_call_cleanup/3 call_nth/2 countall/2
+                    call_with_inference_limit/3)},
+                {"between", ~w(between/3 repeat/1)},
+                {"fastrw", ~w(fast_read/1 fast_read/2 fast_write/1 fast_write/2)},
+                {"swi", ~w(ignore/1 not/1 *->/2 plus/3 atomic_list_concat/2 atomic_list_concat/3
+                    atom_number/2 term_to_atom/2 read_term_from_atom/3 =@=/2 \\=@=/2
+                    term_attvars/2 findnsols/4 findnsols/5 call_with_depth_limit/3
+                    exists_file/1 exists_directory/1 delete_file/1 fast_term_serialized/2
+                    time/1 statistics/0 style_check/1 expand_goal/2 dcg_translate_rule/2
+                    strip_module/3)}
+              ],
+              k <- keys,
+              into: %{} do
+            [n, ar] = Regex.run(~r{^(.*)/(\d+)$}, k, capture: :all_but_first)
+            {{n, String.to_integer(ar)}, lib}
           end)
 
   @table (for mod <- @modules,
@@ -112,9 +143,11 @@ defmodule PrologEx.Builtins do
          end)
 
   # system: geschützt sind die als geschützt markierten und die der Maschine
+  # (ohne die mit einer Heimat-Bibliothek: Benutzer und Bibliotheken dürfen
+  # eigene gleichen Namens haben)
   @protected for({{"system", n, a}, {_, _, true}} <- @all, into: MapSet.new(), do: {n, a})
-             # time/1 nicht: library(time) bringt Scryers (siehe PrologEx, step)
-             |> MapSet.union(MapSet.new(@engine -- [{"time", 1}]))
+             |> MapSet.union(MapSet.new(@engine))
+             |> MapSet.difference(MapSet.new(Map.keys(@homes)))
 
   @system_keys (for({"system", n, a} <- Map.keys(@all), do: {n, a}) ++ @engine)
                |> MapSet.new()
@@ -127,14 +160,19 @@ defmodule PrologEx.Builtins do
               acc -> Map.update(acc, m, MapSet.new([{n, a}]), &MapSet.put(&1, {n, a}))
             end)
 
-  # geschützte system-Builtins direkt nach {name, arity}: kein Modul kann
-  # sie überdecken, die Auflösung ist also immer dieselbe (Schnellweg)
-  @protected_entries for {{"system", n, ar}, {_, _, true} = e} <- @all,
-                         into: %{},
-                         do: {{n, ar}, e}
+  # system-Builtins direkt nach {name, arity} (Schnellweg, ein Zugriff):
+  # geschützte – kein Modul kann sie überdecken, die Auflösung ist immer
+  # dieselbe – als {:protected, e}; die mit Heimat-Bibliothek (sichtbar
+  # erst nach Import) als {:homed, e}
+  @fast_entries for {{"system", n, ar}, {_, _, prot} = e} <- @all,
+                    prot or is_map_key(@homes, {n, ar}),
+                    into: %{},
+                    do:
+                      {{n, ar},
+                       if(is_map_key(@homes, {n, ar}), do: {:homed, e}, else: {:protected, e})}
 
-  @doc "Eintrag eines geschützten system-Builtins (oder nil)"
-  def protected_entry(name, arity), do: Map.get(@protected_entries, {name, arity})
+  @doc "`{:protected, eintrag}`, `{:homed, eintrag}` oder nil (siehe @fast_entries)"
+  def fast_entry(name, arity), do: Map.get(@fast_entries, {name, arity})
 
   @doc "`{:det | :nondet, fun, protected?}`, `{:prolog, pred, protected?}` oder nil"
   def lookup(module, name, arity), do: Map.get(@all, {module, name, arity})
@@ -186,23 +224,43 @@ defmodule PrologEx.Builtins do
     if File.regular?(path), do: path
   end
 
+  for {key, _} <- @homes do
+    unless MapSet.member?(@system_keys, key), do: raise("Heimat: #{inspect(key)} nicht in system")
+  end
+
+  @doc "Heimat-Bibliothek eines eingebauten Prädikats außerhalb von ISO/SICStus (oder nil)"
+  def home(name, arity), do: Map.get(@homes, {name, arity})
+
+  @home_reexports (for {key, lib} <- @homes, reduce: %{} do
+                     acc -> Map.update(acc, lib, %{key => "system"}, &Map.put(&1, key, "system"))
+                   end)
+
   # Re-Exporte: Prädikate, die ein Bibliotheksmodul aus einem anderen
   # weitergibt (wie SICStus' library(lists), die maplist/N, include/3, ...
   # enthält). Importiert wird aus dem Quellmodul – lists und apply
   # zusammen ergeben also keinen Konflikt.
   @reexports %{
+    # wie Scryers library(iso_ext)
+    "iso_ext" =>
+      Map.merge(@home_reexports["iso_ext"], %{
+        {"call_cleanup", 2} => "system",
+        {"call_residue_vars", 2} => "system",
+        {"copy_term", 3} => "system",
+        {"bb_get", 2} => "blackboard",
+        {"bb_put", 2} => "blackboard"
+      }),
+    # Übergang: alles, was bisher ohne Import sichtbar war
+    "swi" =>
+      @home_reexports
+      |> Map.values()
+      |> Enum.reduce(&Map.merge/2),
     "lists" =>
       Map.new(
         for(n <- 2..8, do: {{"maplist", n}, "apply"}) ++
           [{{"include", 3}, "apply"}, {{"exclude", 3}, "apply"}, {{"partition", 4}, "apply"}]
       ),
     # wie SICStus' library(fastrw) (die Prädikate sind eingebaut, wie in SWI)
-    "fastrw" => %{
-      {"fast_read", 1} => "system",
-      {"fast_read", 2} => "system",
-      {"fast_write", 1} => "system",
-      {"fast_write", 2} => "system"
-    },
+    "fastrw" => @home_reexports["fastrw"],
     # wie SICStus' library(between)
     "between" => %{
       {"between", 3} => "system",

@@ -24,7 +24,8 @@ prelude =
   File.read!(Path.join(__DIR__, "prelude.pl")) <>
     "'$neumerkel_tmp'(#{PrologEx.format({:atom, tmp}, quoted: true)}).\n"
 
-File.write!(file, ":- set_prolog_flag(double_quotes, chars).\n" <> prelude <> "\n" <> body)
+# wie im Original (Scryer): library(iso_ext) und library(files) importiert
+File.write!(file, ":- set_prolog_flag(double_quotes, chars).\n:- use_module(library(iso_ext)).\n:- use_module(library(files)).\n" <> prelude <> "\n" <> body)
 
 # Testtexte (für die Ausgabe): "test_N :- ..." bis zur nächsten Leerzeile
 bodies =

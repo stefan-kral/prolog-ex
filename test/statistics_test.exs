@@ -13,7 +13,14 @@ defmodule PrologEx.StatisticsTest do
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
-    db = Enum.reduce(["lists", "apply"], %{}, &PrologEx.use_library(&2, &1, "user"))
+
+    db =
+      Enum.reduce(
+        ["lists", "apply", "iso_ext", "swi"],
+        %{},
+        &PrologEx.use_library(&2, &1, "user")
+      )
+
     {db, []} = PrologEx.Consult.load(db, Reader.read_terms(r, @program))
     {:ok, reader: r, db: db}
   end

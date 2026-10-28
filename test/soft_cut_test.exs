@@ -6,7 +6,7 @@ defmodule PrologEx.SoftCutTest do
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
-    db = PrologEx.use_library(%{}, "lists", "user")
+    db = Enum.reduce(["lists", "swi"], %{}, &PrologEx.use_library(&2, &1, "user"))
 
     {db, []} =
       Consult.load(

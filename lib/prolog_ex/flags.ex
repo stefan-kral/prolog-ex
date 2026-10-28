@@ -34,6 +34,9 @@ defmodule PrologEx.Flags do
     # Toplevel: Antworten ohne Rückfrage zeigen, solange keine Seiteneffekte
     # passieren – auto: eine Bildschirmseite, N: höchstens N, 1: einzeln
     "answer_chunk" => {:auto, [:auto, :positive_integer]},
+    # true: die eingebauten Prädikate aus library(swi), iso_ext, between,
+    # fastrw sind ohne Import sichtbar (wie früher; Übergang)
+    "swi_compat" => {false, [false, true]},
     "version" => {1, :read_only}
   }
 

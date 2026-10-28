@@ -35,6 +35,7 @@ defmodule PrologEx.ListPredsTest do
       fact(s("dummy", [r]))
     ])
     |> libs()
+    |> PrologEx.use_library("iso_ext")
   end
 
   defp all(goal, n \\ 20), do: db() |> query(goal) |> Enum.take(n) |> Enum.map(&format_answer/1)
