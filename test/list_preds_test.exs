@@ -184,6 +184,38 @@ defmodule PrologEx.ListPredsTest do
     end
   end
 
+  describe "same_length/3 (SICStus)" do
+    defp g(text) do
+      [{:term, g, _}] = PrologEx.Parser.read_terms(text <> " .")
+      g
+    end
+
+    test "Modi, Determinismus, Fehler" do
+      assert all(g("same_length([a, b], L, N)")) == ["L = [_A, _B], N = 2"]
+      assert all(g("same_length(L, [a, b], N)")) == ["L = [_A, _B], N = 2"]
+      assert all(g("same_length([a|T], L, 3)")) == ["L = [_A, _B, _C], T = [_D, _E]"]
+      assert all(g("same_length([a], [b], 1)")) == ["true"]
+      assert all(g("same_length([a], [b], 2)")) == []
+      assert all(g("same_length([a], [b, c], N)")) == []
+      assert all(g("same_length(A, B, -1)")) == []
+
+      assert all(g("same_length(A, B, N)"), 3) == [
+               "A = [], B = [], N = 0",
+               "A = [_A], B = [_B], N = 1",
+               "A = [_A, _B], B = [_C, _D], N = 2"
+             ]
+
+      for q <- ["same_length([a, b], L, N)", "same_length(L, [a], N)", "same_length(A, B, 2)"],
+          do: assert(more(g(q)) == [false], q)
+
+      assert all(g("catch(same_length(A, B, x), error(E, _), true)")) ==
+               ["E = type_error(integer, x)"]
+
+      assert all(g("catch(same_length(A, B, 1.0), error(E, _), true)")) ==
+               ["E = type_error(integer, 1.0)"]
+    end
+  end
+
   describe "nth0/nth1" do
     test "Modi" do
       abc = list([a("a"), a("b"), a("c")])

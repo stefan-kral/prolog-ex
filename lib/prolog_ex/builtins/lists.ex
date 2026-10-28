@@ -63,6 +63,25 @@ defmodule PrologEx.Builtins.Lists do
       ]),
       fact(s("$same_length", [[], []])),
       rule(s("$same_length", [[v("_") | t], [v("_") | l]]), [s("$same_length", [t, l])]),
+      # same_length(L1, L2, N) wie SICStus: beide Listen haben N Elemente;
+      # negatives N scheitert, kein ganzzahliges N: type_error
+      rule(s("same_length", [l, r, n]), [
+        s(";", [
+          s("->", [
+            s("integer", [n]),
+            conj([s(">=", [n, 0]), s("length", [l, n]), s("length", [r, n])])
+          ]),
+          s(";", [
+            s("->", [s("var", [n]), conj([s("same_length", [l, r]), s("length", [l, n])])]),
+            s("throw", [
+              s("error", [
+                s("type_error", [{:atom, "integer"}, n]),
+                s("/", [{:atom, "same_length"}, 3])
+              ])
+            ])
+          ])
+        ])
+      ]),
       # permutation/2 ohne Schnellweg (wie SWI)
       fact(s("$perm", [[], []])),
       rule(s("$perm", [l, [h | t]]), [s("select", [h, l, r]), s("$perm", [r, t])]),
@@ -71,6 +90,9 @@ defmodule PrologEx.Builtins.Lists do
     ]
     |> then(&%{"lists" => &1, "apply" => maplist_library()})
   end
+
+  defp conj([g]), do: g
+  defp conj([g | gs]), do: PrologEx.s(",", [g, conj(gs)])
 
   @doc false
   def meta, do: for(n <- 1..7, do: {"apply", "maplist", [n | List.duplicate("?", n)]})
