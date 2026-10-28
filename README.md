@@ -527,6 +527,16 @@ Wie SICStus (dort eingebaut, hier nach `use_module`):
     Änderung also ein Eintrag in der Substitution. Der Toplevel zeigt ein
     Mutable als `'$mutable'(Wert)`.
 
+## Eindeutige Atome: `library(gensym)`
+
+Wie Scryer und SWI: `gensym(+Base, -Unique)` gibt `Base1`, `Base2`, … (ein
+Zähler je Basis), `reset_gensym(+Base)` setzt einen Zähler zurück,
+`reset_gensym/0` (SWI) alle. Die Zähler überstehen Backtracking wie
+`assert` und kosten nichts, solange niemand `gensym/2` aufruft. Erzeugte
+Atome belasten die Atomtabelle der BEAM nicht. Fehler: Base Variable →
+`instantiation_error`, kein Atom → `type_error(atom, Base)` (Scryer
+scheitert hier nur), Unique gebunden → `uninstantiation_error(Unique)`.
+
 ## Lambdas: `library(lambda)` und `library(lambda_pl)`
 
 Nach Ulrich Neumerkel, in zwei Varianten mit gleichem Verhalten:
@@ -755,7 +765,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
     `library(apply)`, `library(random)`, `library(atts)`, `library(between)`, `library(reif)`, `library(reif_pl)`,
     `library(blackboard)`, `library(mutables)`, `library(lambda)`,
-    `library(lambda_pl)`, `library(si)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
+    `library(lambda_pl)`, `library(si)`, `library(gensym)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
     SICStus: `built_in`, `static`, `dynamic`, `defined`, `compiled`,
