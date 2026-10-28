@@ -491,6 +491,19 @@ mit 1000 Elementen, alle Antworten, 2200 ms → 3 ms.
 `frozen/2`, `copy_term/3` (Body als Konjunktion) und `term_attvars/2` wie
 SICStus. `copy_term/2` und `findall/3` kopieren Attribute nicht mit.
 
+`call_residue_vars(G, Vs)` wie SICStus und SWI: `Vs` sind die
+attributierten Variablen, die während `G` entstanden sind und nach der
+Lösung noch offen sind (ungebunden, mit einem nicht erledigten `freeze`,
+`when`, `dif` oder einem Attribut eines Moduls). Das gilt in der Reihenfolge
+des Entstehens und auch für Variablen, die sonst nirgends mehr vorkommen.
+Dafür behält die Kompaktierung der Substitution, solange der Aufruf läuft,
+auch unerreichbare attributierte Variablen, die jünger sind als die Marke.
+
+```prolog
+?- call_residue_vars((dif(X, f(Y)), X = f(Z)), Vars).
+Vars = [Z, Y], X = f(Z), dif(Z, Y).
+```
+
 ### Attributierte Variablen: `library(atts)` wie SICStus
 
 ```prolog

@@ -239,6 +239,65 @@ defmodule PrologEx.Builtins.Coroutining do
     Order.variables(t, subst()) == []
   end
 
+  def meta, do: [{"system", "call_residue_vars", [0, "-"]}]
+
+  # --- call_residue_vars/2 (SWI, SICStus) ---------------------------------
+  # Vs: die während G entstandenen attributierten Variablen, die nach
+  # einer Lösung noch ungebunden sind und eine aktive Bedingung tragen
+  # (blockiertes Ziel, dif, Attribut eines Moduls). Kennungen steigen
+  # monoton (PrologEx.attv_id/0): entstanden = Kennung über der Marke.
+
+  @crv :prolog_ex_crv_marks
+
+  defbuiltin "$crv_mark", [m] do
+    {:unify, [{m, PrologEx.attv_id()}]}
+  end
+
+  # offene Marken: die Kompaktierung behält solange auch unerreichbare
+  # attributierte Variablen über der ältesten
+  defbuiltin "$crv_open", [m] do
+    Process.put(@crv, [deref(m) | Process.get(@crv, [])])
+    :ok
+  end
+
+  defbuiltin "$crv_close", [m] do
+    Process.put(@crv, List.delete(Process.get(@crv, []), deref(m)))
+    :ok
+  end
+
+  defbuiltin "$crv_vars", [m, vs] do
+    mark = deref(m)
+    s = subst()
+
+    vars =
+      for {{:attrs, id}, attrs} <- s,
+          id > mark,
+          v = {:var, {:attv, id}},
+          PrologEx.walk(v, s) == v,
+          active?(attrs, s) do
+        {id, v}
+      end
+      |> Enum.sort()
+      |> Enum.map(&elem(&1, 1))
+
+    {:unify, [{vs, PrologEx.list(vars)}]}
+  end
+
+  # aktiv: ein Attribut eines Moduls, eine Ausschlussmenge (dif; sie wächst
+  # nur, ist also nie leer) oder eine Suspension mit ungebundenem Done
+  defp active?(attrs, s) do
+    Enum.any?(attrs, fn
+      {"$susp", l} ->
+        Enum.any?(PrologEx.prolog_items(l), fn susp ->
+          {_, "$s", [done | _]} = PrologEx.unmark_top(susp)
+          match?({:var, _}, PrologEx.walk(done, s))
+        end)
+
+      _ ->
+        true
+    end)
+  end
+
   def library do
     import PrologEx, only: [s: 2, v: 1, a: 1, rule: 2, fact: 1]
     [d, x, y, g, c] = Enum.map(~w(D X Y G C), &v/1)
@@ -258,6 +317,14 @@ defmodule PrologEx.Builtins.Coroutining do
     w = v("_")
 
     [
+      rule(s("call_residue_vars", [g, vs]), [
+        s("$crv_mark", [m]),
+        s("setup_call_cleanup", [
+          s("$crv_open", [m]),
+          s(",", [s("call", [g]), s("$crv_vars", [m, vs])]),
+          s("$crv_close", [m])
+        ])
+      ]),
       retry.("$freeze_retry", [x, g], s("freeze", [x, g])),
       retry.("$dif_retry", [x, y], s("dif", [x, y])),
       retry.("$when_retry", [c, g], s("when", [c, g])),

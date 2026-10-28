@@ -11,6 +11,8 @@ defmodule PrologEx.CoroutiningTest do
   zaehle(N) :- N1 is N - 1, zaehle(N1).
   ausgabe(X) :- write(X), nl.
   gross(f(a, [1, 2], g(b))).
+  frz([]).
+  frz([X|Xs]) :- freeze(X, true), frz(Xs).
   """
 
   setup_all do
@@ -35,6 +37,78 @@ defmodule PrologEx.CoroutiningTest do
 
   defp out(c, text, opts \\ []),
     do: capture_io(fn -> send(self(), {:ans, ask(c, text, opts)}) end)
+
+  describe "call_residue_vars/2 (SWI, SICStus)" do
+    test "Beispiel aus dem SICStus-Handbuch", c do
+      assert ask(c, "call_residue_vars((dif(X, f(Y)), X = f(Z)), Vars).") ==
+               ["Vars = [Z, Y], X = f(Z), dif(Z, Y)"]
+    end
+
+    test "nur während des Ziels entstanden und danach noch offen", c do
+      assert ask(c, "call_residue_vars(freeze(X, true), Vs).") == ["Vs = [X], freeze(X, true)"]
+      assert ask(c, "call_residue_vars((freeze(X, true), X = 1), Vs).") == ["Vs = [], X = 1"]
+      # vorher entstanden: gehört nicht dazu
+      assert ask(c, "freeze(X, true), call_residue_vars(true, Vs).") ==
+               ["Vs = [], freeze(X, true)"]
+
+      # erledigtes dif zählt nicht
+      assert ask(c, "call_residue_vars((dif(X, a), X = b), Vs).") == ["Vs = [], X = b"]
+
+      assert ask(c, "call_residue_vars(when(nonvar(X), true), Vs).") ==
+               ["Vs = [X], when(nonvar(X), true)"]
+
+      # Y bleibt attributiert, aber sein Eintrag ist erledigt (Done gebunden)
+      assert ask(c, "call_residue_vars((when((nonvar(X);nonvar(Y)), true), X = 1), Vs).") ==
+               ["Vs = [], X = 1"]
+
+      # dif-Menge von Y leer, nachdem X = c den Fall entschieden hat
+      assert ask(c, "call_residue_vars((dif(X-Y, a-b), X = c), Vs).") == ["Vs = [], X = c"]
+    end
+
+    test "Reihenfolge des Entstehens", c do
+      assert ask(c, "call_residue_vars((freeze(B, true), freeze(A, true)), Vs).") ==
+               ["Vs = [B, A], freeze(A, true), freeze(B, true)"]
+
+      # viele: die Substitution ist dann eine ungeordnete Hash-Map
+      assert ask(c, "\\+ \\+ (length(Xs, 80), call_residue_vars(frz(Xs), Vs), Vs == Xs).") ==
+               ["true"]
+    end
+
+    test "auch Variablen, die sonst nirgends vorkommen (Zweck des Prädikats)", c do
+      assert ask(c, "call_residue_vars(freeze(_, fail), Vs), Vs = [V], frozen(V, G).") ==
+               ["G = freeze(V, user:fail), Vs = [V], freeze(V, fail)"]
+    end
+
+    test "nach jeder Lösung; scheitern und Ausnahmen gehen durch", c do
+      assert ask(c, "call_residue_vars((p(X), freeze(Y, true)), Vs).") == [
+               "Vs = [Y], X = a, freeze(Y, true)",
+               "Vs = [Y], X = b, freeze(Y, true)"
+             ]
+
+      assert ask(c, "call_residue_vars(fail, Vs).") == []
+      assert ask(c, "catch(call_residue_vars(throw(x), _), E, true).") == ["E = x"]
+    end
+
+    test "Kompaktierung verliert unerreichbare Variablen nicht", c do
+      assert ask(
+               c,
+               "call_residue_vars((freeze(_, fail), length(_L, 30000), maplist(=(a), _L)), _Vs), length(_Vs, N)."
+             ) == ["N = 1"]
+    end
+
+    test "danach ist keine Marke mehr offen (Cleanup bei Erfolg, Scheitern, Cut, Ausnahme)",
+         c do
+      for q <- [
+            "call_residue_vars(true, _).",
+            "\\+ call_residue_vars(fail, _).",
+            "once(call_residue_vars(p(_), _)).",
+            "catch(call_residue_vars(throw(x), _), _, true)."
+          ] do
+        assert [_] = ask(c, q), q
+        assert Process.get(:prolog_ex_crv_marks, []) == [], q
+      end
+    end
+  end
 
   describe "freeze/2, frozen/2" do
     test "weckt beim Binden, in Reihenfolge, sofort wenn schon gebunden", c do

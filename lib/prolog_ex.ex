@@ -185,10 +185,15 @@ defmodule PrologEx do
         Map.update(subst, {:attrs, id}, %{module => value}, &Map.put(&1, module, value))
 
       {:var, _} = v ->
-        id = System.unique_integer([:positive])
+        id = attv_id()
         subst |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{module => value})
     end
   end
+
+  # Kennung einer neuen attributierten Variablen: monoton steigend, damit
+  # call_residue_vars/2 die während eines Ziels entstandenen erkennt
+  @doc false
+  def attv_id, do: System.unique_integer([:positive, :monotonic])
 
   @doc "Suspension '$s'(Done, Weckziel, Restziel) an alle Variablen hängen"
   # Die Liste steht mit dem neuesten Eintrag vorn (Anhängen in O(1));
@@ -203,7 +208,7 @@ defmodule PrologEx do
           end)
 
         {:var, _} = v ->
-          id = System.unique_integer([:positive])
+          id = attv_id()
           s |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{"$susp" => [susp]})
       end
     end)
@@ -256,9 +261,10 @@ defmodule PrologEx do
     end)
   end
 
-  defp prolog_items([]), do: []
-  defp prolog_items([h | t]), do: [h | prolog_items(t)]
-  defp prolog_items({:glist, l}), do: prolog_items(unmark({:glist, l}))
+  @doc false
+  def prolog_items([]), do: []
+  def prolog_items([h | t]), do: [h | prolog_items(t)]
+  def prolog_items({:glist, l}), do: prolog_items(unmark({:glist, l}))
 
   # ---------------------------------------------------------------------
   # Occurs-Check (Flag occurs_check = false | true | error)
@@ -2547,7 +2553,21 @@ defmodule PrologEx do
 
     # Attribute der noch lebenden attributierten Variablen mitnehmen (sie
     # können selbst wieder solche enthalten)
-    {attrs, size} = compact_attrs(attvs_in(memo), MapSet.new(), %{}, {memo, size}, st.subst)
+    # während call_residue_vars/2: auch unerreichbare attributierte
+    # Variablen behalten, die seit der ältesten offenen Marke entstanden
+    # sind (sie sind genau das, was es finden soll)
+    keep =
+      case Process.get(:prolog_ex_crv_marks) do
+        [_ | _] = marks ->
+          m = Enum.min(marks)
+          for {:attrs, id} <- Map.keys(st.subst), id > m, do: id
+
+        _ ->
+          []
+      end
+
+    {attrs, size} =
+      compact_attrs(attvs_in(memo) ++ keep, MapSet.new(), %{}, {memo, size}, st.subst)
 
     # Ebene von call_with_depth_limit/3 mitnehmen
     attrs =
