@@ -537,6 +537,13 @@ Atome belasten die Atomtabelle der BEAM nicht. Fehler: Base Variable →
 `instantiation_error`, kein Atom → `type_error(atom, Base)` (Scryer
 scheitert hier nur), Unique gebunden → `uninstantiation_error(Unique)`.
 
+**Erweiterung** (weder in Scryer noch in SWI – Code, der sie benutzt,
+läuft nur hier): `current_gensym_base(?Base)` zählt die Basen mit
+laufendem Zähler in Standardordnung auf, nach `reset_gensym/1` ist eine
+Basis weg; Base weder Variable noch Atom → `type_error(atom, Base)`. Die
+Liste wird beim Aufruf festgehalten. Gedacht zum Nachsehen und Debuggen;
+den Zählerstand selbst gibt es bewusst nicht.
+
 ## Lambdas: `library(lambda)` und `library(lambda_pl)`
 
 Nach Ulrich Neumerkel, in zwei Varianten mit gleichem Verhalten:
