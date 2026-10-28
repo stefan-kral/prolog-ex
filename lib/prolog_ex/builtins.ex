@@ -57,7 +57,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Pio,
     PrologEx.Builtins.Files,
     PrologEx.Builtins.Charsio,
-    PrologEx.Builtins.ScryerPrims
+    PrologEx.Builtins.ScryerPrims,
+    PrologEx.Builtins.OS
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst

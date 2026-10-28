@@ -169,7 +169,12 @@ defmodule PrologEx.Stream do
         :append -> [:append]
       end
 
-    case :file.open(path, [:raw, :binary | flags] ++ write_buffer(mode)) do
+    # pipe: true – eine benannte Pipe (library(process)): ungepuffert, ohne
+    # Dateinamen, nicht positionierbar
+    pipe? = Keyword.get(opts, :pipe, false)
+    buffer = if pipe?, do: [], else: write_buffer(mode)
+
+    case :file.open(path, [:raw, :binary | flags] ++ buffer) do
       {:ok, dev} ->
         t = table()
         id = t.next
@@ -180,10 +185,10 @@ defmodule PrologEx.Stream do
           kind: :file,
           dev: dev,
           mode: mode,
-          file_name: Path.expand(path),
+          file_name: if(pipe?, do: nil, else: Path.expand(path)),
           type: Keyword.get(opts, :type, :text),
           aliases: if(alias, do: [alias], else: []),
-          reposition: Keyword.get(opts, :reposition, true),
+          reposition: Keyword.get(opts, :reposition, not pipe?),
           eof_action: Keyword.get(opts, :eof_action, :eof_code)
         }
 
@@ -195,6 +200,28 @@ defmodule PrologEx.Stream do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc """
+  Lesendes Ende einer benannten Pipe (library(process)): ein Port liest sie
+  mit cat; seine Daten kommen, sobald sie da sind (eine rohe Datei würde
+  auf volle Blöcke warten). Der Name wird gelöscht, sobald beide Enden
+  offen sind.
+  """
+  def open_pipe_reader(fifo) do
+    port =
+      Port.open({:spawn_executable, "/bin/sh"}, [
+        :binary,
+        :exit_status,
+        args: ["-c", "exec <\"$0\"; rm -f \"$0\"; exec cat", fifo]
+      ])
+
+    t = table()
+    id = t.next
+    s = %__MODULE__{id: id, kind: :port_in, dev: port, mode: :read, reposition: false}
+    Process.put({@key, id}, s)
+    put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id)})
+    id
   end
 
   defp write_buffer(:read), do: []
@@ -215,7 +242,13 @@ defmodule PrologEx.Stream do
       :ok
     else
       s = get(id)
-      if s.dev, do: :file.close(s.dev)
+
+      case s do
+        %{kind: :port_in, dev: port} -> if Port.info(port), do: Port.close(port)
+        %{dev: dev} when dev != nil -> :file.close(dev)
+        _ -> :ok
+      end
+
       Process.delete({@key, id})
 
       put_table(%{
@@ -388,6 +421,13 @@ defmodule PrologEx.Stream do
     case IO.gets(:stdio, prompt) do
       data when is_binary(data) -> %{s | buf: s.buf <> data}
       _ -> %{s | eof: true}
+    end
+  end
+
+  defp fill(%{kind: :port_in, dev: port} = s) do
+    receive do
+      {^port, {:data, data}} -> %{s | buf: s.buf <> data}
+      {^port, {:exit_status, _}} -> %{s | eof: true}
     end
   end
 

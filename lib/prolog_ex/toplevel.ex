@@ -46,6 +46,7 @@ defmodule PrologEx.Toplevel do
   alias PrologEx.{Consult, Reader}
 
   def main(args) do
+    Application.put_env(:prolog_ex, :argv, args)
     {files, goals, quiet} = parse_args(args, [], [], false)
     {:ok, reader} = Reader.start_link()
     Reader.put_current(reader)
@@ -70,6 +71,7 @@ defmodule PrologEx.Toplevel do
 
   @doc "Toplevel in iex mit Sitzung, die einen Abbruch (Ctrl-C mit +Bc) übersteht"
   def repl(args \\ []) do
+    Application.put_env(:prolog_ex, :argv, args)
     {files, goals, quiet} = parse_args(args, [], [], false)
     session = session()
 
@@ -143,6 +145,8 @@ defmodule PrologEx.Toplevel do
   defp prolog_key?(_), do: false
 
   defp parse_args([], files, goals, q), do: {Enum.reverse(files), Enum.reverse(goals), q}
+  # dahinter: Argumente für das Programm (argv/1 aus library(os))
+  defp parse_args(["--" | _], files, goals, q), do: parse_args([], files, goals, q)
   defp parse_args(["-g", g | rest], f, gs, q), do: parse_args(rest, f, [g | gs], q)
   defp parse_args(["-q" | rest], f, gs, _), do: parse_args(rest, f, gs, true)
   defp parse_args([file | rest], f, gs, q), do: parse_args(rest, [file | f], gs, q)
@@ -333,6 +337,9 @@ defmodule PrologEx.Toplevel do
     {pid, ref} =
       spawn_monitor(fn ->
         Enum.each(state, fn {k, v} -> Process.put(k, v) end)
+        # äußere Wirkungen (Prozesse, Shell, Umgebung) brechen ab, bevor sie
+        # passieren (PrologEx.Effects)
+        PrologEx.Effects.speculative!()
         {:ok, io} = StringIO.open("")
         Process.group_leader(self(), io)
 

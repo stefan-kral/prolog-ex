@@ -340,6 +340,29 @@ ist jeweils am Dateianfang vermerkt.
   Nach `use_module(library(time))` gilt dieses `time/1` statt des
   eingebauten. `statistics/2` bleibt das eingebaute, eine Obermenge von
   Scryers vorläufigem.
+* `library(os)` (Markus Triska, gemeinfrei):
+  * `getenv/2`, `setenv/2`, `unsetenv/1` mit Namen und Werten als
+    Zeichenlisten, Namen wie bei Scryer nur aus `alnum` und
+    `ascii_punctuation`.
+  * `shell/1,2` über `$SHELL -c`, sonst `/bin/sh`; die Ein- und Ausgabe
+    wird geerbt.
+  * `pid/1`.
+  * `argv/1`: die Argumente nach `--` beim Start (`mix prolog datei.pl --
+    a b`); `raw_argv/1` alle.
+* `library(process)` (BSD-Lizenz) enthält
+  `process_create(Exe, Args, Optionen)` mit `stdin/stdout/stderr(std | null
+  | file(P) | pipe(S))`, `env/1`, `environment/1`, `cwd/1` und
+  `process(P)`, dazu `process_wait/2,3` (`timeout(0 | infinite)`,
+  `release/1`), `process_kill/1`, `process_id/2` und `process_release/1`.
+  Optionen und Fehler sind wie bei Scryer.
+
+  Ein Prozess läuft über einen Port der BEAM; Pipes sind benannte Pipes
+  (`mkfifo`). Die BEAM meldet ein Programm, das ein Signal beendet hat,
+  wie `exit(128 + Signal)`. `killed(9)` gibt es daher nur nach
+  `process_kill/1`, Scryer kennt das Signal immer.
+* Der Toplevel rechnet beim Vorausrechnen keine Antwort voraus, die einen
+  Prozess startet, `shell/1,2` aufruft oder die Umgebung ändert. Solche
+  Wirkungen ließen sich nicht zurücknehmen, sie passieren erst nach `;`.
 * Dafür neu in der Maschine:
   * DCG-Pushback (`H, PB --> B`) nach dem Entwurf des DCG-Standards,
   * die Schreiboption `double_quotes(true)` (Zeichenlisten als `"..."`,

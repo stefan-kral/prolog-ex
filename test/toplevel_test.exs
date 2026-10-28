@@ -74,6 +74,39 @@ defmodule PrologEx.ToplevelTest do
       assert File.read!(f) == "1"
     end
 
+    @tag :tmp_dir
+    test "Prozesse, Shell, Umgebung laufen nie probeweise voraus (library(os))", c do
+      f = Path.join(c.tmp_dir, "lief.txt")
+
+      out =
+        top("""
+        use_module(library(os)).
+        member(C, ["true", "touch '#{f}'"]), shell(C).
+
+        """)
+
+      assert out =~ ~s|C = "true" |
+      refute File.exists?(f)
+
+      # auch nicht, wenn das Ziel alle Ausnahmen fängt
+      top("""
+      use_module(library(os)).
+      member(C, ["true", "touch '#{f}'"]), catch(shell(C), _, true).
+
+      """)
+
+      refute File.exists?(f)
+
+      # mit ; läuft es
+      top("""
+      use_module(library(os)).
+      member(C, ["true", "touch '#{f}'"]), shell(C).
+      ;
+      """)
+
+      assert File.exists?(f)
+    end
+
     test "dauert die nächste Antwort zu lange: Rückfrage" do
       out = top("( X = 1 ; between(0, inf, N), N < 0 ).\n\n")
       assert out =~ "X = 1 ."
