@@ -7,7 +7,7 @@ defmodule PrologEx.DCG do
 
   Unterstützt: Terminallisten (auch Strings, da `double_quotes=chars`),
   Nichtterminale, `,`, `;`, `|`, `->`, `\\+`, `{}`/1, `!`, `[]`,
-  `call//N` und Variablen (über `phrase/3`). Pushback (`H, PB --> B`)
+  `call//N`, `M:Rumpf` und Variablen (über `phrase/3`). Pushback (`H, PB --> B`)
   fehlt noch.
   """
 
@@ -48,6 +48,9 @@ defmodule PrologEx.DCG do
   defp tr({:atom, "!"}, s0, s), do: mk(",", [a("!"), mk("=", [s0, s])])
   defp tr([], s0, s), do: mk("=", [s0, s])
   defp tr({:struct, "call", args}, s0, s), do: mk("call", args ++ [s0, s])
+  # M:Rumpf: der Rumpf im Modul M (wie SWI; z. B. Grammatiken, die ein
+  # Meta-Prädikat mit //-Argument qualifiziert weitergibt)
+  defp tr({:struct, ":", [m, b]}, s0, s), do: mk(":", [m, tr(unmark(b), s0, s)])
 
   defp tr([_ | _] = l, s0, s) do
     case terminals(l, []) do

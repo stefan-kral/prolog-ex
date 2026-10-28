@@ -45,6 +45,20 @@ defmodule PrologEx.ConsultTest do
     assert ask(r, db, ~S|phrase(ab, "aab").|) == []
   end
 
+  test "DCG: M:Rumpf läuft im Modul M (wie SWI)", %{reader: r} do
+    {db, []} =
+      load(r, """
+      m:x([x|S], S).
+      xs --> m:x, m:(x, x).
+      xy --> m:"x", m:{Y = 1}, [Y].
+      """)
+
+    assert ask(r, db, ~S|phrase(xs, "xxx").|) == ["true"]
+    assert ask(r, db, ~S|phrase(m:x, "x").|) == ["true"]
+    assert ask(r, db, ~S|phrase(xy, [x, 1]).|) == ["true"]
+    assert ask(r, db, ~S|phrase(xs, "xx").|) == []
+  end
+
   test "Reconsult ersetzt Prädikate, andere bleiben", %{reader: r} do
     {db, []} = load(r, "f(1).\nf(2).\ng(x).\n")
     {db, []} = load(r, db, "f(3).\n")

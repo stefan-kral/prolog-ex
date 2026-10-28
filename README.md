@@ -71,7 +71,7 @@ fertigen Anfrage); `halt.` führt auch zurück zu iex, `reset_session` beginnt
 neu. Von Hand: `iex --erl "+Bc" -S mix`, dann `PrologEx.Toplevel.repl()`.
 Offene Datei-Streams überstehen den Abbruch nicht.
 
-Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`), Direktiven (`op/3`,
+Unterstützt: Klauseln, DCG (`-->`, `phrase/2,3`, `M:Rumpf` wie SWI), Direktiven (`op/3`,
 `dynamic/1`, `initialization/1`, `multifile/1`, `discontiguous/1`,
 `include/1`, bedingte Übersetzung mit `if/1`, `elif/1`, `else/0`,
 `endif/0`, beliebige Ziele), Reconsult (erneutes
@@ -197,6 +197,48 @@ A b und 'A b'
     nichts. Formatfehler sind `domain_error(format, Grund)`.
   * `~p` und `print/1,2` fragen ein benutzerdefiniertes `portray/1` für
     jeden Teilterm.
+
+## Grammatiken über Dateien: `library(pio)`
+
+Reine Eingabe wie in SWI und Scryer: `phrase_from_file(G, Datei)` wendet
+die DCG `G` auf den Inhalt der Datei an, ohne ihn vorher ganz einzulesen.
+Die Liste ist faul: ihr ungelesener Rest wartet mit `freeze/2`, und erst
+wenn die Grammatik ihn braucht, kommt der nächste Block (4096 Zeichen)
+dazu. Backtracking darüber ist normal möglich.
+
+```prolog
+:- use_module(library(pio)).
+lines([L|Ls]) --> line(L), !, lines(Ls).
+lines([]) --> [].
+line([]) --> "\n", !.
+line([C|Cs]) --> [C], line(Cs).
+
+?- phrase_from_file(lines(Ls), 'a.txt').
+Ls = ["hallo welt", "zweite zeile"].
+```
+
+Was die Bibliothek bietet:
+* `phrase_from_file/2,3` schließt die Datei, sobald die Grammatik erschöpft
+  ist, abgeschnitten wird oder eine Ausnahme wirft.
+* `phrase_from_stream/2,3` arbeitet auf einem offenen Stream.
+* `stream_to_lazy_list/2` (dazu `_chars`/`_codes`) liefert die faule Liste
+  der restlichen Zeichen.
+* `lazy_list_location//1` gibt `file(Datei, Zeile, Spalte, Zeichen)`,
+  `lazy_list_character_count//1` die Zeichennummer und `syntax_error//1`
+  wirft mit diesem Ort.
+* `phrase_to_file/2,3` und `phrase_to_stream/2` schreiben, wie in Scryer.
+
+Mit `as(chars)` oder `as(codes)` wählt man Zeichen oder Codes. Ohne diese
+Option richtet sich die Liste nach dem Flag `double_quotes`: Codes, wenn
+es `codes` ist, sonst Zeichen. So passen Strings in der Grammatik immer
+zur gelesenen Liste. SWI nimmt hier stets Codes. Alle anderen Optionen
+gehen an `open/4`.
+
+Gelesene Blöcke merkt sich der Stream, bis er geschlossen wird. Nach
+`close/1` kann man daher nicht mehr in die Liste zurücksetzen; versucht
+man es doch, kommt `existence_error(stream, S)`.
+
+Tempo: 300 000 Zeichen zählen dauert 2,1 s, über eine fertige Liste 1,5 s.
 
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 

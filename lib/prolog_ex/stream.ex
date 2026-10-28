@@ -39,7 +39,10 @@ defmodule PrologEx.Stream do
     chars: 0,
     lines: 1,
     line_pos: 0,
-    bytes: 0
+    bytes: 0,
+    # library(pio): gelesene Blöcke der faulen Liste, Nr. => {Zeichen,
+    # Zeile, Spalte am Anfang, Text}; verschwindet mit dem Stream
+    lazy: %{}
   ]
 
   # --- Tabelle --------------------------------------------------------------
@@ -527,6 +530,42 @@ defmodule PrologEx.Stream do
   defp ascii?(text), do: not String.match?(text, ~r/[^\x00-\x7f]/)
 
   # --- Eigenschaften und Position -------------------------------------------
+
+  @doc """
+  library(pio): Block `k` der faulen Liste (bis zu `max` Zeichen); einmal
+  gelesen, bleibt er im Stream gemerkt (Rücksetzen liest ihn nicht neu).
+  `{start, text}` mit Startposition `{zeichen, zeile, spalte}`; `""` am Ende.
+  """
+  def lazy_block(id, k, max) do
+    case Map.fetch(get(id).lazy, k) do
+      {:ok, {c, l, p, text}} ->
+        {{c, l, p}, text}
+
+      :error ->
+        s = get(id)
+        start = {s.chars, s.lines, s.line_pos}
+        text = read_chars(id, max, [])
+        {c, l, p} = start
+        s = get(id)
+        update(%{s | lazy: Map.put(s.lazy, k, {c, l, p, text})})
+        {start, text}
+    end
+  end
+
+  defp read_chars(_id, 0, acc), do: acc |> Enum.reverse() |> List.to_string()
+
+  defp read_chars(id, n, acc) do
+    case peek_char(id) do
+      :eof -> read_chars(id, 0, acc)
+      {_, _} -> read_chars(id, n - 1, [get_char(id) | acc])
+    end
+  end
+
+  @doc "library(pio): gemerkte Blöcke und die Position danach"
+  def lazy_blocks(id) do
+    s = get(id)
+    {s.lazy, {s.chars, s.lines, s.line_pos}}
+  end
 
   @doc "Position als Prolog-Term"
   def position(id) do
