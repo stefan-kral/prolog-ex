@@ -281,6 +281,21 @@ Das eingebaute `delete_file/1` (wie SWI, auch mit Atom) bleibt
 verfügbar. Nach `use_module(library(files))` gilt das aus `files`, das
 nur Zeichenlisten nimmt.
 
+## Bibliotheken aus Scryer Prolog
+
+Als Prolog-Quelltext übernommen (`priv/library/`). Geändert sind nur die
+Stellen, an denen Scryer eigene Hilfsprädikate seiner Maschine benutzt; das
+ist jeweils am Dateianfang vermerkt.
+
+* `library(error)` (Markus Triska, gemeinfrei) enthält
+  `must_be(Typ, T)` und `can_be(Typ, T)`. Die Typen sind `integer`, `atom`,
+  `character`, `in_character`, `chars`, `octet_character`, `octet_chars`,
+  `list`, `boolean`, `pair`, `term`, `var`, `not_less_than_zero` und `type`.
+  Dazu kommen `instantiation_error/0,1`, `domain_error/2,3`,
+  `type_error/2,3`, `representation_error/1`, `resource_error/1` und
+  `call_with_error_context/2`. Fehlerterme und Kontexte sind wie bei Scryer:
+  ohne Kontext steht `[]`, sonst `must_be/2` bzw. `can_be/2`.
+
 ## Schnell speichern: `fast_write/2`, `fast_read/2`
 
 Wie SWI (`fast_write/2`, `fast_read/2`, `fast_term_serialized/2`) und SICStus
