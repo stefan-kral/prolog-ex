@@ -44,7 +44,7 @@ Im Toplevel:
 true.
 
 ?- app(X, Y, [1,2]).
-X = [], Y = [1, 2] ;       % ";" + Enter für die nächste Lösung
+X = [], Y = [1,2] ;        % ";" + Enter für die nächste Lösung
 ...
 ?- [examples/demo].        % Datei laden
 ?- listing(app/3).
@@ -215,7 +215,7 @@ line([]) --> "\n", !.
 line([C|Cs]) --> [C], line(Cs).
 
 ?- phrase_from_file(lines(Ls), 'a.txt').
-Ls = ["hallo welt", "zweite zeile"].
+Ls = ["hallo welt","zweite zeile"].
 ```
 
 Was die Bibliothek bietet:
@@ -452,9 +452,12 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
   * Frische Variablen in Antworten (nicht aus der Anfrage) heißen wie bei
     SICStus `_A`, `_B`, …, `_Z`, `_AA`, … – je Antwort neu, in Reihenfolge
     des Auftretens, auch in Restzielen; Namen aus der Anfrage werden nicht
-    vergeben (`length(As, N)` → `As = [_A, _B], N = 2`).
-  * Antworten und `listing` setzen Leerzeichen nach Kommas (`f(a, b)`,
-    `[a, b|T]`) wie SWI; `writeq` schreibt kompakt (`f(a,b)`) wie ISO.
+    vergeben (`length(As, N)` → `As = [_A,_B], N = 2`).
+  * Antworten, `listing` und Fehlermeldungen setzen Leerzeichen nach
+    Kommas zwischen Argumenten (`f(a, b)`, `(a, b)`), nicht aber zwischen
+    Listenelementen (`[1,2,3]`, `[a,b|T]`); `writeq` schreibt kompakt
+    (`f(a,b)`) wie ISO, `write_term/2` mit `spacing(next_argument)` wie
+    SWI auch in Listen mit Leerzeichen (`[1, 2]`).
   * `write_term/2`: `quoted/1`, `ignore_ops/1`, `numbervars/1`,
     `variable_names/1` (ISO), `max_depth/1`, `spacing/1`, `priority/1` (SWI).
   * Die Operatortabelle für die Ausgabe spiegelt die des Readers: `op/3`,
@@ -481,7 +484,7 @@ Choice Points:
 ```
 ?- tfilter(dif(a), [a,b,X,a,c], Fs).
 Fs = "bc", X = a ;
-Fs = [b, X, c], dif(X, a).
+Fs = [b,X,c], dif(X, a).
 ```
 
 Zwei Fassungen mit denselben Antworten (Vergleichstest auch auf
@@ -553,9 +556,9 @@ Nach Ulrich Neumerkel, in zwei Varianten mit gleichem Verhalten:
 ```prolog
 ?- use_module(library(apply)), use_module(library(lambda)).
 ?- maplist(\X^Y^(Y is X*2), [1,2,3], L).
-L = [2, 4, 6].
+L = [2,4,6].
 ?- N = 10, maplist(N+\X^Y^(Y is X+N), [1,2], L).
-L = [11, 12], N = 10.
+L = [11,12], N = 10.
 ```
 
 `\X1^..^Xn^G` wird bei jedem Aufruf kopiert (lokale Variablen frisch),
@@ -735,7 +738,7 @@ auch unerreichbare attributierte Variablen, die jünger sind als die Marke.
 
 ```prolog
 ?- call_residue_vars((dif(X, f(Y)), X = f(Z)), Vars).
-Vars = [Z, Y], X = f(Z), dif(Z, Y).
+Vars = [Z,Y], X = f(Z), dif(Z, Y).
 ```
 
 ### Attributierte Variablen: `library(atts)` wie SICStus

@@ -121,21 +121,21 @@ defmodule PrologEx.SiTest do
 
   test "sort_si/2, msort_si/2, keysort_si/2", c do
     for {q, exp} <- [
-          {"sort_si([cc,aa,bb,aa], L)", "L = [aa, bb, cc]"},
+          {"sort_si([cc,aa,bb,aa], L)", "L = [aa,bb,cc]"},
           {"sort_si([X, X], L)", "L = [X]"},
           {"sort_si([X], L)", "L = [X]"},
           {"sort_si([], L)", "L = []"},
           {"sort_si([X, a], L)", :inst},
           {"sort_si([X, Y], L)", :inst},
-          {"sort_si([f(a, X), f(b, Y)], L)", "L = [f(a, X), f(b, Y)]"},
+          {"sort_si([f(a, X), f(b, Y)], L)", "L = [f(a, X),f(b, Y)]"},
           {"sort_si([f(Y, b), f(X, a)], L)", :inst},
           {"sort_si([a|_], L)", :inst},
           {"sort_si(foo, L)", {:error, "type_error(list, foo)"}},
-          {"msort_si([bb,aa,bb], L)", "L = [aa, bb, bb]"},
-          {"msort_si([X, X], L)", "L = [X, X]"},
+          {"msort_si([bb,aa,bb], L)", "L = [aa,bb,bb]"},
+          {"msort_si([X, X], L)", "L = [X,X]"},
           {"msort_si([X, Y], L)", :inst},
-          {"keysort_si([b-1, a-X, b-0], L)", "L = [a-X, b-1, b-0]"},
-          {"keysort_si([X-1, X-2], L)", "L = [X-1, X-2]"},
+          {"keysort_si([b-1, a-X, b-0], L)", "L = [a-X,b-1,b-0]"},
+          {"keysort_si([X-1, X-2], L)", "L = [X-1,X-2]"},
           {"keysort_si([K-1, a-2], L)", :inst},
           {"keysort_si([a-1, _], L)", :inst},
           {"keysort_si([a-1, b], L)", {:error, "type_error(pair, b)"}}

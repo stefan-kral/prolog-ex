@@ -259,9 +259,9 @@ defmodule PrologEx.IOTest do
                "open('t.pl', read, S), read_term(S, T, [variable_names(V), singletons(Sg), variables(Vs)]), read(S, T2), read(S, T3), read(S, T4), close(S)."
              ) ==
                [
-                 "S = '$stream'(3), Sg = ['_Y'=_A, 'Z'=_B], T = foo(_C, 'a b', [1, 2], _C, _A, _B), " <>
+                 "S = '$stream'(3), Sg = ['_Y'=_A,'Z'=_B], T = foo(_C, 'a b', [1,2], _C, _A, _B), " <>
                    "T2 = bar(46, \"x.y\", 'q.r', 1.5, a=..b), T3 = (:-op(700, xfx, ~~~)), " <>
-                   "T4 = end_of_file, V = ['X'=_C, '_Y'=_A, 'Z'=_B], Vs = [_C, _A, _B]"
+                   "T4 = end_of_file, V = ['X'=_C,'_Y'=_A,'Z'=_B], Vs = [_C,_A,_B]"
                ]
 
       # gelesene Direktiven werden nicht ausgeführt
@@ -332,7 +332,7 @@ defmodule PrologEx.IOTest do
       assert ask(c, "term_to_atom(T, 'a :- b, c.').") == ["T = (a:-b, c)"]
 
       assert ask(c, "read_term_from_atom('g(A, _B)', T, [variable_names(V)]).") ==
-               ["T = g(_A, _B), V = ['A'=_A, '_B'=_B]"]
+               ["T = g(_A, _B), V = ['A'=_A,'_B'=_B]"]
 
       assert err(c, "term_to_atom(_, 'f(').") =~ "syntax_error"
     end
@@ -421,7 +421,7 @@ defmodule PrologEx.IOTest do
                c,
                "set_prolog_flag(double_quotes, codes), open('dq.txt', read, S), read(S, A), close(S)."
              )
-             |> hd() =~ "A = [106, 105, 109]"
+             |> hd() =~ "A = [106,105,109]"
     after
       PrologEx.Flags.reset()
     end

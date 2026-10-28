@@ -150,7 +150,7 @@ defmodule PrologEx.ToplevelTest do
   describe "Lesen" do
     test ":- G wie eine Direktive; op/3 gilt ab der nächsten Anfrage" do
       out = top(":- op(700, xfx, ===>).\nX = (a ===> b), X =.. L.\n")
-      assert out =~ "L = [===>, a, b], X = (a===>b)."
+      assert out =~ "L = [===>,a,b], X = (a===>b)."
     end
 
     test "double_quotes gilt ab der nächsten Anfrage; read/1 liest weiter von der Eingabe" do

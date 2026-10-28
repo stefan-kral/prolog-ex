@@ -254,7 +254,7 @@ defmodule PrologEx.ScryerOsProcessTest do
       assert err(c, ~s|process_create("echo", [], [stdout(_)])|) == ["E = instantiation_error"]
 
       assert err(c, ~s|process_create("echo", [], [env([]), environment([])])|) ==
-               ["E = domain_error(non_conflicting_options, [env([]), environment([])])"]
+               ["E = domain_error(non_conflicting_options, [env([]),environment([])])"]
 
       assert err(c, ~s|process_create("echo", [], [env([a])])|) ==
                [~s|E = domain_error(process_create_option, env("a"))|]

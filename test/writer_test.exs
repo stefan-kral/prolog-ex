@@ -72,7 +72,7 @@ defmodule PrologEx.WriterTest do
       end
 
       assert ask.("number_chars(123, X).") == [~s(X = "123")]
-      assert ask.("number_chars(123, X), X =.. Zs.") == [~s(X = "123", Zs = ['.', '1', "23"])]
+      assert ask.("number_chars(123, X), X =.. Zs.") == [~s(X = "123", Zs = ['.','1',"23"])]
       assert ask.("number_chars(X, ['1', '2', '1']).") == ["X = 121"]
     end
 

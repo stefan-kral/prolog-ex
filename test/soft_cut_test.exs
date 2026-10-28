@@ -71,7 +71,7 @@ defmodule PrologEx.SoftCutTest do
 
     assert ask(c, "if(fail, Y = a, Y = b)") == ["Y = b"]
     assert ask(c, "if(member(X, [1, 2]), X > 5, X = none)") == []
-    assert ask(c, "G = (member(X, [1, 2]), Y = X), if(G, true, true)") |> length() == 2
+    assert ask(c, "G = (member(X, [1,2]), Y = X), if(G, true, true)") |> length() == 2
   end
 
   test "Cut: in der Bedingung lokal, in Then/Else wie bei ;", c do
@@ -102,12 +102,12 @@ defmodule PrologEx.SoftCutTest do
 
   test "geschachtelt, in findall, mit Ausnahmen", c do
     assert ask(c, "findall(X-Y, ( member(X, [1, 2]) *-> member(Y, [a, b]) ; Y = n ), L)") ==
-             ["L = [1-a, 1-b, 2-a, 2-b]"]
+             ["L = [1-a,1-b,2-a,2-b]"]
 
     assert ask(
              c,
              "findall(X-Y, ( member(X, [1, 2]) *-> ( member(Y, [a]), X > 1 *-> true ; Y = n ) ; true ), L)"
-           ) == ["L = [1-n, 2-a]"]
+           ) == ["L = [1-n,2-a]"]
 
     assert ask(c, "catch(( throw(x) *-> true ; true ), x, R = gefangen)") == ["R = gefangen"]
 

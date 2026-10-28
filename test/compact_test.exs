@@ -56,10 +56,10 @@ defmodule PrologEx.CompactTest do
   end
 
   test "lange Liste über verkettete Rest-Variablen", c do
-    assert both(c, "build(5, L, T).") == ["L = [5, 4, 3, 2, 1|T]"]
+    assert both(c, "build(5, L, T).") == ["L = [5,4,3,2,1|T]"]
 
     assert both(c, "build(3, L, T), T = [x|U], U = [].") == [
-             "L = [3, 2, 1, x], T = \"x\", U = []"
+             "L = [3,2,1,x], T = \"x\", U = []"
            ]
 
     assert both(c, "build(20000, L, []), sum_list(L, S), length(L, N).") |> hd() =~
@@ -67,7 +67,7 @@ defmodule PrologEx.CompactTest do
   end
 
   test "Elemente nach und nach gebunden, Rest offen", c do
-    assert both(c, "length(L, 4), L = [_, _|R], seta(R).") == ["L = [_A, _B, a, a], R = \"aa\""]
+    assert both(c, "length(L, 4), L = [_, _|R], seta(R).") == ["L = [_A,_B,a,a], R = \"aa\""]
 
     assert both(c, "length(L, 30000), seta(L), last(L, X), length(L, N), msort(L, [a|_]).")
            |> hd() =~ ", N = 30000, X = a"
@@ -82,6 +82,6 @@ defmodule PrologEx.CompactTest do
   test "attributierte Variablen in langen Listen bleiben erhalten", c do
     [answer] = both(c, "length(L, 5000), L = [X|_], freeze(X, true), last(L, Y), frozen(X, G).")
     assert answer =~ "G = freeze(X, user:true)"
-    assert String.ends_with?(answer, ", _GJF, Y], freeze(X, true)")
+    assert String.ends_with?(answer, ",_GJF,Y], freeze(X, true)")
   end
 end

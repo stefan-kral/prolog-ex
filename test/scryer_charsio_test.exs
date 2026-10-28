@@ -124,7 +124,7 @@ defmodule PrologEx.ScryerCharsioTest do
     assert ask(c, ~s|read_from_chars("f(X, Y, X).", T), T = f(A, B, C), A == C, A \\== B|)
            |> length() == 1
 
-    assert ask(c, ~s{read_from_chars("[1, 2|T] .", L)}) == ["L = [1, 2|_A]"]
+    assert ask(c, ~s{read_from_chars("[1, 2|T] .", L)}) == ["L = [1,2|_A]"]
     assert ask(c, ~s|read_from_chars("", T)|) == ["T = end_of_file"]
     assert ask(c, ~s|read_from_chars("   ", T)|) == ["T = end_of_file"]
     assert err(c, ~s|read_from_chars("f(", _)|) == ["E = syntax_error(end_of_file_in_term)"]
@@ -132,7 +132,7 @@ defmodule PrologEx.ScryerCharsioTest do
     assert err(c, "read_from_chars(abc, _)") == ["E = type_error(list, abc)"]
 
     assert ask(c, ~s|read_term_from_chars("g(X, _Y).", T, [variable_names(Vs)])|) ==
-             ["T = g(_A, _B), Vs = ['X'=_A, '_Y'=_B]"]
+             ["T = g(_A, _B), Vs = ['X'=_A,'_Y'=_B]"]
 
     assert err(c, ~s|read_term_from_chars("a.", _, [nix])|) == [
              "E = domain_error(read_option, nix)"
@@ -161,7 +161,7 @@ defmodule PrologEx.ScryerCharsioTest do
   end
 
   test "chars_utf8bytes/2, chars_base64/3", c do
-    assert ask(c, ~s|chars_utf8bytes("aä€", Bs)|) == ["Bs = [97, 195, 164, 226, 130, 172]"]
+    assert ask(c, ~s|chars_utf8bytes("aä€", Bs)|) == ["Bs = [97,195,164,226,130,172]"]
     assert ask(c, "chars_utf8bytes(Cs, [97, 195, 164, 226, 130, 172])") == [~s|Cs = "aä€"|]
     assert ask(c, ~s|chars_base64("hello", B, [])|) == [~s|B = "aGVsbG8="|]
     assert ask(c, ~s|chars_base64("hello", B, [padding(false)])|) == [~s|B = "aGVsbG8"|]
@@ -212,8 +212,8 @@ defmodule PrologEx.ScryerCharsioTest do
   end
 
   test "append/2", c do
-    assert ask(c, "append([[1], [2, 3], []], L)") == ["L = [1, 2, 3]"]
-    assert ask(c, "append([X, [3]], [1, 2, 3])") |> hd() == "X = [1, 2]"
+    assert ask(c, "append([[1], [2, 3], []], L)") == ["L = [1,2,3]"]
+    assert ask(c, "append([X, [3]], [1, 2, 3])") |> hd() == "X = [1,2]"
     assert err(c, "append([[1]|_], _)") == ["E = instantiation_error"]
     assert err(c, "append(a, _)") == ["E = type_error(list, a)"]
   end

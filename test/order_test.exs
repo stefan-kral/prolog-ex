@@ -63,11 +63,11 @@ defmodule PrologEx.OrderTest do
       assert all(s("@<", [-3, -1.0e10])) == []
 
       assert all(s("msort", [list([1, 7.0, 2, 8.0, -3, 0.5]), @x])) ==
-               ["X = [0.5, 7.0, 8.0, -3, 1, 2]"]
+               ["X = [0.5,7.0,8.0,-3,1,2]"]
 
       # das Beispiel aus ISO 8.4.3.4 (sort/2)
-      assert all(s("sort", [list([1, 2, 7.0, 8.0, a("a")]), @x])) == ["X = [7.0, 8.0, 1, 2, a]"]
-      assert all(s("sort", [list([1, 1.0, 1]), @x])) == ["X = [1.0, 1]"]
+      assert all(s("sort", [list([1, 2, 7.0, 8.0, a("a")]), @x])) == ["X = [7.0,8.0,1,2,a]"]
+      assert all(s("sort", [list([1, 1.0, 1]), @x])) == ["X = [1.0,1]"]
     end
 
     test "zusammengesetzt: Stelligkeit, dann Name, dann Argumente" do
@@ -104,10 +104,10 @@ defmodule PrologEx.OrderTest do
   describe "sort/2, msort/2, keysort/2" do
     test "sort sortiert und entfernt Duplikate" do
       assert all(s("sort", [list([a("c"), a("b"), a("a"), a("b"), 2, 1, 1.0]), @l])) ==
-               ["L = [1.0, 1, 2, a, b, c]"]
+               ["L = [1.0,1,2,a,b,c]"]
 
       assert all(s("sort", [list([]), @l])) == ["L = []"]
-      assert all(s("sort", [list([@y, @x, @y]), @l])) |> hd() =~ ~r/^L = \[[XY], [XY]\]$/
+      assert all(s("sort", [list([@y, @x, @y]), @l])) |> hd() =~ ~r/^L = \[[XY],[XY]\]$/
     end
 
     test "msort behält Duplikate" do
@@ -118,7 +118,7 @@ defmodule PrologEx.OrderTest do
       pairs =
         list([s("-", [a("b"), 1]), s("-", [a("a"), 2]), s("-", [a("b"), 0]), s("-", [a("a"), 1])])
 
-      assert all(s("keysort", [pairs, @l])) == ["L = [a-2, a-1, b-1, b-0]"]
+      assert all(s("keysort", [pairs, @l])) == ["L = [a-2,a-1,b-1,b-0]"]
     end
 
     test "Fehler" do
@@ -140,7 +140,7 @@ defmodule PrologEx.OrderTest do
 
     test "gebundene Variablen zählen nicht" do
       goal = s(",", [s("=", [@x, s("h", [@y])]), s("term_variables", [s("f", [@x, @z]), @l])])
-      assert all(goal) == ["L = [Y, Z], X = h(Y)"]
+      assert all(goal) == ["L = [Y,Z], X = h(Y)"]
     end
   end
 

@@ -38,10 +38,10 @@ defmodule PrologEx.LambdaTest do
       end
 
       test "Parameter und Rumpf", c do
-        assert ask(c, "maplist(\\X^Y^(Y is X*2), [1,2,3], L).") == ["L = [2, 4, 6]"]
-        assert ask(c, "maplist(\\X^Y^Z^(Z is X+Y), [1,2], [3,4], L).") == ["L = [4, 6]"]
+        assert ask(c, "maplist(\\X^Y^(Y is X*2), [1,2,3], L).") == ["L = [2,4,6]"]
+        assert ask(c, "maplist(\\X^Y^Z^(Z is X+Y), [1,2], [3,4], L).") == ["L = [4,6]"]
         assert ask(c, "foldl(\\X^A0^A^(A is A0+X), [1,2,3], 0, S).") == ["S = 6"]
-        assert ask(c, "include(\\X^(X > 1), [1,2,3], L).") == ["L = [2, 3]"]
+        assert ask(c, "include(\\X^(X > 1), [1,2,3], L).") == ["L = [2,3]"]
         assert ask(c, "maplist(\\X^(X > 0), [1,-2]).") == []
         # übrige Argumente gehen an den Rumpf
         assert ask(c, "call(\\X^Y^append(X,Y), [a], [b], L).") == ["L = \"ab\""]
@@ -65,13 +65,13 @@ defmodule PrologEx.LambdaTest do
         assert ask(c, "call(\\X^(Y = X), 1), var(Y).") == ["true"]
         # schon gebundene Variablen sind Werte
         assert ask(c, "N = 10, maplist(\\X^Y^(Y is X+N), [1,2], L).") ==
-                 ["L = [11, 12], N = 10"]
+                 ["L = [11,12], N = 10"]
       end
 
       test "Free+\\\\Lambda: globale Variablen", c do
         # N muss beim Aufruf gebunden sein
         assert err(c, "maplist(N+\\X^Y^(Y is X+N), [1,2], L), N = 3.") =~ "instantiation_error"
-        assert ask(c, "N = 3, maplist(N+\\X^Y^(Y is X+N), [1,2], L).") == ["L = [4, 5], N = 3"]
+        assert ask(c, "N = 3, maplist(N+\\X^Y^(Y is X+N), [1,2], L).") == ["L = [4,5], N = 3"]
         # Bindung globaler Variablen bleibt sichtbar
         assert ask(c, "call(G+\\X^(G = X), 1).") == ["G = 1"]
         assert ask(c, "maplist(G+\\X^(G = X), [1, 1]).") == ["G = 1"]
@@ -103,8 +103,8 @@ defmodule PrologEx.LambdaTest do
       test "Lambda in einem Modul ruft dessen private Prädikate", c do
         file = Path.join(@fixtures, "m_#{unquote(lib)}.pl")
         assert ask(c, "use_module('#{file}').") == ["true"]
-        assert ask(c, "doubled([1,2,3], L).") == ["L = [2, 4, 6]"]
-        assert ask(c, "scaled(3, [1,2], L).") == ["L = [3, 6]"]
+        assert ask(c, "doubled([1,2,3], L).") == ["L = [2,4,6]"]
+        assert ask(c, "scaled(3, [1,2], L).") == ["L = [3,6]"]
         assert err(c, "twice(1, X).") =~ "existence_error(procedure, twice/2)"
       end
 

@@ -52,7 +52,7 @@ defmodule PrologEx.IsoChecksTest do
     assert err(c, "findall(X, X = 1, [_|1])") == ["E = type_error(list, [_A|1])"]
     assert err(c, "findall(X, X = 1, foo)") == ["E = type_error(list, foo)"]
     assert ask(c, "findall(X, (X = 1 ; X = 2), [A|B])") == ["A = 1, B = [2]"]
-    assert err(c, "term_variables(t, [_, _|a])") == ["E = type_error(list, [_A, _B|a])"]
+    assert err(c, "term_variables(t, [_, _|a])") == ["E = type_error(list, [_A,_B|a])"]
   end
 
   test "current_input/output mit geschlossenem Stream: domain_error(stream, S)", c do

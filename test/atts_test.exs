@@ -40,9 +40,9 @@ defmodule PrologEx.AttsTest do
     test "setzen, ersetzen, entfernen, abfragen", c do
       assert ask(c, "p(X, a(1)), g(X, a(V)).") |> hd() =~ "V = 1"
       assert ask(c, "p(X, a(1)), p(X, a(2)), g(X, a(V)).") |> hd() =~ "V = 2"
-      assert ask(c, "p(X, [a(1), b(2, 3)]), g(X, L).") |> hd() =~ "L = [a(1), b(2, 3)]"
+      assert ask(c, "p(X, [a(1), b(2, 3)]), g(X, L).") |> hd() =~ "L = [a(1),b(2, 3)]"
       # Deklarationsreihenfolge, unabhängig von der Setzreihenfolge
-      assert ask(c, "p(X, b(2, 3)), p(X, a(1)), g(X, L).") |> hd() =~ "L = [a(1), b(2, 3)]"
+      assert ask(c, "p(X, b(2, 3)), p(X, a(1)), g(X, L).") |> hd() =~ "L = [a(1),b(2, 3)]"
       assert ask(c, "p(X, a(1)), p(X, -a(_)), g(X, L).") |> hd() =~ "L = []"
       assert ask(c, "p(X, a(1)), g(X, -b(_, _)), g(X, +a(_)).") |> length() == 1
       assert ask(c, "p(X, a(1)), g(X, -a(_)).") == []

@@ -54,7 +54,7 @@ defmodule PrologEx.ExpansionTest do
       # Qualifikation bleibt; der Hook aus user gilt auch für m
       assert ask(c, db, "expand_goal(m:alt(1), G)") == ["G = m:neu(1)"]
       assert ask(c, db, "expand_goal(setze(Z), G)") == ["G = true, Z = 42"]
-      assert ask(c, db, "expand_term(erzeuge(3), T)") == ["T = [p(3), q(3)]"]
+      assert ask(c, db, "expand_term(erzeuge(3), T)") == ["T = [p(3),q(3)]"]
     end
 
     test "Schleife: resource_error", c do

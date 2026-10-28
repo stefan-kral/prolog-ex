@@ -32,9 +32,7 @@ defmodule PrologEx.PermutationTest do
 
   test "Reihenfolge wie SWI, letzte Lösung deterministisch", c do
     assert ask(c, "permutation([1, 2, 3], P).") ==
-             Enum.map(~w([1,2,3] [1,3,2] [2,1,3] [2,3,1] [3,1,2] [3,2,1]), fn p ->
-               "P = " <> (p |> String.replace(",", ", "))
-             end)
+             Enum.map(~w([1,2,3] [1,3,2] [2,1,3] [2,3,1] [3,1,2] [3,2,1]), &("P = " <> &1))
 
     assert more(c, "permutation([1, 2, 3], P).") == [true, true, true, true, true, false]
     assert more(c, "permutation([], P).") == [false]
@@ -69,7 +67,7 @@ defmodule PrologEx.PermutationTest do
   end
 
   test "Ys gegeben, Xs offen, beide offen", c do
-    assert ask(c, "permutation(X, [1, 2]).") == ["X = [1, 2]", "X = [2, 1]"]
+    assert ask(c, "permutation(X, [1, 2]).") == ["X = [1,2]", "X = [2,1]"]
     assert ask(c, "permutation([1, 2, 1], [1, 1, 2]).") == ["true", "true"]
     assert ask(c, "permutation([1, 2], [2, 1, 3]).") == []
 

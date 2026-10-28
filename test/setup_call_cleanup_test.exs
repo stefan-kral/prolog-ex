@@ -62,7 +62,7 @@ defmodule PrologEx.SetupCallCleanupTest do
     assert ask(c, "setup_call_cleanup(true, X = 1, X = 2)") == ["X = 1"]
 
     assert ask(c, "setup_call_cleanup(log(ss), log(gg), log(cc)), logs(L)") == [
-             "L = [ss, gg, cc]"
+             "L = [ss,gg,cc]"
            ]
   end
 
@@ -94,14 +94,14 @@ defmodule PrologEx.SetupCallCleanupTest do
     assert ask(
              c,
              "setup_call_cleanup(true, setup_call_cleanup(true, ndet(_), log(inner)), log(outer)), !, logs(L)"
-           ) == ["L = [inner, outer]"]
+           ) == ["L = [inner,outer]"]
   end
 
   test "... oder wenn G endgültig scheitert", c do
     assert ask(
              c,
              "(setup_call_cleanup(true, (ndet(X), log(X)), log(done)), fail ; logs(L))"
-           ) == ["L = [aa, bb, done]"]
+           ) == ["L = [aa,bb,done]"]
   end
 
   test "auch once/1, Wenn-dann-sonst, \\+, call_nth/2 und findall/3 schneiden ab", c do
@@ -118,7 +118,7 @@ defmodule PrologEx.SetupCallCleanupTest do
              ["L = [nth]"]
 
     assert ask(c, "findall(X, setup_call_cleanup(true, ndet(X), log(fa)), Xs), logs(L)") ==
-             ["L = [fa], Xs = [aa, bb]"]
+             ["L = [fa], Xs = [aa,bb]"]
   end
 
   test "findnsols/4: abgeschnittene Teilberechnung mit offenem Rahmen", c do

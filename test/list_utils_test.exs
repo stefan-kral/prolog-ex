@@ -41,12 +41,12 @@ defmodule PrologEx.ListUtilsTest do
     assert ask(c, "last([], X).") == []
     assert [a1, a2] = ask(c, "last(L, x).", 2)
     assert a1 == "L = \"x\""
-    assert a2 =~ ~r/^L = \[_\w+, x\]$/
+    assert a2 =~ ~r/^L = \[_\w+,x\]$/
 
-    assert ask(c, "reverse([1, 2, 3], X).") == ["X = [3, 2, 1]"]
+    assert ask(c, "reverse([1, 2, 3], X).") == ["X = [3,2,1]"]
     assert det?(c, "reverse([1, 2, 3], X).")
-    assert ask(c, "reverse(X, [1, 2, 3]).") == ["X = [3, 2, 1]"]
-    assert ask(c, "reverse([1|T], [3, 2, 1]).") == ["T = [2, 3]"]
+    assert ask(c, "reverse(X, [1, 2, 3]).") == ["X = [3,2,1]"]
+    assert ask(c, "reverse([1|T], [3, 2, 1]).") == ["T = [2,3]"]
     assert ask(c, "reverse([], X).") == ["X = []"]
 
     assert ask(c, "proper_length([a, b], N).") == ["N = 2"]
@@ -141,22 +141,22 @@ defmodule PrologEx.ListUtilsTest do
     # unifizierbar heißt: auch die Variable B fällt weg, ohne gebunden zu werden
     assert ask(c, "delete([a, B, c], a, R).") == ["R = \"c\""]
 
-    assert ask(c, "list_to_set([a, b, a, 1, 1.0, X, Y, X], S).") == ["S = [a, b, 1, 1.0, X, Y]"]
+    assert ask(c, "list_to_set([a, b, a, 1, 1.0, X, Y, X], S).") == ["S = [a,b,1,1.0,X,Y]"]
     assert err(c, "list_to_set(L, S).") =~ "instantiation_error"
 
     assert ask(c, "nextto(X, Y, [1, 2, 3]).") == ["X = 1, Y = 2", "X = 2, Y = 3"]
   end
 
   test "subtract/3, intersection/3, union/3", c do
-    assert ask(c, "subtract([1, 2, 3, 4], [2, 4], R).") == ["R = [1, 3]"]
-    assert ask(c, "intersection([1, 2, 3], [3, 1, 5], I).") == ["I = [1, 3]"]
-    assert ask(c, "union([1, 2], [2, 3], U).") == ["U = [1, 2, 3]"]
+    assert ask(c, "subtract([1, 2, 3, 4], [2, 4], R).") == ["R = [1,3]"]
+    assert ask(c, "intersection([1, 2, 3], [3, 1, 5], I).") == ["I = [1,3]"]
+    assert ask(c, "union([1, 2], [2, 3], U).") == ["U = [1,2,3]"]
   end
 
   test "include/3, exclude/3, partition/4, foldl/4..6", c do
-    assert ask(c, "include(integer, [a, 1, b, 2], I).") == ["I = [1, 2]"]
+    assert ask(c, "include(integer, [a, 1, b, 2], I).") == ["I = [1,2]"]
     assert ask(c, "exclude(integer, [a, 1, b, 2], I).") == ["I = \"ab\""]
-    assert ask(c, "partition(integer, [a, 1, b, 2], I, E).") == ["E = \"ab\", I = [1, 2]"]
+    assert ask(c, "partition(integer, [a, 1, b, 2], I, E).") == ["E = \"ab\", I = [1,2]"]
     assert det?(c, "include(integer, [a, 1, b, 2], I).")
     assert ask(c, "foldl(add, [1, 2, 3], 0, S).") == ["S = 6"]
     assert ask(c, "foldl(add2, [1, 2], [3, 4], 0, S).") == ["S = 11"]
@@ -170,8 +170,8 @@ defmodule PrologEx.ListUtilsTest do
       PrologEx.format_answer(ans, PrologEx.query_var_names(g))
     end
 
-    assert show.("reverse([Y, 2], R).") == "R = [2, Y]"
-    assert show.("lists:'$reverse'([Y, 2], R, [], R).") == "R = [2, Y]"
+    assert show.("reverse([Y, 2], R).") == "R = [2,Y]"
+    assert show.("lists:'$reverse'([Y, 2], R, [], R).") == "R = [2,Y]"
     assert show.("X = Y, Y = Z.") == "X = Y, Y = Z"
     assert show.("Y = X.") == "Y = X"
     assert show.("X = f(A), A = B.") == "A = B, X = f(B)"

@@ -31,12 +31,12 @@ defmodule PrologEx.OperatorsTest do
   test "op/3 wirkt ab dem nächsten gelesenen Term", c do
     assert {:syntax_error, _} = ask(c, "X = (a ===> b).")
     assert ask(c, "op(700, xfx, ===>).") == ["true"]
-    assert ask(c, "X = (a ===> b), X =.. L.") == ["L = [===>, a, b], X = (a===>b)"]
+    assert ask(c, "X = (a ===> b), X =.. L.") == ["L = [===>,a,b], X = (a===>b)"]
     # Liste von Operatoren, Assoziativität
     assert ask(c, "op(200, xfy, [aa, bb]).") == ["true"]
     assert ask(c, "X = (1 aa 2 bb 3).") == ["X = 1 aa 2 bb 3"]
     assert ask(c, "op(200, yfx, cc).") == ["true"]
-    assert ask(c, "Y = (1 cc 2 cc 3), Y =.. L.") == ["L = [cc, 1 cc 2, 3], Y = 1 cc 2 cc 3"]
+    assert ask(c, "Y = (1 cc 2 cc 3), Y =.. L.") == ["L = [cc,1 cc 2,3], Y = 1 cc 2 cc 3"]
     # Präfix, Postfix
     assert ask(c, "op(900, fy, nicht), op(100, xf, fakultaet).") == ["true"]
 

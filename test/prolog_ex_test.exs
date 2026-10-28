@@ -52,10 +52,10 @@ defmodule PrologExTest do
 
   test "Backtracking über alle Zerlegungen von append", %{db: db} do
     assert answers(db, s("append", [@x, @y, list([1, 2, 3])])) == [
-             "X = [], Y = [1, 2, 3]",
-             "X = [1], Y = [2, 3]",
-             "X = [1, 2], Y = [3]",
-             "X = [1, 2, 3], Y = []"
+             "X = [], Y = [1,2,3]",
+             "X = [1], Y = [2,3]",
+             "X = [1,2], Y = [3]",
+             "X = [1,2,3], Y = []"
            ]
   end
 
@@ -114,11 +114,11 @@ defmodule PrologExTest do
 
     test "Liste mit offenem Rest wird gebunden", %{db: db} do
       goal = s("=", [list([1, 2], @t), list([1, 2, 3, 4])])
-      assert answers(db, goal) == ["T = [3, 4]"]
+      assert answers(db, goal) == ["T = [3,4]"]
     end
 
     test "unvollständige Liste wird mit | ausgegeben", %{db: db} do
-      assert answers(db, s("=", [@x, list([1, 2], @t)])) == ["X = [1, 2|T]"]
+      assert answers(db, s("=", [@x, list([1, 2], @t)])) == ["X = [1,2|T]"]
       assert answers(db, s("=", [@x, s(".", [1, 2])])) == ["X = [1|2]"]
     end
 

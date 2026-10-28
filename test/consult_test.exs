@@ -26,9 +26,9 @@ defmodule PrologEx.ConsultTest do
       """)
 
     assert ask(r, db, "app(X, Y, [1,2]).") == [
-             "X = [], Y = [1, 2]",
+             "X = [], Y = [1,2]",
              "X = [1], Y = [2]",
-             "X = [1, 2], Y = []"
+             "X = [1,2], Y = []"
            ]
 
     assert ask(r, db, "regel(X ===> Y).") == ["X = a, Y = b"]

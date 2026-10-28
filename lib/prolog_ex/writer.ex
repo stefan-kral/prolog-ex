@@ -33,7 +33,9 @@ defmodule PrologEx.Writer do
     * `strings: true` – Listen aus Zeichen als `"..."` (bei
       `double_quotes=chars`).
     * `spacing: :next_argument` – Leerzeichen nach Kommas (Argumente,
-      Listen, Komma-Operator): Stil der Toplevel-Antworten.
+      Listen, Komma-Operator).
+    * `compact_lists: true` – trotzdem keine Leerzeichen zwischen
+      Listenelementen (`[1,2,3]`): Stil der Toplevel-Antworten.
     * `max_depth: n` – tiefer geschachtelte Terme als `...`, Listen nach
       n Elementen mit `|...` (0: unbegrenzt).
     * `priority: p` – höchste Priorität des ganzen Terms (Standard 1200;
@@ -53,12 +55,15 @@ defmodule PrologEx.Writer do
   alias PrologEx.Ops
 
   def format(t, opts \\ []) do
+    comma = if Keyword.get(opts, :spacing) == :next_argument, do: ", ", else: ","
+
     o = %{
       quoted: Keyword.get(opts, :quoted, false),
       ignore_ops: Keyword.get(opts, :ignore_ops, false),
       numbervars: Keyword.get(opts, :numbervars, false),
       strings: Keyword.get(opts, :strings, false),
-      comma: if(Keyword.get(opts, :spacing) == :next_argument, do: ", ", else: ","),
+      comma: comma,
+      list_comma: if(Keyword.get(opts, :compact_lists, false), do: ",", else: comma),
       max_depth: Keyword.get(opts, :max_depth, 0),
       var_names: Keyword.get(opts, :variable_names, %{}),
       source_names: Keyword.get(opts, :source_names, false),
@@ -78,6 +83,7 @@ defmodule PrologEx.Writer do
       quoted: true,
       numbervars: true,
       spacing: :next_argument,
+      compact_lists: true,
       strings: PrologEx.Flags.get("double_quotes") == {:atom, "chars"}
     ]
   end
@@ -340,7 +346,7 @@ defmodule PrologEx.Writer do
     do: ret(st, {["[", :lists.reverse(acc), "]"], ?[, ?]}, o)
 
   defp list_next([h | t], n, acc, d, o, st),
-    do: descend(h, 999, :arg, d + 1, o, [{:list, t, n + 1, [o.comma | acc], d} | st])
+    do: descend(h, 999, :arg, d + 1, o, [{:list, t, n + 1, [o.list_comma | acc], d} | st])
 
   defp list_next({:glist, l}, n, acc, d, o, st), do: list_next(l, n, acc, d, o, st)
 

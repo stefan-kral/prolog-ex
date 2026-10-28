@@ -41,7 +41,7 @@ defmodule PrologEx.FilesTest do
   defp err(c, goal), do: ask(c, "catch(#{goal}, error(E, _), true)")
 
   test "directory_files/2, file_exists/1, directory_exists/1, file_size/2", c do
-    assert ask(c, ~s|directory_files("DIR", Fs)|) == [~s|Fs = ["a.txt", "link", "sub"]|]
+    assert ask(c, ~s|directory_files("DIR", Fs)|) == [~s|Fs = ["a.txt","link","sub"]|]
     assert ask(c, ~s|directory_files("DIR/gibts", _)|) == []
     assert ask(c, ~s|file_exists("DIR/a.txt")|) == ["true"]
     assert ask(c, ~s|file_exists("DIR/sub")|) == []
@@ -156,12 +156,12 @@ defmodule PrologEx.FilesTest do
   end
 
   test "path_segments/2 (Beispiele aus Scryers Doku)", c do
-    assert ask(c, ~s|path_segments("/hello/there", S)|) == [~s|S = [[], "hello", "there"]|]
+    assert ask(c, ~s|path_segments("/hello/there", S)|) == [~s|S = [[],"hello","there"]|]
     assert ask(c, ~s|path_segments(P, ["hello", "there"])|) == [~s|P = "hello/there"|]
     assert ask(c, ~s|path_segments(P, ["", ""])|) == [~s|P = "/"|]
     assert ask(c, ~s|path_segments("", S)|) == ["S = [[]]"]
     assert ask(c, ~s|path_segments(P, [])|) == ["P = []"]
-    assert ask(c, ~s|path_segments("a/", S)|) == [~s|S = ["a", []]|]
+    assert ask(c, ~s|path_segments("a/", S)|) == [~s|S = ["a",[]]|]
     assert err(c, "path_segments(_, _)") == ["E = instantiation_error"]
     assert err(c, "path_segments(_, [\"a\"|_])") == ["E = instantiation_error"]
     assert err(c, "path_segments(_, x)") == ["E = type_error(list, x)"]

@@ -48,7 +48,7 @@ defmodule PrologEx.DatabaseTest do
       db = load(r)
 
       assert ask(r, db, "assertz(p(1)), assert(p(2)), asserta(p(0)), findall(X, p(X), L).") ==
-               ["L = [0, 1, 2]"]
+               ["L = [0,1,2]"]
     end
 
     test "Regeln, Variablen werden kopiert", %{reader: r} do
@@ -82,7 +82,7 @@ defmodule PrologEx.DatabaseTest do
       assert ask(r, db, "findall(x, assertz(f(1)), _), f(X).") == ["X = 1"]
 
       db = load(r, ":- assertz(g(7)).\n:- assertz(g(8)).\n")
-      assert ask(r, db, "findall(X, g(X), L).") == ["L = [7, 8]"]
+      assert ask(r, db, "findall(X, g(X), L).") == ["L = [7,8]"]
     end
 
     test "listing zeigt dynamische Prädikate mit lesbaren Variablen", %{reader: r} do
@@ -142,11 +142,11 @@ defmodule PrologEx.DatabaseTest do
 
       # neue Klauseln während der Iteration werden nicht gesehen
       assert ask(r, db, "assertz(m(1)), assertz(m(2)), findall(X, (m(X), assertz(m(3))), L).") ==
-               ["L = [1, 2]"]
+               ["L = [1,2]"]
 
       # zurückgezogene werden trotzdem noch geliefert
       assert ask(r, db, "assertz(m(1)), assertz(m(2)), findall(X, (m(X), retractall(m(_))), L).") ==
-               ["L = [1, 2]"]
+               ["L = [1,2]"]
 
       # retract selbst arbeitet auf einem Schnappschuss
       assert ask(r, db, "assertz(m(1)), findall(X, (retract(m(X)), assertz(m(9))), L).") ==
@@ -204,7 +204,7 @@ defmodule PrologEx.DatabaseTest do
       db = load(r)
 
       assert ask(r, db, "assertz(w(1)), assertz(w(2)), findall(X, (w(X), abolish(w/1)), L).") ==
-               ["L = [1, 2]"]
+               ["L = [1,2]"]
     end
 
     test "Fehler wie ISO", %{reader: r} do
@@ -275,7 +275,7 @@ defmodule PrologEx.DatabaseTest do
         catch_halt(fn -> PrologEx.Toplevel.main(["-q"]) end)
       end)
 
-    assert out =~ "L = [1, 2]"
+    assert out =~ "L = [1,2]"
   end
 
   defp catch_halt(f) do
@@ -318,7 +318,7 @@ defmodule PrologEx.DatabaseTest do
       db = load(r)
       ok? = fn q -> PrologEx.first_with_stats(db, goal(r, q)) != false end
       assert ok?.("X = f(X), \\+ acyclic_term(X).")
-      assert ok?.("X = [a, b|X], \\+ acyclic_term(g(X)).")
+      assert ok?.("X = [a,b|X], \\+ acyclic_term(g(X)).")
       assert ok?.("X = f(Y, Y), Y = g(Z, Z), Z = h, acyclic_term(X).")
       assert ok?.("X = f(Y), Y = g(X), \\+ acyclic_term(h(1, Y)).")
       refute ok?.("X = f(X), acyclic_term(X).")

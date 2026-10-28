@@ -53,12 +53,12 @@ defmodule PrologEx.BetweenTest do
     assert ask(c, "numlist(L, 2, U, N, [1, X, Y, Z])") ==
              ["L = 1, N = 4, U = 7, X = 3, Y = 5, Z = 7"]
 
-    assert ask(c, "numlist(1, 3, 10, N, L)") == ["L = [1, 4, 7, 10], N = 4"]
-    assert ask(c, "numlist(10, -3, 1, N, L)") == ["L = [10, 7, 4, 1], N = 4"]
+    assert ask(c, "numlist(1, 3, 10, N, L)") == ["L = [1,4,7,10], N = 4"]
+    assert ask(c, "numlist(10, -3, 1, N, L)") == ["L = [10,7,4,1], N = 4"]
     assert ask(c, "numlist(5, 7, 5, N, L)") == ["L = [5], N = 1"]
     assert ask(c, "numlist(1, 3, 9, N, L)") == []
     assert ask(c, "numlist(5, 1, 1, N, L)") == []
-    assert ask(c, "numlist(0, 5, U, 3, L)") == ["L = [0, 5, 10], U = 10"]
+    assert ask(c, "numlist(0, 5, U, 3, L)") == ["L = [0,5,10], U = 10"]
     assert ask(c, "numlist(L, S, U, 3, [2, 5, X])") == ["L = 2, S = 3, U = 8, X = 8"]
     assert ask(c, "numlist(1, 2, 7, 4, [1, 3, 5, 7])") == ["true"]
     assert ask(c, "numlist(1, 2, 7, 4, [1, 3, 6, 7])") == []
@@ -67,20 +67,20 @@ defmodule PrologEx.BetweenTest do
     # einelementig: Step bleibt offen
     assert ask(c, "numlist(L, S, U, N, [4])") == ["L = 4, N = 1, U = 4"]
     assert ask(c, "numlist(1, 1, 3, 0, L)") == []
-    assert ask(c, "numlist(1, 1, 3, N, [1|T])") == ["N = 3, T = [2, 3]"]
+    assert ask(c, "numlist(1, 1, 3, N, [1|T])") == ["N = 3, T = [2,3]"]
     # zu wenig bekannt
     assert ask(c, "numlist(L, S, U, N, Xs)") == {:error, "instantiation_error"}
     assert ask(c, "numlist(L, 2, 7, N, Xs)") == {:error, "instantiation_error"}
     assert ask(c, "numlist(L, S, U, N, [X, Y])") == {:error, "instantiation_error"}
     assert ask(c, "numlist(1, 0, 1, N, L)") == {:error, "instantiation_error"}
-    assert ask(c, "numlist(1, 0, 1, 3, L)") == ["L = [1, 1, 1]"]
+    assert ask(c, "numlist(1, 0, 1, 3, L)") == ["L = [1,1,1]"]
     assert ask(c, "numlist(a, 1, 3, N, L)") == {:error, "type_error(integer, a)"}
   end
 
   test "between/3, repeat/1, numlist/2,3 kommen mit (wie SICStus)", c do
     db = PrologEx.use_library(%{}, "between", "user")
-    assert ask(c, "numlist(3, L)", 10, db) == ["L = [1, 2, 3]"]
-    assert ask(c, "numlist(2, 4, L)", 10, db) == ["L = [2, 3, 4]"]
+    assert ask(c, "numlist(3, L)", 10, db) == ["L = [1,2,3]"]
+    assert ask(c, "numlist(2, 4, L)", 10, db) == ["L = [2,3,4]"]
     assert ask(c, "findall(x, repeat(3), L)", 10, db) == ["L = \"xxx\""]
     assert ask(c, "between(1, 3, X)", 10, db) == ["X = 1", "X = 2", "X = 3"]
 
@@ -94,7 +94,7 @@ defmodule PrologEx.BetweenTest do
              10,
              %{}
            ) ==
-             ["L = [1, 2]"]
+             ["L = [1,2]"]
   end
 
   test "nur nach use_module sichtbar", c do

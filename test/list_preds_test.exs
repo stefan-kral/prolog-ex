@@ -171,15 +171,15 @@ defmodule PrologEx.ListPredsTest do
     test "Modi" do
       assert all(s("same_length", [list([1, 2]), list([a("a"), a("b")])])) == ["true"]
       assert all(s("same_length", [list([1, 2]), list([a("a")])])) == []
-      assert all(s("same_length", [list([1, 2]), @l])) |> hd() =~ ~r/^L = \[_A, _B\]$/
+      assert all(s("same_length", [list([1, 2]), @l])) |> hd() =~ ~r/^L = \[_A,_B\]$/
 
       assert all(s("same_length", [list([a("a")], @t), list([1, 2, 3])])) |> hd() =~
-               ~r/^T = \[_A, _B\]$/
+               ~r/^T = \[_A,_B\]$/
 
       assert more(s("same_length", [list([1, 2]), @l])) == [false]
 
       assert all(s("same_length", [list([1, 2, 3]), list([a("a")], @t)])) |> hd() =~
-               ~r/^T = \[_A, _B\]$/
+               ~r/^T = \[_A,_B\]$/
 
       assert length(all(s("same_length", [@l, @r]), 3)) == 3
     end
@@ -192,9 +192,9 @@ defmodule PrologEx.ListPredsTest do
     end
 
     test "Modi, Determinismus, Fehler" do
-      assert all(g("same_length([a, b], L, N)")) == ["L = [_A, _B], N = 2"]
-      assert all(g("same_length(L, [a, b], N)")) == ["L = [_A, _B], N = 2"]
-      assert all(g("same_length([a|T], L, 3)")) == ["L = [_A, _B, _C], T = [_D, _E]"]
+      assert all(g("same_length([a, b], L, N)")) == ["L = [_A,_B], N = 2"]
+      assert all(g("same_length(L, [a, b], N)")) == ["L = [_A,_B], N = 2"]
+      assert all(g("same_length([a|T], L, 3)")) == ["L = [_A,_B,_C], T = [_D,_E]"]
       assert all(g("same_length([a], [b], 1)")) == ["true"]
       assert all(g("same_length([a], [b], 2)")) == []
       assert all(g("same_length([a], [b, c], N)")) == []
@@ -203,7 +203,7 @@ defmodule PrologEx.ListPredsTest do
       assert all(g("same_length(A, B, N)"), 3) == [
                "A = [], B = [], N = 0",
                "A = [_A], B = [_B], N = 1",
-               "A = [_A, _B], B = [_C, _D], N = 2"
+               "A = [_A,_B], B = [_C,_D], N = 2"
              ]
 
       for q <- ["same_length([a, b], L, N)", "same_length(L, [a], N)", "same_length(A, B, 2)"],
@@ -235,7 +235,7 @@ defmodule PrologEx.ListPredsTest do
                ["I = 0, L = \"xab\"", "I = 1, L = \"axb\"", "I = 2, L = \"abx\""]
 
       assert all(s("nth0", [3, list([a("a")], @t), a("x")])) |> hd() =~
-               ~r/^T = \[_A, _B, x\|_C\]$/
+               ~r/^T = \[_A,_B,x\|_C\]$/
 
       error(s("nth0", [a("a"), abc, @e]))
     end
@@ -259,12 +259,12 @@ defmodule PrologEx.ListPredsTest do
 
   describe "maplist/2..8" do
     test "Modi" do
-      assert all(s("maplist", [a("succ"), list([1, 2, 3]), @l])) == ["L = [2, 3, 4]"]
+      assert all(s("maplist", [a("succ"), list([1, 2, 3]), @l])) == ["L = [2,3,4]"]
       assert all(s("maplist", [a("atom"), list([a("a"), a("b")])])) == ["true"]
       assert all(s("maplist", [a("atom"), list([a("a"), 1])])) == []
 
       assert all(s("maplist", [s("nth1", [2]), list([list([1, 2]), list([3, 4])]), @l])) == [
-               "L = [2, 4]"
+               "L = [2,4]"
              ]
 
       assert more(s("maplist", [a("succ"), list([1, 2, 3]), @l])) == [false]

@@ -43,9 +43,9 @@ defmodule PrologEx.MemberdTest do
     {"memberd(a, [b|L])",
      [
        "L = [a|_A]",
-       "L = [_A, a|_B], dif(_A, a)",
-       "L = [_A, _B, a|_C], dif(_A, a), dif(_B, a)",
-       "L = [_A, _B, _C, a|_D], dif(_A, a), dif(_B, a), dif(_C, a)"
+       "L = [_A,a|_B], dif(_A, a)",
+       "L = [_A,_B,a|_C], dif(_A, a), dif(_B, a)",
+       "L = [_A,_B,_C,a|_D], dif(_A, a), dif(_B, a), dif(_C, a)"
      ]},
     {"L = [1,2,3,1,2,3], memberd(X, L), X > 1", nil},
     {"dif(X, a), memberd(X, [a,b])", ["X = b"]}

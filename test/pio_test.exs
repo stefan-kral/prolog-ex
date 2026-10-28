@@ -61,7 +61,7 @@ defmodule PrologEx.PioTest do
     assert ask(c, "phrase_from_file(any(L), KLEIN)") == ["L = \"hallo welt\\nzweite zeile\\n\""]
 
     assert ask(c, "phrase_from_file(lines(Ls), KLEIN)") ==
-             ["Ls = [\"hallo welt\", \"zweite zeile\"]"]
+             ["Ls = [\"hallo welt\",\"zweite zeile\"]"]
 
     assert ask(c, "phrase_from_file((\"hallo\", any(_)), KLEIN)") == ["true"]
     assert ask(c, "phrase_from_file(\"hallo\", KLEIN)") == []
@@ -75,7 +75,7 @@ defmodule PrologEx.PioTest do
   test "as(codes); ohne as/1 nach dem Flag double_quotes", c do
     assert ask(c, "phrase_from_file(any(L), KLEIN, [as(codes)]), L = [C|_]") ==
              [
-               ~s(C = 104, L = [104, 97, 108, 108, 111, 32, 119, 101, 108, 116, 10, 122, 119, 101, 105, 116, 101, 32, 122, 101, 105, 108, 101, 10])
+               ~s(C = 104, L = [104,97,108,108,111,32,119,101,108,116,10,122,119,101,105,116,101,32,122,101,105,108,101,10])
              ]
 
     assert ask(c, """
@@ -213,7 +213,7 @@ defmodule PrologEx.PioTest do
              ["E = existence_error(source_sink, 'gibts/nicht')"]
 
     assert ask(c, "catch(phrase_from_file(any(_), KLEIN, [as(bytes)]), error(E, _), true)") ==
-             ["E = domain_error(oneof([codes, chars]), bytes)"]
+             ["E = domain_error(oneof([codes,chars]), bytes)"]
 
     assert ask(c, "catch(phrase_from_file(any(_), KLEIN, [as(_)]), error(E, _), true)") ==
              ["E = instantiation_error"]

@@ -70,7 +70,7 @@ defmodule PrologEx.HomesTest do
 
   test "nach dem Import der Heimat-Bibliothek sichtbar", c do
     assert ask(c, "findall(X, between(1, 3, X), L)", ":- use_module(library(between)).\n") ==
-             ["L = [1, 2, 3]"]
+             ["L = [1,2,3]"]
 
     assert ask(
              c,

@@ -95,7 +95,7 @@ defmodule PrologEx.LibraryTest do
 
   describe "=../2" do
     test "zerlegt" do
-      assert all(s("=..", [s("f", [a("a"), list([1])]), @l])) == ["L = [f, a, [1]]"]
+      assert all(s("=..", [s("f", [a("a"), list([1])]), @l])) == ["L = [f,a,[1]]"]
       assert all(s("=..", [a("foo"), @l])) == ["L = [foo]"]
       assert all(s("=..", [3, @l])) == ["L = [3]"]
       assert all(s("=..", [list([a("a")], a("b")), @l])) == ["L = \".ab\""]
@@ -118,8 +118,8 @@ defmodule PrologEx.LibraryTest do
 
   describe "append/3" do
     test "erstes Argument fertig: deterministisch, auch mit offenem Rest" do
-      assert all(s("append", [list([1, 2]), list([3]), @l])) == ["L = [1, 2, 3]"]
-      assert all(s("append", [list([1, @x]), @y, @l])) == ["L = [1, X|Y]"]
+      assert all(s("append", [list([1, 2]), list([3]), @l])) == ["L = [1,2,3]"]
+      assert all(s("append", [list([1, @x]), @y, @l])) == ["L = [1,X|Y]"]
       assert all(s("append", [list([]), @y, @l])) == ["L = Y"]
       [{_, more?}] = db() |> solutions(s("append", [list([1, 2]), @y, @l])) |> Enum.take(1)
       refute more?, "fertiges erstes Argument darf keinen Choice Point hinterlassen"
@@ -139,9 +139,9 @@ defmodule PrologEx.LibraryTest do
 
     test "offenes erstes Argument: klassische Aufzählung" do
       assert all(s("append", [@x, @y, list([1, 2])])) == [
-               "X = [], Y = [1, 2]",
+               "X = [], Y = [1,2]",
                "X = [1], Y = [2]",
-               "X = [1, 2], Y = []"
+               "X = [1,2], Y = []"
              ]
 
       assert all(s("append", [list([1], @t), list([a("z")]), list([1, 2, a("z")])])) == [
@@ -207,14 +207,14 @@ defmodule PrologEx.LibraryTest do
     test "Liste erzeugen bei bekannter Länge" do
       [ans] = db() |> query(s("length", [@l, 2])) |> Enum.take(1)
       assert [{:var, _}, {:var, _}] = ans["L"]
-      assert all(s("length", [list([a("a")], @t), 3])) |> hd() =~ ~r/^T = \[_A, _B\]$/
+      assert all(s("length", [list([a("a")], @t), 3])) |> hd() =~ ~r/^T = \[_A,_B\]$/
       assert all(s("length", [list([a("a"), a("b")], @t), 1])) == []
     end
 
     test "beides offen: zählt lazy auf" do
       answers = db() |> query(s("length", [@l, @n])) |> Enum.take(3) |> Enum.map(&format_answer/1)
       assert Enum.at(answers, 0) == "L = [], N = 0"
-      assert Enum.at(answers, 2) =~ ~r/^L = \[_A, _B\], N = 2$/
+      assert Enum.at(answers, 2) =~ ~r/^L = \[_A,_B\], N = 2$/
       [{_, more?}] = db() |> solutions(s("length", [list([1, 2]), @n])) |> Enum.take(1)
       refute more?
     end
@@ -408,11 +408,11 @@ defmodule PrologEx.LibraryTest do
 
   describe "numlist/2,3" do
     test "baut Listen" do
-      assert all(s("numlist", [1, 5, @l])) == ["L = [1, 2, 3, 4, 5]"]
-      assert all(s("numlist", [-1, 1, @l])) == ["L = [-1, 0, 1]"]
+      assert all(s("numlist", [1, 5, @l])) == ["L = [1,2,3,4,5]"]
+      assert all(s("numlist", [-1, 1, @l])) == ["L = [-1,0,1]"]
       assert all(s("numlist", [3, 3, @l])) == ["L = [3]"]
       assert all(s("numlist", [5, 1, @l])) == []
-      assert all(s("numlist", [3, @l])) == ["L = [1, 2, 3]"]
+      assert all(s("numlist", [3, @l])) == ["L = [1,2,3]"]
       assert all(s("numlist", [1, 3, list([1, 2, 3])])) == ["true"]
     end
 

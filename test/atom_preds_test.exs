@@ -58,7 +58,7 @@ defmodule PrologEx.AtomPredsTest do
     test "aufzählen", c do
       assert ask(c, "findall(X-Y, atom_concat(X, Y, hello), L).") ==
                [
-                 "L = [''-hello, h-ello, he-llo, hel-lo, hell-o, hello-'']"
+                 "L = [''-hello,h-ello,he-llo,hel-lo,hell-o,hello-'']"
                ]
 
       assert ask(c, "atom_concat(X, Y, 'ä€').") ==
@@ -88,19 +88,19 @@ defmodule PrologEx.AtomPredsTest do
       assert ask(c, "sub_atom('Banana', 3, 2, _, S).") == ["S = an"]
 
       assert ask(c, "findall(S, sub_atom(charity, _, 3, _, S), L).") ==
-               ["L = [cha, har, ari, rit, ity]"]
+               ["L = [cha,har,ari,rit,ity]"]
 
       assert ask(c, "findall(B-L-S, sub_atom(ab, B, L, _, S), Xs).") ==
                [
-                 "Xs = [0-0-'', 0-1-a, 0-2-ab, 1-0-'', 1-1-b, 2-0-'']"
+                 "Xs = [0-0-'',0-1-a,0-2-ab,1-0-'',1-1-b,2-0-'']"
                ]
     end
 
     test "gebundenes Sub: überlappend, mit Umlauten, leer", c do
-      assert ask(c, "findall(B, sub_atom(aaaa, B, _, _, aa), L).") == ["L = [0, 1, 2]"]
-      assert ask(c, "findall(B, sub_atom('äääa', B, _, _, 'ää'), L).") == ["L = [0, 1]"]
+      assert ask(c, "findall(B, sub_atom(aaaa, B, _, _, aa), L).") == ["L = [0,1,2]"]
+      assert ask(c, "findall(B, sub_atom('äääa', B, _, _, 'ää'), L).") == ["L = [0,1]"]
       assert ask(c, "sub_atom('xäyä', B, L, A, 'yä').") == ["A = 0, B = 2, L = 2"]
-      assert ask(c, "findall(B, sub_atom(abc, B, L, A, ''), Xs).") == ["Xs = [0, 1, 2, 3]"]
+      assert ask(c, "findall(B, sub_atom(abc, B, L, A, ''), Xs).") == ["Xs = [0,1,2,3]"]
       assert ask(c, "sub_atom(abc, B, 1, A, '').") == []
       assert ask(c, "sub_atom(abc, B, L, A, abcd).") == []
       assert ask(c, "sub_atom(abc, 1, L, A, bc).") == ["A = 0, L = 2"]
@@ -111,9 +111,9 @@ defmodule PrologEx.AtomPredsTest do
 
     test "Kombinationen gebundener Zahlen", c do
       assert ask(c, "findall(B-L, sub_atom(abc, B, L, 1, _), Xs).") ==
-               ["Xs = [0-2, 1-1, 2-0]"]
+               ["Xs = [0-2,1-1,2-0]"]
 
-      assert ask(c, "findall(L, sub_atom(abc, 1, L, _, _), Xs).") == ["Xs = [0, 1, 2]"]
+      assert ask(c, "findall(L, sub_atom(abc, 1, L, _, _), Xs).") == ["Xs = [0,1,2]"]
       assert ask(c, "sub_atom(abc, 1, 1, A, S).") == ["A = 1, S = b"]
       assert ask(c, "sub_atom(abc, 2, 2, A, S).") == []
       assert ask(c, "sub_atom(abc, 4, L, A, S).") == []
@@ -142,11 +142,11 @@ defmodule PrologEx.AtomPredsTest do
       assert ask(c, "atom_chars(X, ['[', ']']), X == [].") |> length() == 1
       assert ask(c, "atom_chars(X, ['ä', '€']).") == ["X = 'ä€'"]
       assert ask(c, "atom_codes('', L).") == ["L = []"]
-      assert ask(c, "atom_codes(ant, L).") == ["L = [97, 110, 116]"]
+      assert ask(c, "atom_codes(ant, L).") == ["L = [97,110,116]"]
       assert ask(c, "atom_codes(S, [0's, 0'o, 0'p]).") == ["S = sop"]
-      assert ask(c, "atom_codes('North', [0'N|X]).") == ["X = [111, 114, 116, 104]"]
+      assert ask(c, "atom_codes('North', [0'N|X]).") == ["X = [111,114,116,104]"]
       assert ask(c, "atom_codes(soap, [0's, 0'o, 0'p]).") == []
-      assert ask(c, "atom_codes('ä€', L).") == ["L = [228, 8364]"]
+      assert ask(c, "atom_codes('ä€', L).") == ["L = [228,8364]"]
     end
 
     test "Fehler", c do

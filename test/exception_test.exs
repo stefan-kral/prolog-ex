@@ -95,7 +95,7 @@ defmodule PrologEx.ExceptionTest do
     assert uncaught(c, "catch(true, _, true), throw(danach).") == {:atom, "danach"}
     # beim Backtracking zurück in G fängt der Rahmen wieder
     assert ask(c, "findall(R, catch((p(X), wirft(X), R = X), zu_gross(Y), R = g(Y)), L).") ==
-             ["L = [1, g(2)]"]
+             ["L = [1,g(2)]"]
 
     # Cut nach catch schneidet auch dessen Choice Points
     assert ask(c, "erst.") == ["true"]
@@ -187,7 +187,7 @@ defmodule PrologEx.ExceptionTest do
              ["E = type_error(callable, (write(x), 3))"]
 
     # eine Variable an Zielstelle wird call(V): ein später gebundener Cut ist lokal
-    assert ask(c, "findall(Z-X, call((Z = !, p(X), Z)), L).") == ["L = [!-1, !-2, !-3]"]
+    assert ask(c, "findall(Z-X, call((Z = !, p(X), Z)), L).") == ["L = [!-1,!-2,!-3]"]
     # ein Cut direkt im Gerüst schneidet weiter wie gehabt (lokal zu call/1)
     assert ask(c, "findall(X, call((p(X), !)), L).") == ["L = [1]"]
   end

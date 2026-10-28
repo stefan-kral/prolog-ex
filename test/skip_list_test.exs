@@ -47,8 +47,8 @@ defmodule PrologEx.SkipListTest do
 
     for q <- [
           "X = [a|X]",
-          "X = [a, b, c|X]",
-          "X = [1, 2|Y], Y = [3, 4, 5, 6, 7|Y]",
+          "X = [a,b,c|X]",
+          "X = [1,2|Y], Y = [3,4,5,6,7|Y]",
           "numlist(1, 50, L), append(L, X0, X0), X = [x|X0]",
           # Zyklus über mehrere Variablen
           "X = [1|B], B = [2|C], C = [3|D], D = [4|E], E = [5|X]"

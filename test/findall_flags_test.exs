@@ -31,18 +31,18 @@ defmodule PrologEx.FindallFlagsTest do
 
   describe "findall/3,4" do
     test "sammelt alle Lösungen" do
-      assert all(s("findall", [@x, s("p", [@x]), @l])) == ["L = [1, 2, 3]"]
+      assert all(s("findall", [@x, s("p", [@x]), @l])) == ["L = [1,2,3]"]
       assert all(s("findall", [@x, a("fail"), @l])) == ["L = []"]
 
       assert all(s("findall", [s("-", [@x, @x]), s("p", [@x]), @l])) == [
-               "L = [1-1, 2-2, 3-3]"
+               "L = [1-1,2-2,3-3]"
              ]
 
       assert more(s("findall", [@x, s("p", [@x]), @l])) == [false]
     end
 
     test "findall/4 mit Rest" do
-      assert all(s("findall", [@x, s("p", [@x]), @l, list([9])])) == ["L = [1, 2, 3, 9]"]
+      assert all(s("findall", [@x, s("p", [@x]), @l, list([9])])) == ["L = [1,2,3,9]"]
     end
 
     test "Ergebnisse sind Kopien mit frischen Variablen" do
@@ -59,7 +59,7 @@ defmodule PrologEx.FindallFlagsTest do
       assert all(s("findall", [@x, s(",", [s("p", [@x]), a("!")]), @l])) == ["L = [1]"]
 
       assert all(s(",", [s("findall", [@x, s("p", [@x]), @l]), s("var", [@x])])) == [
-               "L = [1, 2, 3]"
+               "L = [1,2,3]"
              ]
     end
 
@@ -69,7 +69,7 @@ defmodule PrologEx.FindallFlagsTest do
 
       for opts <- [[], [compact_threshold: 1]] do
         assert all(goal, opts) ==
-                 ["A = [1-[1, 2, 3], 2-[1, 2, 3], 3-[1, 2, 3]]"]
+                 ["A = [1-[1,2,3],2-[1,2,3],3-[1,2,3]]"]
       end
     end
 
@@ -81,10 +81,10 @@ defmodule PrologEx.FindallFlagsTest do
   describe "findnsols/4,5" do
     test "SWI-Beispiele" do
       assert all(s("findnsols", [5, @i, s("between", [1, 12, @i]), @l])) ==
-               ["L = [1, 2, 3, 4, 5]", "L = [6, 7, 8, 9, 10]", "L = [11, 12]"]
+               ["L = [1,2,3,4,5]", "L = [6,7,8,9,10]", "L = [11,12]"]
 
       assert all(s("findnsols", [4, @i, s("between", [1, 8, @i]), @l])) ==
-               ["L = [1, 2, 3, 4]", "L = [5, 6, 7, 8]", "L = []"]
+               ["L = [1,2,3,4]", "L = [5,6,7,8]", "L = []"]
     end
 
     test "letzter, kürzerer Teil deterministisch" do
@@ -99,7 +99,7 @@ defmodule PrologEx.FindallFlagsTest do
 
     test "findnsols/5 und Fehler" do
       assert all(s("findnsols", [2, @x, s("p", [@x]), @l, list([0])]), []) |> hd() ==
-               "L = [1, 2, 0]"
+               "L = [1,2,0]"
 
       error(s("findnsols", [0, @x, s("p", [@x]), @l]))
       error(s("findnsols", [@n, @x, s("p", [@x]), @l]))

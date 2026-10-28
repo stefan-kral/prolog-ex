@@ -77,9 +77,9 @@ defmodule PrologEx.DefactoTest do
   test "atomic_list_concat/3, auch zerlegen", c do
     assert ask(c, "atomic_list_concat([a, 42, c], '_', A)") == ["A = a_42_c"]
     assert ask(c, "atomic_list_concat([], '-', A)") == ["A = ''"]
-    assert ask(c, "atomic_list_concat(L, '-', 'a-b--c')") == ["L = [a, b, '', c]"]
+    assert ask(c, "atomic_list_concat(L, '-', 'a-b--c')") == ["L = [a,b,'',c]"]
     assert ask(c, "atomic_list_concat([a, X], '-', 'a-b')") == ["X = b"]
-    assert ask(c, "atomic_list_concat(L, ', ', 'xx, yy')") == ["L = [xx, yy]"]
+    assert ask(c, "atomic_list_concat(L, ', ', 'xx, yy')") == ["L = [xx,yy]"]
     assert err(c, "atomic_list_concat([_, bar], '_', _)") == ["E = instantiation_error"]
     assert err(c, "atomic_list_concat([foo, bar], _, _)") == ["E = instantiation_error"]
     assert err(c, "atomic_list_concat([foo, bar], a(1), _)") == ["E = type_error(atomic, a(1))"]

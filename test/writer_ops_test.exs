@@ -216,6 +216,18 @@ defmodule PrologEx.WriterOpsTest do
       assert Writer.format(mk("f", [1, list([2, 3])]), spacing: :next_argument) == "f(1, [2, 3])"
       assert Writer.format(mk(",", [a("a"), a("b")]), spacing: :next_argument) == "a, b"
 
+      # Toplevel-Stil: Leerzeichen nach Kommas, nur nicht zwischen Listenelementen
+      t = list([1, mk("f", [a("a"), a("b")]), list([2, 3]), mk(",", [a("x"), a("y")])])
+
+      assert Writer.format(t, spacing: :next_argument, compact_lists: true) ==
+               "[1,f(a, b),[2,3],(x, y)]"
+
+      assert Writer.format(t, compact_lists: true) == "[1,f(a,b),[2,3],(x,y)]"
+      assert Writer.format(t, Writer.answer_opts()) == "[1,f(a, b),[2,3],(x, y)]"
+
+      e = %PrologEx.Error{term: mk("error", [mk("type_error", [a("list"), t]), a("c")])}
+      assert Exception.message(e) == "type_error(list, [1,f(a, b),[2,3],(x, y)])"
+
       assert Writer.format(mk(":-", [a("a"), a("b")]), priority: 999) == "(a:-b)"
       assert Writer.format(a("-"), operand: true) == "(-)"
       assert Writer.format(a("-")) == "-"
@@ -304,6 +316,9 @@ defmodule PrologEx.WriterOpsTest do
       assert out(c, "write_term([1,2,3,4], [max_depth(2)]).") == "[1,2|...]"
       assert out(c, "write_term(1+2, [ignore_ops(true)]).") == "+(1,2)"
       assert out(c, "write_term(f(a,b), [spacing(next_argument)]).") == "f(a, b)"
+      # spacing(next_argument) wie SWI: auch in Listen
+      assert out(c, "write_term([1,2], [spacing(next_argument)]).") == "[1, 2]"
+      assert out(c, "writeq([1,f(a,b)]), print([1,f(a,b)]).") == "[1,f(a,b)][1,f(a,b)]"
     end
 
     test "write_term/2: Fehler", c do

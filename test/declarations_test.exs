@@ -42,10 +42,10 @@ defmodule PrologEx.DeclarationsTest do
     b = write(c, "b.pl", ":- multifile(farbe/1).\nfarbe(gruen).\nfarbe(blau).\n")
     load(a)
     load(b)
-    assert ask(c, "findall(X, farbe(X), L)") == ["L = [rot, gruen, blau]"]
+    assert ask(c, "findall(X, farbe(X), L)") == ["L = [rot,gruen,blau]"]
 
     assert ask(c, "findall(P, predicate_property(farbe(_), P), L)") ==
-             ["L = [defined, compiled, static, multifile, number_of_clauses(3)]"]
+             ["L = [defined,compiled,static,multifile,number_of_clauses(3)]"]
   end
 
   test "ohne multifile ersetzt die zweite Datei die Definition", c do
@@ -67,7 +67,7 @@ defmodule PrologEx.DeclarationsTest do
     err = load(write(c, "a.pl", ":- discontiguous(p/1).\np(1).\nq.\np(2).\n"))
 
     assert err == ""
-    assert ask(c, "findall(X, p(X), L)") == ["L = [1, 2]"]
+    assert ask(c, "findall(X, p(X), L)") == ["L = [1,2]"]
   end
 
   test "if/elif/else/endif, auch verschachtelt; inaktive Direktiven laufen nicht", c do
@@ -97,7 +97,7 @@ defmodule PrologEx.DeclarationsTest do
       """)
     )
 
-    assert ask(c, "findall(X, a(X), L)") == ["L = [2, 4, 7, 8]"]
+    assert ask(c, "findall(X, a(X), L)") == ["L = [2,4,7,8]"]
   end
 
   test "elif: nur der erste wahre Zweig; im inaktiven Rahmen keine Bedingung", c do
@@ -133,7 +133,7 @@ defmodule PrologEx.DeclarationsTest do
       end)
 
     assert out == ""
-    assert ask(c, "findall(X, b(X), L)") == ["L = [1, 6]"]
+    assert ask(c, "findall(X, b(X), L)") == ["L = [1,6]"]
   end
 
   test "die Bedingung sieht das bisher Geladene; Fehler zählen als falsch", c do
@@ -168,7 +168,7 @@ defmodule PrologEx.DeclarationsTest do
     write(c, "sub/teil.pl", "w(2).\n:- include(tiefer).\n")
     write(c, "sub/tiefer.pl", "w(3).\n")
     load(write(c, "haupt.pl", "w(1).\n:- include('sub/teil').\nw(4).\n"))
-    assert ask(c, "findall(X, w(X), L)") == ["L = [1, 2, 3, 4]"]
+    assert ask(c, "findall(X, w(X), L)") == ["L = [1,2,3,4]"]
   end
 
   test "include einer fehlenden Datei meldet einen Fehler", c do

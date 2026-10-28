@@ -32,7 +32,12 @@ defmodule PrologEx.Error do
 
   # wie writeq, mit Leerzeichen nach Kommas (wie die Antworten)
   defp show(t),
-    do: PrologEx.Writer.format(PrologEx.unmark(t), quoted: true, spacing: :next_argument)
+    do:
+      PrologEx.Writer.format(PrologEx.unmark(t),
+        quoted: true,
+        spacing: :next_argument,
+        compact_lists: true
+      )
 
   @doc "Ball werfen (ohne error/2-Hülle)"
   def throw!(ball), do: raise(%__MODULE__{term: ball})

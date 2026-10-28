@@ -51,20 +51,20 @@ defmodule PrologEx.ListMoreTest do
       {"one_longer([a,b], [x,y])", []},
       {"one_longer([a], [])", ["true"]},
       {"one_longer([], X)", []},
-      {"one_longer([a,b,c], S)", ["S = [_A, _B]"]},
-      {"one_longer(L, [x,y])", ["L = [_A, _B, _C]"]},
-      {"one_longer([a|T], [x,y,z])", ["T = [_A, _B, _C]"]},
+      {"one_longer([a,b,c], S)", ["S = [_A,_B]"]},
+      {"one_longer(L, [x,y])", ["L = [_A,_B,_C]"]},
+      {"one_longer([a|T], [x,y,z])", ["T = [_A,_B,_C]"]},
       {"one_longer([a,b,c|T], [x])", []},
       {"one_longer(foo, [x])", []},
       {"one_longer([a|foo], S)", []},
       {"one_longer(L, S)",
        [
          "L = [_A], S = []",
-         "L = [_A, _B], S = [_C]",
-         "L = [_A, _B, _C], S = [_D, _E]",
-         "L = [_A, _B, _C, _D], S = [_E, _F, _G]",
-         "L = [_A, _B, _C, _D, _E], S = [_F, _G, _H, _I]",
-         "L = [_A, _B, _C, _D, _E, _F], S = [_G, _H, _I, _J, _K]"
+         "L = [_A,_B], S = [_C]",
+         "L = [_A,_B,_C], S = [_D,_E]",
+         "L = [_A,_B,_C,_D], S = [_E,_F,_G]",
+         "L = [_A,_B,_C,_D,_E], S = [_F,_G,_H,_I]",
+         "L = [_A,_B,_C,_D,_E,_F], S = [_G,_H,_I,_J,_K]"
        ]}
     ])
   end
@@ -79,46 +79,46 @@ defmodule PrologEx.ListMoreTest do
       {"shorter_list([x], [a,b|foo])", ["true"]},
       {"shorter_list([x], [a|foo])", []},
       {"shorter_list([x], [a|T])", ["T = [_A|_B]"]},
-      {"shorter_list([x,y], L)", ["L = [_A, _B, _C|_D]"]},
-      {"shorter_list(S, [a,b,c])", ["S = []", "S = [_A]", "S = [_A, _B]"]}
+      {"shorter_list([x,y], L)", ["L = [_A,_B,_C|_D]"]},
+      {"shorter_list(S, [a,b,c])", ["S = []", "S = [_A]", "S = [_A,_B]"]}
     ])
 
     assert run(c, "shorter_list(S, L)", 3) == [
              "L = [_A|_B], S = []",
-             "L = [_A, _B|_C], S = [_D]",
-             "L = [_A, _B, _C|_D], S = [_E, _F]"
+             "L = [_A,_B|_C], S = [_D]",
+             "L = [_A,_B,_C|_D], S = [_E,_F]"
            ]
   end
 
   test "keys_and_values/3", c do
     check(c, [
-      {"keys_and_values([a-1,b-2], K, V)", ["K = \"ab\", V = [1, 2]"]},
-      {"keys_and_values(P, [a,b], [1,2])", ["P = [a-1, b-2]"]},
-      {"keys_and_values(P, [a,b], V)", ["P = [a-_A, b-_B], V = [_A, _B]"]},
+      {"keys_and_values([a-1,b-2], K, V)", ["K = \"ab\", V = [1,2]"]},
+      {"keys_and_values(P, [a,b], [1,2])", ["P = [a-1,b-2]"]},
+      {"keys_and_values(P, [a,b], V)", ["P = [a-_A,b-_B], V = [_A,_B]"]},
       {"keys_and_values(P, K, [1])", ["K = [_A], P = [_A-1]"]},
       {"keys_and_values([], K, V)", ["K = [], V = []"]},
       {"keys_and_values([a-1,b], K, V)", []},
       {"keys_and_values([a-1], [a,b], V)", []},
-      {"keys_and_values([a-1|T], K, [1,2])", ["K = [a, _A], T = [_A-2]"]},
+      {"keys_and_values([a-1|T], K, [1,2])", ["K = [a,_A], T = [_A-2]"]},
       {"keys_and_values(P, K, V)",
        [
          "K = [], P = [], V = []",
          "K = [_A], P = [_A-_B], V = [_B]",
-         "K = [_A, _B], P = [_A-_C, _B-_D], V = [_C, _D]",
-         "K = [_A, _B, _C], P = [_A-_D, _B-_E, _C-_F], V = [_D, _E, _F]",
-         "K = [_A, _B, _C, _D], P = [_A-_E, _B-_F, _C-_G, _D-_H], V = [_E, _F, _G, _H]",
-         "K = [_A, _B, _C, _D, _E], P = [_A-_F, _B-_G, _C-_H, _D-_I, _E-_J], V = [_F, _G, _H, _I, _J]"
+         "K = [_A,_B], P = [_A-_C,_B-_D], V = [_C,_D]",
+         "K = [_A,_B,_C], P = [_A-_D,_B-_E,_C-_F], V = [_D,_E,_F]",
+         "K = [_A,_B,_C,_D], P = [_A-_E,_B-_F,_C-_G,_D-_H], V = [_E,_F,_G,_H]",
+         "K = [_A,_B,_C,_D,_E], P = [_A-_F,_B-_G,_C-_H,_D-_I,_E-_J], V = [_F,_G,_H,_I,_J]"
        ]}
     ])
   end
 
   test "transpose/2", c do
     check(c, [
-      {"transpose([[1,2,3],[4,5,6]], X)", ["X = [[1, 4], [2, 5], [3, 6]]"]},
-      {"transpose(X, [[1,4],[2,5],[3,6]])", ["X = [[1, 2, 3], [4, 5, 6]]"]},
+      {"transpose([[1,2,3],[4,5,6]], X)", ["X = [[1,4],[2,5],[3,6]]"]},
+      {"transpose(X, [[1,4],[2,5],[3,6]])", ["X = [[1,2,3],[4,5,6]]"]},
       {"transpose([[a]], X)", ["X = [\"a\"]"]},
-      {"transpose([[a,b]], X)", ["X = [\"a\", \"b\"]"]},
-      {"transpose([[A,B],[C,D]], X)", ["X = [[A, C], [B, D]]"]},
+      {"transpose([[a,b]], X)", ["X = [\"a\",\"b\"]"]},
+      {"transpose([[A,B],[C,D]], X)", ["X = [[A,C],[B,D]]"]},
       {"transpose([[1,2],[3]], X)", []},
       {"transpose([], X)", []},
       {"transpose(X, [])", []},
@@ -129,7 +129,7 @@ defmodule PrologEx.ListMoreTest do
       # Form von beiden Seiten
       {"transpose([[1,_],[_,4]], [[_,2],[3,_]])", ["true"]},
       {"transpose([[1,2],[3,4]], [_,_,_])", []},
-      {"transpose([[1,2],[3,4]], [X|Y])", ["X = [1, 3], Y = [[2, 4]]"]}
+      {"transpose([[1,2],[3,4]], [X|Y])", ["X = [1,3], Y = [[2,4]]"]}
     ])
   end
 
@@ -140,7 +140,7 @@ defmodule PrologEx.ListMoreTest do
 
   test "partition/5", c do
     check(c, [
-      {"partition(cmp_num, [1,5,3,2,4,3], L, E, G)", ["E = [3, 3], G = [5, 4], L = [1, 2]"]},
+      {"partition(cmp_num, [1,5,3,2,4,3], L, E, G)", ["E = [3,3], G = [5,4], L = [1,2]"]},
       {"partition(cmp_num, [], L, E, G)", ["E = [], G = [], L = []"]},
       {"partition(cmp_num, [1,5], [1], [], [5])", ["true"]},
       {"partition(cmp_num, [1,5], [], E, G)", []},

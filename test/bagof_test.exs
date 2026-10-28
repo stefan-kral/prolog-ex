@@ -40,36 +40,36 @@ defmodule PrologEx.BagofTest do
 
   describe "bagof/3 (ISO 8.10.2.4)" do
     test "ohne freie Variablen", c do
-      assert ask(c, "bagof(X, (X = 1 ; X = 2), S).") == ["S = [1, 2]"]
-      assert ask(c, "bagof(X, (X = 1 ; X = 2), X).") == ["X = [1, 2]"]
-      assert ask(c, "bagof(X, (X = Y ; X = Z), S).") == ["S = [Y, Z]"]
+      assert ask(c, "bagof(X, (X = 1 ; X = 2), S).") == ["S = [1,2]"]
+      assert ask(c, "bagof(X, (X = 1 ; X = 2), X).") == ["X = [1,2]"]
+      assert ask(c, "bagof(X, (X = Y ; X = Z), S).") == ["S = [Y,Z]"]
       assert ask(c, "bagof(X, fail, S).") == []
-      assert ask(c, "bagof(X, Y^((X = 1, Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [1, 2]"]
-      assert ask(c, "bagof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [1, _A, 2]"]
+      assert ask(c, "bagof(X, Y^((X = 1, Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [1,2]"]
+      assert ask(c, "bagof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [1,_A,2]"]
     end
 
     test "freie Variablen: eine Lösung je Gruppe, nach Zeugen sortiert", c do
       assert ask(c, "bagof(1, (Y = 1 ; Y = 2), L).") == ["L = [1], Y = 1 ;", "L = [1], Y = 2"]
-      assert ask(c, "bagof(f(X, Y), (X = a ; Y = b), L).") == ["L = [f(a, _A), f(_B, b)]"]
+      assert ask(c, "bagof(f(X, Y), (X = a ; Y = b), L).") == ["L = [f(a, _A),f(_B, b)]"]
 
       assert ask(c, "bagof(X, (X = Y ; X = Z ; Y = 1), S).") ==
-               ["S = [Y, Z] ;", "S = [_A], Y = 1"]
+               ["S = [Y,Z] ;", "S = [_A], Y = 1"]
 
       # nach Zeuge sortiert (ISO nähme b zuerst)
       assert ask(c, "bagof(X, member(X-Y, [1-b, 2-a, 3-b]), L).") ==
-               ["L = [2], Y = a ;", "L = [1, 3], Y = b"]
+               ["L = [2], Y = a ;", "L = [1,3], Y = b"]
 
       # Zeugen, die Varianten sind, bilden eine Gruppe; ihre Variablen
       # werden unifiziert
       assert ask(c, "bagof(X, member(X-Y, [1-Z, 2-Z, 3-W]), L).") ==
-               ["L = [1, 2], Y = Z ;", "L = [3], Y = W"]
+               ["L = [1,2], Y = Z ;", "L = [3], Y = W"]
     end
 
     test "Varianten, die nach dem Sortieren nicht benachbart sind", c do
       # sortiert: f(_1, b) < f(_2, a) < f(_3, b) (Variablen nach Alter);
       # f(_1, b) und f(_3, b) sind Varianten
       assert ask(c, "bagof(T, pf(W, T), L).") == [
-               "L = [1, 3], W = f(_A, b) ;",
+               "L = [1,3], W = f(_A, b) ;",
                "L = [2], W = f(_A, a)"
              ]
     end
@@ -84,13 +84,13 @@ defmodule PrologEx.BagofTest do
     end
 
     test "existenziell: ^, geschachtelt, mit Modul", c do
-      assert ask(c, "bagof(N, A^age(N, A), L).") == ["L = [peter, ann, pat, tom, mike]"]
+      assert ask(c, "bagof(N, A^age(N, A), L).") == ["L = [peter,ann,pat,tom,mike]"]
 
       assert ask(c, "bagof(N, A^B^(age(N, A), B = A), L).") == [
-               "L = [peter, ann, pat, tom, mike]"
+               "L = [peter,ann,pat,tom,mike]"
              ]
 
-      assert ask(c, "bagof(N, user:(A^age(N, A)), L).") == ["L = [peter, ann, pat, tom, mike]"]
+      assert ask(c, "bagof(N, user:(A^age(N, A)), L).") == ["L = [peter,ann,pat,tom,mike]"]
     end
 
     test "Ergebnis ist eine Liste: Teilliste und Länge", c do
@@ -109,36 +109,36 @@ defmodule PrologEx.BagofTest do
 
   describe "setof/3 (ISO 8.10.3.4)" do
     test "sortiert ohne Duplikate", c do
-      assert ask(c, "setof(X, (X = 1 ; X = 2), S).") == ["S = [1, 2]"]
-      assert ask(c, "setof(X, (X = 2 ; X = 1), S).") == ["S = [1, 2]"]
+      assert ask(c, "setof(X, (X = 1 ; X = 2), S).") == ["S = [1,2]"]
+      assert ask(c, "setof(X, (X = 2 ; X = 1), S).") == ["S = [1,2]"]
       assert ask(c, "setof(X, (X = 2 ; X = 2), S).") == ["S = [2]"]
       assert ask(c, "setof(X, fail, S).") == []
       assert ask(c, "setof(1, (Y = 2 ; Y = 1), L).") == ["L = [1], Y = 1 ;", "L = [1], Y = 2"]
       assert ask(c, "setof(f(X, Y), X = Y, L).") == ["L = [f(_A, _A)]"]
-      assert ask(c, "setof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [_A, 1, 2]"]
+      assert ask(c, "setof(X, Y^((X = 1 ; Y = 1) ; (X = 2, Y = 2)), S).") == ["S = [_A,1,2]"]
     end
 
     test "Beispiel age/2", c do
-      assert ask(c, "setof(N, A^age(N, A), L).") == ["L = [ann, mike, pat, peter, tom]"]
+      assert ask(c, "setof(N, A^age(N, A), L).") == ["L = [ann,mike,pat,peter,tom]"]
 
       assert ask(c, "setof(N, age(N, A), L).") ==
                [
                  "A = 5, L = [tom] ;",
                  "A = 7, L = [peter] ;",
                  "A = 8, L = [pat] ;",
-                 "A = 11, L = [ann, mike]"
+                 "A = 11, L = [ann,mike]"
                ]
 
       assert ask(c, "setof(A-N, age(N, A), L).") ==
-               ["L = [5-tom, 7-peter, 8-pat, 11-ann, 11-mike]"]
+               ["L = [5-tom,7-peter,8-pat,11-ann,11-mike]"]
     end
 
     test "geschachtelt", c do
       assert ask(c, "setof(K-Vs, setof(V, member(K-V, [b-1, a-2, b-3]), Vs), L).") ==
-               ["L = [a-[2], b-[1, 3]]"]
+               ["L = [a-[2],b-[1,3]]"]
 
       assert ask(c, "setof(X-Xs, Y^setof(Y, member(X-Y, [1-aa, 2-bb, 1-cc]), Xs), L).") ==
-               ["L = [1-[aa, cc], 2-[bb]]"]
+               ["L = [1-[aa,cc],2-[bb]]"]
     end
 
     test "sortiert erst nach der Unifikation der Zeugen", c do

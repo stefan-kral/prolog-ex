@@ -41,7 +41,7 @@ defmodule PrologEx.CoroutiningTest do
   describe "call_residue_vars/2 (SWI, SICStus)" do
     test "Beispiel aus dem SICStus-Handbuch", c do
       assert ask(c, "call_residue_vars((dif(X, f(Y)), X = f(Z)), Vars).") ==
-               ["Vars = [Z, Y], X = f(Z), dif(Z, Y)"]
+               ["Vars = [Z,Y], X = f(Z), dif(Z, Y)"]
     end
 
     test "nur während des Ziels entstanden und danach noch offen", c do
@@ -67,7 +67,7 @@ defmodule PrologEx.CoroutiningTest do
 
     test "Reihenfolge des Entstehens", c do
       assert ask(c, "call_residue_vars((freeze(B, true), freeze(A, true)), Vs).") ==
-               ["Vs = [B, A], freeze(A, true), freeze(B, true)"]
+               ["Vs = [B,A], freeze(A, true), freeze(B, true)"]
 
       # viele: die Substitution ist dann eine ungeordnete Hash-Map
       assert ask(c, "\\+ \\+ (length(Xs, 80), call_residue_vars(frz(Xs), Vs), Vs == Xs).") ==
@@ -150,7 +150,7 @@ defmodule PrologEx.CoroutiningTest do
       assert out(c, "freeze(X, write(h)), \\+ X = 1.") == "h"
 
       assert ask(c, "freeze(X, X > 1), findall(X, member(X, [1, 2, 3]), L).") == [
-               "L = [2, 3], freeze(X, X>1)"
+               "L = [2,3], freeze(X, X>1)"
              ]
     end
 
@@ -219,7 +219,7 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "dif(X, b), member(X, [a, b, c]).") == ["X = a", "X = c"]
 
       assert ask(c, "findall(X-Y, (dif(X, Y), member(X, [1, 2]), member(Y, [1, 2])), L).") ==
-               ["L = [1-2, 2-1]"]
+               ["L = [1-2,2-1]"]
     end
 
     test "?=/2", c do
@@ -319,7 +319,7 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "gross(T), dif(X, T), X = f(a, [1, 2], g(b)).") == []
 
       assert ask(c, "dif(X, f(a, [1, 2], g(b))), X = f(a, [1, 2], g(c)).") ==
-               ["X = f(a, [1, 2], g(c))"]
+               ["X = f(a, [1,2], g(c))"]
     end
 
     test "Restziele: einmal je Wert, in Reihenfolge", c do

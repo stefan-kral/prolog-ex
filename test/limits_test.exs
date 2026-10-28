@@ -150,7 +150,7 @@ defmodule PrologEx.LimitsTest do
              ["R = inference_limit_exceeded"]
 
     assert ask(c, "call_with_inference_limit(findall(X, member(X, [1, 2]), L), 100, R)") ==
-             ["L = [1, 2], R = !"]
+             ["L = [1,2], R = !"]
   end
 
   test "Fehler", c do
@@ -198,7 +198,7 @@ defmodule PrologEx.LimitsTest do
 
     # abgeschnittene Zweige in findall: findall gelingt, R ist die größte Ebene
     assert ask(c, "call_with_depth_limit(findall(X, nat(X), L), 4, R)") ==
-             ["L = [0, s(0), s(s(0)), s(s(s(0)))], R = 4"]
+             ["L = [0,s(0),s(s(0)),s(s(s(0)))], R = 4"]
 
     assert ask(c, "between(1, 5, D), call_with_depth_limit(nat(s(s(s(0)))), D, R), integer(R)") ==
              ["D = 4, R = 4", "D = 5, R = 4"]
@@ -207,7 +207,7 @@ defmodule PrologEx.LimitsTest do
   test "Tiefe: Bibliotheken sind durchsichtig, zurückgerufene Ziele auf der Ebene des Aufrufs",
        c do
     assert ask(c, "call_with_depth_limit(maplist(inc, [1, 2, 3], L), 1, R)") ==
-             ["L = [2, 3, 4], R = 1"]
+             ["L = [2,3,4], R = 1"]
 
     assert ask(c, "call_with_depth_limit(maplist(inc, [1, 2, 3], L), 0, R)") ==
              ["R = depth_limit_exceeded"]

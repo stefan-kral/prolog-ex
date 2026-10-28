@@ -76,7 +76,7 @@ defmodule PrologEx.OccursClauseTest do
       # Write-Modus: wr(X, f(X)) – zweites Argument wird gebaut, enthält Slot
       db = consult([fact(s("wr", [@x, s("f", [list([1], @x)])]))])
       refute ok?(db, oc("true", s("wr", [@y, @y])))
-      assert all(oc("true", s("app", [list([1]), list([2]), @z]))) == ["Z = [1, 2]"]
+      assert all(oc("true", s("app", [list([1]), list([2]), @z]))) == ["Z = [1,2]"]
     end
 
     test "error: wirft occurs_check-Fehler" do
