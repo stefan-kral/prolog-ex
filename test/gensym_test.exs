@@ -39,6 +39,12 @@ defmodule PrologEx.GensymTest do
     assert ask(c, "catch((gensym(a, _), throw(x)), x, true), gensym(a, X)") == ["X = a6"]
   end
 
+  test "attributierte Variable: wird geweckt", c do
+    assert ask(c, "freeze(X, Y = geweckt), gensym(a, X)") == ["X = a1, Y = geweckt"]
+    assert ask(c, "dif(X, a2), gensym(a, X)") == []
+    assert ask(c, "dif(X, a2), gensym(a, X)") == ["X = a3"]
+  end
+
   test "reset_gensym/1 und /0", c do
     assert ask(
              c,

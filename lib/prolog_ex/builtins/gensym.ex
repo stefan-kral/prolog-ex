@@ -26,16 +26,24 @@ defmodule PrologEx.Builtins.Gensym do
   use PrologEx.Builtin, module: "gensym"
   alias PrologEx.Error
 
+  # Unique ist nach der Prüfung eine ungebundene Variable, der neue Name ein
+  # Atom: keine Unifikation nötig, direkt binden (bind/3 vermerkt
+  # attributierte Variablen zum Wecken, {:subst, s} weckt dann)
   defbuiltin "gensym", [base, unique] do
-    case deref(unique) do
-      {:var, _} -> :ok
-      _ -> Error.uninstantiation!(resolve(unique))
-    end
+    s = subst()
 
-    b = base!(base, subst())
-    n = Map.get(counters(), b, 0) + 1
-    PrologEx.update_db(&Map.update(&1, :gensym, %{b => n}, fn m -> Map.put(m, b, n) end))
-    {:unify, [{unique, {:atom, b <> Integer.to_string(n)}}]}
+    case PrologEx.walk(unique, s) do
+      {:var, _} = v ->
+        b = base!(base, s)
+        db = PrologEx.current_db()
+        counters = Map.get(db, :gensym, %{})
+        n = Map.get(counters, b, 0) + 1
+        PrologEx.put_db(Map.put(db, :gensym, Map.put(counters, b, n)))
+        {:subst, PrologEx.bind(v, {:atom, b <> Integer.to_string(n)}, s)}
+
+      _ ->
+        Error.uninstantiation!(resolve(unique))
+    end
   end
 
   defbuiltin "reset_gensym", [base] do
