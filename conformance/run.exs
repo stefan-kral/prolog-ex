@@ -24,6 +24,12 @@ tests_root = Path.join(Path.expand(lgt_root), "tests/prolog")
 harness = Path.expand("lgtunit.pl", __DIR__)
 work_root = Path.join(System.tmp_dir!(), "prolog_ex_conformance")
 File.rm_rf!(work_root)
+File.mkdir_p!(work_root)
+# Pfade von der Kommandozeile vor dem Wechsel festhalten
+opts = Keyword.update(opts, :failures, nil, &(&1 && Path.expand(&1)))
+# im Arbeitsverzeichnis laufen: manche Tests öffnen Dateien mit relativem
+# Namen ({open(d1, write, S)} usw.), die sonst im Projekt liegen blieben
+File.cd!(work_root)
 
 files =
   Path.wildcard(Path.join(tests_root, "**/tests*.lgt"))
