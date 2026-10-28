@@ -1428,37 +1428,6 @@ defmodule PrologEx do
     time_exit(ref, h, rest, st)
   end
 
-  defp builtin_time(g, mod, rest, st) do
-    ref = make_ref()
-    h = st.height
-    st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
-    st = push(st, {:time_fail, ref, st.subst, st.answer})
-    goal = unmark_top(walk(g, st.subst))
-    run(%{st | goals: [{goal, h + 1, mod}, {{:"$time_exit", ref, h}, 0, mod} | rest]})
-  end
-
-  defp time_exit(ref, h, rest, st) do
-    total = time_stop(st, ref)
-    report_time(total)
-
-    if st.height == h + 1,
-      do:
-        run(%{
-          st
-          | goals: rest,
-            cps: tl(st.cps),
-            height: h,
-            counters: Map.delete(st.counters, ref)
-        }),
-      else:
-        run(
-          push(
-            %{st | goals: rest, counters: Map.put(st.counters, ref, {total, nil})},
-            {:time_reenter, ref}
-          )
-        )
-  end
-
   # call_with_inference_limit(G, L, R) wie SWI und Scryer: höchstens L
   # Inferenzen je Lösung von G. R = ! (G deterministisch gelungen), true
   # (Choice Points offen) oder inference_limit_exceeded – dann wird G mit der
@@ -1654,6 +1623,38 @@ defmodule PrologEx do
 
   # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
   defp step(goal, _cutb, mod, rest, st), do: call_pred(goal, mod, rest, st)
+
+  # das eingebaute time/1 (step/5 für time/1 entscheidet, ob es gilt)
+  defp builtin_time(g, mod, rest, st) do
+    ref = make_ref()
+    h = st.height
+    st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
+    st = push(st, {:time_fail, ref, st.subst, st.answer})
+    goal = unmark_top(walk(g, st.subst))
+    run(%{st | goals: [{goal, h + 1, mod}, {{:"$time_exit", ref, h}, 0, mod} | rest]})
+  end
+
+  defp time_exit(ref, h, rest, st) do
+    total = time_stop(st, ref)
+    report_time(total)
+
+    if st.height == h + 1,
+      do:
+        run(%{
+          st
+          | goals: rest,
+            cps: tl(st.cps),
+            height: h,
+            counters: Map.delete(st.counters, ref)
+        }),
+      else:
+        run(
+          push(
+            %{st | goals: rest, counters: Map.put(st.counters, ref, {total, nil})},
+            {:time_reenter, ref}
+          )
+        )
+  end
 
   defp call_nth(g, n, _cutb, mod, rest, st) do
     ref = make_ref()
