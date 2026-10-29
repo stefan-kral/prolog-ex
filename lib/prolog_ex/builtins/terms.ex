@@ -235,11 +235,17 @@ defmodule PrologEx.Builtins.Terms do
 
   # T =.. [Name | Args]
   defbuiltin "=..", [t, l] do
-    case deref(t) do
+    univ(t, l, subst())
+  end
+
+  @doc false
+  # =../2 – auch direkt aus der Maschine (PrologEx.step/5)
+  def univ(t, l, s) do
+    case PrologEx.walk(t, s) do
       {:var, _} ->
-        case proper_list(l, subst()) do
+        case proper_list(l, s) do
           {:ok, [n]} ->
-            n = deref(n)
+            n = PrologEx.walk(n, s)
 
             cond do
               match?({:var, _}, n) -> PrologEx.Error.instantiation!()
@@ -248,7 +254,7 @@ defmodule PrologEx.Builtins.Terms do
             end
 
           {:ok, [n | args]} ->
-            case deref(n) do
+            case PrologEx.walk(n, s) do
               {:var, _} ->
                 PrologEx.Error.instantiation!()
 
@@ -265,7 +271,7 @@ defmodule PrologEx.Builtins.Terms do
             PrologEx.Error.instantiation!()
 
           :not_list ->
-            PrologEx.Error.type!("list", resolve(l))
+            PrologEx.Error.type!("list", PrologEx.resolve(l, s))
         end
 
       tt ->

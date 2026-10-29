@@ -26,7 +26,7 @@ defmodule PrologEx.Builtins.System do
       bb -> Compiler.key(bb)
     end
 
-    clause_results(source(m, name, arity, db()), head, b)
+    clause_results(source(m, name, arity, head, db(), subst()), head, b)
   end
 
   # current_predicate(PI), PI = Name/Arity oder M:Name/Arity: in M (sonst
@@ -110,7 +110,9 @@ defmodule PrologEx.Builtins.System do
 
   defp visible_keys(_db, other), do: PrologEx.Error.type!("module", other)
 
-  defp source(m, name, arity, db) do
+  # Kandidaten wie beim Aufruf (Index aufs erste Argument): eine einzige
+  # passende Klausel gibt eine deterministische Lösung
+  defp source(m, name, arity, head, db, s) do
     private = fn mod ->
       pi = PrologEx.Error.indicator(name, arity)
       pi = if mod in ["user", "system"], do: pi, else: mk(":", [a(mod), pi])
@@ -119,12 +121,12 @@ defmodule PrologEx.Builtins.System do
 
     case PrologEx.locate(db, m, name, arity) do
       {:db, _, pred} ->
-        PrologEx.pred_source(pred)
+        PrologEx.pred_source(pred, Compiler.args_of(head), s)
 
       {:builtin, lm, {:prolog, pred, _}} ->
         if lm == "system" or String.starts_with?(name, "$"),
           do: private.(lm),
-          else: PrologEx.pred_source(pred)
+          else: PrologEx.pred_source(pred, Compiler.args_of(head), s)
 
       {:builtin, lm, _elixir} ->
         private.(lm)

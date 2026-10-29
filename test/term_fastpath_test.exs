@@ -65,6 +65,26 @@ defmodule PrologEx.TermFastpathTest do
     assert err(c, "call(functor, _, _, 1)") == ["E = instantiation_error"]
   end
 
+  test "=../2: beide Richtungen, Fehler – direkt und über call/N", c do
+    for direct <- [true, false] do
+      w = fn g -> if direct, do: g, else: "call(#{g})" end
+      assert ask(c, w.("f(a, B) =.. L")) == ["L = [f,a,B]"]
+      assert ask(c, w.("T =.. [g, 1, x]")) == ["T = g(1,x)"]
+      assert ask(c, w.("T =.. [abc]")) == ["T = abc"]
+      assert ask(c, w.("[1] =.. L")) == ["L = ['.',1,[]]"]
+      assert ask(c, w.("f(a) =.. [f, b]")) == []
+    end
+
+    assert err(c, "_ =.. _") == ["E = instantiation_error"]
+    assert err(c, "_ =.. [f|_]") == ["E = instantiation_error"]
+    assert err(c, "_ =.. [_, a]") == ["E = instantiation_error"]
+    assert err(c, "_ =.. []") == ["E = domain_error(non_empty_list,[])"]
+    assert err(c, "_ =.. [f(x), a]") == ["E = type_error(atom,f(x))"]
+    assert err(c, "_ =.. [f(x)]") == ["E = type_error(atomic,f(x))"]
+    assert err(c, "_ =.. foo") == ["E = type_error(list,foo)"]
+    assert err(c, "call(=.., _, foo)") == ["E = type_error(list,foo)"]
+  end
+
   test "arg/3: Lösung, Grenzen, Fehler, Occurs-Check", c do
     assert ask(c, "arg(1, f(a, b, c), X)") == ["X = a"]
     assert ask(c, "arg(3, f(a, b, c), X)") == ["X = c"]

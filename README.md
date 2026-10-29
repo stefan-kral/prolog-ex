@@ -1076,7 +1076,7 @@ Rekursion über die Argumente statt mit `Enum.map`/`Enum.reduce` und
 Closure: `findall/3` über strukturierte Terme wurde dadurch rund 30 %
 schneller (im Programm wie als Antwort), der Occurs-Check rund 25 %.
 
-`plus/3`, `functor/3` und `arg/3` führt die Maschine selbst aus, statt
+`plus/3`, `functor/3`, `arg/3` und `=../2` führt die Maschine selbst aus, statt
 den allgemeinen Aufrufweg eines Builtins zu gehen (`plus/3` wie `not/1`
 mit den Sichtbarkeitsregeln seiner Heimat; `functor/3` und `arg/3` sind
 geschützt, ohne Prüfung): `plus/3` rund 17 % schneller, nahe an `is/2`,
@@ -1084,6 +1084,14 @@ geschützt, ohne Prüfung): `plus/3` rund 17 % schneller, nahe an `is/2`,
 Name und Stelligkeit direkt (atomar, kein Occurs-Check nötig); `arg/3`
 ist deterministisch (ISO: ungebundenes N gibt `instantiation_error`,
 kein Aufzählen wie in SWI) und sucht in einem Durchgang.
+
+`clause/2` wählt die Klauseln wie ein Aufruf über den Index aufs erste
+Argument: Nur Klauseln mit passendem Schlüssel oder einer Variable an
+erster Stelle werden kopiert und unifiziert, in ihrer Reihenfolge; passt
+genau eine, ist die Lösung deterministisch (kein Choice Point). Ein
+Vanilla-Meta-Interpreter (`solve/1` über `clause/2`) läuft dadurch etwa
+doppelt so schnell, der Zugriff auf eine Faktentabelle mit 1000 Fakten
+rund 25-mal; `=../2` wurde 25–30 % schneller.
 
 ## Entwicklung
 

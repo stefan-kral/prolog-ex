@@ -790,6 +790,29 @@ defmodule PrologEx do
   def pred_source(pred), do: pred |> pred_entries() |> Enum.map(&elem(&1, 1))
 
   @doc false
+  # clause/2: Quelltext der Klauseln, die der Aufruf mit diesen Argumenten
+  # versuchen würde (Index aufs erste Argument: gleicher Schlüssel oder
+  # Variable an erster Stelle), in Reihenfolge
+  def pred_source(pred, args, subst) do
+    entries = pred_entries(pred)
+
+    case args do
+      [x | _] ->
+        case walk(x, subst) do
+          {:var, _} ->
+            for {_, src, _} <- entries, do: src
+
+          t ->
+            k = index_key(t)
+            for {_, src, c} <- entries, (ck = elem(c, 1)) == :any or ck == k, do: src
+        end
+
+      [] ->
+        for {_, src, _} <- entries, do: src
+    end
+  end
+
+  @doc false
   def materialize({:pred, _, _, _, _} = p), do: p
 
   def materialize({:pending, {:pred, cls, _, _, _} = p, fr, bk} = pending) do
@@ -1204,12 +1227,22 @@ defmodule PrologEx do
     end
   end
 
-  # functor/3 und arg/3 (ISO, geschützt: kein Modul definiert sie um) ohne
+  # functor/3, arg/3, =../2 (ISO, geschützt: kein Modul definiert sie um) ohne
   # den allgemeinen Aufrufweg eines Builtins; das Ergebnis außerhalb des
   # geschützten Bereichs (Endrekursion, Fehler der Fortsetzung bleiben ihre)
   defp step({:struct, "functor", [t, n, a]}, _cutb, mod, rest, st) do
     try do
       PrologEx.Builtins.Terms.functor(t, n, a, st.subst)
+    rescue
+      e in PrologEx.Error -> throw_ball(e.term, st)
+    else
+      r -> apply_result(r, mod, rest, st)
+    end
+  end
+
+  defp step({:struct, "=..", [t, l]}, _cutb, mod, rest, st) do
+    try do
+      PrologEx.Builtins.Terms.univ(t, l, st.subst)
     rescue
       e in PrologEx.Error -> throw_ball(e.term, st)
     else
