@@ -99,16 +99,22 @@ defmodule PrologEx do
 
   # Markiert einen (beliebig markierten) variablenfreien Term vollständig
   @doc false
-  def mark({:struct, f, args}), do: mk_struct(f, Enum.map(args, &mark/1))
+  def mark({:struct, f, args}), do: mk_struct(f, mark_args(args))
   def mark([h | t]), do: cons(mark(h), mark(t))
   def mark(t), do: t
 
+  defp mark_args([]), do: []
+  defp mark_args([a | as]), do: [mark(a) | mark_args(as)]
+
   # Entfernt alle Markierungen
-  def unmark({:gstruct, f, args}), do: {:struct, f, Enum.map(args, &unmark/1)}
+  def unmark({:gstruct, f, args}), do: {:struct, f, unmark_args(args)}
   def unmark({:glist, l}), do: unmark(l)
-  def unmark({:struct, f, args}), do: {:struct, f, Enum.map(args, &unmark/1)}
+  def unmark({:struct, f, args}), do: {:struct, f, unmark_args(args)}
   def unmark([h | t]), do: [unmark(h) | unmark(t)]
   def unmark(t), do: t
+
+  defp unmark_args([]), do: []
+  defp unmark_args([a | as]), do: [unmark(a) | unmark_args(as)]
 
   # Oberste Ebene ohne Markierung (für Zielauswahl und Arithmetik)
   @doc false
@@ -240,7 +246,7 @@ defmodule PrologEx do
         end
 
       {:struct, _, args} ->
-        Enum.reduce(args, st, &attvars(&1, subst, &2))
+        attvars_args(args, subst, st)
 
       [h | tl] ->
         attvars(tl, subst, attvars(h, subst, st))
@@ -249,6 +255,9 @@ defmodule PrologEx do
         st
     end
   end
+
+  defp attvars_args([], _subst, st), do: st
+  defp attvars_args([a | as], subst, st), do: attvars_args(as, subst, attvars(a, subst, st))
 
   @doc "Aktive Suspensionen ('$s'-Terme mit ungebundenem Done) einer Variablen"
   def suspensions(var, subst) do
@@ -468,12 +477,15 @@ defmodule PrologEx do
   # Vollständig auflösen, ohne Markierungen (für Antworten / Interop)
   def resolve(t, subst) do
     case walk(t, subst) do
-      {:struct, f, args} -> {:struct, f, Enum.map(args, &resolve(&1, subst))}
+      {:struct, f, args} -> {:struct, f, resolve_args(args, subst)}
       [h | t] -> [resolve(h, subst) | resolve(t, subst)]
       t when is_marked(t) -> unmark(t)
       other -> other
     end
   end
+
+  defp resolve_args([], _subst), do: []
+  defp resolve_args([a | as], subst), do: [resolve(a, subst) | resolve_args(as, subst)]
 
   @doc """
   Kopie eines Terms mit frischen Variablen (gleiche Variablen bleiben
@@ -499,11 +511,16 @@ defmodule PrologEx do
     case walk(t, subst) do
       {:var, _} = v -> [v | acc]
       m when is_marked(m) -> acc
-      {:struct, _, args} -> Enum.reduce(args, acc, &keep_vars(&1, subst, &2))
+      {:struct, _, args} -> keep_vars_args(args, subst, acc)
       [h | tl] -> keep_vars(tl, subst, keep_vars(h, subst, acc))
       _ -> acc
     end
   end
+
+  defp keep_vars_args([], _subst, acc), do: acc
+
+  defp keep_vars_args([a | as], subst, acc),
+    do: keep_vars_args(as, subst, keep_vars(a, subst, acc))
 
   defp copy(t, subst, map) do
     case walk(t, subst) do
@@ -521,7 +538,7 @@ defmodule PrologEx do
         {m, map}
 
       {:struct, f, args} ->
-        {args, map} = Enum.map_reduce(args, map, &copy(&1, subst, &2))
+        {args, map} = copy_args(args, subst, map)
         {mk_struct(f, args), map}
 
       [h | tl] ->
@@ -532,6 +549,15 @@ defmodule PrologEx do
       atomic ->
         {atomic, map}
     end
+  end
+
+  # Argumente kopieren (eigene Rekursion statt Enum.map_reduce mit Closure)
+  defp copy_args([], _subst, map), do: {[], map}
+
+  defp copy_args([a | as], subst, map) do
+    {a, map} = copy(a, subst, map)
+    {as, map} = copy_args(as, subst, map)
+    {[a | as], map}
   end
 
   # ---------------------------------------------------------------------

@@ -75,6 +75,8 @@ defmodule PrologEx.LambdaTest do
         # Bindung globaler Variablen bleibt sichtbar
         assert ask(c, "call(G+\\X^(G = X), 1).") == ["G = 1"]
         assert ask(c, "maplist(G+\\X^(G = X), [1, 1]).") == ["G = 1"]
+        # Free zusammengesetzt: alle Variablen darin bleiben global
+        assert ask(c, "call(f(A, g(B))+\\X^(A = X, B = 2), 1).") == ["A = 1, B = 2"]
         assert ask(c, "maplist(G+\\X^(G = X), [1, 2]).") == []
         # mehrere globale Variablen als Liste (A-B+\\L hieße A-(B+\\L))
         assert ask(c, "call([A,B]+\\X^(A = X, B = f(X)), 1).") == ["A = 1, B = f(1)"]

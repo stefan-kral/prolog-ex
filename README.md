@@ -1069,6 +1069,13 @@ Gemessen: Closures statt der interpretierten Klausel-IR bringen nichts
 (360 statt 331 ns für Kopf und Rumpf von `app/3`), handgeschriebener
 Elixir-Code wäre 4,4-mal schneller (75 ns) – den Gewinn gäbe es nur mit
 echter Codeerzeugung (BEAM-Module je Prädikat).
+
+Term-Traversierungen (Kopieren für `findall/3` & Co., Auflösen der
+Antworten, Markieren, Attribute suchen, Occurs-Check) laufen mit eigener
+Rekursion über die Argumente statt mit `Enum.map`/`Enum.reduce` und
+Closure: `findall/3` über strukturierte Terme wurde dadurch rund 30 %
+schneller (im Programm wie als Antwort), der Occurs-Check rund 25 %.
+
 ## Entwicklung
 
 ```sh

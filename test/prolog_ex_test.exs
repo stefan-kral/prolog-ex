@@ -46,6 +46,17 @@ defmodule PrologExTest do
     db |> query(goal) |> Enum.take(limit) |> Enum.map(&format_answer/1)
   end
 
+  test "mark/1 markiert einen ground Term vollständig, unmark/1 entfernt alles" do
+    # roh gebaut (mk/2 würde schon beim Bauen markieren)
+    t = {:struct, "f", [{:struct, "g", [{:atom, "a"}]}, [1, {:struct, "h", [2]}]]}
+
+    m = PrologEx.mark(t)
+    assert {:gstruct, "f", [{:gstruct, "g", _}, {:glist, [1, {:gstruct, "h", [2]}]}]} = m
+
+    assert PrologEx.unmark(m) ==
+             {:struct, "f", [{:struct, "g", [{:atom, "a"}]}, [1, {:struct, "h", [2]}]]}
+  end
+
   test "Regel mit Join", %{db: db} do
     assert answers(db, s("grandparent", [a("tom"), @z])) == ["Z = ann", "Z = pat"]
   end
