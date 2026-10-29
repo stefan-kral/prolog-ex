@@ -1204,6 +1204,29 @@ defmodule PrologEx do
     end
   end
 
+  # functor/3 und arg/3 (ISO, geschützt: kein Modul definiert sie um) ohne
+  # den allgemeinen Aufrufweg eines Builtins; das Ergebnis außerhalb des
+  # geschützten Bereichs (Endrekursion, Fehler der Fortsetzung bleiben ihre)
+  defp step({:struct, "functor", [t, n, a]}, _cutb, mod, rest, st) do
+    try do
+      PrologEx.Builtins.Terms.functor(t, n, a, st.subst)
+    rescue
+      e in PrologEx.Error -> throw_ball(e.term, st)
+    else
+      r -> apply_result(r, mod, rest, st)
+    end
+  end
+
+  defp step({:struct, "arg", [n, t, x]}, _cutb, mod, rest, st) do
+    try do
+      PrologEx.Builtins.Terms.arg(n, t, x, st.subst)
+    rescue
+      e in PrologEx.Error -> throw_ball(e.term, st)
+    else
+      r -> apply_result(r, mod, rest, st)
+    end
+  end
+
   defp step({:struct, "plus", [_, _, _]} = goal, cutb, mod, rest, st),
     do: homed_step(goal, cutb, mod, rest, st)
 

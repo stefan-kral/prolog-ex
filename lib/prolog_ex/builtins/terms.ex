@@ -116,10 +116,16 @@ defmodule PrologEx.Builtins.Terms do
   @max_build 268_435_456
 
   defbuiltin "functor", [t, name, arity] do
-    case deref(t) do
+    functor(t, name, arity, subst())
+  end
+
+  @doc false
+  # functor/3 – auch direkt aus der Maschine (PrologEx.step/5)
+  def functor(t, name, arity, s) do
+    case PrologEx.walk(t, s) do
       {:var, _} ->
-        n = deref(name)
-        ar = deref(arity)
+        n = PrologEx.walk(name, s)
+        ar = PrologEx.walk(arity, s)
 
         cond do
           match?({:var, _}, n) or match?({:var, _}, ar) ->
@@ -151,31 +157,60 @@ defmodule PrologEx.Builtins.Terms do
         end
 
       tt ->
+        # Name und Stelligkeit sind atomar: direkt binden bzw. vergleichen
         {f, args} = parts(tt)
-        {:unify, [{name, f}, {arity, length(args)}]}
+
+        with {:ok, s} <- bind_atomic(name, f, s),
+             {:ok, s} <- bind_atomic(arity, length(args), s) do
+          {:subst, s}
+        else
+          :error -> :fail
+        end
+    end
+  end
+
+  # t mit dem atomaren Wert v unifizieren, ohne den allgemeinen Weg:
+  # ungebunden → binden (bind/3 vermerkt attributierte Variablen zum
+  # Wecken), sonst strikt vergleichen (wie unify/4: 1 und 1.0 verschieden);
+  # ein Occurs-Check ist bei atomarem v nie nötig
+  defp bind_atomic(t, v, s) do
+    case PrologEx.walk(t, s) do
+      {:var, _} = x -> {:ok, PrologEx.bind(x, v, s)}
+      ^v -> {:ok, s}
+      _ -> :error
     end
   end
 
   # arg(N, T, A): N-tes Argument. ISO 8.5.2.3: N muss eine Zahl sein
-  # (ein offenes N gibt instantiation_error, kein Aufzählen wie in SWI)
-  defbuiltin "arg", [n, t, x], nondet: true do
+  # (ein offenes N gibt instantiation_error, kein Aufzählen wie in SWI) –
+  # also höchstens eine Lösung
+  defbuiltin "arg", [n, t, x] do
+    arg(n, t, x, subst())
+  end
+
+  @doc false
+  # arg/3 – auch direkt aus der Maschine (PrologEx.step/5)
+  def arg(n, t, x, s) do
     args =
-      case deref(t) do
+      case PrologEx.walk(t, s) do
         {:var, _} ->
           PrologEx.Error.instantiation!()
 
         tt ->
           if Core.compound?(tt),
             do: elem(parts(tt), 1),
-            else: PrologEx.Error.type!("compound", resolve(tt))
+            else: PrologEx.Error.type!("compound", PrologEx.resolve(tt, s))
       end
 
-    case deref(n) do
-      k when is_integer(k) and k >= 1 and k <= length(args) ->
-        [{:unify, [{x, Enum.at(args, k - 1)}]}]
+    case PrologEx.walk(n, s) do
+      k when is_integer(k) and k >= 1 ->
+        case nth_arg(args, k) do
+          {:ok, a} -> {:unify, [{x, a}]}
+          :none -> :fail
+        end
 
       k when is_integer(k) and k >= 0 ->
-        []
+        :fail
 
       k when is_integer(k) ->
         PrologEx.Error.domain!("not_less_than_zero", k)
@@ -184,9 +219,14 @@ defmodule PrologEx.Builtins.Terms do
         PrologEx.Error.instantiation!()
 
       other ->
-        PrologEx.Error.type!("integer", resolve(other))
+        PrologEx.Error.type!("integer", PrologEx.resolve(other, s))
     end
   end
+
+  # k-tes Element (1-basiert) in einem Durchgang, ohne vorher die Länge
+  defp nth_arg([a | _], 1), do: {:ok, a}
+  defp nth_arg([_ | as], k), do: nth_arg(as, k - 1)
+  defp nth_arg([], _k), do: :none
 
   # copy_term(T, C): Kopie mit frischen Variablen
   defbuiltin "copy_term", [t, c] do
