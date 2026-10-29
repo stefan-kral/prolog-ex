@@ -1335,7 +1335,9 @@ defmodule PrologEx do
 
   # Negation: eigener Lauf mit leerem Choice-Point-Stack (Cut darin ist lokal)
   defp step({:struct, "\\+", [g]}, _cutb, mod, rest, st) do
-    case guarded(fn -> run(%{st | goals: [{g, 0, mod}], cps: [], height: 0, answer: []}) end) do
+    case guarded(fn ->
+           run(%{st | goals: [{body!(g, st.subst), 0, mod}], cps: [], height: 0, answer: []})
+         end) do
       {:ok, {:sol, sub}} -> discard(sub, st, &backtrack/1)
       {:ok, :done} -> run(%{st | goals: rest})
       {:thrown, ball} -> throw_ball(ball, st)
@@ -1351,7 +1353,7 @@ defmodule PrologEx do
     # ISO 8.10.1.3: die Ergebnisliste muss eine (Teil-)Liste sein – vorab
     case guarded(fn ->
            partial_list!(l, st.subst)
-           collect(run(sub_machine(t, g, mod, st)), :infinity, [])
+           collect(run(sub_machine(t, body!(g, st.subst), mod, st)), :infinity, [])
          end) do
       {:ok, {items, :done}} ->
         case unify(l, list(items, tail), st.subst) do
@@ -1563,7 +1565,7 @@ defmodule PrologEx do
     id = make_ref()
     h = st.height
     st = push(st, {:catch, id, c, r, rest, mod, st.subst, st.answer})
-    run(%{st | goals: [{g, h + 1, mod}, {{:"$catch_exit", id, h}, 0, mod} | rest]})
+    run_body(g, h + 1, mod, [{{:"$catch_exit", id, h}, 0, mod} | rest], st)
   end
 
   defp step({:"$catch_exit", id, h}, _cutb, _mod, rest, st) do
@@ -1816,7 +1818,7 @@ defmodule PrologEx do
             other -> PrologEx.Error.type!("integer", other)
           end
 
-        {k, collect(run(sub_machine(t, g, mod, st)), k, [])}
+        {k, collect(run(sub_machine(t, body!(g, st.subst), mod, st)), k, [])}
       end)
 
     case chunk do
@@ -1833,7 +1835,7 @@ defmodule PrologEx do
           x -> PrologEx.Error.type!("integer", x)
         end
 
-        count(run(sub_machine([], g, mod, st)), 0)
+        count(run(sub_machine([], body!(g, st.subst), mod, st)), 0)
       end)
 
     case counted do
@@ -1890,8 +1892,7 @@ defmodule PrologEx do
         h = st.height
         st = add_ilimit(st, id, :counters.get(st.icount, 1) + n)
         st = push(st, {:ilimit, id, r, rest, mod, st.subst, st.answer})
-        goal = unmark_top(walk(g, st.subst))
-        run(%{st | goals: [{goal, h + 1, mod}, {{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest]})
+        run_body(g, h + 1, mod, [{{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest], st)
 
       n when is_integer(n) ->
         throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
@@ -1914,8 +1915,7 @@ defmodule PrologEx do
         h = st.height
         st = add_dlimit(%{st | subst: Map.put(st.subst, @depth_key, base)}, frame)
         st = push(st, {:dlimit, frame, r, rest, mod, st.subst, st.answer})
-        goal = unmark_top(walk(g, st.subst))
-        run(%{st | goals: [{goal, h + 1, mod}, {{:"$dlimit_exit", frame, h, r}, 0, mod} | rest]})
+        run_body(g, h + 1, mod, [{{:"$dlimit_exit", frame, h, r}, 0, mod} | rest], st)
 
       n when is_integer(n) ->
         throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", n) end)
@@ -1944,8 +1944,7 @@ defmodule PrologEx do
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
     st = push(st, {:time_fail, ref, st.subst, st.answer})
-    goal = unmark_top(walk(g, st.subst))
-    run(%{st | goals: [{goal, h + 1, mod}, {{:"$time_exit", ref, h}, 0, mod} | rest]})
+    run_body(g, h + 1, mod, [{{:"$time_exit", ref, h}, 0, mod} | rest], st)
   end
 
   defp time_exit(ref, h, rest, st) do
@@ -1975,8 +1974,7 @@ defmodule PrologEx do
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, 0)}
     st = push(st, {:nth_cleanup, ref, st.subst, st.answer})
-    goal = unmark_top(walk(g, st.subst))
-    run(%{st | goals: [{goal, h + 1, mod}, {{:"$nth", ref, n, h}, 0, mod} | rest]})
+    run_body(g, h + 1, mod, [{{:"$nth", ref, n, h}, 0, mod} | rest], st)
   end
 
   defp nth_exit(ref, n, h, rest, st) do
@@ -2523,6 +2521,13 @@ defmodule PrologEx do
       {:struct, op, [a, b]} when op in [",", ";", "->", "*->"] ->
         {:struct, op, [to_body(a, whole, subst), to_body(b, whole, subst)]}
 
+      # M:Rumpf: der Rumpf ebenso (mit offenem M entscheidet der Aufruf)
+      {:struct, ":", [m, inner]} = t ->
+        case walk(m, subst) do
+          {:atom, _} = ma -> {:struct, ":", [ma, to_body(inner, whole, subst)]}
+          _ -> t
+        end
+
       {:atom, _} = t ->
         t
 
@@ -2538,6 +2543,29 @@ defmodule PrologEx do
 
       _ ->
         PrologEx.Error.type!("callable", resolve(whole, subst))
+    end
+  end
+
+  # Ziel aus Daten als Rumpf (wie call/1, ISO 7.6.2): oben eine Variable →
+  # instantiation_error; beim Aufruf ungebundene Variablen innen → call(V)
+  # (Cut darin lokal); nicht aufrufbar → type_error(callable). Für \+,
+  # findall/3 & Co., catch/3, ... – ohne eigenen call-Schritt
+  defp body!(g, subst) do
+    case unmark_top(walk(g, subst)) do
+      {:var, _} -> PrologEx.Error.instantiation!()
+      goal -> to_body(goal, goal, subst)
+    end
+  end
+
+  # body!/2 und dann ausführen; ein Fehler der Umwandlung entsteht im schon
+  # angelegten Rahmen (catch/3 fängt ihn selbst, wie einen beim Ausführen)
+  defp run_body(g, barrier, mod, tail, st) do
+    try do
+      body!(g, st.subst)
+    rescue
+      e in PrologEx.Error -> throw_ball(e.term, st)
+    else
+      goal -> run(%{st | goals: [{goal, barrier, mod} | tail]})
     end
   end
 

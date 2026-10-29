@@ -1102,6 +1102,16 @@ Modulqualifikation des Meta-Arguments, an der `call/1` bisher vorbeisah:
 `existence_error` für `a/0`), und ein beim Aufruf ungebundenes Ziel im
 Rumpf wird `call(G)` mit lokalem Cut.
 
+Allgemein werden Ziele aus Daten jetzt wie bei `call/1` zum Rumpf (ISO
+7.6.2) – auch `M:Rumpf` (`call/1` stieg bisher nicht hinein) und bei
+`\+`, `findall/3`, `findnsols/4,5`, `countall/2`, `catch/3`, `forall/2`,
+`call_nth/2`, den Grenzen und `time/1` (sie führten das Ziel bisher roh
+aus): beim Aufruf ungebundene Variablen innen werden `call(V)` (Cut darin
+lokal, `findall(x, ((G = !, G, fail) ; true), L)` gibt `L = [x]` wie
+SWI), gebundene werden eingesetzt, nicht Aufrufbares gibt
+`type_error(callable, _)` vor jeder Ausführung. Ohne eigenen
+`call`-Schritt umgewandelt: keine messbaren Kosten.
+
 Dasselbe Vorfiltern nutzen `retract/1` und `retractall/1`: Geprüft
 (kopiert und unifiziert) werden nur Klauseln, die zum ersten Argument
 passen können. `retractall/1` ohne Treffer lässt das Prädikat samt Index
