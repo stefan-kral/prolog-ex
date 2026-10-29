@@ -1093,6 +1093,14 @@ Vanilla-Meta-Interpreter (`solve/1` über `clause/2`) läuft dadurch etwa
 doppelt so schnell, der Zugriff auf eine Faktentabelle mit 1000 Fakten
 rund 25-mal; `=../2` wurde 25–30 % schneller.
 
+Dasselbe Vorfiltern nutzen `retract/1` und `retractall/1`: Geprüft
+(kopiert und unifiziert) werden nur Klauseln, die zum ersten Argument
+passen können. `retractall/1` ohne Treffer lässt das Prädikat samt Index
+unverändert (vorher wurde der Index danach neu gebaut). Gezieltes
+Ersetzen in 1000 Fakten (`retract(fakt(500, _)), assertz(fakt(500, w))`)
+wurde dadurch rund 6-mal schneller, `retractall/1` ohne Treffer mit
+anschließendem Aufruf rund 50-mal.
+
 ## Entwicklung
 
 ```sh

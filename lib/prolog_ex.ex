@@ -793,22 +793,28 @@ defmodule PrologEx do
   # clause/2: Quelltext der Klauseln, die der Aufruf mit diesen Argumenten
   # versuchen würde (Index aufs erste Argument: gleicher Schlüssel oder
   # Variable an erster Stelle), in Reihenfolge
-  def pred_source(pred, args, subst) do
+  def pred_source(pred, args, subst),
+    do: for({_, src, _} <- candidate_entries(pred, args, subst), do: src)
+
+  @doc false
+  # Einträge {ref, quelltext, übersetzt} wie pred_source/3 (für retract/1,
+  # retractall/1: nur diese können passen)
+  def candidate_entries(pred, args, subst) do
     entries = pred_entries(pred)
 
     case args do
       [x | _] ->
         case walk(x, subst) do
           {:var, _} ->
-            for {_, src, _} <- entries, do: src
+            entries
 
           t ->
             k = index_key(t)
-            for {_, src, c} <- entries, (ck = elem(c, 1)) == :any or ck == k, do: src
+            for {_, _, c} = e <- entries, (ck = elem(c, 1)) == :any or ck == k, do: e
         end
 
       [] ->
-        for {_, src, _} <- entries, do: src
+        entries
     end
   end
 

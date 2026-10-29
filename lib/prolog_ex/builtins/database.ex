@@ -48,7 +48,8 @@ defmodule PrologEx.Builtins.Database do
 
       {:ok, pred} ->
         check_dynamic!(key)
-        entries = PrologEx.pred_entries(pred)
+        # nur Klauseln, die zum ersten Argument passen können
+        entries = PrologEx.candidate_entries(pred, Compiler.args_of(PrologEx.walk(h, s)), s)
         retract_from(next_match(entries, h, b, s), key, h, b, s)
     end
   end
@@ -76,12 +77,18 @@ defmodule PrologEx.Builtins.Database do
       {:ok, pred} ->
         check_dynamic!(key)
 
-        keep =
-          Enum.reject(PrologEx.pred_entries(pred), fn {_, {ch, _}, _} ->
-            matches?(h, ch, s)
-          end)
+        # Kandidaten wie beim Aufruf; nur diese werden geprüft
+        gone =
+          for {ref, {ch, _}, _} <- PrologEx.candidate_entries(pred, Compiler.args_of(head), s),
+              matches?(h, ch, s),
+              into: MapSet.new(),
+              do: ref
 
-        PrologEx.put_db(Map.put(db, key, {:stale, keep, []}))
+        # nichts gefunden: das Prädikat bleibt, wie es ist (samt Index)
+        if MapSet.size(gone) > 0 do
+          keep = Enum.reject(PrologEx.pred_entries(pred), fn {ref, _, _} -> ref in gone end)
+          PrologEx.put_db(Map.put(db, key, {:stale, keep, []}))
+        end
     end
 
     :ok
