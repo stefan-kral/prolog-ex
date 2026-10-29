@@ -1111,6 +1111,23 @@ mit Zurückschreiben) oder `clause/2`, `retract/1`, `listing/1`. Ein
 Aufruf mit gebundenem erstem Argument braucht nur den Index nach
 Schlüssel: `assertz(m(I, I)), m(I, _)` für 20 000 Werte 4,4 s → 0,14 s.
 
+Bekannte Grenze: Liest nach *jeder* Änderung ein Aufruf eine Klauselliste
+in Reihenfolge, in die hinten etwas dazugekommen ist, kostet das je
+Aufruf O(n) – also quadratisch insgesamt. Das betrifft `assertz` im
+Wechsel mit Aufrufen mit offenem erstem Argument und `assertz` vieler
+Klauseln mit *demselben* ersten Argument im Wechsel mit Aufrufen darauf
+(dort wächst die Liste dieses Schlüssels im Index). Linear sind
+dagegen: `asserta`/`assertz` in beliebiger Mischung ohne Aufrufe
+dazwischen und im Wechsel mit Aufrufen mit gebundenem, verschiedenem
+erstem Argument. Der Ausweg, falls ein Programm das braucht: Klausel-
+listen veränderter dynamischer Prädikate als Stücke nach der
+logarithmischen Methode (Puffer hinten, gleich große Stücke
+zusammenlegen) – `assertz` amortisiert O(log n), Durchlaufen nahe an der
+Liste (etwa 2–4 statt 1,5 ns je Klausel; Map oder `gb_trees` mit
+Positionen: rund 19 ns), statische Prädikate unverändert (in
+`try_clauses` liegt der Fall hinter dem Listenfall, der Normalfall bleibt
+ein einziger Test).
+
 ## Entwicklung
 
 ```sh
