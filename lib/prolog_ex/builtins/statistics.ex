@@ -18,6 +18,13 @@ defmodule PrologEx.Builtins.Statistics do
       (`,` `;` `->` `!`) und `call/N` selbst.
     * `reductions`: `[R, D]` – Reduktionen des Sitzungsprozesses, das
       prozessgenaue Arbeitsmaß der BEAM.
+    * `occurs_checks`: Anzahl der tatsächlichen Occurs-Checks der Sitzung
+      (Flag `occurs_check` oder `unify_with_occurs_check/2`). Was schon
+      oben entschieden ist, zählt nicht: eine Bindung an einen atomaren
+      Wert, eine Variable oder einen als ground bekannten Term.
+    * `occurs_check_steps`: die Arbeit dafür – besuchte Teilterme aller
+      Checks (bei einer Liste mit n Elementen `f(Y)` etwa 3n + 1; ein Fund
+      bricht ab). Beide zählen weiter, Backtracking setzt sie nicht zurück.
 
   Speicher (Bytes):
 
@@ -45,7 +52,8 @@ defmodule PrologEx.Builtins.Statistics do
   # [T, D] mit Bezug auf den letzten Aufruf
   @deltas ~w(runtime total_runtime process_cputime walltime real_time reductions)
   @keys @deltas ++
-          ~w(inferences memory process_memory vm_memory garbage_collection schedulers process_count)
+          ~w(inferences occurs_checks occurs_check_steps memory process_memory vm_memory
+             garbage_collection schedulers process_count)
 
   defbuiltin "statistics", [key, value] do
     case deref(key) do
@@ -82,6 +90,7 @@ defmodule PrologEx.Builtins.Statistics do
       {"CPU-Zeit (VM)", "#{secs(current("runtime"))} s"},
       {"Laufzeit (Uhr)", "#{secs(current("walltime"))} s seit Start der VM"},
       {"Inferenzen", group(PrologEx.inferences())},
+      {"Occurs-Checks", occurs_row()},
       {"Reduktionen", "#{group(current("reductions"))} (Sitzungsprozess)"},
       {"Speicher Sitzung", bytes(process_memory())},
       {"Speicher VM", bytes(:erlang.memory(:total))},
@@ -114,6 +123,9 @@ defmodule PrologEx.Builtins.Statistics do
   defp start(_, _now), do: 0
 
   defp other("inferences"), do: PrologEx.inferences()
+  defp other("occurs_checks"), do: elem(PrologEx.occurs_counts(), 0)
+  defp other("occurs_check_steps"), do: elem(PrologEx.occurs_counts(), 1)
+
   defp other("memory"), do: list([process_memory(), 0])
   defp other("process_memory"), do: process_memory()
   defp other("vm_memory"), do: :erlang.memory(:total)
@@ -127,6 +139,11 @@ defmodule PrologEx.Builtins.Statistics do
   defp other("process_count"), do: :erlang.system_info(:process_count)
 
   defp process_memory, do: elem(Process.info(self(), :memory), 1)
+
+  defp occurs_row do
+    {n, steps} = PrologEx.occurs_counts()
+    "#{group(n)} (#{group(steps)} Schritte)"
+  end
 
   defp secs(ms), do: :erlang.float_to_binary(ms / 1000, decimals: 3)
 

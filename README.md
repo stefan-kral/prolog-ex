@@ -642,6 +642,8 @@ Bindung gilt, und scheitern nur, wenn sie für keine gilt.
 | `real_time` | `[S, D]` Sekunden seit 1970 |
 | `inferences` | Prädikataufrufe der Sitzung (wie SWI; auch `=/2`, `is/2`; nicht `,` `;` `->` `!` `call/N`) |
 | `reductions` | `[R, D]` Reduktionen des Sitzungsprozesses (Arbeitsmaß der BEAM) |
+| `occurs_checks` | tatsächliche Occurs-Checks der Sitzung (siehe unten) |
+| `occurs_check_steps` | ihre Arbeit: besuchte Teilterme aller Occurs-Checks |
 | `memory` | `[Bytes, 0]` Speicher des Sitzungsprozesses (wie SICStus) |
 | `process_memory`, `vm_memory` | Bytes: Sitzungsprozess, ganze VM |
 | `garbage_collection` | `[Anzahl, Bytes freigegeben, 0]` der VM (die GC-Zeit misst die BEAM nicht) |
@@ -656,8 +658,29 @@ pro Sekunde:
    LIPS is (I1 - I0) / (T1 - T0) * 1000.
 ```
 
-`statistics/0` gibt eine Übersicht aus. Das Zählen der Inferenzen kostet
-etwa 25 ns je Aufruf (rund 1–2 %).
+`statistics/0` (`library(swi)`) gibt eine Übersicht aus. Das Zählen der
+Inferenzen kostet etwa 25 ns je Aufruf (rund 1–2 %).
+
+Occurs-Checks laufen mit dem Flag `occurs_check` (`true` oder `error`)
+und bei `unify_with_occurs_check/2`. Gezählt wird nur ein *tatsächlicher*
+Check – was schon oben entschieden ist, zählt nicht: eine Bindung an
+einen atomaren Wert, an eine Variable oder an einen als ground bekannten
+Term. `occurs_check_steps` zählt die besuchten Teilterme, bei einer
+Liste mit n Elementen `f(Y)` also 3n + 1; ein Fund bricht ab. Beide
+Zähler laufen weiter, Backtracking setzt sie nicht zurück:
+
+```prolog
+?- unify_with_occurs_check(X, 2).        % zählt nicht
+?- length(L, 100), maplist(=(f(_)), L),
+   statistics(occurs_check_steps, S0), unify_with_occurs_check(_, L),
+   statistics(occurs_check_steps, S1), D is S1 - S0.
+D = 301.
+```
+
+Gezählt wird beim Prüfen in einem Argument und je Check einmal gebucht;
+der Check selbst wurde dabei sogar schneller (eigene Rekursion über die
+Argumente statt `Enum.any?`, rund 10 % bei langen Listen). Ohne
+Occurs-Check kostet das Zählen nichts.
 
 ## Ressourcen begrenzen: `call_with_inference_limit/3`, `call_with_depth_limit/3`
 

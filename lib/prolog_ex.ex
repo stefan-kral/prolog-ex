@@ -294,7 +294,7 @@ defmodule PrologEx do
         {:ok, bind(var, t, subst)}
 
       mode ->
-        if occurs?(var, t, subst) do
+        if occurs_checked?(var, t, subst) do
           if mode == :error,
             do: PrologEx.Error.error!(mk("occurs_check", [var, t])),
             else: :error
@@ -304,15 +304,83 @@ defmodule PrologEx do
     end
   end
 
-  @doc "Kommt die (ungebundene) Variable var in t vor?"
-  def occurs?(var, t, subst) do
+  # Occurs-Check einer Bindung. Was schon oben entschieden ist (atomar,
+  # Variable, als ground markiert), zählt nicht; sonst ein tatsächlicher
+  # Check: statistics-Schlüssel occurs_checks (+1) und occurs_check_steps
+  # (+ besuchte Teilterme) – lokal mitgezählt, einmal je Check gebucht
+  defp occurs_checked?(var, t, subst) do
     case walk(t, subst) do
+      {:struct, _, _} = c -> count_occurs(occurs_steps(var, c, subst, 0))
+      [_ | _] = c -> count_occurs(occurs_steps(var, c, subst, 0))
       ^var -> true
-      m when is_marked(m) -> false
-      {:struct, _, args} -> Enum.any?(args, &occurs?(var, &1, subst))
-      # Listenrest per Tail Call: keine Rekursionstiefe entlang der Liste
-      [h | tl] -> occurs?(var, h, subst) or occurs?(var, tl, subst)
       _ -> false
+    end
+  end
+
+  defp count_occurs({found, steps}) do
+    ref = occurs_counter()
+    :counters.add(ref, 1, 1)
+    :counters.add(ref, 2, steps)
+    found
+  end
+
+  @doc "Kommt die (ungebundene) Variable var in t vor?"
+  def occurs?(var, t, subst), do: elem(occurs_steps(var, t, subst, 0), 0)
+
+  # {gefunden?, n + besuchte Teilterme}; bricht beim ersten Fund ab.
+  # Eigene Rekursion über die Argumente (statt Enum.any? mit Closure):
+  # trägt den Zähler und ist schneller
+  defp occurs_steps(var, t, subst, n) do
+    n = n + 1
+
+    case walk(t, subst) do
+      ^var ->
+        {true, n}
+
+      {:struct, _, args} ->
+        occurs_args(var, args, subst, n)
+
+      # Listenrest per Tail Call: keine Rekursionstiefe entlang der Liste
+      [h | tl] ->
+        case occurs_steps(var, h, subst, n) do
+          {false, n} -> occurs_steps(var, tl, subst, n)
+          found -> found
+        end
+
+      # atomar, andere Variable, markiert (ground: :gstruct/:glist)
+      _ ->
+        {false, n}
+    end
+  end
+
+  defp occurs_args(_var, [], _subst, n), do: {false, n}
+
+  defp occurs_args(var, [a | as], subst, n) do
+    case occurs_steps(var, a, subst, n) do
+      {false, n} -> occurs_args(var, as, subst, n)
+      found -> found
+    end
+  end
+
+  @occurs_count_key :prolog_ex_occurs_counts
+
+  @doc "Occurs-Checks dieser Sitzung: {tatsächliche Checks, besuchte Teilterme}"
+  def occurs_counts do
+    case Process.get(@occurs_count_key) do
+      nil -> {0, 0}
+      ref -> {:counters.get(ref, 1), :counters.get(ref, 2)}
+    end
+  end
+
+  defp occurs_counter do
+    case Process.get(@occurs_count_key) do
+      nil ->
+        ref = :counters.new(2, [])
+        Process.put(@occurs_count_key, ref)
+        ref
+
+      ref ->
+        ref
     end
   end
 
