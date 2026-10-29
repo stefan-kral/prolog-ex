@@ -311,4 +311,236 @@ defmodule PrologEx.SocketsTest do
       Process.delete(:speculative_lookahead)
     end
   end
+
+  # --- unix(Pfad) -------------------------------------------------------------
+
+  defp sock_file(name) do
+    f = Path.join(System.tmp_dir!(), "pex_#{name}_#{System.unique_integer([:positive])}.sock")
+    File.rm(f)
+    f
+  end
+
+  defp q(f), do: PrologEx.format({:atom, f}, quoted: true)
+
+  test "unix(Pfad): Verbindung, Client '', Datei weg nach dem Schließen", c do
+    f = sock_file("u")
+
+    assert ask(c, """
+           socket_server_open(unix(#{q(f)}), S), socket_client_open(unix(#{q(f)}), C, []),
+           socket_server_accept(S, Cl, SS, []),
+           write(C, 'hallo.'), nl(C), flush_output(C), read(SS, T),
+           write(SS, 'zurück.'), nl(SS), flush_output(SS), read(C, U),
+           close(C), close(SS), S = '$socket'(N)
+           """)
+           |> Enum.map(&String.replace(&1, ~r/N = \d+/, "N = n")) == [
+             "C = <stream>, Cl = '', N = n, S = <socket>, SS = <stream>, T = hallo, U = 'zurück'"
+           ]
+
+    # die Datei bleibt, solange der Server offen ist
+    assert File.exists?(f)
+
+    n =
+      Process.get(:prolog_ex_server_sockets)
+      |> Map.keys()
+      |> Enum.filter(&is_integer/1)
+      |> Enum.max()
+
+    assert ask(c, "socket_server_close('$socket'(#{n}))") == ["true"]
+    refute File.exists?(f)
+  end
+
+  test "unix(Pfad): vorhandene Datei, reuseaddr(true), relativer Pfad", c do
+    f = sock_file("r")
+    File.write!(f, "")
+
+    assert err(c, "socket_server_open(unix(#{q(f)}), _)") == [
+             "E = permission_error(open,source_sink,unix(#{q(f)}))"
+           ]
+
+    assert ask(
+             c,
+             "socket_server_open(unix(#{q(f)}), S, [reuseaddr(true)]), socket_server_close(S)"
+           ) ==
+             ["S = <socket>"]
+
+    # relativ: ab dem aktuellen Verzeichnis
+    dir = Path.dirname(f)
+    name = Path.basename(sock_file("rel"))
+
+    [ans] =
+      File.cd!(dir, fn ->
+        ask(c, "socket_server_open(unix(#{q(name)}), S), S = '$socket'(N)")
+      end)
+
+    assert File.exists?(Path.join(dir, name))
+    [_, n] = Regex.run(~r/N = (\d+)/, ans)
+    # anderswo geschlossen: die Datei des absoluten Pfads ist weg
+    assert ask(c, "socket_server_close('$socket'(#{n}))") == ["true"]
+    refute File.exists?(Path.join(dir, name))
+  end
+
+  test "unix(Pfad): Fehler", c do
+    f = sock_file("weg")
+
+    assert err(c, "socket_client_open(unix(#{q(f)}), _, [])") == [
+             "E = existence_error(source_sink,unix(#{q(f)}))"
+           ]
+
+    assert err(c, "socket_client_open(unix(_), _, [])") == ["E = instantiation_error"]
+    assert err(c, "socket_server_open(unix(_), _)") == ["E = instantiation_error"]
+
+    assert err(c, "socket_client_open(unix(1), _, [])") == [
+             "E = type_error(socket_address,unix(1))"
+           ]
+
+    assert err(c, "socket_server_open(unix(''), _)") == [
+             "E = domain_error(socket_address,unix(''))"
+           ]
+  end
+
+  # --- socket_select/7 --------------------------------------------------------
+
+  test "socket_select/7: Server bereit, wenn eine Verbindung wartet", c do
+    assert ask(c, """
+           socket_server_open(P, S), socket_server_open(_, S2),
+           socket_select([S, S2], R0, [], _, [], _, 0),
+           socket_client_open(localhost:P, C, []),
+           socket_select([a-S, b-S2], R1, [], _, [], _, off),
+           socket_server_accept(S, Cl, SS, []),
+           socket_select([S], R2, [], _, [], _, 0),
+           close(C), close(SS), socket_server_close(S), socket_server_close(S2)
+           """) == [
+             "C = <stream>, Cl = '127.0.0.1', R0 = [], R1 = [a-<socket>], R2 = [], S = <socket>, " <>
+               "S2 = <socket>, SS = <stream>"
+           ]
+  end
+
+  test "socket_select/7: Annahme läuft schon (Timeout), accept holt die Verbindung", c do
+    assert ask(c, """
+           socket_server_open(P, S),
+           socket_select([S], [], [], _, [], _, 0.05),
+           socket_client_open(localhost:P, C, []),
+           socket_server_accept(S, Cl, SS, []),
+           write(C, 'x.'), nl(C), flush_output(C), read(SS, T),
+           close(C), close(SS), socket_server_close(S)
+           """) == ["C = <stream>, Cl = '127.0.0.1', S = <socket>, SS = <stream>, T = x"]
+
+    # schließen, während die Annahme wartet bzw. schon angenommen hat
+    assert ask(c, """
+           socket_server_open(P, S), socket_select([S], _, [], _, [], _, 0),
+           socket_client_open(localhost:P, C, []), socket_select([S], [_], [], _, [], _, off),
+           socket_server_close(S), close(C),
+           socket_server_open(_, S2), socket_select([S2], _, [], _, [], _, 0), socket_server_close(S2)
+           """) == ["C = <stream>, S = <socket>, S2 = <socket>"]
+
+    # der Annahme-Prozess ist beendet, im Postfach bleibt nichts liegen
+    Process.sleep(50)
+    assert Process.info(self(), :messages) == {:messages, []}
+  end
+
+  test "socket_select/7: Lesen bereit bei Daten, gepuffertem Rest und am Ende", c do
+    assert ask(c, """
+           #{@pair},
+           socket_select([], _, [k-SS], R0, [], _, 0),
+           write(C, 'eins. zwei.'), nl(C), flush_output(C),
+           socket_select([], _, [k-SS], R1, [], _, off),
+           read(SS, T1),
+           socket_select([], _, [SS], R2, [], _, 0),
+           read(SS, T2), get_char(SS, '\\n'),
+           socket_select([], _, [SS], R3, [], _, 0),
+           close(C),
+           socket_select([], _, [SS], R4, [], _, off), get_char(SS, E),
+           socket_select([], _, [SS], R5, [], _, off),
+           close(SS), socket_server_close(S)
+           """) == [
+             "C = <stream>, Cl = '127.0.0.1', E = end_of_file, R0 = [], R1 = [k-<stream>], " <>
+               "R2 = [<stream>], R3 = [], R4 = [<stream>], R5 = [<stream>], S = <socket>, SS = <stream>, " <>
+               "T1 = eins, T2 = zwei"
+           ]
+  end
+
+  test "socket_select/7: mehrere Streams, Reihenfolge; Schreiben und Dateien immer bereit", c do
+    f = Path.join(System.tmp_dir!(), "pex_sel_#{System.unique_integer([:positive])}.txt")
+    File.write!(f, "")
+
+    assert ask(c, """
+           #{@pair}, open(#{q(f)}, read, F),
+           write(SS, 'a.'), nl(SS), flush_output(SS),
+           socket_select([], _, [1-SS, 2-C, 3-F], R, [w-C, v-SS], W, off),
+           close(F), close(C), close(SS), socket_server_close(S)
+           """) == [
+             "C = <stream>, Cl = '127.0.0.1', F = <stream>, R = [2-<stream>,3-<stream>], S = <socket>, " <>
+               "SS = <stream>, W = [w-<stream>,v-<stream>]"
+           ]
+  after
+    :ok
+  end
+
+  test "socket_select/7: mehrere bereit zugleich; nur Schreiben kehrt sofort zurück", c do
+    [a] =
+      ask(c, """
+      socket_server_open(P, S), socket_server_open(Q, T),
+      socket_client_open(localhost:P, C, []), socket_client_open(localhost:Q, D, []),
+      socket_select([s-S, t-T], R, [], _, [], _, off),
+      socket_server_accept(S, _, SS, []), socket_server_accept(T, _, TT, []),
+      write(C, 'a.'), nl(C), flush_output(C), write(D, 'b.'), nl(D), flush_output(D),
+      socket_select([], _, [1-SS, 2-TT], L, [], _, off),
+      close(C), close(D), close(SS), close(TT), socket_server_close(S), socket_server_close(T)
+      """)
+
+    # Server: mindestens einer (Verbindungen kommen nebenläufig an)
+    assert a =~ ~r/R = \[(s-<socket>|t-<socket>|s-<socket>,t-<socket>)\]/
+    # Streams: alles, was bei der Rückkehr da ist
+    assert a =~ "L = [1-<stream>,2-<stream>]"
+
+    # bereit ist bereit: nicht auf die übrigen warten (off)
+    for sel <- [
+          "socket_select([], _, [], _, [C], [_], off)",
+          "socket_select([], _, [SS], [], [C], [_], off)",
+          "write(C, 'x.'), nl(C), flush_output(C), socket_select([], _, [SS], [_], [], _, off), " <>
+            "socket_select([], _, [C, SS], [SS], [], _, off)"
+        ] do
+      {us, [_]} =
+        :timer.tc(fn ->
+          ask(c, "#{@pair}, #{sel}, close(C), close(SS), socket_server_close(S)")
+        end)
+
+      assert us < 500_000, sel
+    end
+  end
+
+  test "socket_select/7: Timeout-Formen; abgelaufen sind alle Listen leer", c do
+    for {t, ms} <- [{"0.2", 200}, {"0:200000", 200}, {"1:0", 1000}, {"1", 1000}] do
+      {us, [a]} =
+        :timer.tc(fn ->
+          ask(
+            c,
+            "#{@pair}, socket_select([S], SR, [SS], RR, [], WR, #{t}), close(C), close(SS), socket_server_close(S)"
+          )
+        end)
+
+      for l <- ["RR = []", "SR = []", "WR = []"], do: assert(a =~ l, t)
+      assert us >= ms * 900 and us < ms * 1000 + 800_000, "#{t}: #{us} µs"
+    end
+  end
+
+  test "socket_select/7: Fehler", c do
+    for {g, e} <- [
+          {"socket_select([], _, [], _, [], _, _)", "instantiation_error"},
+          {"socket_select([], _, [], _, [], _, foo)", "domain_error(timeout,foo)"},
+          {"socket_select([], _, [], _, [], _, -1)", "domain_error(timeout,-1)"},
+          {"socket_select([], _, [], _, [], _, 1:(-1))", "domain_error(timeout,1: -1)"},
+          {"socket_select([], _, [], _, [], _, _:1)", "instantiation_error"},
+          {"socket_select([], _, foo, _, [], _, 0)", "type_error(list,foo)"},
+          {"socket_select([], _, [user_input|_], _, [], _, 0)", "instantiation_error"},
+          {"socket_select([], _, [user_output], _, [], _, 0)",
+           "permission_error(input,stream,user_output)"},
+          {"socket_select([], _, [], _, [user_input], _, 0)",
+           "permission_error(output,stream,user_input)"},
+          {"socket_select([foo], _, [], _, [], _, 0)", "type_error(server_socket,foo)"},
+          {"socket_select([t-foo], _, [], _, [], _, 0)", "type_error(server_socket,foo)"}
+        ] do
+      assert err(c, g) == ["E = #{e}"], g
+    end
+  end
 end

@@ -529,6 +529,26 @@ defmodule PrologEx.Stream do
   end
 
   @doc """
+  Für `socket_select/7`: `{:wait, socket}`, wenn ein Socket-Stream nichts
+  im Puffer hat und nicht am Ende ist (Lesen würde blockieren), sonst
+  `:ready` (auch alle anderen Arten: Datei, Speicher, Standardeingabe, Pipe).
+  """
+  def read_wait(id) do
+    case get(id) do
+      %{kind: :socket, buf: "", eof: false, past: false, dev: sock} -> {:wait, sock}
+      _ -> :ready
+    end
+  end
+
+  @doc "Für `socket_select/7`: empfangene Daten in den Puffer, `:closed` → Ende"
+  def socket_received(id, :closed), do: update(%{get(id) | eof: true})
+
+  def socket_received(id, data) do
+    s = get(id)
+    update(%{s | buf: s.buf <> data})
+  end
+
+  @doc """
   Socket-Stream (library(sockets)): ein Stream für beide Richtungen
   (`mode: :read_write`), nicht positionierbar. opts wie bei open_file
   (type, alias, eof_action).

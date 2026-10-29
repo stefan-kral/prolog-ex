@@ -284,7 +284,8 @@ nur Zeichenlisten nimmt.
 
 ## Netzwerk: `library(sockets)`
 
-TCP wie in SICStus 4, dazu `current_hostname/1` aus Scryer:
+TCP und Unix-Domain-Sockets wie in SICStus 4, dazu `current_hostname/1`
+aus Scryer:
 
 ```prolog
 ?- use_module(library(sockets)).
@@ -293,15 +294,44 @@ TCP wie in SICStus 4, dazu `current_hostname/1` aus Scryer:
    socket_server_accept(S, Client, SS, []),     % Client = '127.0.0.1'
    write(C, 'hallo.'), nl(C), flush_output(C), read(SS, T),
    close(C), close(SS), socket_server_close(S).
+?- socket_server_open(P, S), socket_client_open(localhost:P, C, []),
+   socket_select([s-S], SR, [], _, [], _, off),          % SR = [s-S]
+   socket_server_accept(S, _, SS, []),
+   socket_select([], _, [k-SS], R0, [], _, 0.1),         % R0 = [] nach 0,1 s
+   write(C, 'x.'), nl(C), flush_output(C),
+   socket_select([], _, [k-SS], R1, [], _, off),         % R1 = [k-SS]
+   close(C), close(SS), socket_server_close(S).
 ```
 
 * `socket_client_open(Addr, S, Opts)`, `socket_server_open(Addr, Srv[,
   Opts])`, `socket_server_accept(Srv, Client, S, Opts)`,
-  `socket_server_close(Srv)`, `current_host/1`, `current_hostname/1`.
-* Adressen sind `Host:Port` oder `inet(Host, Port)`, beim Server auch
-  `Port` allein. `''` heißt dieser Rechner bzw. alle Schnittstellen. Der
+  `socket_server_close(Srv)`, `socket_select/7`, `current_host/1`,
+  `current_hostname/1`.
+* Adressen sind `Host:Port`, `inet(Host, Port)` oder `unix(Pfad)`, beim
+  Server auch `Port` allein. `''` heißt dieser Rechner bzw. alle Schnittstellen. Der
   Port ist eine Zahl, ein Ziffernatom oder ein Dienstname wie `http`;
   ist er beim Server offen, wird ein freier gewählt und gebunden.
+* `unix(Pfad)`: ein Unix-Domain-Socket an dieser Stelle im Dateisystem
+  (relativ ab dem aktuellen Verzeichnis). `reuseaddr(true)` löscht beim
+  Server eine vorhandene Datei vorher, `socket_server_close/1` löscht sie
+  wieder. `Client` beim Annehmen ist dann `''`.
+* `socket_select(+Server, -SBereit, +Lesen, -LBereit, +Schreiben,
+  -SchBereit, +Timeout)` wartet, bis ein Server eine Verbindung zum
+  Annehmen hat oder ein Stream ohne Blockieren lesen bzw. schreiben kann
+  (auch am Ende, wo die Operation einen Fehler gäbe).
+  * Einträge sind Server bzw. Streams oder `Term-Eintrag`; der Term
+    bleibt am bereiten Eintrag, die Reihenfolge bleibt erhalten.
+  * Timeout: `off` wartet beliebig, eine Zahl ≥ 0 in Sekunden, `S:U`
+    Sekunden und Mikrosekunden. Ist er abgelaufen, sind alle Listen `[]`.
+  * Gemeldet wird, was bei der Rückkehr bereit ist: alle lesbaren Streams;
+    von Servern, deren Verbindungen gleichzeitig ankommen, sicher
+    mindestens einer, die übrigen spätestens beim nächsten Aufruf.
+  * Schreib-Streams sind immer bereit (Senden blockiert praktisch nie),
+    ebenso Datei- und Speicher-Streams zum Lesen. Standardeingabe und
+    Pipes wartet `socket_select/7` nicht ab.
+  * Gewartet wird ohne Abfrageschleife: Socket-Streams melden sich einmal
+    aktiv, für Server nimmt ein kleiner Prozess die Verbindung an, die
+    `socket_server_accept/4` dann übernimmt.
 * Server-Optionen: `reuseaddr/1`, `loopback/1`, `numeric_nodename/1`,
   `numeric_servname/1`. Stream-Optionen wie bei `open/4`: `type/1`,
   `alias/1`, `eof_action/1`, `encoding(utf8)`.
@@ -317,9 +347,11 @@ TCP wie in SICStus 4, dazu `current_hostname/1` aus Scryer:
     0..65535 `domain_error(socket_address, _)`.
   * Bei einem Server-Socket gibt es `type_error/existence_error(server_socket, _)`.
   * Senden, wenn die Gegenseite weg ist, gibt `socket_error(Grund)`.
+  * `socket_select/7`: ein offener Timeout gibt `instantiation_error`, ein
+    ungültiger `domain_error(timeout, T)`; die Listen werden wie Listen
+    geprüft, die Streams wie bei `get_char/2` bzw. `put_char/2`.
 * Socket-Operationen gelten als äußere Wirkungen: Der Toplevel rechnet sie
   nicht voraus.
-* `socket_select/7` und `unix(Pfad)` fehlen noch.
 
 ## Bibliotheken aus Scryer Prolog
 
