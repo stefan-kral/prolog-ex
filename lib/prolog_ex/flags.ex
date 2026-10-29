@@ -40,19 +40,26 @@ defmodule PrologEx.Flags do
     "version" => {1, :read_only}
   }
 
+  # Standardwerte als Prolog-Terme, einmal beim Übersetzen (sonst baute
+  # jedes Lesen eines nicht gesetzten Flags den Term neu: Atom.to_string)
+  @defaults Map.new(@flags, fn
+              {name, {v, _}} when is_atom(v) -> {name, {:atom, Atom.to_string(v)}}
+              {name, {v, _}} -> {name, v}
+            end)
+
   @doc "Alle Flags als `[{name, wert}]`, sortiert"
   def all do
     current = Process.get(@key, %{})
 
-    @flags
-    |> Enum.map(fn {name, {default, _}} -> {name, Map.get(current, name, term(default))} end)
+    @defaults
+    |> Enum.map(fn {name, default} -> {name, Map.get(current, name, default)} end)
     |> Enum.sort()
   end
 
   @doc "Wert eines Flags (Prolog-Term) oder nil"
   def get(name) do
-    case Map.fetch(@flags, name) do
-      {:ok, {default, _}} -> Map.get(Process.get(@key, %{}), name, term(default))
+    case Map.fetch(@defaults, name) do
+      {:ok, default} -> Map.get(Process.get(@key, %{}), name, default)
       :error -> nil
     end
   end

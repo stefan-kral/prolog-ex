@@ -151,6 +151,14 @@ defmodule PrologEx.FindallFlagsTest do
       assert all(s("current_prolog_flag", [a("double_quotes"), @x])) == ["X = chars"]
       assert length(all(s("current_prolog_flag", [@n, @x]))) >= 8
       error(s("current_prolog_flag", [a("gibtsnicht"), @x]))
+      # gebundener Name: direkt, deterministisch; Wert prüfen
+      assert more(s("current_prolog_flag", [a("bounded"), @x])) == [false]
+      assert all(s("current_prolog_flag", [a("bounded"), a("false")])) == ["true"]
+      assert all(s("current_prolog_flag", [a("bounded"), a("true")])) == []
+      # über call/N derselbe Weg
+      assert all(s("call", [a("current_prolog_flag"), a("bounded"), @x])) == ["X = false"]
+      # kein Atom: wie bisher über das Builtin
+      error(s("current_prolog_flag", [1, @x]))
     end
 
     test "set_prolog_flag/2: setzen, lesen, Fehler" do

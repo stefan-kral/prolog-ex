@@ -1289,6 +1289,17 @@ defmodule PrologEx do
     end
   end
 
+  # current_prolog_flag/2 (ISO, geschützt) mit gebundenem Namen: das Flag
+  # direkt lesen, deterministisch; sonst (Aufzählen, Fehler) das Builtin
+  defp step({:struct, "current_prolog_flag", [f, v]} = goal, _cutb, mod, rest, st) do
+    with {:atom, name} <- unmark_top(walk(f, st.subst)),
+         val when val != nil <- PrologEx.Flags.get(name) do
+      apply_result({:unify, [{v, val}]}, mod, rest, st)
+    else
+      _ -> call_pred(goal, mod, rest, st)
+    end
+  end
+
   defp step({:struct, "=..", [t, l]}, _cutb, mod, rest, st) do
     try do
       PrologEx.Builtins.Terms.univ(t, l, st.subst)

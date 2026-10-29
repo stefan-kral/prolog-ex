@@ -1076,7 +1076,8 @@ Rekursion über die Argumente statt mit `Enum.map`/`Enum.reduce` und
 Closure: `findall/3` über strukturierte Terme wurde dadurch rund 30 %
 schneller (im Programm wie als Antwort), der Occurs-Check rund 25 %.
 
-`plus/3`, `functor/3`, `arg/3`, `=../2`, `once/1` und `ignore/1` führt die Maschine selbst aus, statt
+`plus/3`, `functor/3`, `arg/3`, `=../2`, `once/1`, `ignore/1` und
+`current_prolog_flag/2` (mit gebundenem Namen) führt die Maschine selbst aus, statt
 den allgemeinen Aufrufweg eines Builtins zu gehen (`plus/3` wie `not/1`
 mit den Sichtbarkeitsregeln seiner Heimat; `functor/3` und `arg/3` sind
 geschützt, ohne Prüfung): `plus/3` rund 17 % schneller, nahe an `is/2`,
@@ -1101,6 +1102,13 @@ Modulqualifikation des Meta-Arguments, an der `call/1` bisher vorbeisah:
 `once((a, 1))` gibt jetzt wie ISO `type_error(callable, (a,1))` (vorher
 `existence_error` für `a/0`), und ein beim Aufruf ungebundenes Ziel im
 Rumpf wird `call(G)` mit lokalem Cut.
+
+`current_prolog_flag/2` mit gebundenem Namen liest das Flag direkt und
+deterministisch (Aufzählen und Fehler wie bisher über das Builtin):
+30–60 % schneller. Die Standardwerte der Flags liegen als fertige
+Prolog-Terme vor (vorher bei jedem Lesen neu gebaut): `Flags.get/1`, das
+intern oft läuft (`swi_compat` bei jeder Heimat-Prüfung, `unknown`,
+`double_quotes`), wurde dadurch rund 28 % schneller.
 
 Allgemein werden Ziele aus Daten jetzt wie bei `call/1` zum Rumpf (ISO
 7.6.2) – auch `M:Rumpf` (`call/1` stieg bisher nicht hinein) und bei
