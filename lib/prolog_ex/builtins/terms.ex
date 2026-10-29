@@ -6,21 +6,41 @@ defmodule PrologEx.Builtins.Terms do
   # plus(X, Y, Z): Z = X + Y für Ganzzahlen, zwei beliebige gebunden (wie
   # SWI); gebundene Nicht-Ganzzahl: type_error(integer, _), weniger als zwei
   # gebunden: instantiation_error
+  # plus(X, Y, Z): X + Y = Z, mindestens zwei ganze Zahlen. Jedes Argument
+  # einmal dereferenziert und geprüft (Typfehler in der Reihenfolge X, Y,
+  # Z); das Ergebnis ist eine Zahl: gebunden wird direkt (bind/3 weckt
+  # attributierte Variablen), ein gebundenes Ziel nur verglichen
   defbuiltin "plus", [x, y, z] do
-    vals = Enum.map([x, y, z], &deref/1)
+    plus(x, y, z, subst())
+  end
 
-    for v <- vals,
-        not match?({:var, _}, v),
-        not is_integer(v),
-        do: PrologEx.Error.type!("integer", resolve(v))
+  @doc false
+  # plus/3 – auch direkt aus der Maschine (PrologEx: engine_step)
+  def plus(x, y, z, s) do
+    a = int_or_var!(x, s)
+    b = int_or_var!(y, s)
+    c = int_or_var!(z, s)
 
-    case vals do
-      [a, b, _] when is_integer(a) and is_integer(b) -> {:unify, [{z, a + b}]}
-      [a, _, c] when is_integer(a) and is_integer(c) -> {:unify, [{y, c - a}]}
-      [_, b, c] when is_integer(b) and is_integer(c) -> {:unify, [{x, c - b}]}
-      _ -> PrologEx.Error.instantiation!()
+    cond do
+      is_integer(a) and is_integer(b) -> int_result(c, a + b, s)
+      is_integer(a) and is_integer(c) -> {:subst, PrologEx.bind(b, c - a, s)}
+      is_integer(b) and is_integer(c) -> {:subst, PrologEx.bind(a, c - b, s)}
+      true -> PrologEx.Error.instantiation!()
     end
   end
+
+  defp int_or_var!(t, s) do
+    case PrologEx.walk(t, s) do
+      n when is_integer(n) -> n
+      {:var, _} = v -> v
+      other -> PrologEx.Error.type!("integer", PrologEx.resolve(other, s))
+    end
+  end
+
+  # Ergebnis n an t (ganze Zahl oder ungebundene Variable)
+  defp int_result(n, n, _s), do: :ok
+  defp int_result(m, _n, _s) when is_integer(m), do: :fail
+  defp int_result(v, n, s), do: {:subst, PrologEx.bind(v, n, s)}
 
   # numbervars(T, Start, End): die Variablen von T (nach erstem Auftreten)
   # werden '$VAR'(Start), '$VAR'(Start+1), ...; End ist die nächste Nummer

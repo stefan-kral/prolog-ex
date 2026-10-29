@@ -1076,6 +1076,10 @@ Rekursion über die Argumente statt mit `Enum.map`/`Enum.reduce` und
 Closure: `findall/3` über strukturierte Terme wurde dadurch rund 30 %
 schneller (im Programm wie als Antwort), der Occurs-Check rund 25 %.
 
+`plus/3` führt die Maschine selbst aus (wie `not/1` und `*->/2`, mit
+denselben Sichtbarkeitsregeln), statt den allgemeinen Aufrufweg eines
+Builtins zu gehen: rund 17 % schneller, nahe an `is/2`.
+
 ## Entwicklung
 
 ```sh

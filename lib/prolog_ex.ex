@@ -1204,6 +1204,9 @@ defmodule PrologEx do
     end
   end
 
+  defp step({:struct, "plus", [_, _, _]} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
+
   defp step({:struct, "not", _} = goal, cutb, mod, rest, st),
     do: homed_step(goal, cutb, mod, rest, st)
 
@@ -1726,6 +1729,17 @@ defmodule PrologEx do
 
       {:thrown, ball} ->
         throw_ball(ball, st)
+    end
+  end
+
+  # plus/3 (library(swi)) ohne den allgemeinen Aufrufpfad eines Builtins
+  defp engine_step({:struct, "plus", [x, y, z]}, _cutb, mod, rest, st) do
+    try do
+      PrologEx.Builtins.Terms.plus(x, y, z, st.subst)
+    rescue
+      e in PrologEx.Error -> throw_ball(e.term, st)
+    else
+      r -> apply_result(r, mod, rest, st)
     end
   end
 

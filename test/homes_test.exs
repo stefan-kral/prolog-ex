@@ -44,6 +44,7 @@ defmodule PrologEx.HomesTest do
           {"call_with_depth_limit(true, 10, _)", "call_with_depth_limit/3"},
           {"(true *-> true ; true)", "(*->)/2"},
           {"not(fail)", "not/1"},
+          {"plus(1, 2, _)", "plus/3"},
           {"time(true)", "time/1"},
           {"fast_write(user_output, x)", "fast_write/2"}
         ] do
@@ -114,10 +115,15 @@ defmodule PrologEx.HomesTest do
     forall(a, b).
     not(x).
     countall(eigen, 0).
+    plus(eigen, eigen, eigen).
     """
 
-    assert ask(c, "between(A, B, C), forall(D, E), not(x), countall(eigen, N)", src) ==
-             ["A = von, B = bis, C = mitte, D = a, E = b, N = 0"]
+    assert ask(
+             c,
+             "between(A, B, C), forall(D, E), not(x), countall(eigen, N), plus(P, P, P)",
+             src
+           ) ==
+             ["A = von, B = bis, C = mitte, D = a, E = b, N = 0, P = eigen"]
 
     # und gehen auch dem Import vor (wie bei Bibliotheken üblich)
     assert ask(c, "between(A, _, _)", ":- use_module(library(between)).\n" <> src) ==
