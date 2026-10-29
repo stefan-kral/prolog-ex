@@ -1315,6 +1315,16 @@ defmodule PrologEx do
   defp step({:struct, "not", _} = goal, cutb, mod, rest, st),
     do: homed_step(goal, cutb, mod, rest, st)
 
+  # once/1 (ISO, nicht geschützt) und ignore/1 (library(swi)): sonst
+  # Prolog-Klauseln (call(G), !) bzw. (call(G) -> true ; true) – gleich
+  # direkt als Bedingung; call/1 behält Fehler (type_error(callable)), den
+  # lokalen Cut und das Modul des Aufrufers
+  defp step({:struct, "once", [_]} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
+
+  defp step({:struct, "ignore", [_]} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
+
   defp step({:struct, "=", [x, y]}, _cutb, _mod, rest, st) do
     case guarded(fn -> unify(x, y, st.subst) end) do
       {:ok, {:ok, s1}} -> cont(st, s1, rest)
@@ -1755,11 +1765,12 @@ defmodule PrologEx do
 
   defp engine_visible?(name, arity, mod), do: engine_visible?(current_db(), name, arity, mod)
 
-  # Builtin mit Heimat-Bibliothek: sichtbar, wenn mod es aus system
-  # importiert hat, oder wenn mod es weder selbst definiert (in der
-  # Datenbank oder als Bibliotheks-Builtin, etwa files:delete_file/1) noch
-  # die Heimat verbirgt (ein Import schließt eine eigene Definition aus:
-  # Laden und assert entfernen ihn)
+  # Nicht geschütztes system-Builtin, das die Maschine selbst ausführt:
+  # sichtbar, wenn mod es aus system importiert hat, oder wenn mod es weder
+  # selbst definiert (in der Datenbank oder als Bibliotheks-Builtin, etwa
+  # files:delete_file/1) noch – bei einem mit Heimat-Bibliothek – die
+  # Heimat verbirgt (ein Import schließt eine eigene Definition aus: Laden
+  # und assert entfernen ihn). Ohne Heimat (once/1): sonst immer sichtbar
   defp engine_visible?(db, name, arity, mod) do
     case Map.fetch(db, {:import, mod, name, arity}) do
       {:ok, src} ->
@@ -1767,7 +1778,7 @@ defmodule PrologEx do
 
       :error ->
         not Map.has_key?(db, {mod, name, arity}) and
-          home_visible?(mod) and
+          (PrologEx.Builtins.home(name, arity) == nil or home_visible?(mod)) and
           PrologEx.Builtins.lookup(mod, name, arity) == nil
     end
   end
@@ -1850,6 +1861,18 @@ defmodule PrologEx do
 
   defp engine_step({:struct, "not", [g]}, cutb, mod, rest, st),
     do: step({:struct, "\\+", [g]}, cutb, mod, rest, st)
+
+  # once(G): call(G), dann alles ab der jetzigen Höhe abschneiden – kein
+  # Choice Point für ein Sonst, kein Dann-Ziel (zählt wie die alte Klausel:
+  # once und G)
+  defp engine_step({:struct, "once", [g]}, _cutb, mod, rest, st) do
+    h = st.height
+    run(%{st | goals: [{{:struct, "call", [g]}, h, mod}, {{:"$cut_to", h}, 0, mod} | rest]})
+  end
+
+  defp engine_step({:struct, "ignore", [g]}, cutb, mod, rest, st),
+    do:
+      if_then_else({:struct, "call", [g]}, {:atom, "true"}, {:atom, "true"}, cutb, mod, rest, st)
 
   defp engine_step({:struct, "time", [g]}, _cutb, mod, rest, st),
     do: builtin_time(g, mod, rest, st)

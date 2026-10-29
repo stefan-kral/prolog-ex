@@ -1076,7 +1076,7 @@ Rekursion über die Argumente statt mit `Enum.map`/`Enum.reduce` und
 Closure: `findall/3` über strukturierte Terme wurde dadurch rund 30 %
 schneller (im Programm wie als Antwort), der Occurs-Check rund 25 %.
 
-`plus/3`, `functor/3`, `arg/3` und `=../2` führt die Maschine selbst aus, statt
+`plus/3`, `functor/3`, `arg/3`, `=../2`, `once/1` und `ignore/1` führt die Maschine selbst aus, statt
 den allgemeinen Aufrufweg eines Builtins zu gehen (`plus/3` wie `not/1`
 mit den Sichtbarkeitsregeln seiner Heimat; `functor/3` und `arg/3` sind
 geschützt, ohne Prüfung): `plus/3` rund 17 % schneller, nahe an `is/2`,
@@ -1092,6 +1092,15 @@ genau eine, ist die Lösung deterministisch (kein Choice Point). Ein
 Vanilla-Meta-Interpreter (`solve/1` über `clause/2`) läuft dadurch etwa
 doppelt so schnell, der Zugriff auf eine Faktentabelle mit 1000 Fakten
 rund 25-mal; `=../2` wurde 25–30 % schneller.
+
+`once/1` und `ignore/1` waren Klauseln (`once(G) :- call(G), !.`), also
+ein voller Prädikataufruf vor dem `call/1`; jetzt `call(G)` mit einem
+Schnitt auf die jetzige Höhe bzw. `(call(G) -> true ; true)`: rund 45 %
+bzw. 50 % schneller, dieselben Inferenzen. Nebenbei entfällt die
+Modulqualifikation des Meta-Arguments, an der `call/1` bisher vorbeisah:
+`once((a, 1))` gibt jetzt wie ISO `type_error(callable, (a,1))` (vorher
+`existence_error` für `a/0`), und ein beim Aufruf ungebundenes Ziel im
+Rumpf wird `call(G)` mit lokalem Cut.
 
 Dasselbe Vorfiltern nutzen `retract/1` und `retractall/1`: Geprüft
 (kopiert und unifiziert) werden nur Klauseln, die zum ersten Argument
