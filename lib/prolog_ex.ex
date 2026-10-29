@@ -762,7 +762,7 @@ defmodule PrologEx do
   defp merge_by_index(a, [{_, y} | b]), do: [y | merge_by_index(a, b)]
 
   @doc false
-  def pred_entries({:pred, _, _, _, entries}), do: entries
+  def pred_entries({:pred, _, _, _, entries}), do: flat(entries)
   def pred_entries({:pending, p, [], []}), do: pred_entries(p)
   def pred_entries({:pending, p, fr, bk}), do: fr ++ pred_entries(p) ++ Enum.reverse(bk)
   def pred_entries({:stale, front, []}), do: front
@@ -822,8 +822,11 @@ defmodule PrologEx do
   def materialize({:pred, _, _, _, _} = p), do: p
 
   def materialize({:pending, {:pred, cls, _, _, _} = p, fr, bk} = pending) do
-    # viele neue Klauseln: Neubau ist dann billiger als Erweitern
-    if length(fr) + length(bk) > length(cls),
+    # viele neue Klauseln: Neubau ist dann billiger als Erweitern (die
+    # Länge von cls nur zählen, wenn es viele sind: sonst O(n) je assert)
+    n = length(fr) + length(bk)
+
+    if n > 16 and n > count(cls),
       do: pred_from_entries(pred_entries(pending)),
       else: extend(p, fr, Enum.reverse(bk))
   end
@@ -856,9 +859,49 @@ defmodule PrologEx do
 
     cl = &elem(&1, 2)
 
-    {:pred, Enum.map(fr, cl) ++ cls ++ Enum.map(bk, cl), by_key, Enum.reverse(var_only_rev),
-     fr ++ entries ++ bk}
+    # vorn voranstellen ist billig (O(neu)); hinten anhängen nur vormerken
+    # ({:cat, liste, hinten_umgekehrt}), sonst kostete jedes assertz mit
+    # folgendem Aufruf O(n) – flach wird erst, wer die ganze Liste braucht
+    {:pred, cat(Enum.map(fr, cl), cls, Enum.map(bk, cl)), by_key, Enum.reverse(var_only_rev),
+     cat(fr, entries, bk)}
   end
+
+  # front ++ l ++ back, das Anhängen hinten aufgeschoben
+  defp cat(front, {:cat, l, r}, back), do: {:cat, front ++ l, :lists.reverse(back, r)}
+  defp cat(front, l, []), do: front ++ l
+  defp cat(front, l, back), do: {:cat, front ++ l, :lists.reverse(back)}
+
+  @doc false
+  # Prädikat mit flachen Listen (Vergleich in Tests: erweitert == Neubau)
+  def flat_pred({:pred, all, by_key, var_only, entries}),
+    do: {:pred, flat(all), by_key, var_only, flat(entries)}
+
+  defp flat({:cat, l, r}), do: l ++ :lists.reverse(r)
+  defp flat(l), do: l
+
+  defp count({:cat, l, r}), do: length(l) + length(r)
+  defp count(l), do: length(l)
+
+  # Aufruf, der alle Klauseln braucht (erstes Argument offen, nullstellig),
+  # bei aufgeschobenem Anhängen: einmal flach machen und zurückschreiben
+  defp flat_for_call({:pred, {:cat, _, _}, _, _, _} = p, key, args, subst) do
+    open =
+      case args do
+        [] -> true
+        [x | _] -> match?({:var, _}, walk(x, subst))
+      end
+
+    if open do
+      {:pred, all, by_key, var_only, entries} = p
+      p = {:pred, flat(all), by_key, var_only, flat(entries)}
+      update_db(&Map.put(&1, key, p))
+      p
+    else
+      p
+    end
+  end
+
+  defp flat_for_call(p, _key, _args, _subst), do: p
 
   @doc false
   # Zustände eines Prädikats in der Datenbank:
@@ -896,11 +939,11 @@ defmodule PrologEx do
   defp candidates({:pred, all, by_key, var_only, _source}, args, subst) do
     case args do
       [] ->
-        all
+        flat(all)
 
       [x | _] ->
         case walk(x, subst) do
-          {:var, _} -> all
+          {:var, _} -> flat(all)
           t -> Map.get(by_key, index_key(t), var_only)
         end
     end
@@ -1958,6 +2001,8 @@ defmodule PrologEx do
 
     case Map.fetch(db, {mod, name, arity}) do
       {:ok, {:pred, _, _, _, _} = pred} ->
+        pred = flat_for_call(pred, {mod, name, arity}, args, st.subst)
+
         case depth_enter(st, rest, mod) do
           {st, rest} -> try_clauses(goal, args, candidates(pred, args, st.subst), rest, mod, st)
           :fail -> backtrack(st)
@@ -2002,6 +2047,8 @@ defmodule PrologEx do
               update_db(&Map.put(&1, {m, name, arity}, p))
               p
           end
+
+        pred = flat_for_call(pred, {m, name, arity}, args, st.subst)
 
         args = qualify(args, Map.get(current_db(), {:meta, m, name, arity}), m, mod, st.subst)
 

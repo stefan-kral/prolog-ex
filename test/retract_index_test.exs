@@ -23,7 +23,8 @@ defmodule PrologEx.RetractIndexTest do
   setup c do
     Reader.put_current(c.reader)
     PrologEx.Flags.reset()
-    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, @src))
+    libs = Enum.reduce(["lists", "between", "iso_ext"], %{}, &PrologEx.use_library(&2, &1))
+    {db, []} = PrologEx.Consult.load(libs, Reader.read_terms(c.reader, @src))
     PrologEx.put_db(db)
     :ok
   end
@@ -78,5 +79,57 @@ defmodule PrologEx.RetractIndexTest do
   test "retractall/1 ohne Treffer: danach weiter aufrufbar, assert wirkt", c do
     assert ask(c, "retractall(r(g(y), zz)), r(7, V)") == ["V = b"]
     assert ask(c, "retractall(r(g(y), zz)), assertz(r(7, g)), r(7, V)") == ["V = b", "V = g"]
+  end
+
+  # nach assertz hinten Angehängtes ist aufgeschoben ({:cat, ...}); alles,
+  # was die ganze Liste braucht, sieht sie in der richtigen Reihenfolge
+  test "assertz/asserta im Wechsel mit Aufrufen: Reihenfolge stimmt überall", c do
+    q = """
+    retractall(r(_, _)),
+    assertz(r(1, a)), r(1, _), assertz(r(2, b)), r(2, _), asserta(r(0, z)),
+    assertz(r(X0, v)), r(1, _), assertz(r(1, c)),
+    findall(K-V, r(K, V), L1),
+    findall(V, r(1, V), L2),
+    findall(K-V, clause(r(K, V), true), L3),
+    predicate_property(r(_, _), number_of_clauses(N)),
+    retract(r(2, b)), findall(K-V, r(K, V), L4),
+    X0 = x
+    """
+
+    assert [a] = ask(c, q)
+    assert a =~ "L1 = [0-z,1-a,2-b,_A-v,1-c]"
+    assert a =~ ~s(L2 = "avc")
+    assert a =~ "L3 = [0-z,1-a,2-b,_B-v,1-c]"
+    assert a =~ "N = 5"
+    assert a =~ "L4 = [0-z,1-a,_C-v,1-c]"
+  end
+
+  test "offenes erstes Argument nach vielen assertz: alle Lösungen in Reihenfolge", c do
+    [a] =
+      ask(c, """
+      retractall(r(_, _)),
+      forall(between(1, 50, I), (assertz(r(I, w)), r(I, _))),
+      findall(K, r(K, _), L), length(L, N), L = [F|_], last(L, La)
+      """)
+
+    for part <- ["F = 1", "La = 50", "N = 50"], do: assert(a =~ part)
+    assert a =~ "L = [1,2,3,"
+  end
+
+  test "Aufruf mit offenem erstem Argument macht flach und schreibt zurück", c do
+    all = fn -> PrologEx.current_db() |> Map.fetch!({"user", "r", 2}) |> elem(1) end
+    # gebundenes erstes Argument: bleibt aufgeschoben
+    ask(c, "assertz(r(9, z)), r(9, _)")
+    assert {:cat, _, _} = all.()
+    # offen: einmal flach, zurückgeschrieben
+    ask(c, "once(r(_, _))")
+    assert is_list(all.())
+    # nullstellig bzw. offen über call/N ebenso
+    ask(c, "assertz(r(8, y)), r(8, _), once(call(r, _, _))")
+    assert is_list(all.())
+
+    # nullstellig: braucht immer alle Klauseln
+    ask(c, "assertz(n0), n0, assertz(n0), n0")
+    assert is_list(PrologEx.current_db() |> Map.fetch!({"user", "n0", 0}) |> elem(1))
   end
 end

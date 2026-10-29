@@ -1101,6 +1101,16 @@ Ersetzen in 1000 Fakten (`retract(fakt(500, _)), assertz(fakt(500, w))`)
 wurde dadurch rund 6-mal schneller, `retractall/1` ohne Treffer mit
 anschließendem Aufruf rund 50-mal.
 
+Nach `assertz/1` erweitert der nächste Aufruf den Index, statt ihn neu
+zu bauen; die neue Klausel hinten an die Listen aller Klauseln
+anzuhängen, kostete dabei aber O(n) – im Wechsel von `assertz` und
+Aufruf (Memo-Tabellen) quadratisch. Jetzt wird das Anhängen aufgeschoben
+(`{:cat, liste, hinten_umgekehrt}`); flach gemacht wird erst, wer die
+ganze Liste braucht – ein Aufruf mit offenem erstem Argument (einmal,
+mit Zurückschreiben) oder `clause/2`, `retract/1`, `listing/1`. Ein
+Aufruf mit gebundenem erstem Argument braucht nur den Index nach
+Schlüssel: `assertz(m(I, I)), m(I, _)` für 20 000 Werte 4,4 s → 0,14 s.
+
 ## Entwicklung
 
 ```sh

@@ -1,5 +1,6 @@
 defmodule PrologEx.DbIndexTest do
   # Der beim assert ERWEITERTE Index muss exakt dem neu gebauten entsprechen
+  # (hinten Angehängtes ist aufgeschoben: verglichen wird flach)
   use ExUnit.Case, async: true
   import PrologEx
 
@@ -33,7 +34,7 @@ defmodule PrologEx.DbIndexTest do
           end
 
         m = materialize(pred)
-        assert m == pred_from_entries(pred_entries(pred))
+        assert flat_pred(m) == pred_from_entries(pred_entries(pred))
         # zufällig mit oder ohne Materialisieren weiter
         if :rand.uniform(2) == 1, do: m, else: pred
       end)
@@ -53,7 +54,26 @@ defmodule PrologEx.DbIndexTest do
     seconds = fn cls -> Enum.map(cls, fn c -> elem(c, 1) end) end
     {:pred, _, by_key, _, _} = m
     assert length(by_key[1]) == 13
-    assert m == pred_from_entries(pred_entries(p))
-    assert seconds.(elem(m, 1)) |> hd() == :any
+    assert flat_pred(m) == pred_from_entries(pred_entries(p))
+    assert seconds.(elem(flat_pred(m), 1)) |> hd() == :any
+  end
+
+  test "viele neue Klauseln: Neubau statt Erweitern (flache Listen)" do
+    p = pred_from_entries([entry({s("p", [1, 0]), a("true")})])
+
+    p =
+      Enum.reduce(1..20, p, fn i, p -> assert_entry(p, entry({s("p", [1, i]), a("true")}), :z) end)
+
+    assert {:pred, all, _, _, entries} = materialize(p)
+    assert is_list(all) and is_list(entries)
+    # wenige: erweitert, hinten aufgeschoben
+    q =
+      assert_entry(
+        pred_from_entries([entry({s("p", [1, 0]), a("true")})]),
+        entry({s("p", [1, 1]), a("true")}),
+        :z
+      )
+
+    assert {:pred, {:cat, _, _}, _, _, {:cat, _, _}} = materialize(q)
   end
 end
