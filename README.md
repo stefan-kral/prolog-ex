@@ -1129,6 +1129,20 @@ SWI), gebundene werden eingesetzt, nicht Aufrufbares gibt
 `type_error(callable, _)` vor jeder Ausführung. Ohne eigenen
 `call`-Schritt umgewandelt: keine messbaren Kosten.
 
+`call/1..8` mit einem Atom oder einer Struktur ohne Steuer-Funktor
+(`,` `;` `->` `*->` `:`) – auch als `M:G` mit Atom `M`, so wie
+Meta-Argumente ankommen – startet das Ziel direkt: keine
+Rumpfumwandlung (sie ließe es ohnehin unverändert), kein geschützter
+Abschluss, kein zweites Dereferenzieren. Steuerkonstrukte, verschachteltes
+`M:M2:G`, Variablen und Fehler gehen den allgemeinen Weg wie bisher.
+Der Mehraufwand von `call/N` gegenüber dem direkten Ziel sank um rund
+45 % (gemessen in BEAM-Reduktionen; die Wanduhr ist dafür zu
+verrauscht), `maplist/3` und `foldl/4` brauchen rund 10 % weniger
+Arbeit, `call((A, B))` unverändert, Inferenzen wie bisher. Behoben
+nebenbei: `G = member(X), call(lists:G, [a])` gab `instantiation_error`
+(das innere Ziel von `M:G` wurde bei `call/N` mit Zusatzargumenten nicht
+dereferenziert).
+
 Dasselbe Vorfiltern nutzen `retract/1` und `retractall/1`: Geprüft
 (kopiert und unifiziert) werden nur Klauseln, die zum ersten Argument
 passen können. `retractall/1` ohne Treffer lässt das Prädikat samt Index

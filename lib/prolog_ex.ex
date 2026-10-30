@@ -288,6 +288,10 @@ defmodule PrologEx do
   # bind_checked/4, match_args/6) – nicht bei jeder Bindung.
   # ---------------------------------------------------------------------
 
+  # Steuerkonstrukte, in die to_body/3 hineinsteigt (dazu M:G): ein call/N
+  # mit ihnen geht den allgemeinen Weg
+  @body_ops [",", ";", "->", "*->", ":"]
+
   @occurs_key :prolog_ex_occurs_check
 
   @doc false
@@ -1263,18 +1267,32 @@ defmodule PrologEx do
   # Zielstellen werden call(V) (ein später gebundener Cut ist dann lokal),
   # Nicht-Aufrufbares irgendwo im Gerüst aus , ; -> gibt sofort
   # type_error(callable, Ziel), bevor etwas ausgeführt wird
+  # call/1..8, Schnellweg: ein Atom oder eine Struktur, die weder
+  # Steuerkonstrukt noch M:G ist – das Ziel ist dann schon ein Rumpf (to_body
+  # gäbe es unverändert zurück), Fehler sind ausgeschlossen: ohne Closure,
+  # ohne zweites walk
   defp step({:struct, "call", [g | extra]}, _cutb, mod, rest, st) do
-    case guarded(fn ->
-           goal = add_args(unmark_top(walk(g, st.subst)), extra)
+    case unmark_top(walk(g, st.subst)) do
+      {:atom, f} = a when f not in @body_ops ->
+        goal = if extra == [], do: a, else: mk(f, extra)
+        run(%{st | goals: [{goal, st.height, mod} | rest]})
 
-           # oben eine Variable: instantiation_error (nur innen wird sie call(V))
-           case walk(goal, st.subst) do
-             {:var, _} -> PrologEx.Error.instantiation!()
-             _ -> to_body(goal, goal, st.subst)
-           end
-         end) do
-      {:ok, goal} -> run(%{st | goals: [{goal, st.height, mod} | rest]})
-      {:thrown, ball} -> throw_ball(ball, st)
+      {:struct, f, args} = t when f not in @body_ops ->
+        goal = if extra == [], do: t, else: mk(f, args ++ extra)
+        run(%{st | goals: [{goal, st.height, mod} | rest]})
+
+      # M:G mit Atom M (so kommen Meta-Argumente an: maplist, foldl, ...):
+      # G direkt in M
+      {:struct, ":", [m, inner]} = t ->
+        with {:atom, mn} <- walk(m, st.subst),
+             goal when goal != nil <- plain_goal(unmark_top(walk(inner, st.subst)), extra) do
+          run(%{st | goals: [{goal, st.height, mn} | rest]})
+        else
+          _ -> call_general(t, extra, mod, rest, st)
+        end
+
+      t ->
+        call_general(t, extra, mod, rest, st)
     end
   end
 
@@ -2563,6 +2581,29 @@ defmodule PrologEx do
     end
   end
 
+  # call/N, allgemeiner Weg: Steuerkonstrukte, M:G, Variable, Fehler
+  defp plain_goal({:atom, f} = a, extra) when f not in @body_ops,
+    do: if(extra == [], do: a, else: mk(f, extra))
+
+  defp plain_goal({:struct, f, args} = t, extra) when f not in @body_ops,
+    do: if(extra == [], do: t, else: mk(f, args ++ extra))
+
+  defp plain_goal(_, _), do: nil
+
+  defp call_general(g, extra, mod, rest, st) do
+    case guarded(fn ->
+           # g ist schon dereferenziert: oben eine Variable → instantiation_error
+           # (nur innen wird sie call(V))
+           case add_args(g, extra, st.subst) do
+             {:var, _} -> PrologEx.Error.instantiation!()
+             goal -> to_body(goal, goal, st.subst)
+           end
+         end) do
+      {:ok, goal} -> run(%{st | goals: [{goal, st.height, mod} | rest]})
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
+
   # Ziel aus Daten als Rumpf (wie call/1, ISO 7.6.2): oben eine Variable →
   # instantiation_error; beim Aufruf ungebundene Variablen innen → call(V)
   # (Cut darin lokal); nicht aufrufbar → type_error(callable). Für \+,
@@ -2689,13 +2730,19 @@ defmodule PrologEx do
     run(%{st | goals: [{c, h + 1, mod}, {{:"$soft_cut", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
-  @doc "Ziel um Argumente erweitern wie call/N (auch M:Ziel); Ziel dereferenziert"
-  def add_args(g, []), do: g
-  def add_args({:struct, ":", [m, g]}, extra), do: mk(":", [m, add_args(unmark_top(g), extra)])
-  def add_args({:atom, f}, extra), do: mk(f, extra)
-  def add_args({:struct, f, args}, extra), do: mk(f, args ++ extra)
-  def add_args({:var, _}, _), do: PrologEx.Error.instantiation!()
-  def add_args(g, _), do: PrologEx.Error.type!("callable", g)
+  @doc """
+  Ziel um Argumente erweitern wie call/N (auch M:Ziel); Ziel dereferenziert,
+  das innere von M:Ziel wird hier dereferenziert
+  """
+  def add_args(g, [], _subst), do: g
+
+  def add_args({:struct, ":", [m, g]}, extra, subst),
+    do: mk(":", [m, add_args(unmark_top(walk(g, subst)), extra, subst)])
+
+  def add_args({:atom, f}, extra, _subst), do: mk(f, extra)
+  def add_args({:struct, f, args}, extra, _subst), do: mk(f, args ++ extra)
+  def add_args({:var, _}, _, _subst), do: PrologEx.Error.instantiation!()
+  def add_args(g, _, _subst), do: PrologEx.Error.type!("callable", g)
 
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.

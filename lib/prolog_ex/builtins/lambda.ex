@@ -159,7 +159,7 @@ defmodule PrologEx.Builtins.Lambda do
 
       {g, args} ->
         # unmarkiert bauen: add_args erwartet ein normales M:G
-        {:call, PrologEx.add_args({:struct, ":", [a(m), g]}, args), s}
+        {:call, PrologEx.add_args({:struct, ":", [a(m), g]}, args, s), s}
     end
   end
 end
