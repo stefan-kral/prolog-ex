@@ -1319,6 +1319,37 @@ defmodule PrologEx do
     if PrologEx.Order.equal?(x, y, st.subst), do: backtrack(st), else: run(%{st | goals: rest})
   end
 
+  # compare/3, @</2, @>/2, @=</2, @>=/2 (ISO, geschützt) direkt. compare/3:
+  # ungebundenes Order (gewöhnliche Variable) direkt binden, gebundenes
+  # gültiges nur vergleichen; sonst (attributiert, Fehler) das Builtin
+  defp step({:struct, "compare", [o, x, y]} = goal, _cutb, mod, rest, st) do
+    case walk(o, st.subst) do
+      {:var, n} = v when not (is_tuple(n) and elem(n, 0) == :attv) ->
+        sym = order_atom(PrologEx.Order.compare(x, y, st.subst))
+        run(%{st | goals: rest, subst: bind(v, sym, st.subst)})
+
+      {:atom, s} when s in ["<", "=", ">"] ->
+        if order_atom(PrologEx.Order.compare(x, y, st.subst)) == {:atom, s},
+          do: run(%{st | goals: rest}),
+          else: backtrack(st)
+
+      _ ->
+        call_pred(goal, mod, rest, st)
+    end
+  end
+
+  defp step({:struct, "@<", [x, y]}, _cutb, _mod, rest, st),
+    do: order_step(PrologEx.Order.compare(x, y, st.subst) == :lt, rest, st)
+
+  defp step({:struct, "@>", [x, y]}, _cutb, _mod, rest, st),
+    do: order_step(PrologEx.Order.compare(x, y, st.subst) == :gt, rest, st)
+
+  defp step({:struct, "@=<", [x, y]}, _cutb, _mod, rest, st),
+    do: order_step(PrologEx.Order.compare(x, y, st.subst) != :gt, rest, st)
+
+  defp step({:struct, "@>=", [x, y]}, _cutb, _mod, rest, st),
+    do: order_step(PrologEx.Order.compare(x, y, st.subst) != :lt, rest, st)
+
   # current_prolog_flag/2 (ISO, geschützt) mit gebundenem Namen: das Flag
   # direkt lesen, deterministisch; sonst (Aufzählen, Fehler) das Builtin
   defp step({:struct, "current_prolog_flag", [f, v]} = goal, _cutb, mod, rest, st) do
@@ -2598,6 +2629,13 @@ defmodule PrologEx do
     do: if(extra == [], do: t, else: mk(f, args ++ extra))
 
   defp plain_goal(_, _), do: nil
+
+  defp order_step(true, rest, st), do: run(%{st | goals: rest})
+  defp order_step(false, _rest, st), do: backtrack(st)
+
+  defp order_atom(:lt), do: {:atom, "<"}
+  defp order_atom(:eq), do: {:atom, "="}
+  defp order_atom(:gt), do: {:atom, ">"}
 
   defp call_general(g, extra, mod, rest, st) do
     case guarded(fn ->

@@ -17,16 +17,80 @@ defmodule PrologEx.Order do
 
   import PrologEx, only: [walk: 2, uncons: 1, is_marked: 1]
 
-  @doc "`:lt`, `:eq` oder `:gt`"
-  def compare(a, b, subst) do
-    a = walk(a, subst)
-    b = walk(b, subst)
+  @doc """
+  `:lt`, `:eq` oder `:gt`, direkt auf dem Paar: Klassen, Zahlen, Atome und
+  Funktoren in Klauseln statt über Klassennummern; Listen ohne Umweg über
+  `'.'/2`, Markierungen ohne `unmark_top`. Kein `===` vorweg (anders als
+  `equal?/3`): bei den üblichen ungleichen kleinen Termen kostete es rund
+  20 %, und innen wiederholt wäre es quadratisch.
+  """
+  def compare(a, b, subst), do: c(walk(a, subst), walk(b, subst), subst)
 
-    case {class(a), class(b)} do
-      {c, c} -> same_class(c, a, b, subst)
-      {ca, cb} -> if ca < cb, do: :lt, else: :gt
+  @st [:struct, :gstruct]
+
+  # Variable < Zahl < Atom < zusammengesetzt
+  defp c({:var, x}, {:var, y}, _), do: var_cmp(x, y)
+  defp c({:var, _}, _, _), do: :lt
+  defp c(_, {:var, _}, _), do: :gt
+  defp c(x, y, _) when is_integer(x) and is_integer(y), do: cmp(x, y)
+  defp c(x, y, _) when is_float(x) and is_float(y), do: cmp(x, y)
+  # ISO: Float vor Integer, unabhängig vom Wert
+  defp c(x, y, _) when is_float(x) and is_integer(y), do: :lt
+  defp c(x, y, _) when is_integer(x) and is_float(y), do: :gt
+  defp c(x, _, _) when is_number(x), do: :lt
+  defp c(_, y, _) when is_number(y), do: :gt
+  defp c({:atom, x}, {:atom, y}, _), do: cmp(x, y)
+  defp c([], [], _), do: :eq
+  defp c([], {:atom, y}, _), do: cmp("[]", y)
+  defp c({:atom, x}, [], _), do: cmp(x, "[]")
+  defp c({:atom, _}, _, _), do: :lt
+  defp c([], _, _), do: :lt
+  defp c(_, {:atom, _}, _), do: :gt
+  defp c(_, [], _), do: :gt
+
+  # zusammengesetzt: Stelligkeit, Name, Argumente; Listen sind '.'/2.
+  # Markierungen ({:gstruct, ...}, {:glist, ...}) direkt, ohne unmark_top
+  defp c({:glist, l}, y, subst), do: c(l, y, subst)
+  defp c(x, {:glist, l}, subst), do: c(x, l, subst)
+
+  defp c([x | xs], [y | ys], subst) do
+    case compare(x, y, subst) do
+      :eq -> compare(xs, ys, subst)
+      other -> other
     end
   end
+
+  defp c({tx, f, xs}, {ty, g, ys}, subst) when tx in @st and ty in @st,
+    do: c_struct(f, xs, g, ys, subst)
+
+  defp c({tx, f, xs}, [y | ys], subst) when tx in @st, do: c_struct(f, xs, ".", [y, ys], subst)
+  defp c([x | xs], {ty, g, ys}, subst) when ty in @st, do: c_struct(".", [x, xs], g, ys, subst)
+
+  defp c_struct(f, xs, g, ys, subst) do
+    case cmp(length(xs), length(ys)) do
+      :eq ->
+        case cmp(f, g) do
+          :eq -> c_args(xs, ys, subst)
+          other -> other
+        end
+
+      other ->
+        other
+    end
+  end
+
+  # letztes Argument per Tail Call
+  defp c_args([x], [y], subst), do: compare(x, y, subst)
+
+  defp c_args([x | xs], [y | ys], subst) do
+    case compare(x, y, subst) do
+      :eq -> c_args(xs, ys, subst)
+      other -> other
+    end
+  end
+
+  defp var_cmp(x, y) when is_integer(x) and is_integer(y), do: cmp(x, y)
+  defp var_cmp(x, y), do: cmp(var_key(x), var_key(y))
 
   @doc """
   `==/2`: gleich in der Standardordnung, ohne die Ordnung zu bestimmen.

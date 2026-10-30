@@ -1157,6 +1157,21 @@ Listen mit 100 000 Zahlen ≈ 12 ms → 0,3 ms, mit gebundenen Variablen
 ≈ 40 → 1 ms, spät verschiedene Listen ≈ 3- bzw. 1,4-mal schneller,
 tiefe Terme 25–40 %. Nirgends langsamer; Inferenzen wie bisher.
 
+`compare/3` und `@<`, `@>`, `@=<`, `@>=` führt die Maschine ebenfalls
+selbst aus. `compare/3` bindet ein ungebundenes `Order` direkt und
+vergleicht ein schon gebundenes nur noch (`compare(<, X, Y)`);
+attributiertes `Order` und Fehler gehen über das Builtin. Die
+Standardordnung selbst (`Order.compare/3`) entscheidet direkt auf dem
+Paar statt über Klassennummern, Listen ohne Umweg über `'.'/2`
+(vorher zwei Hilfstupel je Zelle), Markierungen ohne `unmark_top`. Ein
+`===` vorweg wie bei `==/2` bringt hier nichts: Ungleiche kleine Terme
+sind der Normalfall, und dort kostete es rund 20 %. Einfache Aufrufe
+kosten rund die Hälfte (`compare(O, a, b)` 106 → 52 Reduktionen,
+`a @< b` 62 → 26), kleine Listen 3,5-mal, lange spät verschiedene Listen
+3-mal schneller, kleine Strukturen ≈ 20 %. Nirgends langsamer;
+geprüft gegen die Sortierschlüssel als zweite, unabhängige Umsetzung der
+Standardordnung (20 000 zufällige Termpaare).
+
 Dasselbe Vorfiltern nutzen `retract/1` und `retractall/1`: Geprüft
 (kopiert und unifiziert) werden nur Klauseln, die zum ersten Argument
 passen können. `retractall/1` ohne Treffer lässt das Prädikat samt Index
