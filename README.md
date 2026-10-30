@@ -1143,6 +1143,20 @@ nebenbei: `G = member(X), call(lists:G, [a])` gab `instantiation_error`
 (das innere Ziel von `M:G` wurde bei `call/N` mit Zusatzargumenten nicht
 dereferenziert).
 
+`==/2` und `\==/2` führt die Maschine selbst aus (ISO, geschützt; sie
+werfen nie) über einen eigenen Gleichheitstest statt `compare/3`: oben
+einmal `===` (in C; geteilte Terme in O(1)), sonst strukturell mit
+billigen Blättern, der Listenrest per Tail Call. Innen bewusst kein
+`===`: auf jeder Ebene wiederholt, wäre es bei spät verschiedenen Termen
+quadratisch. Was sich nicht billig entscheiden lässt (Floats wie
+`-0.0`, `'.'(a, [])` gegen `[a]`, verschiedene Klassen oder Funktoren),
+entscheidet weiter `compare/3`, die Ergebnisse bleiben also dieselben.
+Einfache Fälle (`X == X`, `a == a`, `a \== b`) kosten rund 50–60 %
+weniger, `f(a,b,c) == f(a,b,c)` 80 %; zwei getrennt gebaute gleiche
+Listen mit 100 000 Zahlen ≈ 12 ms → 0,3 ms, mit gebundenen Variablen
+≈ 40 → 1 ms, spät verschiedene Listen ≈ 3- bzw. 1,4-mal schneller,
+tiefe Terme 25–40 %. Nirgends langsamer; Inferenzen wie bisher.
+
 Dasselbe Vorfiltern nutzen `retract/1` und `retractall/1`: Geprüft
 (kopiert und unifiziert) werden nur Klauseln, die zum ersten Argument
 passen können. `retractall/1` ohne Treffer lässt das Prädikat samt Index

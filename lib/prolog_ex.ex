@@ -1310,6 +1310,15 @@ defmodule PrologEx do
     end
   end
 
+  # ==/2 und \\==/2 (ISO, geschützt): können nicht werfen, direkt
+  defp step({:struct, "==", [x, y]}, _cutb, _mod, rest, st) do
+    if PrologEx.Order.equal?(x, y, st.subst), do: run(%{st | goals: rest}), else: backtrack(st)
+  end
+
+  defp step({:struct, "\\==", [x, y]}, _cutb, _mod, rest, st) do
+    if PrologEx.Order.equal?(x, y, st.subst), do: backtrack(st), else: run(%{st | goals: rest})
+  end
+
   # current_prolog_flag/2 (ISO, geschützt) mit gebundenem Namen: das Flag
   # direkt lesen, deterministisch; sonst (Aufzählen, Fehler) das Builtin
   defp step({:struct, "current_prolog_flag", [f, v]} = goal, _cutb, mod, rest, st) do

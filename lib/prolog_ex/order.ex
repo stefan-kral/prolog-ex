@@ -28,7 +28,37 @@ defmodule PrologEx.Order do
     end
   end
 
-  def equal?(a, b, subst), do: compare(a, b, subst) == :eq
+  @doc """
+  `==/2`: gleich in der Standardordnung, ohne die Ordnung zu bestimmen.
+  Oben einmal `===` (in C; geteilte Terme in O(1)); sonst strukturell mit
+  billigen Blättern, die letzte Stelle (Listenrest) per Tail Call. Innen
+  kein `===` mehr: auf jeder Ebene wiederholt, wäre es bei spät
+  verschiedenen Termen quadratisch. Was sich nicht billig entscheiden lässt
+  – Floats (`-0.0`), `'.'/2` gegen Liste, verschiedene Klassen oder
+  Funktoren – entscheidet `compare/3`.
+  """
+  def equal?(a, b, subst) do
+    a = walk(a, subst)
+    b = walk(b, subst)
+    a === b or eq(PrologEx.unmark_top(a), PrologEx.unmark_top(b), subst)
+  end
+
+  defp same(a, b, subst),
+    do: eq(PrologEx.unmark_top(walk(a, subst)), PrologEx.unmark_top(walk(b, subst)), subst)
+
+  defp eq({:struct, f, xs}, {:struct, f, ys}, subst), do: eq_args(xs, ys, subst)
+  defp eq([x | xs], [y | ys], subst), do: same(x, y, subst) and same(xs, ys, subst)
+  defp eq({:var, v}, {:var, w}, _), do: v === w
+  defp eq({:var, _}, _, _), do: false
+  defp eq(_, {:var, _}, _), do: false
+  defp eq({:atom, x}, {:atom, y}, _), do: x === y
+  defp eq(x, y, _) when is_integer(x) and is_integer(y), do: x === y
+  defp eq([], [], _), do: true
+  defp eq(x, y, subst), do: compare(x, y, subst) == :eq
+
+  defp eq_args([x], [y], subst), do: same(x, y, subst)
+  defp eq_args([x | xs], [y | ys], subst), do: same(x, y, subst) and eq_args(xs, ys, subst)
+  defp eq_args(_, _, _), do: false
 
   @doc """
   Sind a und b Varianten (gleich bis auf eine eineindeutige Umbenennung der

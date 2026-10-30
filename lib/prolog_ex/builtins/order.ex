@@ -8,11 +8,11 @@ defmodule PrologEx.Builtins.Order do
   alias PrologEx.Builtins.Lists
 
   defbuiltin "==", [x, y] do
-    Order.compare(x, y, subst()) == :eq
+    Order.equal?(x, y, subst())
   end
 
   defbuiltin "\\==", [x, y] do
-    Order.compare(x, y, subst()) != :eq
+    not Order.equal?(x, y, subst())
   end
 
   defbuiltin "@<", [x, y] do
