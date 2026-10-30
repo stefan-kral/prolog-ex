@@ -530,7 +530,9 @@ defmodule PrologEx do
             {fresh, map}
 
           :error ->
-            fresh = {:var, "_B#{System.unique_integer([:positive])}"}
+            # Name ohne Zeichenkette: {:c, n} (eine Binary je frischer
+            # Variable kostete ~120 ns, ein Viertel der Kopie)
+            fresh = {:var, {:c, System.unique_integer([:positive])}}
             {fresh, Map.put(map, var, fresh)}
         end
 
@@ -1276,7 +1278,8 @@ defmodule PrologEx do
     end
   end
 
-  # functor/3, arg/3, =../2 (ISO, geschützt: kein Modul definiert sie um) ohne
+  # functor/3, arg/3, =../2, copy_term/2 (ISO, geschützt: kein Modul
+  # definiert sie um) ohne
   # den allgemeinen Aufrufweg eines Builtins; das Ergebnis außerhalb des
   # geschützten Bereichs (Endrekursion, Fehler der Fortsetzung bleiben ihre)
   defp step({:struct, "functor", [t, n, a]}, _cutb, mod, rest, st) do
@@ -1299,6 +1302,9 @@ defmodule PrologEx do
       _ -> call_pred(goal, mod, rest, st)
     end
   end
+
+  defp step({:struct, "copy_term", [t, c]}, _cutb, mod, rest, st),
+    do: apply_result(PrologEx.Builtins.Terms.copy_term(t, c, st.subst), mod, rest, st)
 
   defp step({:struct, "=..", [t, l]}, _cutb, mod, rest, st) do
     try do

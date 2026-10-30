@@ -46,7 +46,7 @@ defmodule PrologEx.WriterOpsTest do
     end
   end
 
-  defp norm(s), do: Regex.replace(~r/\b_[BG]?\d+/, s, "_")
+  defp norm(s), do: Regex.replace(~r/\b_[BCG]?\d+/, s, "_")
   defp canon(t), do: norm(Writer.format(t, quoted: true, ignore_ops: true))
 
   # bewusste Abweichung von gprolog: nach alphanumerischem Präfix-Operator

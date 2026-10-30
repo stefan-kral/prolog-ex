@@ -230,7 +230,23 @@ defmodule PrologEx.Builtins.Terms do
 
   # copy_term(T, C): Kopie mit frischen Variablen
   defbuiltin "copy_term", [t, c] do
-    {:unify, [{c, PrologEx.copy_fresh(t, subst())}]}
+    copy_term(t, c, subst())
+  end
+
+  @doc false
+  # copy_term/2 – auch direkt aus der Maschine (PrologEx.step/5). Die Kopie
+  # enthält nur frische Variablen: eine gewöhnliche ungebundene Variable C
+  # kann sie nicht enthalten, also direkt binden (kein Occurs-Check nötig);
+  # eine attributierte C unifiziert wie bisher (die Kopie wird an sie
+  # gebunden, ohne zu wecken)
+  def copy_term(t, c, s) do
+    copy = PrologEx.copy_fresh(t, s)
+
+    case PrologEx.walk(c, s) do
+      {:var, {:attv, _}} -> {:unify, [{c, copy}]}
+      {:var, _} = v -> {:subst, PrologEx.bind(v, copy, s)}
+      _ -> {:unify, [{c, copy}]}
+    end
   end
 
   # T =.. [Name | Args]

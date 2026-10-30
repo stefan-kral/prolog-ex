@@ -23,7 +23,7 @@ defmodule PrologEx.LambdaTest do
   defp err(c, text),
     do: norm(Exception.message(assert_raise(PrologEx.Error, fn -> ask(c, text) end)))
 
-  defp norm(text), do: Regex.replace(~r/_B\d+/, text, "_")
+  defp norm(text), do: Regex.replace(~r/_[BC]\d+/, text, "_")
 
   for lib <- ["lambda", "lambda_pl"] do
     describe "library(#{lib})" do

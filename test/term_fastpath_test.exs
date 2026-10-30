@@ -85,6 +85,40 @@ defmodule PrologEx.TermFastpathTest do
     assert err(c, "call(=.., _, foo)") == ["E = type_error(list,foo)"]
   end
 
+  test "copy_term/2: frische Variablen, geteilt bleibt geteilt, ground geteilt", c do
+    for direct <- [true, false] do
+      w = fn g -> if direct, do: g, else: "call((#{g}))" end
+      assert ask(c, w.("copy_term(f(X, Y, X), C)")) == ["C = f(_A,_B,_A)"]
+      assert ask(c, w.("copy_term(f(X, Y, X), f(a, B, D))")) == ["D = a"]
+      assert ask(c, w.("copy_term(f(a, b), C)")) == ["C = f(a,b)"]
+      assert ask(c, w.("copy_term(abc, C)")) == ["C = abc"]
+      assert ask(c, w.("copy_term(f(X), g(_))")) == []
+      # das Original bleibt unberührt
+      assert ask(c, w.("copy_term(X, C), C = 1, var(X)")) == ["C = 1"]
+      # C im Original: die Kopie enthält es nicht
+      assert ask(c, w.("copy_term(f(C), C)")) == ["C = f(_A)"]
+    end
+  end
+
+  test "copy_term/2 an attributierte Variable: wecken nur, wenn ein Term kommt", c do
+    # Kopie ist eine Variable: sie wird an C gebunden, nicht C an sie – kein Wecken
+    assert ask(c, "freeze(C, W = geweckt), copy_term(_, C), var(W)") |> hd() =~ "freeze(C,"
+    # Kopie ist ein Term: C wird gebunden und geweckt
+    assert ask(c, "freeze(C, W = geweckt), copy_term(f(a), C)") == ["C = f(a), W = geweckt"]
+    assert ask(c, "dif(C, f(a)), copy_term(f(a), C)") == []
+    assert ask(c, "dif(C, f(a)), copy_term(f(b), C)") == ["C = f(b)"]
+  end
+
+  test "kopierte Variablen schreiben sich als gültige Variablennamen", c do
+    out = ExUnit.CaptureIO.capture_io(fn -> ask(c, "copy_term(f(X, X), f(Y, _)), write(Y)") end)
+    assert out =~ ~r/^_[A-Z]\w*$/
+
+    out =
+      ExUnit.CaptureIO.capture_io(fn -> ask(c, "copy_term(X, Y), writeq(f(Y)), nl, print(Y)") end)
+
+    assert out =~ ~r/^f\(_[A-Z]\w*\)\n_[A-Z]\w*$/
+  end
+
   test "arg/3: Lösung, Grenzen, Fehler, Occurs-Check", c do
     assert ask(c, "arg(1, f(a, b, c), X)") == ["X = a"]
     assert ask(c, "arg(3, f(a, b, c), X)") == ["X = c"]

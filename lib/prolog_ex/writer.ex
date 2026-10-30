@@ -168,6 +168,7 @@ defmodule PrologEx.Writer do
   defp var_name(n, %{source_names: true}) when is_binary(n), do: n
   defp var_name(n, _o) when is_binary(n), do: "_" <> n
   defp var_name({:attv, id}, _o), do: "_V#{id}"
+  defp var_name({:c, id}, _o), do: "_C#{id}"
   defp var_name(n, _o), do: "_" <> inspect(n)
 
   # --- Strukturen ---------------------------------------------------------

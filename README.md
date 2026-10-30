@@ -1076,8 +1076,9 @@ Rekursion über die Argumente statt mit `Enum.map`/`Enum.reduce` und
 Closure: `findall/3` über strukturierte Terme wurde dadurch rund 30 %
 schneller (im Programm wie als Antwort), der Occurs-Check rund 25 %.
 
-`plus/3`, `functor/3`, `arg/3`, `=../2`, `once/1`, `ignore/1` und
-`current_prolog_flag/2` (mit gebundenem Namen) führt die Maschine selbst aus, statt
+`plus/3`, `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `once/1`,
+`ignore/1` und `current_prolog_flag/2` (mit gebundenem Namen) führt die
+Maschine selbst aus, statt
 den allgemeinen Aufrufweg eines Builtins zu gehen (`plus/3` wie `not/1`
 mit den Sichtbarkeitsregeln seiner Heimat; `functor/3` und `arg/3` sind
 geschützt, ohne Prüfung): `plus/3` rund 17 % schneller, nahe an `is/2`,
@@ -1109,6 +1110,14 @@ deterministisch (Aufzählen und Fehler wie bisher über das Builtin):
 Prolog-Terme vor (vorher bei jedem Lesen neu gebaut): `Flags.get/1`, das
 intern oft läuft (`swi_compat` bei jeder Heimat-Prüfung, `unknown`,
 `double_quotes`), wurde dadurch rund 28 % schneller.
+
+`copy_term/2` bindet eine gewöhnliche ungebundene Zielvariable direkt
+(die Kopie enthält nur frische Variablen, ein Occurs-Check ist nie
+nötig; an eine attributierte unifiziert es wie bisher). Frische
+Variablen der Kopie heißen `{:c, n}` statt `"_B<n>"`: eine Binary je
+Variable kostete etwa ein Viertel der Kopie (`write/1` zeigt sie als
+`_C<n>`). `copy_term/2` ground ≈ 35 %, mit Variablen ≈ 43 % schneller,
+`findall/3` über Terme mit Variablen ≈ 14 %.
 
 Allgemein werden Ziele aus Daten jetzt wie bei `call/1` zum Rumpf (ISO
 7.6.2) – auch `M:Rumpf` (`call/1` stieg bisher nicht hinein) und bei

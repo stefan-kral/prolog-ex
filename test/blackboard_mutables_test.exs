@@ -40,7 +40,7 @@ defmodule PrologEx.BlackboardMutablesTest do
 
   # frische Variablen nach Reihenfolge benennen
   defp norm(answers),
-    do: Enum.map(answers, &Regex.replace(~r/_B\d+/, &1, "_"))
+    do: Enum.map(answers, &Regex.replace(~r/_[BC]\d+/, &1, "_"))
 
   describe "library(blackboard)" do
     test "put, get, update, delete", c do
