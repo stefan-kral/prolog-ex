@@ -678,6 +678,31 @@ Land = de, S = 5100.
     `findall/3` mit `length/2`, `sum` und `max` rund 1,3–1,4-mal, und es
     bleibt kein Speicher liegen (statt rund 60 MB für die Liste).
 
+## Geordnete Mengen: `library(ordsets)`
+
+Mengen als geordnete Listen ohne Duplikate (Standardordnung der Terme),
+die Vereinigung der Bibliotheken von SWI (= Scryer) und SICStus:
+
+  * wie SWI und Scryer: `is_ordset/1`, `list_to_ord_set/2`,
+    `ord_add_element/3`, `ord_del_element/3`, `ord_selectchk/3` (beide
+    Richtungen), `ord_intersect/2,3`, `ord_intersection/2,3,4`,
+    `ord_disjoint/2`, `ord_subtract/3`, `ord_union/2,3,4`,
+    `ord_subset/2`, `ord_empty/1`, `ord_memberchk/2`, `ord_symdiff/3`,
+    `ord_seteq/2`
+  * dazu aus SICStus: `ord_member/2`, `ord_nonmember/2`,
+    `ord_setproduct/3` (Paare `X-Y`), `ord_disjoint_union/3` (scheitert
+    bei gemeinsamen Elementen), `ordset_order/3` (`<`, `=`, `>` für
+    Teil-, gleiche und Obermenge, sonst scheitert es)
+
+Die Prädikate sind in Elixir: Bei Mengen mit 10 000 Elementen dauern
+Vereinigung, Schnitt und Differenz unter einer Millisekunde, SWIs Fassung
+in Prolog braucht in unserer Maschine 40–50 ms. Anders als SWI und
+SICStus, die bei einer Nicht-Liste still scheitern oder Teillisten
+binden, prüfen sie ihre Mengen wie `sort/2`: Teilliste
+`instantiation_error`, keine Liste `type_error(list, X)`. Nur der Typtest
+`is_ordset/1` scheitert dann. Ob die Listen geordnet sind, prüft (wie
+dort) niemand. `library(aggregate)` nutzt sie für `foreach/2`.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):

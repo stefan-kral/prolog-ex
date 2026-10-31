@@ -31,6 +31,8 @@
                       aggregate_all/4,
                       foreach/2]).
 
+:- use_module(library(ordsets), [ord_subtract/3, ord_intersection/3]).
+
 :- meta_predicate(aggregate(?, ^, -)).
 :- meta_predicate(aggregate(?, ?, ^, -)).
 :- meta_predicate(aggregate_all(?, 0, -)).
@@ -88,12 +90,12 @@ pairs_values_([_-V|Ps], [V|Vs]) :-
 %   ?- foreach(member(X, [1,2,3]), dif(Y, X)), Y = 4.   % gelingt
 %   ?- foreach(between(1, 4, X), dif(X, Y)), Y = 3.     % scheitert
 foreach(Generator, Goal) :-
-    term_variables(Generator, GenVars),
-    term_variables(Goal, GoalVars),
-    vars_subtract_(GoalVars, GenVars, SharedGoalVars),
+    term_variables(Generator, GenVars0), sort(GenVars0, GenVars),
+    term_variables(Goal, GoalVars0), sort(GoalVars0, GoalVars),
+    ord_subtract(GoalVars, GenVars, SharedGoalVars),
     (   SharedGoalVars == [] ->
         \+ (Generator, \+ Goal)
-    ;   vars_intersect_(GenVars, GoalVars, SharedVars),
+    ;   ord_intersection(GenVars, GoalVars, SharedVars),
         Templ =.. [v|SharedVars],
         SharedTempl =.. [v|SharedGoalVars],
         findall(Templ, Generator, List),
@@ -105,22 +107,3 @@ prove_list_([H|T], Templ, SharedTempl, Goal) :-
     copy_term(Templ/SharedTempl/Goal, H/SharedTempl/Copy),
     call(Copy),
     prove_list_(T, Templ, SharedTempl, Goal).
-
-vars_subtract_([], _, []).
-vars_subtract_([V|Vs], Ws, Rs) :-
-    (   var_memberchk_(V, Ws) -> Rs = Rs1
-    ;   Rs = [V|Rs1]
-    ),
-    vars_subtract_(Vs, Ws, Rs1).
-
-vars_intersect_([], _, []).
-vars_intersect_([V|Vs], Ws, Rs) :-
-    (   var_memberchk_(V, Ws) -> Rs = [V|Rs1]
-    ;   Rs = Rs1
-    ),
-    vars_intersect_(Vs, Ws, Rs1).
-
-var_memberchk_(V, [W|Ws]) :-
-    (   V == W -> true
-    ;   var_memberchk_(V, Ws)
-    ).

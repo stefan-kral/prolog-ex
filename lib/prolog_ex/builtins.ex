@@ -68,6 +68,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.ScryerPrims,
     PrologEx.Builtins.Http,
     PrologEx.Builtins.AggregatePrims,
+    PrologEx.Builtins.Ordsets,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt
