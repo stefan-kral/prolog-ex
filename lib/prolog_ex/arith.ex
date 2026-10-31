@@ -1,4 +1,12 @@
 defmodule PrologEx.Arith do
+  @float_only [
+    "round",
+    "floor",
+    "ceiling",
+    "truncate",
+    "float_integer_part",
+    "float_fractional_part"
+  ]
   @moduledoc """
   Arithmetik: Auswertung für `is/2` und die Vergleiche (`=:=`, `<`, ...).
 
@@ -214,11 +222,15 @@ defmodule PrologEx.Arith do
   defp eval1("float", x), do: float!(x)
   defp eval1("integer", x) when is_integer(x), do: x
   defp eval1("integer", x), do: round(x)
+  @float_only ~w(round floor ceiling truncate float_integer_part float_fractional_part)
+
+  # ISO 9.1.1: Float → Float bzw. Float → Integer; ein Integer als
+  # Argument ist type_error(float, X) (ISO 9.1.6, 9.3.x; SWI erlaubt ihn)
+  defp eval1(f, x) when is_integer(x) and f in @float_only, do: Error.type!("float", x)
   defp eval1("float_integer_part", x), do: float!(trunc(x))
-  defp eval1("float_fractional_part", x) when is_integer(x), do: 0.0
   defp eval1("float_fractional_part", x), do: x - trunc(x)
   defp eval1("truncate", x), do: trunc(x)
-  defp eval1("round", x), do: round(x)
+  defp eval1("round", x), do: iso_round(x)
   defp eval1("floor", x), do: floor(x)
   defp eval1("ceiling", x), do: ceil(x)
 
@@ -310,6 +322,15 @@ defmodule PrologEx.Arith do
 
   defp int!(x) when is_integer(x), do: x
   defp int!(x), do: Error.type!("integer", x)
+
+  # ISO 9.1.6.1: round(x) = floor(x + 1/2) – Halbwerte nach oben, auch
+  # negative (round(-3.5) = -3; C, Rust, Elixir: weg von 0, -4). Nicht
+  # wörtlich in Gleitkomma: x + 0.5 rundet selbst (0.49999999999999994 + 0.5
+  # ergäbe 1.0); x - floor(x) ist für Floats exakt.
+  defp iso_round(x) do
+    f = floor(x)
+    if x - f >= 0.5, do: f + 1, else: f
+  end
 
   defp divisor!(y) do
     y = int!(y)

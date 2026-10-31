@@ -340,8 +340,12 @@ cells(Fs0, Args, Tab, Es, VNs) -->
           Fs1 = [_|_] },
         cells(Fs, Args, Tab, [chars(Fs1)|Es], VNs).
 
-float_with_n_decimal_digits(F, N) -->
-   {  Fr is abs(float_fractional_part(F)),
+% Abweichung von Scryer: erst in einen Float wandeln. Scryers Arithmetik
+% nimmt bei float_fractional_part/1 und truncate/1 auch Ganzzahlen, ISO
+% (und PrologEx) nicht: type_error(float, 3) für format("~2f", [3]).
+float_with_n_decimal_digits(F0, N) -->
+   {  F is float(F0),
+      Fr is abs(float_fractional_part(F)),
       FrR0 is round(Fr*10^N),
       I0 is truncate(F),
       (  FrR0 >= 10^N

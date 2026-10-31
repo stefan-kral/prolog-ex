@@ -997,8 +997,16 @@ mix run conformance/run.exs /pfad/logtalk3 [predicates/atom_length_2] [--failure
 
 Stand: Alle Tests aus der ISO-Norm und aus dem Konformitätsrahmen von
 Szabó/Szeredi bestehen. Bewusst anders als SICStus: `sub_atom/5` mit
-negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Gesamt:
-4 072 bestanden, 134 fehlgeschlagen, 206 übersprungen. Die übrigen
+negativen Zahlen scheitert (ISO sieht keinen Fehler vor). Arithmetik
+streng nach ISO: `round(X)` ist `floor(X + 1/2)`, Halbwerte also immer
+nach oben (`round(-3.5)` ist -3, nicht -4 wie in C, SWI und Scryer;
+exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
+`floor/1`, `ceiling/1`, `truncate/1`, `float_integer_part/1`,
+`float_fractional_part/1` nehmen nur Floats – eine Ganzzahl ist
+`type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
+Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
+Float). Gesamt: 4 080 bestanden, 126 fehlgeschlagen, 206 übersprungen.
+Die übrigen
 Fehlschläge betreffen Logtalk-, ECLiPSe- und „commons“-Erweiterungen
 (Klauselreferenzen, `evaluable_property/2`, `atomic_concat/3`, die
 logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
