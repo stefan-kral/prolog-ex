@@ -32,6 +32,7 @@
                       foreach/2]).
 
 :- use_module(library(ordsets), [ord_subtract/3, ord_intersection/3]).
+:- use_module(library(pairs), [pairs_values/2]).
 
 :- meta_predicate(aggregate(?, ^, -)).
 :- meta_predicate(aggregate(?, ?, ^, -)).
@@ -55,7 +56,7 @@ aggregate(Template, Goal, Result) :-
 aggregate(Template, Discriminator, Goal, Result) :-
     '$aggregate_check'(Template),
     setof(Discriminator-Template, Goal, Pairs),
-    pairs_values_(Pairs, List),
+    pairs_values(Pairs, List),
     '$aggregate_list'(Template, List, Result).
 
 %% aggregate_all(+Template, :Generator, -Result)
@@ -73,12 +74,8 @@ aggregate_all(Template, Discriminator, Goal, Result) :-
     '$aggregate_check'(Template),
     findall(Discriminator-Template, Goal, Pairs0),
     sort(Pairs0, Pairs),
-    pairs_values_(Pairs, List),
+    pairs_values(Pairs, List),
     '$aggregate_list'(Template, List, Result).
-
-pairs_values_([], []).
-pairs_values_([_-V|Ps], [V|Vs]) :-
-    pairs_values_(Ps, Vs).
 
 %% foreach(:Generator, :Goal)
 %

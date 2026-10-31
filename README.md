@@ -453,6 +453,12 @@ ist jeweils am Dateianfang vermerkt.
   * `chars_utf8bytes/2`, `chars_base64/3`, `get_line_to_chars/3`,
     `get_n_chars/3` und `get_single_char/1`. Letzteres ist bei uns
     zeilengepuffert.
+* `library(pairs)` (wie SWI): `pairs_keys_values/3`, `pairs_keys/2`,
+  `pairs_values/2` (relational, in jede Richtung), `group_pairs_by_key/2`
+  (benachbarte Paare mit `==`-gleichem Schlüssel), `map_list_to_pairs/3`
+  (Prädikat im Modul des Aufrufers) und, aus SWI ergänzt,
+  `transpose_pairs/2` (Paare getauscht, stabil nach dem neuen Schlüssel
+  sortiert). `library(aggregate)` nutzt sie.
 * `library(dcgs)` bietet `seq//1`, `seqq//1` und `...//0`. `phrase/2,3`
   und die DCG-Übersetzung bleiben die eingebauten.
 * `append/2` (Liste von Listen) steht jetzt in `library(lists)`, wie in
