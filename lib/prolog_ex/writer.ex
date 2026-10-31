@@ -41,9 +41,15 @@ defmodule PrologEx.Writer do
     * `operand: true` – der ganze Term ist Operand eines Operators
       (Operator-Atome dann in Klammern: `X = (-)`).
     * `variable_names: %{var => "Name"}` – Variablen mit diesen Namen
-      (ISO `variable_names/1`).
-    * `source_names: true` – sonst unbenannte Variablen mit ihrem Namen aus
-      dem Quelltext (Toplevel-Antworten); ohne: `_` davor (`_A`).
+      (ISO `variable_names/1`). Alle anderen Variablen heißen `_A`, `_B`,
+      ..., `_Z`, `_AA`, ... in Reihenfolge ihres ersten Auftretens im Term
+      (ISO 7.10.5: `_` und eine Zeichenfolge, gleiche Variable gleicher
+      Name, verschiedene verschieden) – nie die interne Kennung, die
+      verriete den Quelltextnamen (`_B`) oder schwankte je nach Herkunft
+      (`_G12`, `_C7`, `_0`).
+    * `source_names: true` – Variablen mit ihrem Namen aus dem Quelltext,
+      frische unverändert (Toplevel-Antworten, die ihre frischen Variablen
+      selbst über `variable_names` benennen; `listing/1`).
     * `ops:` – Operatortabelle (Standard: die der Sitzung, `PrologEx.Ops`).
     * `portray: fun` – vor jedem Teilterm (außer Variablen) gefragt:
       `{:ok, text}` ersetzt ihn, `:no` schreibt ihn normal (print/1).
@@ -67,9 +73,69 @@ defmodule PrologEx.Writer do
     }
 
     role = if Keyword.get(opts, :operand, false), do: :operand, else: :arg
-    {io, _, _} = w(t, Keyword.get(opts, :priority, 1200), role, 1, o)
-    IO.iodata_to_binary(io)
+    max = Keyword.get(opts, :priority, 1200)
+
+    if o.source_names do
+      {io, _, _} = w(t, max, role, 1, o)
+      IO.iodata_to_binary(io)
+    else
+      # frische Namen beim ersten Auftreten in der Ausgabe (= Reihenfolge im
+      # Term), ohne eigenen Durchlauf: Zustand {Namen, nächste Nummer,
+      # vergebene Namen} im Prozesswörterbuch unter einem eigenen Schlüssel
+      # (verschachtelte Ausgaben, portray/1, stören sich nicht)
+      key = {__MODULE__, make_ref()}
+
+      try do
+        {io, _, _} = w(t, max, role, 1, %{o | var_names: {key, o.var_names}})
+        IO.iodata_to_binary(io)
+      after
+        Process.delete(key)
+      end
+    end
   end
+
+  @doc """
+  `named` (Variable → Name) ergänzt um `_A`, `_B`, ... für alle weiteren
+  Variablen der Terme, in Reihenfolge ihres ersten Auftretens; vergebene
+  Namen und `reserved` werden übersprungen. Markierte (variablenfreie)
+  Terme kosten nichts: term_vars steigt nur in {:struct, _, _} und [_ | _]
+  ab.
+  """
+  def fresh_names(terms, named, reserved \\ []) do
+    taken = taken(Map.new(reserved, &{&1, &1}) |> Map.merge(named))
+    {names, _} = Enum.reduce(terms, {named, 0}, &term_vars(&1, &2, taken))
+    names
+  end
+
+  # Namen vergeben beim ersten Auftreten; {Namen, nächste Nummer}
+  defp term_vars({:var, _} = v, {names, i} = acc, taken) do
+    if Map.has_key?(names, v) do
+      acc
+    else
+      {name, i} = next_fresh_name(i, taken)
+      {Map.put(names, v, name), i + 1}
+    end
+  end
+
+  defp term_vars({:struct, _, args}, acc, taken), do: args_vars(args, acc, taken)
+  defp term_vars([h | t], acc, taken), do: term_vars(t, term_vars(h, acc, taken), taken)
+  defp term_vars(_, acc, _taken), do: acc
+
+  # letztes Argument (Listenrest, f(1, f(2, ...))) per Tail Call
+  defp args_vars([a], acc, taken), do: term_vars(a, acc, taken)
+  defp args_vars([a | as], acc, taken), do: args_vars(as, term_vars(a, acc, taken), taken)
+  defp args_vars([], acc, _taken), do: acc
+
+  defp next_fresh_name(i, nil), do: {"_" <> letters(i), i}
+
+  defp next_fresh_name(i, taken) do
+    name = "_" <> letters(i)
+    if MapSet.member?(taken, name), do: next_fresh_name(i + 1, taken), else: {name, i}
+  end
+
+  # 0 -> A, 25 -> Z, 26 -> AA, 27 -> AB, ... (bijektiv zur Basis 26)
+  defp letters(i) when i < 26, do: <<?A + i>>
+  defp letters(i), do: letters(div(i, 26) - 1) <> <<?A + rem(i, 26)>>
 
   @doc "Optionen für Toplevel-Antworten, writeq und print"
   def answer_opts do
@@ -131,10 +197,30 @@ defmodule PrologEx.Writer do
   defp plain(t, _max, role, _d, o, st), do: ret(st, leaf(t, role, o), o)
 
   # Variablen: Ränder Buchstabe/_ (für glue? zählt nur die Klasse)
-  defp leaf({:var, n} = v, _role, o) do
-    case o.var_names do
+  defp leaf({:var, n} = v, _role, %{var_names: names} = o) when is_map(names) do
+    case names do
       %{^v => name} -> piece(name)
       _ -> {var_name(n, o), ?_, ?_}
+    end
+  end
+
+  # Zustand erst bei der ersten Variable anlegen: variablenfreie Ausgaben
+  # kosten nur den Schlüssel
+  defp leaf({:var, _} = v, _role, %{var_names: {key, given}}) do
+    {names, i, taken} =
+      case Process.get(key) do
+        nil -> {given, 0, taken(given)}
+        state -> state
+      end
+
+    case names do
+      %{^v => name} ->
+        piece(name)
+
+      _ ->
+        {name, i} = next_fresh_name(i, taken)
+        Process.put(key, {Map.put(names, v, name), i + 1, taken})
+        piece(name)
     end
   end
 
@@ -159,14 +245,18 @@ defmodule PrologEx.Writer do
 
   defp leaf(other, _role, _o), do: piece(inspect(other))
 
-  # Eine Variable beginnt mit _ (ISO 7.10.5: "_" gefolgt von einer
-  # Zeichenfolge), auch wenn sie im Quelltext A hieß – sonst sähe sie aus
-  # wie ein Name. Nur die Antworten im Toplevel (source_names) zeigen die
-  # Namen der Anfrage.
+  # vergebene Namen (variable_names), die frische nicht bekommen dürfen
+  defp taken(given) do
+    case Map.values(given) do
+      [] -> nil
+      l -> MapSet.new(l)
+    end
+  end
+
+  # Nur noch mit source_names erreichbar (sonst hat fresh_names/3 jede
+  # Variable benannt): Namen aus dem Quelltext, frische mit ihrer Kennung
+  defp var_name(n, _o) when is_binary(n), do: n
   defp var_name(n, _o) when is_integer(n), do: "_G#{n}"
-  defp var_name("_" <> _ = n, _o), do: n
-  defp var_name(n, %{source_names: true}) when is_binary(n), do: n
-  defp var_name(n, _o) when is_binary(n), do: "_" <> n
   defp var_name({:attv, id}, _o), do: "_V#{id}"
   defp var_name({:c, id}, _o), do: "_C#{id}"
   defp var_name(n, _o), do: "_" <> inspect(n)

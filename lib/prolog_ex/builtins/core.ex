@@ -164,13 +164,13 @@ defmodule PrologEx.Builtins.Core do
   benutzerdefiniertes portray/1, wird es für jeden Teilterm (außer
   Variablen) gefragt; gelingt es, ersetzt seine Ausgabe den Teilterm.
   """
-  def print_text(t, s) do
+  def print_text(t, s, extra \\ []) do
     opts =
       if Map.has_key?(PrologEx.current_db(), {"user", "portray", 1}),
         do: [{:portray, &portray/1} | writeq_opts()],
         else: writeq_opts()
 
-    PrologEx.Writer.format(PrologEx.resolve(t, s), opts)
+    PrologEx.Writer.format(PrologEx.resolve(t, s), opts ++ extra)
   end
 
   # user:portray(T) als Unteranfrage, Ausgabe in einen Speicher-Stream

@@ -46,7 +46,7 @@ defmodule PrologEx.WriterOpsTest do
     end
   end
 
-  defp norm(s), do: Regex.replace(~r/\b_[BCG]?\d+/, s, "_")
+  defp norm(s), do: Regex.replace(~r/\b_[A-Z]*\d*\b/, s, "_")
   defp canon(t), do: norm(Writer.format(t, quoted: true, ignore_ops: true))
 
   # bewusste Abweichung von gprolog: nach alphanumerischem Präfix-Operator
@@ -230,7 +230,7 @@ defmodule PrologEx.WriterOpsTest do
       assert Writer.format(a("-")) == "-"
 
       x = v("X")
-      assert Writer.format(mk("f", [x, v("Y")]), variable_names: %{x => "Foo"}) == "f(Foo,_Y)"
+      assert Writer.format(mk("f", [x, v("Y")]), variable_names: %{x => "Foo"}) == "f(Foo,_A)"
     end
 
     test "ignore_ops: kanonisch" do

@@ -244,7 +244,7 @@ defmodule PrologEx.ParserTest do
     items
     |> Enum.map(fn
       :error -> :error
-      s -> Regex.replace(~r/\b_\d+\b/, s, "_")
+      s -> Regex.replace(~r/\b_[A-Z]*\d*\b/, s, "_")
     end)
     |> Enum.dedup()
   end

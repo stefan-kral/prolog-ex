@@ -57,8 +57,18 @@ defmodule PrologEx.Builtins.Format do
   @doc false
   def format(id, f, args, s) do
     ctl = control!(f, s)
-    as = args!(args, s)
-    st = %{done: [], pend: [], col: S.get(id).line_pos, start: S.get(id).line_pos}
+    as = args!(args, s) |> Enum.map(&PrologEx.resolve(&1, s))
+
+    # frische Variablen über alle Argumente einer Anweisung hinweg benannt:
+    # format("~w ~w", [X, Y]) schreibt _A _B, nicht zweimal _A
+    st = %{
+      done: [],
+      pend: [],
+      col: S.get(id).line_pos,
+      start: S.get(id).line_pos,
+      names: Writer.fresh_names(as, %{})
+    }
+
     st = run(ctl, as, st, s)
     S.put_text(id, finish(st))
     :ok
@@ -161,13 +171,19 @@ defmodule PrologEx.Builtins.Format do
 
   defp directive(d, _n, rest, args, st, s) when d in [?w, ?p, ?q, ?k] do
     {t, args} = next(args)
-    run(rest, args, emit(st, write_text(d, t, s)), s)
+    run(rest, args, emit(st, write_text(d, t, s, variable_names: st.names)), s)
   end
 
+  # ~W: eigene variable_names gehen vor; die übrigen Variablen wie bei ~w,
+  # sofern deren Namen nicht vergeben sind
   defp directive(?W, _n, rest, args, st, s) do
     {t, args} = next(args)
     {opts, args} = next(args)
-    text = Writer.format(PrologEx.resolve(t, s), Core.write_options(opts, s))
+    wo = Core.write_options(opts, s)
+    given = Keyword.get(wo, :variable_names, %{})
+    taken = Map.values(given)
+    names = st.names |> Map.reject(fn {_, n} -> n in taken end) |> Map.merge(given)
+    text = Writer.format(t, Keyword.put(wo, :variable_names, names))
     run(rest, args, emit(st, text), s)
   end
 
@@ -282,12 +298,11 @@ defmodule PrologEx.Builtins.Format do
 
   # --- Hilfen ---------------------------------------------------------------
 
-  defp write_text(?w, t, s), do: Writer.format(PrologEx.resolve(t, s), numbervars: true)
-  defp write_text(?q, t, s), do: Writer.format(PrologEx.resolve(t, s), Core.writeq_opts())
-  defp write_text(?p, t, s), do: Core.print_text(t, s)
-
-  defp write_text(?k, t, s),
-    do: Writer.format(PrologEx.resolve(t, s), quoted: true, ignore_ops: true)
+  # die Argumente sind schon aufgelöst
+  defp write_text(?w, t, _s, o), do: Writer.format(t, [numbervars: true] ++ o)
+  defp write_text(?q, t, _s, o), do: Writer.format(t, Core.writeq_opts() ++ o)
+  defp write_text(?p, t, s, o), do: Core.print_text(t, s, o)
+  defp write_text(?k, t, _s, o), do: Writer.format(t, [quoted: true, ignore_ops: true] ++ o)
 
   # Ausdruck auswerten; muss eine Ganzzahl ergeben
   defp int!(t, s) do
