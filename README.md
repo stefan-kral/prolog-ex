@@ -744,6 +744,64 @@ unserer Maschine: 20 000 `put_assoc/4` (aufsteigend) 420 statt 2 123 ms,
 20 000 `get_assoc/3` 575 statt 2 613 ms, `list_to_assoc/2` mit 20 000
 Paaren 45 statt 168 ms, `assoc_to_list/2` 357 statt 474 ms.
 
+## Graphen: `library(ugraphs)`, `library(wgraphs)`
+
+Gerichtete Graphen als Listen von Paaren `Knoten-Nachbarn`, Knoten und
+Nachbarn nach der Standardordnung, jeder Nachbar selbst ein Knoten (wie
+SWI, Scryer und SICStus); Knoten sind beliebige Terme, gleich heißt `==`.
+Ein ungerichteter Graph hat zu jeder Kante die Gegenkante.
+
+`library(ugraphs)` (ungewichtet) ist die Vereinigung von SWI/Scryer und
+SICStus:
+
+  * beide: `vertices_edges_to_ugraph/3`, `vertices/2`, `edges/2`,
+    `add_vertices/3`, `del_vertices/3`, `add_edges/3`, `del_edges/3`,
+    `transpose_ugraph/2`, `neighbors/3`, `neighbours/3`, `complement/2`,
+    `compose/3`, `transitive_closure/2`, `top_sort/2`, `reachable/3`
+  * SWI und Scryer: `top_sort/3` (Differenzliste), `ugraph_union/3`,
+    `connect_ugraph/3`
+  * SICStus: `symmetric_closure/2`, `transitive_reduction/2`,
+    `max_path/5`, `min_path/5`, `min_paths/3`, `path/3` (nichtdeterministisch),
+    `reduce/2` (starke Zusammenhangskomponenten), `random_ugraph/3`,
+    `min_tree/3` (Prim), `max_cliques/2` (Bron–Kerbosch)
+
+`library(wgraphs)` (gewichtet) wie SICStus: Nachbarn sind Paare
+`Nachbar-Gewicht`, eine Kante ist `U-(V-W)`. `wgraph_to_ugraph/2`,
+`ugraph_to_wgraph/2,3`, `vertices_edges_to_wgraph/3`, `vertices/2`,
+`edges/2`, `add_vertices/3`, `del_vertices/3`, `add_edges/3`,
+`del_edges/3`, `transpose_wgraph/2`, `neighbors/3`, `neighbours/3`,
+`transitive_closure/2` (kürzeste Wege), `symmetric_closure/2`,
+`top_sort/2`, `max_path/5`, `min_path/5` und `min_paths/3` (Dijkstra),
+`path/3`, `reduce/2`, `reachable/3`, `random_wgraph/4`, `min_tree/3`
+(Kruskal). Doppelte Kanten behalten das kleinste Gewicht. Viele Namen
+gibt es in beiden Bibliotheken; wer beide braucht, importiert eine davon
+mit leerer Liste und ruft sie mit `wgraphs:` auf.
+
+Die Ergebnisse sind dieselben wie bei den Vorbildern: Ein Test vergleicht
+zufällige Graphen mit SWIs Prolog-Fassung (`test/fixtures/ugraphs_swi.pl`),
+die SICStus-Prädikate wurden ebenso mit SICStus' Algorithmen verglichen
+(bei gleich langen Pfaden und gleichen Gewichten gewinnt derselbe), und
+ein Test prüft Pfade, Abschlüsse, Komponenten, Cliquen und Spannbäume
+gegen Aufzählen. Wo SWI und SICStus sich widersprechen, erreicht beim
+transitiven Abschluss ein Knoten auf einem Zyklus sich selbst (SWI;
+SICStus lässt diese Schlingen weg). Bewusst anders in Randfällen:
+`path/3` nimmt auch über eine Schlinge keinen Knoten zweimal,
+`min_tree/3` eines einzelnen Knotens ist `[V-[]]` (SICStus: `[]`),
+gewichtet behalten `min_paths/3` den Startknoten und `max_path/5` eine
+Kante mit Gewicht 0, und `del_vertices/3` entfernt alle genannten Knoten
+(SWI behält einen, wenn davor ein fehlender genannt ist). Fehler: ein
+Graph, eine Knoten- oder Kantenliste als Teilliste `instantiation_error`,
+keine Liste `type_error(list, X)`, ein Element ohne `-`
+`type_error(pair, X)`, ein Gewicht keine Zahl `type_error(number, W)`;
+`random_ugraph/3` verlangt wie SICStus einen Float in [0.0, 1.0].
+
+Die Prädikate sind in Elixir (Knoten intern über Sortierschlüssel, die
+die BEAM ohne Rückruf vergleicht). Gegenüber SWIs Fassung in Prolog in
+unserer Maschine: `top_sort/2` mit 1 000 Knoten 1 statt 4 524 ms,
+`reachable/3` mit 2 000 Knoten 5 statt 4 800 ms, `transitive_closure/2`
+mit 200 Knoten 19 statt 384 ms, `transpose_ugraph/2` mit 2 000 Knoten 7
+statt 69 ms.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):

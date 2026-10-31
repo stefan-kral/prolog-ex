@@ -70,6 +70,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.AggregatePrims,
     PrologEx.Builtins.Ordsets,
     PrologEx.Builtins.Assoc,
+    PrologEx.Builtins.Ugraphs,
+    PrologEx.Builtins.Wgraphs,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt
