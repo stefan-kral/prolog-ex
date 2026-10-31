@@ -281,6 +281,7 @@ defmodule PrologEx.Toplevel do
   # ohne Rückfrage zeigen, bis die Seite voll ist (siehe Moduldoku).
   # used: auf dieser Seite schon gezeigte Antworten bzw. Zeilen
   defp show_next({{:suspended, {ans, more?}, cont}, effects?}, order, page, used) do
+    fresh_line()
     text = PrologEx.format_answer(ans, order)
     used = used + size(text, page)
 
@@ -307,7 +308,17 @@ defmodule PrologEx.Toplevel do
     end
   end
 
-  defp show_next({_done, _effects?}, _order, _page, _used), do: IO.puts("false.")
+  defp show_next({_done, _effects?}, _order, _page, _used) do
+    fresh_line()
+    IO.puts("false.")
+  end
+
+  # Antworten beginnen am Zeilenanfang: hat die Anfrage auf user_output
+  # geschrieben, ohne die Zeile zu beenden (write(x) ohne nl), erst ein
+  # Zeilenumbruch – wie SWI und Scryer; sonst stünde "xtrue."
+  defp fresh_line do
+    if PrologEx.Stream.get(1).line_pos != 0, do: PrologEx.Stream.put_text(1, "\n")
+  end
 
   defp ask(text, cont, order, page) do
     case IO.gets(text <> " ") do

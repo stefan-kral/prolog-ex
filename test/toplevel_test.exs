@@ -41,6 +41,15 @@ defmodule PrologEx.ToplevelTest do
       assert out =~ "w(a)\nX = a w(b)\nX = b."
     end
 
+    test "Ausgabe ohne Zeilenende: Antwort auf neuer Zeile (wie SWI, Scryer)" do
+      assert top("write(x).\n") =~ "x\ntrue."
+      assert top("write(x), nl.\n") =~ "x\ntrue."
+      refute top("write(x), nl.\n") =~ "x\n\ntrue."
+      assert top("X = 1, write(z).\n") =~ "z\nX = 1."
+      assert top("write(y), fail.\n") =~ "y\nfalse."
+      assert top("member(X, [a, b]), write(X).\n;\n") =~ "a\nX = a b\nX = b."
+    end
+
     test "Seiteneffekte beim Vorausrechnen werden verworfen" do
       out =
         top("""
