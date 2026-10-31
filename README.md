@@ -709,6 +709,41 @@ binden, prüfen sie ihre Mengen wie `sort/2`: Teilliste
 `is_ordset/1` scheitert dann. Ob die Listen geordnet sind, prüft (wie
 dort) niemand. `library(aggregate)` nutzt sie für `foreach/2`.
 
+## Zuordnungen: `library(assoc)`
+
+Schlüssel-Wert-Zuordnungen als AVL-Bäume in der Darstellung von SWI und
+Scryer (`t` leer, sonst `t(K, V, Balance, L, R)` mit Balance `<`, `-`,
+`>`); Schlüssel nach der Standardordnung (`==`, nicht Unifikation). Die
+API ist die Vereinigung von SWI und SICStus:
+
+  * `empty_assoc/1`, `get_assoc/3`, `get_assoc/5` (Wert ersetzen),
+    `put_assoc/4`, `del_assoc/4`, `del_min_assoc/4`, `del_max_assoc/4`,
+    `min_assoc/3`, `max_assoc/3`, `gen_assoc/3` (Schlüssel ground:
+    nachschlagen, sonst aufsteigend aufzählen), `list_to_assoc/2`,
+    `ord_list_to_assoc/2`, `assoc_to_list/2`, `assoc_to_keys/2`,
+    `assoc_to_values/2`, `is_assoc/1`, `map_assoc/2,3`
+  * dazu aus SICStus: `get_next_assoc/4`, `get_prev_assoc/4` (nächster
+    größerer bzw. kleinerer Schlüssel; K muss nicht vorkommen),
+    `portray_assoc/1` (`<a-1,b-2>`)
+
+SICStus nimmt unbalancierte Bäume (`t(K,V,L,R)`), die bei aufsteigend
+eingefügten Schlüsseln zur Liste entarten; wir nehmen AVL wie SWI und
+Scryer, damit jede Operation logarithmisch bleibt. Die Bäume sind Term für
+Term dieselben wie bei SWI: Einfügen, Löschen und Rotationen folgen
+dessen Algorithmus, und ein Test vergleicht zufällige Folgen von
+Operationen mit SWIs Prolog-Fassung (`test/fixtures/assoc_swi.pl`).
+Fehler wie SWI: freier Baum `instantiation_error`, kein Baum
+`type_error(assoc, X)`, doppelte Schlüssel bei `list_to_assoc/2`
+`domain_error(unique_key_pairs, L)`, ungeordnete bei
+`ord_list_to_assoc/2` `domain_error(key_ordered_pairs, L)`, ein Element
+ohne `-` `type_error(pair, X)`. `is_assoc/1` prüft den ganzen Baum
+(Ordnung, Balance, ground Schlüssel) und scheitert sonst.
+
+Die Operationen sind in Elixir; gegenüber SWIs Fassung in Prolog in
+unserer Maschine: 20 000 `put_assoc/4` (aufsteigend) 420 statt 2 123 ms,
+20 000 `get_assoc/3` 575 statt 2 613 ms, `list_to_assoc/2` mit 20 000
+Paaren 45 statt 168 ms, `assoc_to_list/2` 357 statt 474 ms.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
