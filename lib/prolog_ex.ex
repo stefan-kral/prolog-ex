@@ -1477,6 +1477,39 @@ defmodule PrologEx do
     end
   end
 
+  # '$aggregate_all'(T, G, R) (library(aggregate)): die Lösungen von G
+  # in das Template T falten (PrologEx.Aggregate), ohne sie zu sammeln –
+  # count, sum, min, max mit konstantem Speicher; Template vorab geprüft
+  defp step({:struct, "$aggregate_all", [t, g, r]}, _cutb, mod, rest, st) do
+    folded =
+      guarded(fn ->
+        spec = PrologEx.Aggregate.spec!(t, st.subst)
+
+        acc =
+          fold(
+            run(sub_machine(t, body!(g, st.subst), mod, st)),
+            spec,
+            PrologEx.Aggregate.init(spec)
+          )
+
+        PrologEx.Aggregate.result(spec, acc)
+      end)
+
+    case folded do
+      {:ok, {:ok, v}} ->
+        case unify(r, v, st.subst) do
+          {:ok, s} -> cont(st, s, rest)
+          :error -> backtrack(st)
+        end
+
+      {:ok, :fail} ->
+        backtrack(st)
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+    end
+  end
+
   # countall(G, N): Anzahl der Lösungen von G, ohne sie zu sammeln
   # (konstanter Speicher, anders als findall + length)
   defp step({:struct, "countall", _} = goal, cutb, mod, rest, st),
@@ -2777,6 +2810,14 @@ defmodule PrologEx do
     if n != :infinity and k >= n,
       do: {Enum.reverse(acc), {:more, s}},
       else: collect(backtrack(s), n, acc, k)
+  end
+
+  defp fold(:done, _spec, acc), do: acc
+
+  defp fold({:sol, s}, spec, acc) do
+    [{_, t}] = s.answer
+    acc = PrologEx.Aggregate.step(spec, t, s.subst, acc, &copy_fresh/2)
+    fold(backtrack(s), spec, acc)
   end
 
   defp count(:done, k), do: k

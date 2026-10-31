@@ -636,6 +636,48 @@ gemischtes `numlist(1, N, L)`), `randset/3` (dasselbe sortiert),
 anfangs zufällig; `set_random(seed(N))` macht Läufe reproduzierbar.
 `randseq(1000000, 1000000, L)` dauert etwa 1 s.
 
+## Aggregieren: `library(aggregate)`
+
+Zwischen SWI-Prolog und SICStus: die Prädikate beider Systeme,
+`aggregate/3,4`, `aggregate_all/3,4` und `foreach/2`, mit den Templates,
+die beide kennen.
+
+```prolog
+?- use_module(library(aggregate)).
+?- aggregate_all(r(count, sum(A), max(A, N)), age(N, A), R).
+R = r(5,42,max(11,ann)).
+?- aggregate(sum(P), C^city(C, Land, P), S).    % je Land eine Lösung
+Land = at, S = 2300 ;
+Land = de, S = 5100.
+```
+
+  * Templates: `count`, `sum(E)`, `min(E)`, `max(E)`, `min(E, W)`,
+    `max(E, W)` (Ergebnis `max(Wert, Zeuge)`), `bag(X)`, `set(X)` und
+    zusammengesetzte Terme, deren Argumente selbst Templates sind
+    (`r(count, min(X), max(X))`, auch geschachtelt).
+  * `aggregate/3,4` gruppieren wie `bagof/3` bzw. `setof/3` nach den
+    freien Variablen des Generators (`^` existenziell) und scheitern ohne
+    Lösung. `aggregate_all/3,4` geben genau ein Ergebnis; ohne Lösung
+    sind `count` und `sum` 0, `bag` und `set` `[]`, `min` und `max`
+    scheitern (auch in einem zusammengesetzten Template).
+  * Diskriminator: Lösungen, die in Diskriminator und Template gleich
+    sind, zählen einmal (`aggregate(count, A, N^age(N, A), C)` zählt die
+    verschiedenen Alter).
+  * Arithmetik wie `is/2`: `sum` addiert, `min` und `max` vergleichen
+    numerisch, ein Wert, der keine Zahl ergibt, wirft wie `is/2`. Beim
+    Zeugen gewinnt bei Gleichstand der erste.
+  * Fehler wie SWI, geprüft vor dem Generator: freies Template
+    `instantiation_error`, unbekanntes `domain_error(aggregate_template,
+    T)`, nicht aufrufbares `type_error(aggregate_template, T)`.
+  * `foreach(Generator, Goal)`: die Konjunktion der Instanzen von Goal;
+    anders als `forall/2` werden Variablen von Goal, die nicht im
+    Generator vorkommen, geteilt und gebunden
+    (`foreach(member(X, [1,2,3]), dif(Y, X)), Y = 4` gelingt).
+  * `aggregate_all/3` faltet in der Maschine, ohne die Lösungen zu
+    sammeln: Bei einer Million Lösungen ist `count` 1,9-mal so schnell wie
+    `findall/3` mit `length/2`, `sum` und `max` rund 1,3–1,4-mal, und es
+    bleibt kein Speicher liegen (statt rund 60 MB für die Liste).
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
