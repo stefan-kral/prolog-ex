@@ -1354,6 +1354,38 @@ defmodule PrologEx do
   defp step({:struct, "@>=", [x, y]}, _cutb, _mod, rest, st),
     do: order_step(PrologEx.Order.compare(x, y, st.subst) != :lt, rest, st)
 
+  # bb_get/2, bb_put/2 (library(blackboard)) direkt, wenn der Aufruf sie
+  # meint: aus blackboard importiert und nicht selbst definiert (oder im
+  # Modul blackboard); sonst der allgemeine Weg (eigene Definition,
+  # Re-Export über ein anderes Modul, nicht importiert → Fehler)
+  defp step({:struct, "bb_get", [k, t]} = goal, _cutb, mod, rest, st) do
+    if bb_visible?(mod, "bb_get") do
+      try do
+        PrologEx.Builtins.Blackboard.get(k, t, mod, st.subst)
+      rescue
+        e in PrologEx.Error -> throw_ball(e.term, st)
+      else
+        r -> apply_result(r, mod, rest, st)
+      end
+    else
+      call_pred(goal, mod, rest, st)
+    end
+  end
+
+  defp step({:struct, "bb_put", [k, t]} = goal, _cutb, mod, rest, st) do
+    if bb_visible?(mod, "bb_put") do
+      try do
+        PrologEx.Builtins.Blackboard.put(k, t, mod, st.subst)
+      rescue
+        e in PrologEx.Error -> throw_ball(e.term, st)
+      else
+        _ -> run(%{st | goals: rest})
+      end
+    else
+      call_pred(goal, mod, rest, st)
+    end
+  end
+
   # current_prolog_flag/2 (ISO, geschützt) mit gebundenem Namen: das Flag
   # direkt lesen, deterministisch; sonst (Aufzählen, Fehler) das Builtin
   defp step({:struct, "current_prolog_flag", [f, v]} = goal, _cutb, mod, rest, st) do
@@ -2633,6 +2665,13 @@ defmodule PrologEx do
     do: if(extra == [], do: t, else: mk(f, args ++ extra))
 
   defp plain_goal(_, _), do: nil
+
+  defp bb_visible?("blackboard", _name), do: true
+
+  defp bb_visible?(mod, name) do
+    db = current_db()
+    Map.get(db, {:import, mod, name, 2}) == "blackboard" and not Map.has_key?(db, {mod, name, 2})
+  end
 
   defp order_step(true, rest, st), do: run(%{st | goals: rest})
   defp order_step(false, _rest, st), do: backtrack(st)

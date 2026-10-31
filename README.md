@@ -570,6 +570,14 @@ Wie SICStus (dort eingebaut, hier nach `use_module`):
   * `bb_put(:Key, +T)`, `bb_get(:Key, ?T)`, `bb_delete(:Key, ?T)`,
     `bb_update(:Key, ?Old, ?New)` – Werte je Modul (Key ein Atom oder eine
     Ganzzahl, auch `M:Key`), als Kopie gespeichert, nicht backtrackbar.
+    `bb_get/2` und `bb_put/2` führt die Maschine selbst aus, wenn der Aufruf
+    sie meint (aus `blackboard` importiert, auch über `iso_ext`, und nicht
+    selbst definiert): ohne den Aufrufweg eines Bibliotheks-Builtins,
+    atomare und variablenfreie Werte ohne Kopie, eine freie Zielvariable
+    direkt gebunden (attributierte: Unifikation, die weckt). `bb_get` und
+    `bb_put` kosten so rund 45 % weniger, ein Zähler
+    (`bb_get(c, V), V1 is V+1, bb_put(c, V1)`) rund 35 %. Die Werte liegen
+    weiter in der Datenbank (gehören zum Programm, nicht zum Prozess).
   * `create_mutable(+W, -M)`, `get_mutable(?W, +M)`, `update_mutable(+W, +M)`,
     `mutable(@M)` – backtrackbare Zuweisung: Backtracking stellt den alten
     Wert her. Der Wert ist das versteckte Attribut einer Variablen, eine

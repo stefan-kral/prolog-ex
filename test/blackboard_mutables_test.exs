@@ -40,7 +40,7 @@ defmodule PrologEx.BlackboardMutablesTest do
 
   # frische Variablen nach Reihenfolge benennen
   defp norm(answers),
-    do: Enum.map(answers, &Regex.replace(~r/_[BC]\d+/, &1, "_"))
+    do: Enum.map(answers, &Regex.replace(~r/_\d+/, &1, "_"))
 
   describe "library(blackboard)" do
     test "put, get, update, delete", c do
@@ -104,6 +104,96 @@ defmodule PrologEx.BlackboardMutablesTest do
       PrologEx.put_db(%{})
       assert err(c, "bb_put(k, 1).") =~ "existence_error(procedure,bb_put/2)"
       assert ask(c, "use_module(library(blackboard)), bb_put(k, 1), bb_get(k, V).") == ["V = 1"]
+    end
+  end
+
+  # bb_get/2 und bb_put/2 führt die Maschine selbst aus, wenn der Aufruf
+  # sie meint; Semantik wie das Builtin
+  describe "library(blackboard) direkt in der Maschine" do
+    test "Ziel: frei, gebunden, Struktur, attributiert", c do
+      assert ask(c, "bb_put(k, f(a, B)), bb_get(k, f(X, Y)).") |> norm() == ["X = a"]
+      assert ask(c, "bb_put(k, 7), bb_get(k, 7).") == ["true"]
+      assert ask(c, "bb_put(k, 7), bb_get(k, 8).") == []
+      assert ask(c, "bb_put(k, 7), bb_get(k, X), bb_get(k, Y), X == Y.") == ["X = 7, Y = 7"]
+      # Variablen im Wert: jede Lesung frisch
+      assert ask(c, "bb_put(k, g(_)), bb_get(k, X), bb_get(k, Y), X \\== Y.") |> length() == 1
+      # attributiertes Ziel: Unifikation weckt
+      assert ask(c, "bb_put(k, 1), freeze(V, W = geweckt), bb_get(k, V).") ==
+               ["V = 1, W = geweckt"]
+
+      assert ask(c, "bb_put(k, 1), freeze(V, V > 5), bb_get(k, V).") == []
+      assert ask(c, "bb_put(k, 1), dif(V, 1), bb_get(k, V).") == []
+    end
+
+    test "gespeichert wird zur Zeit des Aufrufs (zur Laufzeit gebaute Terme)", c do
+      assert ask(c, "X = 1, T = f(X, [X]), bb_put(k, T), bb_get(k, V).") ==
+               ["T = f(1,[1]), V = f(1,[1]), X = 1"]
+
+      assert ask(c, "bb_put(k, f(X)), X = 2, bb_get(k, V).") |> norm() == ["V = f(_A), X = 2"]
+    end
+
+    test "Fehler aus dem Schritt sind fangbar, dahinter geht es weiter", c do
+      assert ask(c, "catch(bb_get(f(x), _), error(E, _), true).") ==
+               ["E = type_error(atomic,f(x))"]
+
+      assert ask(c, "catch(bb_put(_, 1), error(E, _), true), bb_put(k, 2), bb_get(k, V).") ==
+               ["E = instantiation_error, V = 2"]
+    end
+
+    test "Sichtbarkeit: Import, iso_ext, Modul blackboard, eigene Definition", c do
+      PrologEx.put_db(%{})
+      assert err(c, "bb_get(k, _).") =~ "existence_error(procedure,bb_get/2)"
+      # qualifiziert: im Modul blackboard immer
+      assert ask(c, "blackboard:bb_put(k, 3), blackboard:bb_get(k, V).") == ["V = 3"]
+      # über iso_ext (Re-Export, wie Scryer)
+      PrologEx.put_db(PrologEx.use_library(%{}, "iso_ext"))
+      assert ask(c, "bb_put(k, 4), bb_get(k, V).") == ["V = 4"]
+      assert ask(c, "call(bb_put, k, 5), call(bb_get(k), V).") == ["V = 5"]
+
+      # eigene Definition ohne Import: die gilt
+      PrologEx.put_db(%{})
+
+      {db, []} =
+        PrologEx.Consult.load(
+          %{},
+          Reader.read_terms(c.reader, "bb_get(K, eigen(K)).\nbb_put(_, _) :- fail.\n")
+        )
+
+      PrologEx.put_db(db)
+      assert ask(c, "bb_get(k, V).") == ["V = eigen(k)"]
+      assert ask(c, "bb_put(k, 1).") == []
+    end
+
+    test "in einem Modul mit Import; Schlüssel je Modul", c do
+      src = """
+      :- module(m, [setze/1, lies/1]).
+      :- use_module(library(blackboard)).
+      setze(V) :- bb_put(k, V).
+      lies(V) :- bb_get(k, V).
+      """
+
+      {db, []} = PrologEx.Consult.load(PrologEx.current_db(), Reader.read_terms(c.reader, src))
+      PrologEx.put_db(db)
+
+      assert ask(c, "bb_put(k, user), setze(modul), lies(A), bb_get(k, B).") ==
+               ["A = modul, B = user"]
+    end
+
+    test "Inferenzen wie bisher", c do
+      d = fn g ->
+        [a] =
+          ask(
+            c,
+            "bb_put(k, 0), statistics(inferences, A), (#{g} -> true ; true), statistics(inferences, B), D is B - A."
+          )
+
+        Regex.run(~r/D = (\d+)/, a) |> List.last() |> String.to_integer()
+      end
+
+      base = d.("true")
+      assert d.("bb_get(k, _)") == base
+      assert d.("bb_put(k, 1)") == base
+      assert d.("bb_get(k, 5)") == base
     end
   end
 
