@@ -300,7 +300,9 @@ defmodule PrologEx.WriterOpsTest do
       assert w =~ ~r/^f\(A b,1\+2\*3,\(a:-b,c\),- \(1\),\[x\|\w+\],B,\[a,b\]\)$/
       q = out(c, "writeq(#{t}).")
       assert q =~ ~r/^f\('A b',1\+2\*3,\(a:-b,c\),- \(1\),\[x\|\w+\],B,\"ab\"\)$/
-      assert out(c, "print(#{t}).") == q
+      # (jede Anfrage liest den Term neu: andere Kennung der Variablen)
+      v = fn s -> Regex.replace(~r/_\d+/, s, "_") end
+      assert v.(out(c, "print(#{t}).")) == v.(q)
       wc = out(c, "write_canonical(#{t}).")
 
       # ISO 7.10.5: auch Listen in funktionaler Schreibweise

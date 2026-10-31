@@ -82,7 +82,15 @@ defmodule PrologEx.WriterDeepTest do
         max_depth: md,
         priority: pr,
         operand: op,
-        variable_names: %{{:var, 17} => "Named"},
+        # alle Variablen benannt: der alte Writer schreibt die Kennungen
+        # anders (_G17)
+        variable_names: %{
+          {:var, 17} => "Named",
+          {:var, "X"} => "X",
+          {:var, "_Y"} => "_Y",
+          {:var, "T"} => "T",
+          {:var, {:attv, 3}} => "_V3"
+        },
         ops: ops()
       ]
     end

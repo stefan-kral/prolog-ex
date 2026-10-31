@@ -42,8 +42,9 @@ defmodule PrologEx.Writer do
       (Operator-Atome dann in Klammern: `X = (-)`).
     * `variable_names: %{var => "Name"}` – Variablen mit diesen Namen
       (ISO `variable_names/1`).
-    * `source_names: true` – sonst unbenannte Variablen mit ihrem Namen aus
-      dem Quelltext (Toplevel-Antworten); ohne: `_` davor (`_A`).
+    * `source_names: true` – Variablen aus dem Quelltext mit ihrem Namen
+      (`listing/1`); sonst heißt jede Variable `_` und Kennung (`_17`),
+      siehe `PrologEx.Vars`.
     * `ops:` – Operatortabelle (Standard: die der Sitzung, `PrologEx.Ops`).
     * `portray: fun` – vor jedem Teilterm (außer Variablen) gefragt:
       `{:ok, text}` ersetzt ihn, `:no` schreibt ihn normal (print/1).
@@ -159,16 +160,21 @@ defmodule PrologEx.Writer do
 
   defp leaf(other, _role, _o), do: piece(inspect(other))
 
-  # Eine Variable beginnt mit _ (ISO 7.10.5: "_" gefolgt von einer
-  # Zeichenfolge), auch wenn sie im Quelltext A hieß – sonst sähe sie aus
-  # wie ein Name. Nur die Antworten im Toplevel (source_names) zeigen die
-  # Namen der Anfrage.
-  defp var_name(n, _o) when is_integer(n), do: "_G#{n}"
-  defp var_name("_" <> _ = n, _o), do: n
+  # _ und die Kennung (PrologEx.Vars: VM-weit eindeutig, dieselbe Variable
+  # heißt in jeder Ausgabe gleich); nie der Name aus dem Quelltext, der
+  # sähe aus wie ein Name – außer mit source_names (listing/1; die
+  # Antworten im Toplevel benennen über variable_names). Eine Binary als
+  # Kennung ist ein von Hand gebauter Name (Tests).
+  defp var_name(n, _o) when is_integer(n), do: "_#{n}"
+  defp var_name({:attv, n}, _o), do: "_#{n}"
+  # anonyme _ aus dem Quelltext: dort wieder _ (listing/1), sonst Kennung
+  defp var_name({"_", _n}, %{source_names: true}), do: "_"
+  defp var_name({"_", n}, _o), do: "_#{n}"
+  defp var_name({name, _n}, %{source_names: true}) when is_binary(name), do: name
+  defp var_name({_name, n}, _o), do: "_#{n}"
   defp var_name(n, %{source_names: true}) when is_binary(n), do: n
+  defp var_name("_" <> _ = n, _o), do: n
   defp var_name(n, _o) when is_binary(n), do: "_" <> n
-  defp var_name({:attv, id}, _o), do: "_V#{id}"
-  defp var_name({:c, id}, _o), do: "_C#{id}"
   defp var_name(n, _o), do: "_" <> inspect(n)
 
   # --- Strukturen ---------------------------------------------------------

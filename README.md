@@ -481,10 +481,23 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     `write_canonical`).
   * Zeichenlisten bei `double_quotes=chars` wie Scryer als `"..."`
     (`number_chars(123, X)` → `X = "123"`).
-  * Frische Variablen in Antworten (nicht aus der Anfrage) heißen wie bei
-    SICStus `_A`, `_B`, …, `_Z`, `_AA`, … – je Antwort neu, in Reihenfolge
-    des Auftretens, auch in Restzielen; Namen aus der Anfrage werden nicht
-    vergeben (`length(As, N)` → `As = [_A,_B], N = 2`).
+  * Variablen schreiben `write/1`, `writeq/1`, `print/1`,
+    `write_canonical/1` und `format` als `_` und Kennung (`_17`), wie SWI,
+    Scryer und SICStus: Jede Variable hat eine VM-weit eindeutige Zahl
+    (`PrologEx.Vars`), dieselbe Variable heißt also in jeder Ausgabe gleich
+    und verschiedene heißen verschieden – auch über getrennte Aufrufe
+    hinweg (`write(X), write(Y)` gibt `_17_18`, nie zweimal denselben
+    Namen). Der Name aus dem Quelltext erscheint nie (`write_canonical(B+B)`
+    gibt `+(_13,_13)`, nicht `+(_B,_B)`); `read/1` liefert Terme mit
+    namenlosen Variablen (`T = foo(_A,_B,_A)`), die Namen gibt es über
+    `variable_names/1`.
+  * Nur die Antworten im Toplevel zeigen Namen: die der Anfrage (auch
+    `_X`, die selbst nicht angezeigt werden), und frische Variablen heißen
+    wie bei SICStus `_A`, `_B`, …, `_Z`, `_AA`, … – je Antwort neu, in
+    Reihenfolge des Auftretens, auch in Restzielen; Namen aus der Anfrage
+    werden nicht vergeben (`length(As, N)` → `As = [_A,_B], N = 2`).
+    `listing/1` schreibt die Namen des Quelltexts, anonyme `_` wieder als
+    `_`.
   * Antworten, `listing` und Fehlermeldungen schreiben Terme kompakt wie
     Scryer und `writeq` – ohne Leerzeichen nach Kommas (`f(a,b)`,
     `[1,2,3]`, `(x,y)`); nur die Bindungen einer Antwort trennt `, `
@@ -1114,10 +1127,22 @@ intern oft läuft (`swi_compat` bei jeder Heimat-Prüfung, `unknown`,
 `copy_term/2` bindet eine gewöhnliche ungebundene Zielvariable direkt
 (die Kopie enthält nur frische Variablen, ein Occurs-Check ist nie
 nötig; an eine attributierte unifiziert es wie bisher). Frische
-Variablen der Kopie heißen `{:c, n}` statt `"_B<n>"`: eine Binary je
-Variable kostete etwa ein Viertel der Kopie (`write/1` zeigt sie als
-`_C<n>`). `copy_term/2` ground ≈ 35 %, mit Variablen ≈ 43 % schneller,
-`findall/3` über Terme mit Variablen ≈ 14 %.
+Variablen der Kopie heißen `{:var, n}` statt `"_B<n>"`: eine Binary je
+Variable kostete etwa ein Viertel der Kopie. `copy_term/2` ground ≈ 35 %,
+mit Variablen ≈ 43 % schneller, `findall/3` über Terme mit Variablen
+≈ 14 %.
+
+Kennungen der Variablen kommen aus einem gemeinsamen Zähler der VM
+(`PrologEx.Vars`, `:atomics`): der Reader gibt jeder Variablen eines
+Terms `{Name, n}`, `copy_term/2`, `read/1`, attributierte Variablen und
+die Bibliotheken nehmen je eine Zahl, die Maschine nimmt sich Blöcke von
+4096 und zählt darin lokal weiter (eine Prüfung je Klauselversuch, ob
+der Block reicht; in Reduktionen nicht messbar). Vorher begann jede
+Anfrage bei 0, und Kennungen aus `read/1`, Kopien, Bibliotheken und
+Anfrage hatten je eigene Formen (`_G12`, `_C7`, `_B34`, `_0`, `_B`);
+Terme aus `term_expansion/2` mussten deshalb umbenannt werden. Jetzt
+kann eine Kennung nie zweimal vorkommen, auch nicht über Anfragen,
+Unter-Maschinen (`findall/3`, `portray/1`) und Prozesse hinweg.
 
 Allgemein werden Ziele aus Daten jetzt wie bei `call/1` zum Rumpf (ISO
 7.6.2) – auch `M:Rumpf` (`call/1` stieg bisher nicht hinein) und bei

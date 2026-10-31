@@ -716,21 +716,31 @@ defmodule PrologEx.Builtins.IO do
     msg |> String.replace_prefix("Syntaxfehler: ", "") |> String.trim()
   end
 
-  # Variablen des gelesenen Terms durch frische ersetzen; Ergebnis:
-  # {Term, alle Variablen, [{Name, Var}] der benannten, Singletons}
+  # Variablen des gelesenen Terms ohne ihre Namen ({:var, {name, n}} wird
+  # {:var, n}, die Kennung bleibt eindeutig): zur Laufzeit gelesene Terme
+  # haben wie überall sonst namenlose Variablen (SWI: read(T) zeigt
+  # T = foo(_A,_B)); die Namen gibt es nur über variable_names/1.
+  # Ergebnis: {Term, alle Variablen in Reihenfolge des Auftretens,
+  # [{Name, Var}] der benannten, Singletons}
   defp fresh(term, names) do
-    user_names = MapSet.new(Map.values(names))
     {order, counts} = var_occurrences(term, {[], %{}})
-    order = Enum.reverse(order)
-    map = Map.new(order, &{&1, fresh_var()})
+    vars = Enum.reverse(order)
+    map = Map.new(vars, fn {:var, id} = v -> {v, {:var, number(id)}} end)
     term = rename(term, map)
-    vars = Enum.map(order, &Map.fetch!(map, &1))
 
-    named = for {:var, n} = v <- order, MapSet.member?(user_names, n), do: {n, Map.fetch!(map, v)}
-
-    singles = for {n, v} <- named, Map.fetch!(counts, {:var, n}) == 1, do: {n, v}
-    {term, vars, named, singles}
+    named = for {:var, {n, _}} = v <- vars, is_map_key(names, n), do: {n, v}
+    singles = for {n, v} <- named, Map.fetch!(counts, v) == 1, do: {n, Map.fetch!(map, v)}
+    named = for {n, v} <- named, do: {n, Map.fetch!(map, v)}
+    {term, Enum.map(vars, &Map.fetch!(map, &1)), named, singles}
   end
+
+  defp number({_, n}) when is_integer(n), do: n
+  defp number(n), do: n
+
+  defp rename({:var, _} = v, map), do: Map.fetch!(map, v)
+  defp rename({:struct, f, args}, map), do: mk(f, Enum.map(args, &rename(&1, map)))
+  defp rename([h | t], map), do: PrologEx.cons(rename(h, map), rename(t, map))
+  defp rename(t, _map), do: t
 
   defp var_occurrences(t, {order, counts} = acc) do
     case t do
@@ -749,11 +759,6 @@ defmodule PrologEx.Builtins.IO do
         acc
     end
   end
-
-  defp rename({:var, _} = v, map), do: Map.fetch!(map, v)
-  defp rename({:struct, f, args}, map), do: mk(f, Enum.map(args, &rename(&1, map)))
-  defp rename([h | t], map), do: PrologEx.cons(rename(h, map), rename(t, map))
-  defp rename(t, _map), do: t
 
   defp read_results(options, vars, named, singles) do
     for {:struct, name, [arg]} <- options do

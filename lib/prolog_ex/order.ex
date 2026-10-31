@@ -427,7 +427,10 @@ defmodule PrologEx.Order do
   defp atom_name([]), do: "[]"
   defp atom_name({:atom, n}), do: n
 
+  # Kennungen sind Zahlen (PrologEx.Vars), auch in {name, n} und {:attv, n};
+  # eine Binary ist ein von Hand gebauter Name (Tests)
   defp var_key(n) when is_integer(n), do: {0, n}
+  defp var_key({_, n}) when is_integer(n), do: {0, n}
   defp var_key(n) when is_binary(n), do: {1, n}
   defp var_key(n), do: {2, n}
 

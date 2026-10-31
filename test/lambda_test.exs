@@ -92,7 +92,7 @@ defmodule PrologEx.LambdaTest do
 
       test "Fehler", c do
         assert err(c, "call(\\X^Y^foo(X,Y), 1).") =~
-                 "existence_error(lambda_parameter,user:_^foo(1,_))"
+                 ~r/existence_error\(lambda_parameter,user:(_\d+)\^foo\(1,\1\)\)/
 
         assert err(c, "call(\\X^true, 1, 2).") =~ "existence_error(procedure,true/1)"
         assert err(c, "call(\\G, 1).") =~ "instantiation_error"

@@ -187,7 +187,7 @@ defmodule PrologEx.Consult do
   defp directive_term?({:struct, op, [_]}) when op in [":-", "?-"], do: true
   defp directive_term?(_), do: false
 
-  defp occurrences({:var, n}, names, {order, counts}) when is_map_key(names, n) do
+  defp occurrences({:var, {n, _}}, names, {order, counts}) when is_map_key(names, n) do
     case counts do
       %{^n => c} -> {order, Map.put(counts, n, c + 1)}
       _ -> {[n | order], Map.put(counts, n, 1)}
@@ -389,13 +389,15 @@ defmodule PrologEx.Consult do
   # Variablen umbenannt) oder nil, wenn kein Hook gelingt. Fehler werden
   # gemeldet, der Term bleibt dann unverändert.
   defp expand(st, helper, args, what) do
-    out = {:var, "$expansion"}
+    # Kennungen sind VM-weit eindeutig (PrologEx.Vars): die frischen
+    # Variablen der Antwort brauchen keine Umbenennung
+    out = {:var, {"$expansion", PrologEx.Vars.next()}}
     PrologEx.put_db(st.db)
 
     result =
       try do
         case Enum.take(PrologEx.query(st.db, mk(helper, args ++ [out]), module: st.module), 1) do
-          [ans] -> {:ok, rename_fresh(Map.fetch!(ans, "$expansion"))}
+          [ans] -> {:ok, Map.fetch!(ans, "$expansion")}
           [] -> {:ok, nil}
         end
       rescue
@@ -409,36 +411,6 @@ defmodule PrologEx.Consult do
       {:error, m} -> {located(st, "Fehler", "in #{what}: #{m}"), nil}
     end
   end
-
-  # frische Variablen einer Antwort ({:var, 0}, ...) eindeutig benennen
-  defp rename_fresh(t) do
-    {t, _} = rename(t, %{})
-    t
-  end
-
-  defp rename({:var, n}, m) when is_integer(n) do
-    case m do
-      %{^n => v} ->
-        {v, m}
-
-      _ ->
-        v = {:var, "_X#{System.unique_integer([:positive])}"}
-        {v, Map.put(m, n, v)}
-    end
-  end
-
-  defp rename({:struct, f, args}, m) do
-    {args, m} = Enum.map_reduce(args, m, &rename/2)
-    {{:struct, f, args}, m}
-  end
-
-  defp rename([h | t], m) do
-    {h, m} = rename(h, m)
-    {t, m} = rename(t, m)
-    {[h | t], m}
-  end
-
-  defp rename(t, m), do: {t, m}
 
   defp plain_item(t, st) do
     case PrologEx.unmark_top(t) do

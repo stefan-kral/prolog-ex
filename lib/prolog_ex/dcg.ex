@@ -91,5 +91,5 @@ defmodule PrologEx.DCG do
   defp add_args({:struct, f, args}, s0, s), do: mk(f, args ++ [s0, s])
   defp add_args(t, _, _), do: PrologEx.Error.type!("callable", t)
 
-  defp fresh, do: {:var, "_S#{System.unique_integer([:positive])}"}
+  defp fresh, do: {:var, PrologEx.Vars.next()}
 end

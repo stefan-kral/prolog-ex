@@ -24,8 +24,10 @@
 defmodule PrologEx do
   # ---------------------------------------------------------------------
   # Terme
-  #   {:var, "X"}                Variable aus der Anfrage
-  #   {:var, 42}                 frische Variable
+  #   {:var, {"X", 17}}          Variable aus dem Quelltext (Name, Kennung)
+  #   {:var, 42}                 frische Variable; Kennungen VM-weit
+  #                              eindeutig, siehe PrologEx.Vars
+  #   {:var, {:attv, 7}}         attributierte Variable
   #   {:atom, "foo"}             Atom – bewusst KEIN Elixir-Atom!
   #   integer, float             Zahl
   #   {:struct, "f", [args]}     Struktur f(args...), Stelligkeit >= 1
@@ -196,10 +198,11 @@ defmodule PrologEx do
     end
   end
 
-  # Kennung einer neuen attributierten Variablen: monoton steigend, damit
-  # call_residue_vars/2 die während eines Ziels entstandenen erkennt
+  # Kennung einer neuen attributierten Variablen: aus dem gemeinsamen Zähler
+  # (steigend, damit call_residue_vars/2 die während eines Ziels
+  # entstandenen erkennt)
   @doc false
-  def attv_id, do: System.unique_integer([:positive, :monotonic])
+  def attv_id, do: PrologEx.Vars.next()
 
   @doc "Suspension '$s'(Done, Weckziel, Restziel) an alle Variablen hängen"
   # Die Liste steht mit dem neuesten Eintrag vorn (Anhängen in O(1));
@@ -534,9 +537,7 @@ defmodule PrologEx do
             {fresh, map}
 
           :error ->
-            # Name ohne Zeichenkette: {:c, n} (eine Binary je frischer
-            # Variable kostete ~120 ns, ein Viertel der Kopie)
-            fresh = {:var, {:c, System.unique_integer([:positive])}}
+            fresh = {:var, PrologEx.Vars.next()}
             {fresh, Map.put(map, var, fresh)}
         end
 
@@ -1124,7 +1125,10 @@ defmodule PrologEx do
             cps: [],
             height: 0,
             db: %{},
+            # Kennungen frischer Variablen: der nächste und das Ende des
+            # Blocks aus PrologEx.Vars (exklusiv)
             next_var: 0,
+            var_end: 0,
             answer: [],
             threshold: @min_threshold,
             min_threshold: @min_threshold,
@@ -1527,7 +1531,7 @@ defmodule PrologEx do
 
         hooks =
           for {v, val} <- pairs, m <- mods do
-            g = {:var, "_H#{System.unique_integer([:positive])}"}
+            g = {:var, PrologEx.Vars.next()}
             {mk(":", [a(m), mk("verify_attributes", [v, val, g])]), mk("$g", [a(m), g])}
           end
 
@@ -2797,8 +2801,10 @@ defmodule PrologEx do
 
   # mod: Modul, in dem das Prädikat definiert ist (Kontext für den Rumpf)
   defp try_clauses(goal, args, [cl | more], rest, mod, st) do
-    {:clause, _key, nslots, pats, nfresh, body} = cl
+    {:clause, _key, nslots, pats, nfresh, body, nvars} = cl
     env = :erlang.make_tuple(nslots, nil)
+    # reicht der Block von Kennungen für die frischen Variablen?
+    st = if st.next_var + nvars > st.var_end, do: new_block(st, nvars), else: st
 
     # werfen kann die Kopfunifikation nur mit occurs_check=error: nur dann
     # der try-Block (samt Closure), sonst direkt
@@ -2832,6 +2838,15 @@ defmodule PrologEx do
         goals = inst_goals(body, env, nv, barrier, mod, rest)
         cont(%{st | next_var: nv + nfresh}, s1, goals)
     end
+  end
+
+  @var_block 4096
+
+  # neuer Block von Kennungen (mindestens n)
+  defp new_block(st, n) do
+    size = max(@var_block, n)
+    start = PrologEx.Vars.block(size)
+    %{st | next_var: start, var_end: start + size}
   end
 
   defp push(st, cp), do: %{st | cps: [cp | st.cps], height: st.height + 1}
@@ -3265,12 +3280,11 @@ defmodule PrologEx do
   dann gibt es sicher keine weitere Lösung (der Toplevel fragt nicht nach).
   """
   def solutions(db, goal, opts \\ []) do
-    answer =
-      goal
-      |> query_vars()
-      |> Enum.uniq()
-      |> Enum.reject(fn {:var, n} -> is_binary(n) and String.starts_with?(n, "_") end)
-      |> Enum.map(fn {:var, n} = var -> {n, var} end)
+    # benannte Variablen der Anfrage; gezeigt werden die ohne führendes _
+    named =
+      for {:var, id} = var <- goal |> query_vars() |> Enum.uniq(), n = var_name(id), do: {n, var}
+
+    answer = Enum.reject(named, fn {n, _} -> String.starts_with?(n, "_") end)
 
     start = new_state(db, [{goal, 0, Keyword.get(opts, :module, "user")}], answer, opts)
 
@@ -3329,7 +3343,7 @@ defmodule PrologEx do
         []
 
       vars ->
-        r = {:var, "_R#{System.unique_integer([:positive])}"}
+        r = {:var, PrologEx.Vars.next()}
         goal = mk("$residuals", [list(vars), r])
         sub = %{st | goals: [{goal, 0, "system"}], cps: [], height: 0, answer: [{"$r", r}]}
 
@@ -3369,37 +3383,38 @@ defmodule PrologEx do
   # Ungebundene Variablen in Antworten benennen wie SWI: Anfragevariablen,
   # die auf dieselbe ungebundene Variable zeigen, bilden eine Kette
   # "X = Y, Y = Z" (in Anfragereihenfolge), und die Variable selbst heißt
-  # wie die letzte (Z). Aus "R = [2, _G2], Y = _G2" wird so "R = [2, Y]".
+  # wie die letzte (Z). Aus "R = [2, _2], Y = _2" wird so "R = [2, Y]".
   # Die Richtung von Var-Var-Bindungen spielt für die Ausgabe keine Rolle.
   defp name_fresh_r(ans) do
     # ans: [{name, term}] in Anfragereihenfolge
     groups =
       ans
       |> Enum.filter(&match?({_, {:var, _}}, &1))
-      |> Enum.group_by(fn {_, {:var, v}} -> v end, &elem(&1, 0))
+      |> Enum.group_by(fn {_, v} -> v end, &elem(&1, 0))
 
-    if Enum.all?(groups, fn {v, ns} -> ns == [v] end) do
+    if Enum.all?(groups, fn {v, ns} -> ns == [var_name(v)] end) do
       {ans, %{}}
     else
-      renames = Map.new(groups, fn {v, ns} -> {v, List.last(ns)} end)
+      renames = Map.new(groups, fn {v, ns} -> {v, named_as(v, List.last(ns))} end)
 
       chain =
-        for {_, ns} <- groups,
+        for {v, ns} <- groups,
             {n, next} <- Enum.zip(ns, tl(ns) ++ [List.last(ns)]),
             into: %{},
-            do: {n, {:var, next}}
+            do: {n, named_as(v, next)}
 
       {Enum.map(ans, fn {n, t} -> {n, Map.get(chain, n) || rename_free(t, renames)} end), renames}
     end
   end
 
-  defp rename_free({:var, v} = x, m) do
-    case Map.fetch(m, v) do
-      {:ok, n} -> {:var, n}
-      :error -> x
-    end
-  end
+  # dieselbe Variable unter dem Namen einer Anfragevariablen (nur für die
+  # Ausgabe: der Name steckt in der Kennung)
+  defp named_as({:var, {_, id}}, name), do: {:var, {name, id}}
+  defp named_as({:var, id}, name) when is_integer(id), do: {:var, {name, id}}
+  defp named_as(_, name), do: {:var, name}
 
+  # renames: Variable → Variable
+  defp rename_free({:var, _} = x, m), do: Map.get(m, x, x)
   defp rename_free({:struct, f, args}, m), do: {:struct, f, Enum.map(args, &rename_free(&1, m))}
   defp rename_free([h | t], m), do: [rename_free(h, m) | rename_free(t, m)]
   defp rename_free(t, _m), do: t
@@ -3409,15 +3424,32 @@ defmodule PrologEx do
     put_db(db)
 
     case run(new_state(db, [{goal, 0, "user"}], [], opts)) do
-      {:sol, st} -> {:ok, %{bindings: map_size(st.subst), choicepoints: st.height}}
-      :done -> false
+      {:sol, st} ->
+        {:ok,
+         %{
+           bindings: map_size(st.subst),
+           choicepoints: st.height,
+           # Kennungen nie über den Block hinaus vergeben
+           vars_in_block: st.next_var <= st.var_end
+         }}
+
+      :done ->
+        false
     end
   end
 
-  @doc "Namen der Anfragevariablen in Reihenfolge ihres Auftretens"
+  @doc "Namen der benannten Anfragevariablen in Reihenfolge ihres Auftretens"
   def query_var_names(goal) do
-    for {:var, n} <- goal |> query_vars() |> Enum.uniq(), is_binary(n), do: n
+    for {:var, id} <- goal |> query_vars() |> Enum.uniq(), n = var_name(id), do: n
   end
+
+  # Name einer Variablen aus dem Quelltext ({name, n} vom Reader; eine
+  # Binary ist ein von Hand gebauter Name), sonst nil (anonyme _ auch)
+  defp var_name({:var, id}), do: var_name(id)
+  defp var_name({"_", _}), do: nil
+  defp var_name({n, _}) when is_binary(n), do: n
+  defp var_name(n) when is_binary(n), do: n
+  defp var_name(_), do: nil
 
   defp query_vars({:var, _} = var), do: [var]
   defp query_vars({:struct, _, args}), do: Enum.flat_map(args, &query_vars/1)
@@ -3490,12 +3522,6 @@ defmodule PrologEx do
     # wie writeq; Zeichenlisten als "..." bei double_quotes=chars (wie Scryer)
     opts = PrologEx.Writer.answer_opts()
     {residual, ans} = Map.pop(ans, "$residual", [])
-
-    # Namen aus der Anfrage behalten ihren Namen und werden nicht vergeben –
-    # auch _X, die (wie bei SWI) nicht angezeigt werden; anonyme _ (vom
-    # Reader _123 genannt) gelten als frisch
-    reserved = Enum.reject(order || [], &Regex.match?(~r/^_\d+$/, &1)) ++ Map.keys(ans)
-
     order = order || Map.keys(ans) |> Enum.sort()
 
     {named, renames} =
@@ -3504,14 +3530,15 @@ defmodule PrologEx do
       |> Enum.map(&{&1, Map.fetch!(ans, &1)})
       |> name_fresh_r()
 
-    shown = named |> Enum.sort() |> Enum.reject(fn {k, t} -> t == {:var, k} end)
+    # ungebundene Anfragevariablen (X = X) werden nicht gezeigt
+    shown = named |> Enum.sort() |> Enum.reject(fn {k, t} -> var_name(t) == k end)
     goal_terms = Enum.map(residual, &(&1 |> rename_free(renames) |> strip_user()))
+    terms = Enum.map(shown, &elem(&1, 1)) ++ goal_terms
 
-    # frische Variablen (nicht aus der Anfrage) als _A, _B, ... in
-    # Reihenfolge des Auftretens, wie SICStus
-    opts =
-      opts ++
-        [variable_names: fresh_names(Enum.map(shown, &elem(&1, 1)) ++ goal_terms, reserved)]
+    # Variablen der Anfrage (Name in der Kennung) behalten ihren Namen –
+    # auch _X, die (wie bei SWI) nicht angezeigt werden; anonyme _ und
+    # frische heißen _A, _B, ... in Reihenfolge des Auftretens, wie SICStus
+    opts = opts ++ [variable_names: fresh_names(terms, named_vars(terms))]
 
     bindings =
       Enum.map(shown, fn {k, t} ->
@@ -3527,43 +3554,48 @@ defmodule PrologEx do
     end
   end
 
+  # Variable → Name für alle benannten Variablen der Terme
+  defp named_vars(terms) do
+    for t <- terms, {:var, id} = v <- query_vars(t), n = var_name(id), into: %{}, do: {v, n}
+  end
+
   # Namen für Variablen, die nicht aus der Anfrage stammen: _A, ..., _Z,
-  # _AA, _AB, ... in Reihenfolge des ersten Auftretens; Namen, die die
-  # Anfrage selbst benutzt, werden übersprungen
-  defp fresh_names(terms, query_names) do
-    query = MapSet.new(query_names)
+  # _AA, _AB, ... in Reihenfolge des ersten Auftretens; die Namen der
+  # Anfrage (named: Variable → Name) bleiben und werden nicht vergeben
+  defp fresh_names(terms, named) do
+    taken = named |> Map.values() |> MapSet.new()
 
     {vars, _} =
-      Enum.reduce(terms, {[], MapSet.new()}, fn t, acc -> answer_vars(t, query, acc) end)
+      Enum.reduce(terms, {[], MapSet.new()}, fn t, acc -> answer_vars(t, named, acc) end)
 
     {names, _} =
       vars
       |> Enum.reverse()
       |> Enum.map_reduce(0, fn v, i ->
-        {name, i} = next_fresh_name(i, query)
+        {name, i} = next_fresh_name(i, taken)
         {{v, name}, i + 1}
       end)
 
-    Map.new(names)
+    Map.merge(named, Map.new(names))
   end
 
-  defp answer_vars({:var, n} = v, query, {acc, seen} = all) do
+  defp answer_vars({:var, _} = v, named, {acc, seen} = all) do
     cond do
-      is_binary(n) and MapSet.member?(query, n) -> all
+      Map.has_key?(named, v) -> all
       MapSet.member?(seen, v) -> all
       true -> {[v | acc], MapSet.put(seen, v)}
     end
   end
 
-  defp answer_vars({tag, _, args}, query, acc) when tag in [:struct, :gstruct],
-    do: Enum.reduce(args, acc, &answer_vars(&1, query, &2))
+  defp answer_vars({tag, _, args}, named, acc) when tag in [:struct, :gstruct],
+    do: Enum.reduce(args, acc, &answer_vars(&1, named, &2))
 
-  defp answer_vars([h | t], query, acc), do: answer_vars(t, query, answer_vars(h, query, acc))
-  defp answer_vars(_, _query, acc), do: acc
+  defp answer_vars([h | t], named, acc), do: answer_vars(t, named, answer_vars(h, named, acc))
+  defp answer_vars(_, _named, acc), do: acc
 
-  defp next_fresh_name(i, query) do
+  defp next_fresh_name(i, taken) do
     name = "_" <> letters(i)
-    if MapSet.member?(query, name), do: next_fresh_name(i + 1, query), else: {name, i}
+    if MapSet.member?(taken, name), do: next_fresh_name(i + 1, taken), else: {name, i}
   end
 
   # 0 -> A, 25 -> Z, 26 -> AA, 27 -> AB, ... (bijektiv zur Basis 26)

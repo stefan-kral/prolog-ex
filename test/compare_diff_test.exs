@@ -31,8 +31,10 @@ defmodule PrologEx.CompareDiffTest do
       fn -> {:atom, Enum.random(["a", "b", "[]", "ab", "Z"])} end,
       fn -> [] end,
       fn -> Enum.random(@vars) end,
+      # Kennungen wie PrologEx.Vars: Zahlen ohne Überschneidung
       fn -> {:var, "_G#{:rand.uniform(3)}"} end,
-      fn -> {:var, {:c, :rand.uniform(3)}} end
+      fn -> {:var, {"V", 10 + :rand.uniform(3)}} end,
+      fn -> {:var, {:attv, 20 + :rand.uniform(3)}} end
     ]).()
   end
 

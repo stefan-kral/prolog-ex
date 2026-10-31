@@ -65,5 +65,5 @@ defmodule PrologEx.Error do
   defp atom(name) when is_binary(name), do: a(name)
   defp atom(t), do: t
 
-  defp fresh, do: {:var, "_E#{System.unique_integer([:positive])}"}
+  defp fresh, do: {:var, PrologEx.Vars.next()}
 end

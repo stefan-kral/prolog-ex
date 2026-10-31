@@ -4,9 +4,9 @@ defmodule PrologEx.Parser do
   Operator-Präzedenz-Parser (6.3). Liefert dasselbe Format wie
   `PrologEx.Reader.read_terms/2`:
 
-    * `{:term, term, names}` – Variablen tragen ihre Namen aus dem Text
-      (`names`: `%{name => name}` der benannten), jede anonyme Variable `_`
-      einen eigenen Namen `_N`, der im Term nicht schon vorkommt
+    * `{:term, term, names}` – Variablen sind `{:var, {name, n}}` mit
+      eindeutiger Zahl n (`PrologEx.Vars`), `names`: `%{name => variable}`
+      der benannten; jede anonyme `_` ist eine eigene Variable `{"_", n}`
     * `{:error, meldung}` – Syntaxfehler; gelesen wird nach dem nächsten
       Endezeichen weiter
 
@@ -180,17 +180,18 @@ defmodule PrologEx.Parser do
 
       {:ok, toks, rest, pos} ->
         try do
-          vars =
-            toks
-            |> Enum.flat_map(fn
-              {{:var, n}, _, _} -> [n]
-              _ -> []
-            end)
-            |> MapSet.new()
+          # jede benannte Variable eine Kennung {Name, Zahl} (PrologEx.Vars),
+          # jede anonyme _ eine eigene
+          names =
+            for {{:var, n}, _, _} <- toks, n != "_", reduce: %{} do
+              acc ->
+                if Map.has_key?(acc, n),
+                  do: acc,
+                  else: Map.put(acc, n, {:var, {n, PrologEx.Vars.next()}})
+            end
 
-          Process.put(:prolog_ex_parser_anon, {0, vars})
+          Process.put(:prolog_ex_parser_vars, names)
           {t, _p, [{:end, _, _}]} = whole(toks, ctx)
-          names = for n <- vars, n != "_", into: %{}, do: {n, n}
           [{_, _, start} | _] = toks
           {:term, t, names, rest, pos, start}
         catch
@@ -198,7 +199,7 @@ defmodule PrologEx.Parser do
             {rest, pos} = skip_to_end(binary_part(ctx.text, at, byte_size(ctx.text) - at), at)
             {:error, message(ctx, msg, at), rest, pos}
         after
-          Process.delete(:prolog_ex_parser_anon)
+          Process.delete(:prolog_ex_parser_vars)
         end
 
       {:lex_error, msg, at, rest, pos} ->
@@ -747,10 +748,10 @@ defmodule PrologEx.Parser do
         {n, 0, rest}
 
       {:var, "_"} ->
-        {anon(), 0, rest}
+        {{:var, {"_", PrologEx.Vars.next()}}, 0, rest}
 
       {:var, name} ->
-        {{:var, name}, 0, rest}
+        {Map.fetch!(Process.get(:prolog_ex_parser_vars), name), 0, rest}
 
       {:str, s} ->
         {text(s, ctx.dq), 0, rest}
@@ -801,18 +802,6 @@ defmodule PrologEx.Parser do
 
   defp neg(n) when is_integer(n), do: -n
   defp neg(f), do: -f
-
-  defp anon do
-    {n, used} = Process.get(:prolog_ex_parser_anon)
-    {name, n} = fresh_anon(n, used)
-    Process.put(:prolog_ex_parser_anon, {n, used})
-    {:var, name}
-  end
-
-  defp fresh_anon(n, used) do
-    name = "_" <> Integer.to_string(n)
-    if MapSet.member?(used, name), do: fresh_anon(n + 1, used), else: {name, n + 1}
-  end
 
   defp close([{{:p, p}, _, _} | rest], p), do: rest
   defp close([{tok, _, at} | _], p), do: syntax!("#{p} erwartet", at, tok)

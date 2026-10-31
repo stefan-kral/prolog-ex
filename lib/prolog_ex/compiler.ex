@@ -54,7 +54,10 @@ defmodule PrologEx.Compiler do
   abgeflacht, `true` entfällt.
 
   Eine kompilierte Klausel ist
-  `{:clause, index_key, nslots, head_patterns, nfresh, body_templates}`.
+  `{:clause, index_key, nslots, head_patterns, nfresh, body_templates, nvars}`;
+  nvars: höchstens so viele frische Variablen legt ein Klauselversuch an
+  (Slots, anonyme Kopfvariablen, Rumpfvariablen) – die Maschine prüft
+  damit, ob ihr Block von Kennungen reicht.
 
   Variablenfreie Teilterme (`:ground`, `:t_lit`) werden vollständig als
   gstruct/glist markiert; Write-Modus und Instanziierung markieren über
@@ -63,12 +66,14 @@ defmodule PrologEx.Compiler do
 
   def compile_clause({head, body}) do
     counts = count_vars(body, count_vars(head, %{}))
-    st = %{slots: %{}, fresh: %{}, counts: counts}
+    st = %{slots: %{}, fresh: %{}, counts: counts, voids: 0}
 
     {pats, st} = Enum.map_reduce(args_of(head), st, &head_pat/2)
     {tmpls, st} = Enum.map_reduce(flatten_conj(body), st, &goal_tmpl/2)
+    nslots = map_size(st.slots)
+    nfresh = map_size(st.fresh)
 
-    {:clause, index_key_of(pats), map_size(st.slots), pats, map_size(st.fresh), tmpls}
+    {:clause, index_key_of(pats), nslots, pats, nfresh, tmpls, nslots + st.voids + nfresh}
   end
 
   @doc "Funktor/Stelligkeit eines aufrufbaren Terms"
@@ -118,7 +123,7 @@ defmodule PrologEx.Compiler do
 
   # --- Kopf -------------------------------------------------------------
 
-  defp head_pat({:var, "_"}, st), do: {:void, st}
+  defp head_pat({:var, "_"}, st), do: {:void, %{st | voids: st.voids + 1}}
 
   defp head_pat({:var, n}, st) do
     case Map.fetch(st.slots, n) do
@@ -127,7 +132,7 @@ defmodule PrologEx.Compiler do
 
       :error ->
         if st.counts[n] == 1 do
-          {:void, st}
+          {:void, %{st | voids: st.voids + 1}}
         else
           i = map_size(st.slots)
           {{:first, i}, %{st | slots: Map.put(st.slots, n, i)}}

@@ -8,12 +8,13 @@ defmodule PrologEx.Reader do
 
       {:ok, r} = PrologEx.Reader.start_link()
       PrologEx.Reader.read_terms(r, "foo(X) :- bar(X, Y).\\n")
-      #=> [{:term, term, %{"X" => "X", "Y" => "Y"}}]
+      #=> [{:term, term, %{"X" => {:var, {"X", 17}}, "Y" => {:var, {"Y", 18}}}}]
 
   Ergebnis pro gelesenem Term:
 
-    * `{:term, term, var_names}` – Variablen tragen ihre Namen aus dem
-      Text; jede anonyme Variable einen eigenen Namen `_N`
+    * `{:term, term, var_names}` – Variablen `{:var, {name, n}}` mit
+      eindeutiger Zahl (`PrologEx.Vars`), `var_names`: Name → Variable der
+      benannten; jede anonyme `_` eine eigene Variable `{"_", n}`
     * `{:error, message}` – Syntaxfehler (mit Zeile und Spalte)
 
   Die Prozess-Schnittstelle (`start_link/1`, `current/0`, ...) stammt aus

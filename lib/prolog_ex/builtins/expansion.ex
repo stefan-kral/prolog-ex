@@ -113,7 +113,7 @@ defmodule PrologEx.Builtins.Expansion do
   """
   def expand_query(db, goal) do
     if Map.has_key?(db, {"user", "goal_expansion", 2}) do
-      g2 = {:var, "_ExpandedQuery"}
+      g2 = {:var, {"_ExpandedQuery", PrologEx.Vars.next()}}
       mk(",", [mk("$expand_goal", [goal, a("user"), g2, 0]), mk("call", [g2])])
     else
       goal

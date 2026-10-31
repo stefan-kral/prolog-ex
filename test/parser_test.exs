@@ -8,10 +8,19 @@ defmodule PrologEx.ParserTest do
   defp r(text, opts \\ []) do
     opts = Keyword.merge([ops: PrologEx.Ops.default(), double_quotes: "codes"], opts)
 
+    # benannte Variablen wie in der gprolog-Aufzeichnung: _ und Name
     for item <- Parser.read_terms(text, opts) do
       case item do
-        {:term, t, _} -> PrologEx.format(t, quoted: true, ignore_ops: true)
-        {:error, _} -> :error
+        {:term, t, names} ->
+          vn =
+            Map.new(names, fn {n, v} ->
+              {v, if(String.starts_with?(n, "_"), do: n, else: "_" <> n)}
+            end)
+
+          PrologEx.format(t, quoted: true, ignore_ops: true, variable_names: vn)
+
+        {:error, _} ->
+          :error
       end
     end
   end
@@ -129,11 +138,33 @@ defmodule PrologEx.ParserTest do
   test "Variablen: Namen, jede _ eine eigene, kein Zusammenstoß mit _N im Text" do
     [{:term, t, names}] = Parser.read_terms("f(X, _, _Y, X, _, _0).", ops: PrologEx.Ops.default())
 
+    # Kennung {Name, Zahl}, Zahlen VM-weit eindeutig (PrologEx.Vars); jede
+    # anonyme _ eine eigene Variable {"_", Zahl}
     assert {:struct, "f",
-            [{:var, "X"}, {:var, a1}, {:var, "_Y"}, {:var, "X"}, {:var, a2}, {:var, "_0"}]} = t
+            [
+              {:var, {"X", x}},
+              {:var, {"_", a1}},
+              {:var, {"_Y", y}},
+              {:var, {"X", x}},
+              {:var, {"_", a2}},
+              {:var, {"_0", z}}
+            ]} = t
 
-    assert a1 != a2 and a1 not in ["_0", "_Y"] and a2 not in ["_0", "_Y"]
-    assert names == %{"X" => "X", "_Y" => "_Y", "_0" => "_0"}
+    assert length(Enum.uniq([x, a1, y, a2, z])) == 5
+    assert Enum.all?([x, a1, y, a2, z], &is_integer/1)
+
+    assert names == %{
+             "X" => {:var, {"X", x}},
+             "_Y" => {:var, {"_Y", y}},
+             "_0" => {:var, {"_0", z}}
+           }
+
+    # Ausgabe ohne Namen: _ und Kennung; derselbe Term liest sich anders
+    # ein, aber mit neuen, wieder eindeutigen Kennungen
+    assert PrologEx.format(t) == "f(_#{x},_#{a1},_#{y},_#{x},_#{a2},_#{z})"
+    [{:term, t2, _}] = Parser.read_terms("f(X).", ops: PrologEx.Ops.default())
+    assert {:struct, "f", [{:var, {"X", x2}}]} = t2
+    assert x2 != x
   end
 
   test "Kommentare, Endezeichen, Symbolfolgen" do
@@ -202,7 +233,9 @@ defmodule PrologEx.ParserTest do
 
   test "Unicode: Großbuchstabe am Anfang ist Variable, Symbole bilden Symbolfolgen" do
     [{:term, t, _}] = Parser.read_terms("f(Ärger, über, →≠).", ops: PrologEx.Ops.default())
-    assert {:struct, "f", [{:var, "Ärger"}, {:atom, "über"}, {:atom, "→≠"}]} = PrologEx.unmark(t)
+
+    assert {:struct, "f", [{:var, {"Ärger", _}}, {:atom, "über"}, {:atom, "→≠"}]} =
+             PrologEx.unmark(t)
   end
 
   describe "gleich wie gprolog" do

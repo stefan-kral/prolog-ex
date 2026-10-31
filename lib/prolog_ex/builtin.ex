@@ -162,6 +162,6 @@ defmodule PrologEx.Builtin do
 
   defmodule Helpers do
     @moduledoc false
-    def fresh_var, do: {:var, "_B#{System.unique_integer([:positive])}"}
+    def fresh_var, do: {:var, PrologEx.Vars.next()}
   end
 end

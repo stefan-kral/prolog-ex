@@ -71,7 +71,10 @@ defmodule PrologEx.ReaderTest do
 
   test "read_terms: Prozess-Schnittstelle ohne gprolog" do
     {:ok, r} = Reader.start_link()
-    assert [{:term, {:struct, "f", [{:var, "X"}]}, %{"X" => "X"}}] = Reader.read_terms(r, "f(X).")
+
+    assert [{:term, {:struct, "f", [{:var, {"X", n}}]}, %{"X" => {:var, {"X", n}}}}] =
+             Reader.read_terms(r, "f(X).")
+
     assert Reader.available?()
     Reader.stop(r)
   end

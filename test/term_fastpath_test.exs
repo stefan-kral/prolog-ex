@@ -109,14 +109,14 @@ defmodule PrologEx.TermFastpathTest do
     assert ask(c, "dif(C, f(a)), copy_term(f(b), C)") == ["C = f(b)"]
   end
 
-  test "kopierte Variablen schreiben sich als gültige Variablennamen", c do
+  test "kopierte Variablen schreiben sich als _ und Kennung, überall gleich", c do
     out = ExUnit.CaptureIO.capture_io(fn -> ask(c, "copy_term(f(X, X), f(Y, _)), write(Y)") end)
-    assert out =~ ~r/^_[A-Z]\w*$/
+    assert out =~ ~r/^_\d+$/
 
     out =
       ExUnit.CaptureIO.capture_io(fn -> ask(c, "copy_term(X, Y), writeq(f(Y)), nl, print(Y)") end)
 
-    assert out =~ ~r/^f\(_[A-Z]\w*\)\n_[A-Z]\w*$/
+    assert out =~ ~r/^f\((_\d+)\)\n\1$/
   end
 
   test "arg/3: Lösung, Grenzen, Fehler, Occurs-Check", c do
