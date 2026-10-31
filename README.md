@@ -353,6 +353,79 @@ aus Scryer:
 * Socket-Operationen gelten als äußere Wirkungen: Der Toplevel rechnet sie
   nicht voraus.
 
+## HTTP: `library(http/http_open)`, `library(http/http_server)`
+
+Wie in Scryer Prolog, mit derselben Schnittstelle; Programme für Scryers
+HTTP-Bibliotheken laufen unverändert. Die Prolog-Teile sind Scryers
+Quelltext (`priv/library/http/`), die Teile, die bei Scryer in Rust
+stecken (reqwest, Warp), sind hier in Elixir: der Client über `:httpc`
+aus OTP, der Server als kleiner HTTP/1.1-Server
+(`PrologEx.HttpServer`). `ssl` und `inets` starten erst beim ersten
+HTTP-Aufruf, ohne HTTP kostet das nichts.
+
+```prolog
+:- use_module(library(http/http_server)).
+:- use_module(library(lists)).
+
+hallo(_Request, Response) :-
+    http_body(Response, text("Hallo von PrologEx!\n")).
+gruss(Name, _Request, Response) :-
+    append("Servus, ", Name, T), http_body(Response, text(T)).
+zaehler(_, Response, N0, N) :-          % Zustand über Anfragen hinweg
+    N is N0 + 1, number_chars(N, Cs), http_body(Response, text(Cs)).
+
+run :- http_listen(8765, [get(hallo, hallo), get(gruss/Name, gruss(Name)),
+                          get(zaehler, zaehler)], [initial_state(0)]).
+```
+
+```prolog
+?- use_module(library(http/http_open)), use_module(library(charsio)),
+   http_open("http://localhost:8765/gruss/Stefan", S, [status_code(C)]),
+   get_n_chars(S, _, Cs).
+C = 200, Cs = "Servus, Stefan", S = '$stream'(5).
+```
+
+**`http_open/3`**: HTTP und HTTPS, die Methoden `get`, `head`, `post`,
+`put`, `delete` und `patch`, die Optionen `method/1`, `data/1`,
+`request_headers/1`, `headers/1`, `status_code/1` und `size/1`.
+Weiterleitungen werden verfolgt (wie reqwest). HTTPS prüft Zertifikat und
+Rechnernamen gegen die Zertifikate des Systems oder `SSL_CERT_FILE`;
+`HTTPS_PROXY`, `HTTP_PROXY` und `NO_PROXY` gelten wie bei reqwest. Der
+Stream liest den Rumpf als Text (UTF-8), ist er kein gültiges UTF-8, als
+Bytes. Kommt keine Antwort, scheitert `http_open/3` (wie Scryer).
+
+**`http_listen/2,3`**: Handler `Methode(Pfadmuster, Ziel)`, Zustand mit
+`initial_state/1` (Handler mit einem oder zwei zusätzlichen Argumenten),
+`content_length_limit/1` (sonst 413), `catch_errors/1`, TLS mit
+`tls_key/1` und `tls_cert/1`; dazu `http_headers/2`,
+`http_status_code/2`, `http_body/2` (`text`, `bytes`, `form`, `file`),
+`http_redirect/2`, `http_query/3` und `http_basic_auth/4`. Der Server
+spricht HTTP/1.0 und 1.1 mit Keep-Alive, Rümpfen mit `Content-Length`
+oder in Stücken (`chunked`), `Expect: 100-continue` und `HEAD`. Jede
+Verbindung ist ein eigener BEAM-Prozess: Ein langsamer Client hält die
+anderen nicht auf. Die Handler laufen der Reihe nach, wie bei Scryer.
+Beenden mit Ctrl-C.
+
+Unterschiede zu Scryer (alle am Anfang der Dateien vermerkt):
+
+  * `size(S)` gibt die Länge als Zahl und geht auch ohne `headers/1`.
+    Bei Scryer lief `member/2` auf der noch ungebundenen Header-Liste.
+  * `text(T)` eines Anfragerumpfs ist nach UTF-8 dekodiert; Scryer gibt
+    die Bytes als Zeichen. `form(F)` geht auch mit
+    `; charset=...` im Content-Type.
+  * Eine Query ohne `=` (`?debug`) gibt `debug-""`; bei Scryer scheitert
+    die ganze Anfrage.
+  * Antworten mit Text, auch 404 und 500, gehen über einen Textstream.
+    Scryer schreibt mit `format/3` in einen Binärstream, ISO verbietet
+    das.
+  * Fehlt bei `file(F)` die Datei, kommt der Fehler vor der Antwort (500
+    wie jeder Fehler im Handler).
+  * TLS-Schlüssel und -Zertifikat gehen als PEM-Text (wie Scryer) oder als
+    Dateiname. OTPs TLS lehnt ein selbst signiertes Server-Zertifikat ab;
+    zum Ausprobieren braucht es eine kleine eigene CA (siehe
+    `test/http_test.exs`).
+  * Ohne `library(clpz)` und `library(crypto)`, die es hier nicht gibt.
+
 ## Bibliotheken aus Scryer Prolog
 
 Als Prolog-Quelltext übernommen (`priv/library/`). Geändert sind nur die

@@ -254,6 +254,7 @@ defmodule PrologEx.Stream do
         # (Kindprozess fertig): badarg ist dann kein Fehler
         %{kind: :port_in, dev: port} -> close_port(port)
         %{kind: :socket, dev: sock} -> :gen_tcp.close(sock)
+        %{kind: :http_out, dev: on_close, buf: buf} -> on_close.(IO.iodata_to_binary(buf))
         %{dev: dev} when dev != nil -> :file.close(dev)
         _ -> :ok
       end
@@ -468,11 +469,14 @@ defmodule PrologEx.Stream do
   defp advance(s, _c, n),
     do: %{s | chars: s.chars + 1, line_pos: s.line_pos + 1, bytes: s.bytes + n}
 
-  @doc "Eingabestream aus Text (für term_to_atom, read_term_from_atom ...)"
-  def open_memory(text) do
+  @doc """
+  Eingabestream aus Text (für term_to_atom, read_term_from_atom ...);
+  `type: :binary` liest Bytes (HTTP-Rümpfe)
+  """
+  def open_memory(text, type \\ :text) do
     t = table()
     id = t.next
-    s = %__MODULE__{id: id, kind: :memory, mode: :read, buf: text, eof: true}
+    s = %__MODULE__{id: id, kind: :memory, mode: :read, buf: text, eof: true, type: type}
     Process.put({@key, id}, s)
     put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id)})
     id
@@ -486,6 +490,20 @@ defmodule PrologEx.Stream do
     t = table()
     id = t.next
     s = %__MODULE__{id: id, kind: :memory_out, mode: :write, buf: []}
+    Process.put({@key, id}, s)
+    put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id)})
+    id
+  end
+
+  @doc """
+  Ausgabestream für eine HTTP-Antwort (library(http/http_server)): sammelt
+  den Rumpf; `close/1` ruft `on_close.(rumpf)` (schickt die Antwort an den
+  Verbindungsprozess). type: :binary wie Scryer oder :text (UTF-8).
+  """
+  def open_http_out(on_close, type) do
+    t = table()
+    id = t.next
+    s = %__MODULE__{id: id, kind: :http_out, dev: on_close, mode: :write, buf: [], type: type}
     Process.put({@key, id}, s)
     put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id)})
     id
@@ -507,7 +525,7 @@ defmodule PrologEx.Stream do
         :stderr -> tap(s, fn _ -> IO.write(:stderr, text) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, text) end)
         :socket -> tap(s, fn _ -> socket_send!(s, text) end)
-        :memory_out -> %{s | buf: [s.buf | text]}
+        k when k in [:memory_out, :http_out] -> %{s | buf: [s.buf | text]}
       end
 
     update(out_position(s, text))
@@ -585,7 +603,7 @@ defmodule PrologEx.Stream do
         :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, <<b>>) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, <<b>>) end)
         :socket -> tap(s, fn _ -> socket_send!(s, <<b>>) end)
-        :memory_out -> %{s | buf: [s.buf | <<b>>]}
+        k when k in [:memory_out, :http_out] -> %{s | buf: [s.buf | <<b>>]}
       end
 
     update(%{s | bytes: s.bytes + 1})
@@ -602,7 +620,7 @@ defmodule PrologEx.Stream do
         :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, bin) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, bin) end)
         :socket -> tap(s, fn _ -> socket_send!(s, bin) end)
-        :memory_out -> %{s | buf: [s.buf | bin]}
+        k when k in [:memory_out, :http_out] -> %{s | buf: [s.buf | bin]}
       end
 
     update(%{s | bytes: s.bytes + byte_size(bin)})

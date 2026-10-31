@@ -66,6 +66,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Files,
     PrologEx.Builtins.Charsio,
     PrologEx.Builtins.ScryerPrims,
+    PrologEx.Builtins.Http,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt
@@ -197,7 +198,8 @@ defmodule PrologEx.Builtins do
   def library_modules, do: Map.keys(@exports) |> Enum.sort()
 
   # Bibliotheken in Prolog-Quelltext (priv/library/*.pl)
-  @pl_libraries Path.wildcard(Path.join([__DIR__, "..", "..", "priv", "library", "*.pl"]))
+  # (auch in Unterverzeichnissen: library(http/http_server) heißt http_server)
+  @pl_libraries Path.wildcard(Path.join([__DIR__, "..", "..", "priv", "library", "**", "*.pl"]))
                 |> Enum.map(&Path.basename(&1, ".pl"))
 
   @system_modules MapSet.new(["system" | Map.keys(@exports)] ++ @pl_libraries)
