@@ -10,7 +10,13 @@
      - '$current_time' liefert den Zeitstempel als Term (ohne
        read_from_chars/2); '$cpu_now', '$inference_count', '$sleep' in
        Elixir (PrologEx.Builtins.ScryerPrims).
-     - sleep/1 prüft die Zahl selbst (statt builtins:must_be_number/2).
+     - sleep/1 prüft die Zahl selbst (statt builtins:must_be_number/2)
+       und schläft ceiling(S * 1000) Millisekunden (Floats als die
+       Dezimalzahl, die sie zeigen), höchstens bis zu einer Zeitgrenze.
+   Eigene Ergänzungen (PrologEx): sleep_ms/1, set_timer/1, cancel_timer/0,
+   call_with_timeout/2,3, call_with_time_limit/2 (wie SWI). Die Zeitgrenzen
+   prüft die Maschine (PrologEx: '$call_with_timeout'/4, '$set_timer'/1,
+   '$cancel_timer'/0, '$sleep'/1).
      - time/1 misst direkt um das Ziel herum (siehe dort), statt einen
        festen Eigenverbrauch abzuziehen; Scryers Einrückung für sein
        Toplevel entfällt. Ausgabe wie Scryer.
@@ -21,6 +27,12 @@
 
 :- module(time, [max_sleep_time/1,
                  sleep/1,
+                 sleep_ms/1,
+                 set_timer/1,
+                 cancel_timer/0,
+                 call_with_timeout/2,
+                 call_with_timeout/3,
+                 call_with_time_limit/2,
                  time/1,
                  current_time/1,
                  format_time//2,
@@ -99,16 +111,122 @@ max_sleep_time(0xfffffffffffffbff).
 %  Sleeps for S seconds (a floating point number or integer).
 
 sleep(T) :-
-    (   var(T) -> instantiation_error(sleep/1)
-    ;   number(T) -> true
-    ;   type_error(number, T, sleep/1)
-    ),
-    (   T < 0 ->
-        domain_error(not_less_than_zero, T, sleep/1)
-    ;   max_sleep_time(N), T > N ->
+    must_be_duration(T, sleep/1),
+    (   max_sleep_time(N), T > N ->
         throw(error(representation_error(max_sleep_time), sleep/1))
-    ;   '$sleep'(T)
+    ;   '$ceil_scaled'(T, 1000, Ms),
+        '$sleep'(Ms)
     ).
+
+%% sleep_ms(Ms)
+%
+%  Sleeps for ceiling(Ms) milliseconds (Ms a number): sleep_ms(0.0001)
+%  sleeps as long as sleep_ms(1).
+
+sleep_ms(T) :-
+    must_be_duration(T, sleep_ms/1),
+    (   max_sleep_time(N), T > N * 1000 ->
+        throw(error(representation_error(max_sleep_time), sleep_ms/1))
+    ;   '$ceil_scaled'(T, 1, Ms),
+        '$sleep'(Ms)
+    ).
+
+must_be_duration(T, Ctx) :-
+    (   var(T) -> instantiation_error(Ctx)
+    ;   number(T) -> true
+    ;   type_error(number, T, Ctx)
+    ),
+    (   T < 0 -> domain_error(not_less_than_zero, T, Ctx)
+    ;   true
+    ).
+
+%% set_timer(S)
+%
+%  After S seconds (a number), the exception time_limit_exceeded is
+%  thrown into the running query, once. One timer per query: a new one
+%  replaces the old one; it lasts until the query ends or cancel_timer/0,
+%  and backtracking does not undo it. The time between answers counts.
+
+set_timer(S) :-
+    must_be_duration(S, set_timer/1),
+    '$ceil_scaled'(S, 1000000, Us),
+    '$set_timer'(Us).
+
+%% cancel_timer
+%
+%  Removes the timer of set_timer/1 (if any).
+
+cancel_timer :-
+    '$cancel_timer'.
+
+%% call_with_timeout(:G, +S)
+%% call_with_timeout(:G, +S, +Options)
+%
+%  Calls G with a time limit of S seconds (a number). On timeout, G is
+%  aborted with the exception time_limit_exceeded. Options:
+%    - mode(cumulative): S is the budget for all answers of G together
+%      (default); time spent outside of G (between answers) does not count
+%    - mode(per_answer): S for each answer (each redo starts afresh)
+%    - on_timeout(throw): throw time_limit_exceeded (default)
+%    - on_timeout(fail): fail instead
+%    - on_timeout(H): call H instead of G (in the caller's module)
+%  If an option is given more than once, the last one counts. The limit is
+%  checked about every 1000 inferences; an exception that G catches itself
+%  is thrown again. Nested limits: the earliest one wins.
+
+:- meta_predicate(call_with_timeout(0, ?)).
+:- meta_predicate(call_with_timeout(0, ?, :)).
+
+call_with_timeout(G, S) :-
+    must_be_duration(S, call_with_timeout/2),
+    '$ceil_scaled'(S, 1000000, Us),
+    '$call_with_timeout'(G, Us, cumulative, throw).
+
+call_with_timeout(G, S, M:Opts) :-
+    must_be_duration(S, call_with_timeout/3),
+    timeout_options(Opts, M, cumulative, Mode, throw, On),
+    '$ceil_scaled'(S, 1000000, Us),
+    '$call_with_timeout'(G, Us, Mode, On).
+
+timeout_options(Opts, M, Mode0, Mode, On0, On) :-
+    '$skip_list'(_, Opts, Rest),
+    (   Rest == [] -> true
+    ;   var(Rest) -> instantiation_error(call_with_timeout/3)
+    ;   type_error(list, Opts, call_with_timeout/3)
+    ),
+    timeout_options_(Opts, M, Mode0, Mode, On0, On).
+
+timeout_options_([], _, Mode, Mode, On, On).
+timeout_options_([O|Os], M, Mode0, Mode, On0, On) :-
+    (   var(O) -> instantiation_error(call_with_timeout/3)
+    ;   O = mode(X) ->
+        (   var(X) -> instantiation_error(call_with_timeout/3)
+        ;   memberchk(X, [cumulative, per_answer]) -> Mode1 = X, On1 = On0
+        ;   domain_error(call_with_timeout_option, O, call_with_timeout/3)
+        )
+    ;   O = on_timeout(H) ->
+        (   var(H) -> instantiation_error(call_with_timeout/3)
+        ;   H == throw -> On1 = throw
+        ;   H == fail -> On1 = fail
+        ;   callable(H) -> On1 = call(M:H)
+        ;   type_error(callable, H, call_with_timeout/3)
+        ),
+        Mode1 = Mode0
+    ;   domain_error(call_with_timeout_option, O, call_with_timeout/3)
+    ),
+    timeout_options_(Os, M, Mode1, Mode, On1, On).
+
+%% call_with_time_limit(+S, :G)
+%
+%  As in SWI-Prolog: once(G) with a time limit of S seconds; on timeout,
+%  the exception time_limit_exceeded.
+
+:- meta_predicate(call_with_time_limit(?, 0)).
+
+call_with_time_limit(S, G) :-
+    must_be_duration(S, call_with_time_limit/2),
+    '$ceil_scaled'(S, 1000000, Us),
+    '$call_with_timeout'(once(G), Us, cumulative, throw).
 
 
 %% statistics(?Keyword, ?List)

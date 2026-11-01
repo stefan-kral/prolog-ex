@@ -483,7 +483,42 @@ ist jeweils am Dateianfang vermerkt.
     `library(files)`.
   * `format_time//2` mit `%Y %m %d %H %M %S %y %b %B %a %A %w %u %U %W %j
     %D %x %v %%`, z. B. `phrase(format_time("%d.%m.%Y", T), Cs)`.
-  * `sleep/1`, `max_sleep_time/1`.
+  * `sleep/1` (Sekunden), `sleep_ms/1` (Millisekunden), `max_sleep_time/1`.
+    Geschlafen wird in ganzen Millisekunden, aufgerundet: `sleep_ms(X)`
+    schläft `ceiling(X)` ms (`sleep_ms(0.0001)` so lange wie
+    `sleep_ms(1)`), `sleep(S)` `ceiling(S * 1000)` ms. Floats gelten dabei
+    als die Dezimalzahl, die sie zeigen: `sleep(1.1)` sind 1100 ms (binär
+    ist 1.1 etwas größer).
+  * Zeitgrenzen, Ausnahme `time_limit_exceeded` (wie SWI; Scryers
+    `library(clpz)` fängt sie):
+    * `call_with_timeout(G, S)`, `call_with_timeout(G, S, Optionen)`: G mit
+      einer Frist von S Sekunden. `mode(cumulative)` (Vorgabe): S für alle
+      Lösungen zusammen, die Zeit außerhalb von G (zwischen den Lösungen)
+      zählt nicht; `mode(per_answer)`: je Lösung neu. `on_timeout(throw)`
+      (Vorgabe), `on_timeout(fail)` oder `on_timeout(H)`: H statt G (im
+      Modul des Aufrufers). Mehrfach angegeben gilt die letzte Option.
+    * `call_with_time_limit(S, G)` wie SWI: `once(G)` mit Frist.
+    * `set_timer(S)`: nach S Sekunden kommt `time_limit_exceeded` in die
+      laufende Anfrage, einmal. Ein Timer je Anfrage (ein neuer ersetzt
+      ihn), bis zum Ende der Anfrage oder `cancel_timer/0`; Backtracking
+      nimmt ihn nicht zurück, die Zeit zwischen den Antworten zählt mit.
+      Auch in `findall/3`, `\+` und Co. gesetzt gilt er für die ganze
+      Anfrage.
+    * G kann die Ausnahme nicht verschlucken: Fängt G sie selbst
+      (catch-all), kommt sie beim nächsten Schritt wieder, bis ihr Rahmen
+      sie fängt; eine Lösung nach Ablauf der Frist zählt nicht.
+      Verschachtelt fängt die Grenze, die zuerst abläuft. `sleep/1` und
+      `sleep_ms/1` schlafen höchstens bis zur nächsten Frist. Cleanups
+      (`setup_call_cleanup/3`) laufen beim Abbruch und werden selbst nicht
+      unterbrochen.
+    * Mechanik: Die Maschine hat schon den Vergleich für
+      `call_with_inference_limit/3` in jedem Schritt (ohne Grenze ein
+      Vergleich mit `nil`). Eine Zeitgrenze trägt dort einen Prüfpunkt ein,
+      alle 1000 Inferenzen ein Blick auf die Uhr. Ohne Zeitgrenze kostet
+      das also nichts (gemessen: Unterschiede im Rauschen), mit einer rund
+      100 ns je 1000 Inferenzen; die Frist hält auf wenige ms genau. Ein
+      einzelnes lang laufendes eingebautes Prädikat (etwa `msort/2` auf
+      einer Million Elementen) wird erst nach seiner Rückkehr unterbrochen.
   * `time/1`, das wie Scryer `% CPU time: 0.000s, 1 inference` je Lösung
     und beim Scheitern ausgibt. Gemessen wird direkt um das Ziel herum,
     also zählt nur das Ziel (`time(true)` meldet 1 Inferenz).

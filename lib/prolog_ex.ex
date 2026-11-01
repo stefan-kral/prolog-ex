@@ -1133,6 +1133,12 @@ defmodule PrologEx do
   # aktuelle Ebene für call_with_depth_limit/3 (ein Eintrag der Substitution)
   @depth_key :"$depth"
 
+  # Zeitgrenzen (siehe rearm/1): Prüfpunkt alle @tcheck Inferenzen, Timer
+  # von set_timer/1 im Prozess-Dictionary (je Anfrage), die Ausnahme
+  @tcheck 1000
+  @timers_key :prolog_ex_timers
+  @time_ball {:atom, "time_limit_exceeded"}
+
   defstruct goals: [],
             subst: %{},
             cps: [],
@@ -1156,6 +1162,12 @@ defmodule PrologEx do
             # [{id, Grenze}] und die kleinste davon (nil: keine aktiv)
             ilimits: [],
             ilimit: nil,
+            # aktive Zeitgrenzen (call_with_timeout): [{id, Deadline in µs
+            # (monotone Uhr)}]; sie und set_timer/1 setzen ilimit als
+            # Prüfpunkt (siehe rearm/1)
+            tlimits: [],
+            # Kennung der Anfrage (für set_timer/1; Unter-Maschinen teilen sie)
+            qref: nil,
             # aktive Tiefengrenzen (call_with_depth_limit/3):
             # [{atomics, Basisebene, höchste erlaubte Ebene}] und das Minimum
             # der höchsten erlaubten Ebenen (nil: keine aktiv)
@@ -1179,9 +1191,9 @@ defmodule PrologEx do
         goal = unmark_top(walk(goal, st.subst))
         count_inference(goal, st.icount)
 
-        # ohne aktive Inferenzgrenze nur dieser eine Vergleich
+        # ohne aktive Inferenz- oder Zeitgrenze nur dieser eine Vergleich
         if st.ilimit != nil and :counters.get(st.icount, 1) > st.ilimit,
-          do: throw_ball({:atom, "inference_limit_exceeded"}, st),
+          do: limit_hit(goal, cutb, mod, rest, st),
           else: step(goal, cutb, mod, rest, st)
     end
   end
@@ -1462,8 +1474,8 @@ defmodule PrologEx do
     case guarded(fn ->
            run(%{st | goals: [{body!(g, st.subst), 0, mod}], cps: [], height: 0, answer: []})
          end) do
-      {:ok, {:sol, sub}} -> discard(sub, st, &backtrack/1)
-      {:ok, :done} -> run(%{st | goals: rest})
+      {:ok, {:sol, sub}} -> discard(sub, resync(st), &backtrack/1)
+      {:ok, :done} -> run(%{resync(st) | goals: rest})
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end
@@ -1481,7 +1493,7 @@ defmodule PrologEx do
          end) do
       {:ok, {items, :done}} ->
         case unify(l, list(items, tail), st.subst) do
-          {:ok, s} -> cont(st, s, rest)
+          {:ok, s} -> cont(resync(st), s, rest)
           :error -> backtrack(st)
         end
 
@@ -1511,7 +1523,7 @@ defmodule PrologEx do
     case folded do
       {:ok, {:ok, v}} ->
         case unify(r, v, st.subst) do
-          {:ok, s} -> cont(st, s, rest)
+          {:ok, s} -> cont(resync(st), s, rest)
           :error -> backtrack(st)
         end
 
@@ -1778,6 +1790,59 @@ defmodule PrologEx do
   defp step({:struct, "call_with_inference_limit", _} = goal, cutb, mod, rest, st),
     do: homed_step(goal, cutb, mod, rest, st)
 
+  # '$call_with_timeout'(G, Us, Mode, OnTimeout) aus library(time):
+  # Rahmen wie bei call_with_inference_limit/3, mit einer Deadline statt
+  # einer Inferenzzahl. Mode: cumulative (Budget für alle Lösungen; die
+  # Zeit außerhalb von G zählt nicht) oder per_answer (je Lösung neu).
+  # OnTimeout: throw, fail oder ein Ziel.
+  defp step({:struct, "$call_with_timeout", [g, us, mode, on]}, _cutb, mod, rest, st) do
+    us = walk(us, st.subst)
+    {:atom, mode} = walk(mode, st.subst)
+
+    on =
+      case walk(on, st.subst) do
+        {:atom, "throw"} -> :throw
+        {:atom, "fail"} -> :fail
+        {:struct, "call", [goal]} -> goal
+      end
+
+    id = make_ref()
+    h = st.height
+    st = add_tlimit(st, id, now_us() + us)
+    st = push(st, {:tlimit, id, on, rest, mod, st.subst, st.answer})
+    run_body(g, h + 1, mod, [{{:"$tlimit_exit", id, mode, us, h}, 0, mod} | rest], st)
+  end
+
+  # Ausgang: auch hier die Uhr – eine Lösung nach Ablauf der Frist zählt
+  # nicht (sonst entkäme G, das die Ausnahme selbst fängt und ohne
+  # gezählten Schritt endet)
+  defp step({:"$tlimit_exit", id, mode, us, h}, _cutb, _mod, rest, st) do
+    now = now_us()
+
+    case List.keyfind(st.tlimits, id, 0) do
+      {_, d} when d <= now -> throw_ball(@time_ball, check_soon(st))
+      found -> tlimit_exit(found, now, id, mode, us, h, rest, st)
+    end
+  end
+
+  # set_timer/1: ein Timer je Anfrage (ein neuer ersetzt ihn), bis zum Ende
+  # der Anfrage oder cancel_timer/0; Backtracking nimmt ihn nicht zurück
+  defp step({:struct, "$set_timer", [us]}, _cutb, _mod, rest, st) do
+    Process.put(@timers_key, Map.put(timers(), st.qref, now_us() + walk(us, st.subst)))
+    run(%{check_soon(rearm(st)) | goals: rest})
+  end
+
+  defp step({:atom, "$cancel_timer"}, _cutb, _mod, rest, st) do
+    drop_timer(st.qref)
+    run(%{rearm(st) | goals: rest})
+  end
+
+  # '$sleep'(Ms): schlafen, aber höchstens bis zur nächsten Deadline –
+  # dann time_limit_exceeded
+  defp step({:struct, "$sleep", [ms]}, _cutb, _mod, rest, st) do
+    sleep_step(now_us() + walk(ms, st.subst) * 1000, rest, st)
+  end
+
   defp step({:"$ilimit_exit", id, n, h, r}, _cutb, _mod, rest, st) do
     st = remove_ilimit(st, id)
 
@@ -1979,7 +2044,7 @@ defmodule PrologEx do
       end)
 
     case chunk do
-      {:ok, {k, collected}} -> findnsols_chunk(collected, k, l, tail, rest, st)
+      {:ok, {k, collected}} -> findnsols_chunk(collected, k, l, tail, rest, resync(st))
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end
@@ -1998,7 +2063,7 @@ defmodule PrologEx do
     case counted do
       {:ok, k} ->
         case unify(n, k, st.subst) do
-          {:ok, s} -> cont(st, s, rest)
+          {:ok, s} -> cont(resync(st), s, rest)
           :error -> backtrack(st)
         end
 
@@ -2817,20 +2882,126 @@ defmodule PrologEx do
     end
   end
 
-  defp add_ilimit(st, id, limit) do
-    ls = [{id, limit} | st.ilimits]
-    %{st | ilimits: ls, ilimit: min_ilimit(ls)}
-  end
+  defp add_ilimit(st, id, limit), do: rearm(%{st | ilimits: [{id, limit} | st.ilimits]})
 
   defp remove_ilimit(%{ilimits: []} = st, _id), do: st
-
-  defp remove_ilimit(st, id) do
-    ls = List.keydelete(st.ilimits, id, 0)
-    %{st | ilimits: ls, ilimit: min_ilimit(ls)}
-  end
+  defp remove_ilimit(st, id), do: rearm(%{st | ilimits: List.keydelete(st.ilimits, id, 0)})
 
   defp min_ilimit([]), do: nil
   defp min_ilimit(ls), do: ls |> Enum.map(&elem(&1, 1)) |> Enum.min()
+
+  # ---------------------------------------------------------------------
+  # Zeitgrenzen (library(time): call_with_timeout/2,3, set_timer/1)
+  #
+  # Die Maschine liest die Uhr nicht bei jedem Schritt: st.ilimit ist der
+  # Zählerstand, ab dem run_step/1 in limit_hit/5 schaut – das Minimum der
+  # echten Inferenzgrenzen und, solange eine Zeitgrenze aktiv ist, des
+  # nächsten Prüfpunkts (alle @tcheck Inferenzen). Ohne Grenzen bleibt
+  # st.ilimit nil, der Schritt kostet also nichts zusätzlich. Der
+  # Prüfpunkt ist nur ein Hinweis: Entscheidend ist immer die Uhr, ein zu
+  # früher Prüfpunkt kostet nur einen Blick auf sie.
+
+  defp rearm(st) do
+    timed = if st.tlimits != [] or timer_set?(st), do: :counters.get(st.icount, 1) + @tcheck
+
+    %{st | ilimit: min_limit(min_ilimit(st.ilimits), timed)}
+  end
+
+  # beim nächsten gezählten Schritt prüfen
+  defp check_soon(st), do: %{st | ilimit: min_limit(st.ilimit, :counters.get(st.icount, 1))}
+
+  defp min_limit(nil, b), do: b
+  defp min_limit(a, nil), do: a
+  defp min_limit(a, b), do: min(a, b)
+
+  defp timers, do: Process.get(@timers_key, %{})
+  defp timer_set?(st), do: Map.has_key?(timers(), st.qref)
+
+  # nach einer Unter-Maschine (findall, \+, ...): hat sie set_timer/1
+  # gerufen, muss auch diese Maschine wieder prüfen
+  defp resync(st) do
+    case Process.get(@timers_key) do
+      nil -> st
+      m when map_size(m) == 0 -> st
+      _ -> rearm(st)
+    end
+  end
+
+  # Prüfpunkt erreicht: echte Inferenzgrenze überschritten, abgelaufene
+  # Zeitgrenze oder weiter (mit neuem Prüfpunkt)
+  defp limit_hit(goal, cutb, mod, rest, st) do
+    n = :counters.get(st.icount, 1)
+
+    if Enum.any?(st.ilimits, fn {_, l} -> n > l end) do
+      throw_ball({:atom, "inference_limit_exceeded"}, st)
+    else
+      case timer_expired(st) do
+        nil -> step(goal, cutb, mod, rest, rearm(st))
+        st -> throw_ball(@time_ball, st)
+      end
+    end
+  end
+
+  # nil oder der Zustand, mit dem time_limit_exceeded geworfen wird. Eine
+  # abgelaufene Zeitgrenze bleibt in Kraft, bis ihr Rahmen die Ausnahme
+  # fängt: Der Prüfpunkt bleibt gerissen, fängt G sie selbst (catch-all),
+  # kommt sie beim nächsten gezählten Schritt wieder. Der Timer von
+  # set_timer/1 läuft dagegen einmal ab und ist dann weg.
+  defp timer_expired(st) do
+    now = now_us()
+
+    cond do
+      # der Prüfpunkt ist schon gerissen (st.ilimit < Zählerstand) und
+      # bleibt es, bis der Rahmen die Grenze entfernt
+      Enum.any?(st.tlimits, fn {_, d} -> d <= now end) ->
+        st
+
+      (d = Map.get(timers(), st.qref)) != nil and d <= now ->
+        drop_timer(st.qref)
+        rearm(st)
+
+      true ->
+        nil
+    end
+  end
+
+  defp drop_timer(qref) do
+    case Process.get(@timers_key) do
+      nil -> :ok
+      m -> Process.put(@timers_key, Map.delete(m, qref))
+    end
+  end
+
+  defp add_tlimit(st, id, deadline),
+    do: check_soon(rearm(%{st | tlimits: [{id, deadline} | st.tlimits]}))
+
+  defp remove_tlimit(%{tlimits: []} = st, _id), do: st
+  defp remove_tlimit(st, id), do: rearm(%{st | tlimits: List.keydelete(st.tlimits, id, 0)})
+
+  # gehört time_limit_exceeded diesem Rahmen? Seine Grenze ist aktiv,
+  # abgelaufen und die früheste (verschachtelt gewinnt, wer zuerst abläuft)
+  defp tlimit_owner?(st, id) do
+    case List.keyfind(st.tlimits, id, 0) do
+      {_, d} -> d <= now_us() and Enum.all?(st.tlimits, fn {_, d2} -> d2 >= d end)
+      nil -> false
+    end
+  end
+
+  # früheste Deadline (Rahmen und set_timer/1) oder nil
+  defp earliest_deadline(st) do
+    ds = for({_, d} <- st.tlimits, do: d) ++ List.wrap(Map.get(timers(), st.qref))
+    if ds == [], do: nil, else: Enum.min(ds)
+  end
+
+  # in Stücken: receive after nimmt höchstens 2^32 - 1 ms
+  defp sleep_until(t) do
+    left = t - now_us()
+
+    if left > 0 do
+      Process.sleep(min(div(left + 999, 1000), 4_000_000_000))
+      sleep_until(t)
+    end
+  end
 
   # ist die Grenze dieses Rahmens aktiv und überschritten?
   defp ilimit_exceeded?(st, id) do
@@ -2841,6 +3012,39 @@ defmodule PrologEx do
   end
 
   defp now_us, do: System.monotonic_time(:microsecond)
+
+  defp tlimit_exit(found, now, id, mode, us, h, rest, st) do
+    budget =
+      case {mode, found} do
+        {"cumulative", {_, d}} -> d - now
+        _ -> us
+      end
+
+    st = remove_tlimit(st, id)
+
+    st =
+      if st.height == h + 1,
+        do: %{st | cps: tl(st.cps), height: h},
+        else: push(st, {:tlimit_reenter, id, budget})
+
+    run(%{st | goals: rest})
+  end
+
+  defp sleep_step(target, rest, st) do
+    case earliest_deadline(st) do
+      d when is_integer(d) and d < target ->
+        sleep_until(d)
+
+        case timer_expired(st) do
+          nil -> sleep_step(target, rest, st)
+          st -> throw_ball(@time_ball, st)
+        end
+
+      _ ->
+        sleep_until(target)
+        run(%{st | goals: rest})
+    end
+  end
 
   # bisher gelaufene Zeit von time/1 (µs), einschließlich des laufenden Abschnitts
   defp time_stop(st, ref) do
@@ -3031,7 +3235,7 @@ defmodule PrologEx do
         st = %{st | subst: subst, answer: answer}
 
         case guarded(fn -> collect(backtrack(sub), k, []) end) do
-          {:ok, collected} -> findnsols_chunk(collected, k, l, tail, rest, st)
+          {:ok, collected} -> findnsols_chunk(collected, k, l, tail, rest, resync(st))
           {:thrown, ball} -> throw_ball(ball, st)
         end
 
@@ -3071,6 +3275,14 @@ defmodule PrologEx do
       # zurück in G: frische Grenze für die nächste Lösung
       {:ilimit_reenter, id, n} ->
         backtrack(add_ilimit(st, id, :counters.get(st.icount, 1) + n))
+
+      # G von call_with_timeout erschöpft: Zeitgrenze weg
+      {:tlimit, id, _on, _rest, _mod, _subst, _answer} ->
+        backtrack(remove_tlimit(st, id))
+
+      # zurück in G: neue Deadline aus dem verbleibenden Budget
+      {:tlimit_reenter, id, budget} ->
+        backtrack(add_tlimit(st, id, now_us() + budget))
 
       # zurück in G (time/1): die Uhr läuft weiter
       {:time_reenter, ref} ->
@@ -3156,6 +3368,21 @@ defmodule PrologEx do
       end
     else
       unwind(ball, below, h - 1, remove_ilimit(st, id))
+    end
+  end
+
+  # Rahmen von call_with_timeout: fängt nur die eigene abgelaufene
+  # Zeitgrenze (außer bei on_timeout(throw)); sonst Grenze weg und weiter
+  defp unwind(ball, [{:tlimit, id, on, rest, mod, subst, answer} | below], h, st) do
+    if ball == @time_ball and on != :throw and tlimit_owner?(st, id) do
+      st = remove_tlimit(%{st | cps: below, height: h - 1, answer: answer}, id)
+
+      case on do
+        :fail -> backtrack(st)
+        goal -> run(%{st | goals: [{mk("call", [goal]), h - 1, mod} | rest], subst: subst})
+      end
+    else
+      unwind(ball, below, h - 1, remove_tlimit(st, id))
     end
   end
 
@@ -3457,16 +3684,20 @@ defmodule PrologEx do
 
     start = new_state(db, [{goal, 0, Keyword.get(opts, :module, "user")}], answer, opts)
 
+    # set_timer/1: der Timer gilt bis zum Ende der Anfrage
+    qref = start.qref
+
     Stream.unfold({:start, start}, fn
       :halt ->
+        drop_timer(qref)
         nil
 
       {:start, st} ->
         put_db(st.db)
-        emit(run(st))
+        st |> run() |> emit() |> query_done(qref)
 
       {:retry, st} ->
-        emit(backtrack(st))
+        st |> backtrack() |> emit() |> query_done(qref)
     end)
   end
 
@@ -3479,9 +3710,17 @@ defmodule PrologEx do
       answer: answer,
       threshold: min,
       min_threshold: min,
-      icount: inference_counter()
+      icount: inference_counter(),
+      qref: make_ref()
     }
   end
+
+  defp query_done(nil, qref) do
+    drop_timer(qref)
+    nil
+  end
+
+  defp query_done(next, _qref), do: next
 
   defp emit(:done), do: nil
 
