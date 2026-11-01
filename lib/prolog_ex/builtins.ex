@@ -73,6 +73,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Ugraphs,
     PrologEx.Builtins.Wgraphs,
     PrologEx.Builtins.Heaps,
+    PrologEx.Builtins.RbtreePrims,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt

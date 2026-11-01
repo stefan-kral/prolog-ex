@@ -841,6 +841,63 @@ von 1983 (die Grundlage der SICStus-Fassung, ohne `delete_from_heap/4`,
 (Binär- und Pairing-Heaps, Min und Max) mit anderer API; Scryer hat
 keine (nur `library(queues)` für FIFO-Warteschlangen).
 
+## Warteschlangen: `library(queues)`
+
+FIFO-Warteschlangen als Differenzlisten mit Zähler (`q(N, Vorne,
+Hinten)`, N als `0`, `s(0)`, …, wie Scryer): Anhängen und Abnehmen an
+beiden Enden kosten O(1) und gehen in beide Richtungen. Die API ist die
+Vereinigung von Scryer und SICStus 4:
+
+  * Scryer: `queue/1`, `queue/2`, `queue_head/3`, `queue_head_list/3`,
+    `queue_last/3`, `queue_last_list/3`, `list_queue/2`, `queue_length/2`
+    (hier auch zum Erzeugen, wie SICStus)
+  * SICStus 4: `empty_queue/1`, `singleton_queue/2`, `is_queue/1`,
+    `queue_head/2`, `queue_tail/2`, `queue_cons/3`, `queue_last/2`,
+    `append_queue/3`, `queue_append/3`, `queue_list/2`, `queue_member/2`,
+    `queue_memberchk/2`, `map_queue/2,3`, `map_queue_list/3`,
+    `map_list_queue/3`, `some_queue/2,3`, `somechk_queue/2,3`,
+    `portray_queue/1` (`Queue[a,b,c]`)
+
+`queue_last/3` hat Scryers Reihenfolge, `queue_last(X, Q0, Q)` (SICStus:
+`queue_last(Q0, X, Q)`). Wie dort binden `queue_last/3`,
+`queue_last_list/3` und `queue_append/3` das Hinten der alten
+Warteschlange; an eine Warteschlange hängt man also nur einmal hinten
+an. In Prolog (`priv/library/queues.pl`, Scryers Teil unter deren
+Lizenz): die logischen Variablen sind hier die Darstellung, Elixir
+brächte nichts. Die alte O'Keefe-API von YAP und ECLiPSe (`make_queue/1`,
+`join_queue/3`, `serve_queue/3`, …) gibt es nicht; SWI hat keine
+`library(queues)`.
+
+## Rot-Schwarz-Bäume: `library(rbtrees)`
+
+Wie SWI-Prolog (und YAP, beide von Vitor Santos Costa): `rb_new/1`,
+`rb_empty/1`, `rb_lookup/3`, `rb_update/4,5`, `rb_apply/4`,
+`rb_insert/4`, `rb_insert_new/4`, `rb_delete/3,4`, `rb_visit/2`,
+`rb_visit_range/4`, `rb_keys/2`, `rb_map/2,3`, `rb_partial_map/4`,
+`rb_fold/4`, `rb_clone/3`, `rb_min/3`, `rb_max/3`, `rb_del_min/4`,
+`rb_del_max/4`, `rb_next/4`, `rb_previous/4`, `list_to_rbtree/2`,
+`ord_list_to_rbtree/2`, `is_rbtree/1`, `rb_size/2`, `rb_in/3`. Scryer
+und SICStus haben keine.
+
+Darstellung wie SWI (`t(Nil, Wurzel)`, `Nil = black('', _, _, '')`,
+Knoten `red/4` und `black/4`); Einfügen, Löschen, Aufbau und alle Umbauten
+folgen SWIs Code Klausel für Klausel, die Bäume sind Term für Term
+dieselben: Ein Test vergleicht zufällige Folgen von Operationen mit
+SWIs Fassung (`test/fixtures/rbtrees_swi.pl`, die SSU-Regeln mechanisch
+in Klauseln mit Cut umgeschrieben). Die Operationen sind in Elixir
+(`'$rb_...'`), nur die Prädikate mit Zielaufruf (`rb_map`, `rb_apply`,
+`rb_fold`, `rb_partial_map`) in Prolog – mit SWIs Reihenfolge der
+Aufrufe. Anders als SWI prüfen `list_to_rbtree/2` und
+`ord_list_to_rbtree/2` ihre Liste wie `library(assoc)`: doppelte
+Schlüssel `domain_error(unique_key_pairs, L)` bzw.
+`domain_error(key_ordered_pairs, L)`, ungeordnete
+`domain_error(key_ordered_pairs, L)`; ein Baum als Variable
+`instantiation_error`, kein Baum `type_error(rbtree, X)`. In unserer
+Maschine gegenüber SWIs Fassung in Prolog: 20 000 `rb_insert/4` 0,4 statt
+3,0 s, 20 000 `rb_lookup/3` 0,3 statt 1,5 s, 20 000 `rb_delete/3` 0,6
+statt 3,9 s, `list_to_rbtree/2` und `rb_visit/2` mit 20 000 Paaren 0,06
+statt 1,3 s.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
