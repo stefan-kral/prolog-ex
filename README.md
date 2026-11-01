@@ -802,6 +802,45 @@ unserer Maschine: `top_sort/2` mit 1 000 Knoten 1 statt 4 524 ms,
 mit 200 Knoten 19 statt 384 ms, `transpose_ugraph/2` mit 2 000 Knoten 7
 statt 69 ms.
 
+## Prioritätswarteschlangen: `library(heaps)`
+
+Min-Heaps aus Paaren `Schlüssel-Wert`, Schlüssel nach der
+Standardordnung; die Vereinigung von SWI und SICStus:
+
+  * beide: `empty_heap/1`, `add_to_heap/4`, `get_from_heap/4`,
+    `delete_from_heap/4`, `heap_size/2`, `heap_to_list/2`,
+    `list_to_heap/2`, `min_of_heap/3`, `min_of_heap/5`, `is_heap/1`
+  * SWI: `merge_heaps/3`, `singleton_heap/3`
+  * SICStus: `portray_heap/1` (`heap{a->1, b->2}`)
+
+Anders als dort ist der Heap stabil: Paare mit gleichem Schlüssel kommen
+in der Reihenfolge heraus, in der sie hineinkamen (`list_to_heap/2`: die
+der Liste; nach `merge_heaps/3` je Ausgangsheap, neue danach). SWI und
+SICStus lassen das offen. `delete_from_heap(+Heap0, ?Key, ?Value, -Heap)`
+entfernt das erste Paar nach Priorität, das mit `Key-Value` unifiziert;
+so geht es in SICStus' Richtung (Schlüssel gegeben) wie in SWIs (Wert
+gegeben). Fehler: Heap als Variable `instantiation_error`, kein Heap
+`type_error(heap, X)`, ein Listenelement ohne `-` `type_error(pair, X)`;
+`is_heap/1` prüft den ganzen Baum und scheitert sonst.
+
+Darstellung: `heap(Größe, Zähler, Baum)` mit einem Leftist-Heap. SWI
+nimmt einen Pairing-Heap, SICStus einen Binärbaum mit Freiliste. Der
+Leftist-Heap braucht für Einfügen, Entnehmen und Verschmelzen auch im
+schlechtesten Fall nur O(log n); beim Pairing-Heap gilt das nur
+amortisiert, und das trägt nicht, wenn derselbe Heap (etwa beim
+Backtracking einer Suche) mehrmals benutzt wird. In Elixir; in unserer
+Maschine gegenüber SWIs Fassung (Pairing-Heap in Prolog) und SICStus'
+(Binärbaum in Prolog): 20 000 Paare einfügen und alle entnehmen 0,8 statt
+3,7 bzw. 4,1 s, `list_to_heap/2` und `heap_to_list/2` mit 20 000 Paaren
+0,1 statt 3,7 bzw. 3,4 s, 200 Mal `get_from_heap/4` auf denselben Heap mit
+20 000 Paaren kaum messbar statt 27 s (SWI) bzw. 2 s (SICStus).
+
+Andere Systeme: YAP und ECLiPSe haben O'Keefes ursprüngliche Bibliothek
+von 1983 (die Grundlage der SICStus-Fassung, ohne `delete_from_heap/4`,
+`is_heap/1` und `portray_heap/1`); Logtalk hat eigene Heap-Objekte
+(Binär- und Pairing-Heaps, Min und Max) mit anderer API; Scryer hat
+keine (nur `library(queues)` für FIFO-Warteschlangen).
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
