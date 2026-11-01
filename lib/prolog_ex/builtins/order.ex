@@ -110,6 +110,19 @@ defmodule PrologEx.Builtins.Order do
     Enum.reverse(acc)
   end
 
+  @doc "Die erste Variable des Terms (in Reihenfolge des Auftretens) oder nil"
+  def first_var(t, s) do
+    case PrologEx.walk(t, s) do
+      {:var, _} = v -> v
+      {:struct, _, args} -> first_var_in(args, s)
+      [h | tl] -> first_var(h, s) || first_var(tl, s)
+      _ -> nil
+    end
+  end
+
+  defp first_var_in([], _s), do: nil
+  defp first_var_in([a | as], s), do: first_var(a, s) || first_var_in(as, s)
+
   defp vars(t, s, {acc, seen} = st) do
     case PrologEx.walk(t, s) do
       {:var, _} = v ->

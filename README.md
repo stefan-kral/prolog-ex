@@ -1129,13 +1129,39 @@ Z). Als Restziele erscheint die Menge wie gewohnt als `dif(X,a), dif(X,b)`
 (jeder Wert einmal). Ausschlussmengen werden beim Wecken vor den übrigen
 Weckzielen geprüft; alle anderen in der Reihenfolge des Anhängens.
 
-Übrige geweckte `dif`-Bedingungen prüft die Maschine selbst in Elixir
-(statt eines Prolog-Weckziels mit vier Inferenzen), mit frühem Abbruch
-beim ersten Scheitern; neue werden in O(1) angehängt. Auch für geweckte
-`freeze`/`when` prüft die Maschine selbst, ob die Bedingung erledigt ist,
-und legt nur noch das Ziel auf den Stapel (eine Inferenz statt vier).
-`mix run bench/dif_bench.exs`, `mix run bench/memberd_bench.exs`: `memberd(X, L)`
-mit 1000 Elementen, alle Antworten, 2200 ms → 3 ms.
+**Wecken.** Eine Suspension ist ein kleiner Term am Attribut `"$susp"`
+der Variablen: `'$fz'(M:G)` (freeze), `'$wh'(C, M:G)` (when) und
+`'$df'(L, R)` (dif-Front). Wartet eine Bedingung auf *mehrere* Variablen
+(`when` mit `?=`/`;`, eine dif-Front mit zwei Variablen), hängt derselbe
+Eintrag an allen, mit einer `Done`-Variablen davor – gebunden heißt
+erledigt, die übrigen Einträge sind tot. Eine Suspension auf *einer*
+Variablen braucht das nicht: ist die Variable gebunden, werden ihre
+Attribute nie mehr gelesen. Wird eine attributierte Variable gebunden,
+verarbeitet die Maschine die Suspensionen direkt nach der Unifikation in
+Elixir (`wake_builtin`), ohne Weckziele: Ausschlussmengen und
+dif-Fronten werden geprüft, `freeze`-Einträge wandern bei `X = Y` zur
+anderen Variablen, `when`-Bedingungen werden neu gestellt, und nur Ziele,
+die wirklich laufen, kommen auf den Stapel – mit ihrem Modul, ein
+Schritt je Ziel. Steht so ein Ziel an, wird alles Weitere aus derselben
+Bindung zu Zielen hinter ihm, damit die Reihenfolge des Anhängens auch
+gegenüber laufenden Zielen erhalten bleibt. Tote Einträge wirft die
+Kompaktierung weg. Nur wenn ein Modul `verify_attributes/3` definiert,
+läuft das Wecken als Ziel (Hooks, dann die eingebauten Suspensionen).
+
+Gemessen (`mix run bench/dif_bench.exs`, `bench/psort_bench.exs`,
+100 000 Variablen): `freeze` anlegen und wecken in einer Schleife 6,1 →
+3,0 µs je Variable (Rest ohne Coroutining: 2,9), `when(nonvar(X), G)`
+7,0 → 3,6 µs; 100 000 lebende `freeze` binden 3,3 → 2,1 s, dieselben über
+`X = Y` weiterreichen 4,4 → 2,8 s, 100 000 `freeze` an einer Variablen
+1,3 → 0,9 s, `dif` an 300 Variablen paarweise 440 → 380 ms. Permutation
+Sort (13 Elemente, Sortiertheit mit `freeze` auf den Elementen) 241 → 162
+ms, mit `when` 194 → 135 ms – dort waren von 75 000 Maschinenschritten
+63 000 Weck-Verwaltung, jetzt 48 000 insgesamt. Was bleibt, ist bei
+großen Substitutionen der Preis der Map-Zugriffe (ein Schreibzugriff auf
+eine Map mit 300 000 Einträgen kostet 2–3 µs statt 0,2) – siehe
+`PrologEx.bind/3` (`:wake`) und die Kompaktierung lebender attributierter
+Variablen. `mix run bench/memberd_bench.exs`: `memberd(X, L)` mit 1000
+Elementen, alle Antworten, 2200 ms → 3 ms.
 
 `frozen/2`, `copy_term/3` (Body als Konjunktion) und `term_attvars/2` wie
 SICStus. `copy_term/2` und `findall/3` kopieren Attribute nicht mit.

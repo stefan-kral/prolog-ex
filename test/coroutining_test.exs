@@ -176,6 +176,18 @@ defmodule PrologEx.CoroutiningTest do
     test "Kompaktierung der Substitution behält die Attribute", c do
       assert out(c, "freeze(X, write(da)), zaehle(5000), X = 1.", compact_threshold: 1) == "da"
       assert out(c, "freeze(X, write(w)), X = 1.", compact_threshold: 1) == "w"
+      # ground Suspensionen werden markiert; weitere kommen trotzdem dazu
+      assert out(
+               c,
+               "freeze(X, write(a)), zaehle(3000), freeze(X, write(b)), zaehle(3000), X = 1.",
+               compact_threshold: 1
+             ) == "ab"
+
+      assert ask(c, "freeze(X, true), zaehle(3000), freeze(X, true), zaehle(3000), frozen(X, G).",
+               compact_threshold: 1
+             )
+             |> hd() =~ "G = (freeze(X,user:true),freeze(X,user:true))"
+
       # _Y kommt nur noch im Attribut von X vor; seine Attribute müssen bleiben
       assert ask(c, "dif(_Y, 1), freeze(X, _Y = 1), zaehle(3000), X = a.", compact_threshold: 1) ==
                []
@@ -280,6 +292,11 @@ defmodule PrologEx.CoroutiningTest do
     test "eine Bedingung an mehreren Variablen: einmal geprüft", c do
       assert ask(c, "dif(X, Y), f(X, Y) = f(a, b).") == ["X = a, Y = b"]
       assert ask(c, "dif(X, Y), f(X, Y) = f(a, a).") == []
+      # zwei Variablen in einer Unifikation gebunden, die erste mit einem
+      # anderen Weckziel: die Ausschlussmenge der zweiten wird trotzdem geprüft
+      assert ask(c, "dif(Y, 1), freeze(X, true), f(X, Y) = f(a, 1).") == []
+      assert ask(c, "freeze(X, true), dif(Y, Z), f(X, Y, Z) = f(a, 1, 1).") == []
+      assert ask(c, "dif(Y, 1), freeze(X, true), f(X, Y) = f(a, 2).") == ["X = a, Y = 2"]
       assert ask(c, "dif(f(X, Y), f(Y, X)), X = a.") == ["X = a, dif(Y,a)"]
       assert ask(c, "dif(f(X, Y), f(Y, X)), X = a, Y = a.") == []
     end
@@ -334,6 +351,11 @@ defmodule PrologEx.CoroutiningTest do
 
     test "Variable an Variable: die Menge geht über", c do
       assert ask(c, "dif(X, a), dif(Y, b), X = Y.") == ["X = Y, dif(Y,b), dif(Y,a)"]
+
+      assert ask(c, "dif(X, a), dif(X, b), dif(Y, c), X = Y.") == [
+               "X = Y, dif(Y,c), dif(Y,a), dif(Y,b)"
+             ]
+
       assert ask(c, "dif(X, a), dif(Y, b), X = Y, Y = a.") == []
       assert ask(c, "dif(X, a), dif(Y, b), X = Y, X = b.") == []
       assert ask(c, "dif(X, a), dif(Y, b), X = Y, X = c.") == ["X = c, Y = c"]
@@ -391,6 +413,58 @@ defmodule PrologEx.CoroutiningTest do
                "when(nonvar(X), write(a)), when(nonvar(Y), write(b)), X = Y, write(-), Y = 1."
              ) ==
                "-ba"
+    end
+
+    test "Reihenfolge: ein Weckziel läuft vor den Prüfungen, die nach ihm anstehen", c do
+      # freeze (läuft), dann dif an derselben Variablen: dif wird erst nach
+      # dem freeze-Ziel geprüft – das Ziel sieht die Bindung, dif scheitert danach
+      assert out(c, "freeze(X, write(f)), dif(X, f(Y)), X = f(Y).") == "f"
+      # when hinter einem laufenden freeze-Ziel, das die Bedingung erfüllt
+      assert out(c, "freeze(X, (write(f), Y = 1)), when(nonvar(Y), write(w)), X = a.") == "fw"
+      # drei freezes, mittleres bindet die Variable, auf die das letzte als
+      # when wartet: Reihenfolge des Anhängens
+      assert out(
+               c,
+               "freeze(X, write(a)), when(ground(f(X, Z)), write(g)), freeze(X, (write(b), Z = 1)), X = 1."
+             ) == "abg"
+
+      # ein freeze hinter einem laufenden Weckziel, die Variable an eine
+      # andere gebunden: es wandert mit, läuft nicht
+      assert out(c, "when(?=(X, Y), write(a)), freeze(X, write(b)), X = Y, write(-), Y = 1.") ==
+               "a-b"
+
+      # ein when hinter einem laufenden Weckziel sieht dessen Bindungen
+      # erst, wenn es an der Reihe ist
+      assert out(
+               c,
+               "when(nonvar(X), (Z = 1, write(a))), when((nonvar(X), nonvar(Z)), write(w)), X = 1."
+             ) == "aw"
+
+      # Suspensionen wandern bei X = Y in Reihenfolge hinter die von Y
+      assert out(
+               c,
+               "freeze(X, write(1)), freeze(X, write(2)), freeze(Y, write(3)), X = Y, Y = a."
+             ) ==
+               "312"
+
+      # tote Einträge (Done gebunden) überstehen die Kompaktierung nicht,
+      # aktive schon
+      assert ask(c, "dif(X, Y), dif(X, Z), X = a, zaehle(3000), Y = b, Z = c.",
+               compact_threshold: 1
+             ) ==
+               ["X = a, Y = b, Z = c"]
+
+      assert ask(c, "dif(X, Y), dif(X, Z), X = a, zaehle(3000), Y = a.", compact_threshold: 1) ==
+               []
+
+      assert ask(c, "dif(f(X, Y), f(1, 2)), zaehle(3000), X = 1, zaehle(3000), Y = 2.",
+               compact_threshold: 1
+             ) == []
+
+      assert ask(c, "dif(f(X, Y), f(1, 2)), zaehle(3000), X = 1, zaehle(3000), Y = 3.",
+               compact_threshold: 1
+             ) ==
+               ["X = 1, Y = 3"]
     end
 
     test "when mit Konjunktion: erst die zweite Bindung weckt", c do

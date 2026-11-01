@@ -4,26 +4,34 @@ defmodule PrologEx.Builtins.Coroutining do
   und ground/1.
 
   Grundlage sind attributierte Variablen (siehe `PrologEx.put_attr/4`):
-  eine verzögerte Bedingung hängt als `'$s'(Done, Weckziel, Restziel)` an
-  den Variablen, auf die sie wartet. Wird eine davon gebunden, läuft das
-  Weckziel – vor dem nächsten Ziel. Die Weckziele sind einheitlich
+  eine verzögerte Bedingung hängt als Suspension an den Variablen, auf die
+  sie wartet (Attribut `"$susp"`, neuester Eintrag vorn). Wird eine davon
+  gebunden, verarbeitet die Maschine die Suspensionen selbst
+  (`PrologEx.wake_builtin/4`), vor dem nächsten Ziel. Die Formen:
 
-      '$..._retry'(Done, ...) :- ( nonvar(Done) -> true ; Done = true, <neu prüfen> ).
+      '$fz'(M:G)          freeze: G läuft, wenn die Variable gebunden ist
+      '$wh'(C, M:G)       when: Bedingung C wartet auf genau diese Variable
+      '$wh'(Done, C, M:G) when: C wartet auf mehrere Variablen
+      '$df'(L, R)         dif: die Front L = R wartet auf genau eine Variable
+      '$df'(Done, L, R)   dif: die Front wartet auf mehrere Variablen
 
-  Done ist eine Variable je Bedingung; ist sie gebunden, ist die Bedingung
-  erledigt, und ihre übrigen Einträge (an anderen Variablen) sind tot.
-  Neu prüfen heißt: dieselbe Bedingung noch einmal stellen (dif/2, when/2,
-  freeze/2); ist sie weiter offen, wartet sie mit einem neuen Done auf
-  den dann passenden Variablen. Das hält die Logik einfach und korrekt;
-  dif/2 prüft dabei den ganzen Term neu.
+  Eine Suspension auf genau einer Variablen ist erledigt, sobald die
+  Variable gebunden ist – ihre Attribute werden dann nie mehr gelesen.
+  Wartet eine Bedingung auf mehrere Variablen, hängt derselbe Eintrag an
+  allen; `Done` ist eine Variable je Bedingung: gebunden heißt erledigt,
+  die übrigen Einträge sind tot (die Kompaktierung wirft sie weg).
+  Geweckt heißt: die Bedingung noch einmal stellen (dif/2, when/2,
+  freeze/2); ist sie weiter offen, wartet sie auf den dann passenden
+  Variablen – eine Variable an eine andere gebunden: der Eintrag wandert
+  mit. Das hält die Logik einfach und korrekt; dif/2 prüft dabei die
+  ganze Front neu.
 
   dif/2 mit einer Front Variable = ground Wert benutzt stattdessen die
   Ausschlussmenge der Variablen (Attribut "$difset", siehe exclude/3,
-  check_excluded/3); geweckte dif-Bedingungen prüft die Maschine selbst
-  (PrologEx: wake_difs, '$difs', '$difset_check').
+  check_excluded/3).
 
-  Restziele (`frozen/2`, Antworten im Toplevel) sind die Restziel-Teile
-  der aktiven Einträge: `freeze(X, M:G)`, `dif(X, Y)`, `when(C, M:G)`.
+  Restziele (`frozen/2`, Antworten im Toplevel) werden aus den aktiven
+  Einträgen abgeleitet: `freeze(X, M:G)`, `dif(L, R)`, `when(C, M:G)`.
   """
   use PrologEx.Builtin
   alias PrologEx.Builtins.Lists
@@ -41,32 +49,60 @@ defmodule PrologEx.Builtins.Coroutining do
 
   @doc false
   # freeze mit qualifiziertem Ziel: {:call, Ziel} oder {:ok, s} (wartet).
-  # Auch für das Wecken in der Maschine (siehe PrologEx, '$wake_freeze').
+  # Auch für das Wecken in der Maschine.
   def freeze(x, goal, s) do
     case PrologEx.walk(x, s) do
-      {:var, _} = v ->
-        done = fresh_var()
-        susp = s3(done, mk("$freeze_retry", [done, v, goal]), mk("freeze", [v, goal]))
-        {:ok, PrologEx.suspend(s, [v], susp)}
-
-      _ ->
-        {:call, goal}
+      {:var, _} = v -> {:ok, PrologEx.suspend(s, [v], mk("$fz", [goal]))}
+      _ -> {:call, goal}
     end
   end
 
   @doc false
   # when mit qualifiziertem Ziel und gültiger Bedingung: {:call, Ziel} oder
-  # {:ok, s} (wartet). Auch für das Wecken (siehe '$wake_when').
+  # {:ok, s} (wartet). Auch für das Wecken.
   def when_(c, goal, s) do
     case condition(c, s) do
       true ->
         {:call, goal}
 
+      {:wait, [v]} ->
+        {:ok, PrologEx.suspend(s, [v], mk("$wh", [c, goal]))}
+
       {:wait, vars} ->
-        done = fresh_var()
-        cond_t = PrologEx.resolve(c, s)
-        susp = s3(done, mk("$when_retry", [done, cond_t, goal]), mk("when", [cond_t, goal]))
+        susp = mk("$wh", [fresh_var(), c, goal])
         {:ok, PrologEx.suspend(s, Enum.uniq(vars), susp)}
+    end
+  end
+
+  @doc false
+  # Restziel einer Suspension an der Variablen v (für $susp_goals und den
+  # Toplevel)
+  def residual(susp, v) do
+    case PrologEx.unmark_top(susp) do
+      {:struct, "$fz", [g]} -> mk("freeze", [v, g])
+      {:struct, "$wh", [c, g]} -> mk("when", [c, g])
+      {:struct, "$wh", [_, c, g]} -> mk("when", [c, g])
+      {:struct, "$df", [l, r]} -> mk("dif", [l, r])
+      {:struct, "$df", [_, l, r]} -> mk("dif", [l, r])
+    end
+  end
+
+  @doc false
+  # Done-Variable einer Suspension (nil bei Suspensionen auf einer Variablen)
+  def done_var(susp) do
+    case PrologEx.unmark_top(susp) do
+      {:struct, "$wh", [d, _, _]} -> d
+      {:struct, "$df", [d, _, _]} -> d
+      _ -> nil
+    end
+  end
+
+  @doc false
+  # Ist die Suspension noch aktiv (Done ungebunden bzw. kein Done)?
+  def active?(susp, s) do
+    case done_var(susp) do
+      nil -> true
+      d -> match?({:var, _}, PrologEx.walk(d, s))
     end
   end
 
@@ -77,11 +113,7 @@ defmodule PrologEx.Builtins.Coroutining do
         {:var, _} = var ->
           excluded = for c <- excluded(var, subst()), do: mk("dif", [var, c])
 
-          excluded ++
-            for s <- PrologEx.suspensions(var, subst()) do
-              {_, "$s", [_, _, residual]} = PrologEx.unmark_top(s)
-              residual
-            end
+          excluded ++ for s <- PrologEx.suspensions(var, subst()), do: residual(s, var)
 
         _ ->
           []
@@ -145,12 +177,16 @@ defmodule PrologEx.Builtins.Coroutining do
     end
   end
 
-  # nur die Front merken: die Paare des Unifikators (siehe Moduldoku)
+  # nur die Front merken: die Paare des Unifikators (siehe Moduldoku); auf
+  # einer Variablen ohne Done
+  defp suspend_dif(s, [v], pairs) do
+    {l, r} = frontier(pairs)
+    PrologEx.suspend(s, [v], mk("$df", [l, r]))
+  end
+
   defp suspend_dif(s, vars, pairs) do
     {l, r} = frontier(pairs)
-    done = fresh_var()
-    susp = s3(done, mk("$dif_retry", [done, l, r]), mk("dif", [l, r]))
-    PrologEx.suspend(s, vars, susp)
+    PrologEx.suspend(s, vars, mk("$df", [fresh_var(), l, r]))
   end
 
   # --- Ausschlussmengen ---------------------------------------------------
@@ -167,16 +203,29 @@ defmodule PrologEx.Builtins.Coroutining do
   # Statt k Weckziele für k dif-Bedingungen also eine Prüfung.
 
   @doc false
-  def exclude(s, v, c) do
-    case PrologEx.get_attrs(v, s) |> Map.get("$difset") do
+  def exclude(s, v, c), do: exclude_all(s, v, [c])
+
+  @doc false
+  # mehrere Werte (in Reihenfolge) in die Ausschlussmenge von v, mit einem
+  # Schreibzugriff
+  def exclude_all(s, v, cs) do
+    PrologEx.update_attr(s, v, "$difset", fn
       nil ->
-        PrologEx.put_attr(s, v, "$difset", {:difset, MapSet.new([c]), [c]})
+        {set, rev} = add_excluded(cs, MapSet.new(), [])
+        {:difset, set, rev}
 
       {:difset, set, rev} ->
-        if MapSet.member?(set, c),
-          do: s,
-          else: PrologEx.put_attr(s, v, "$difset", {:difset, MapSet.put(set, c), [c | rev]})
-    end
+        {set, rev} = add_excluded(cs, set, rev)
+        {:difset, set, rev}
+    end)
+  end
+
+  defp add_excluded([], set, rev), do: {set, rev}
+
+  defp add_excluded([c | cs], set, rev) do
+    if MapSet.member?(set, c),
+      do: add_excluded(cs, set, rev),
+      else: add_excluded(cs, MapSet.put(set, c), [c | rev])
   end
 
   @doc false
@@ -194,7 +243,7 @@ defmodule PrologEx.Builtins.Coroutining do
   def check_excluded(x, {:difset, set, rev}, s) do
     case PrologEx.walk(x, s) do
       {:var, _} = w ->
-        {:ok, rev |> Enum.reverse() |> Enum.reduce(s, &exclude(&2, w, &1))}
+        {:ok, exclude_all(s, w, Enum.reverse(rev))}
 
       val ->
         if Order.variables(val, s) == [] do
@@ -274,7 +323,7 @@ defmodule PrologEx.Builtins.Coroutining do
           id > mark,
           v = {:var, {:attv, id}},
           PrologEx.walk(v, s) == v,
-          active?(attrs, s) do
+          attrs_active?(attrs, s) do
         {id, v}
       end
       |> Enum.sort()
@@ -285,13 +334,10 @@ defmodule PrologEx.Builtins.Coroutining do
 
   # aktiv: ein Attribut eines Moduls, eine Ausschlussmenge (dif; sie wächst
   # nur, ist also nie leer) oder eine Suspension mit ungebundenem Done
-  defp active?(attrs, s) do
+  defp attrs_active?(attrs, s) do
     Enum.any?(attrs, fn
       {"$susp", l} ->
-        Enum.any?(PrologEx.prolog_items(l), fn susp ->
-          {_, "$s", [done | _]} = PrologEx.unmark_top(susp)
-          match?({:var, _}, PrologEx.walk(done, s))
-        end)
+        Enum.any?(PrologEx.prolog_items(l), &active?(&1, s))
 
       _ ->
         true
@@ -300,16 +346,7 @@ defmodule PrologEx.Builtins.Coroutining do
 
   def library do
     import PrologEx, only: [s: 2, v: 1, a: 1, rule: 2, fact: 1]
-    [d, x, y, g, c] = Enum.map(~w(D X Y G C), &v/1)
-
-    retry = fn name, args, again ->
-      rule(s(name, [d | args]), [
-        s(";", [
-          s("->", [s("nonvar", [d]), a("true")]),
-          s(",", [s("=", [d, a("true")]), again])
-        ])
-      ])
-    end
+    g = v("G")
 
     [vs, v1, ms, m, g0, g1, g2, ag, l, t, cp, b, h, r] =
       Enum.map(~w(Vs V Ms M G0 G1 G2 AG L T Copy Body H R), &v/1)
@@ -325,9 +362,6 @@ defmodule PrologEx.Builtins.Coroutining do
           s("$crv_close", [m])
         ])
       ]),
-      retry.("$freeze_retry", [x, g], s("freeze", [x, g])),
-      retry.("$dif_retry", [x, y], s("dif", [x, y])),
-      retry.("$when_retry", [c, g], s("when", [c, g])),
       # Restziele attributierter Variablen: eingebaute Bedingungen und
       # M:attribute_goal/2 aller Attributmodule (wie SICStus)
       rule(s("$residuals", [vs, g]), [
@@ -372,8 +406,6 @@ defmodule PrologEx.Builtins.Coroutining do
 
   # ---------------------------------------------------------------------
 
-  defp s3(done, wake, residual), do: mk("$s", [done, wake, residual])
-
   @doc false
   def qualify(g, mod, s) do
     case PrologEx.walk(g, s) do
@@ -398,9 +430,9 @@ defmodule PrologEx.Builtins.Coroutining do
 
       {:struct, "ground", [x]} ->
         # wie SICStus: auf eine Variable warten, dann neu prüfen
-        case Order.variables(x, s) do
-          [] -> true
-          [v | _] -> {:wait, [v]}
+        case Order.first_var(x, s) do
+          nil -> true
+          v -> {:wait, [v]}
         end
 
       {:struct, "?=", [x, y]} ->

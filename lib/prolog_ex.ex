@@ -163,11 +163,10 @@ defmodule PrologEx do
   # des Systems ist eine attributierte Variable eine normale ungebundene
   # Variable.
   #
-  # Coroutining (freeze, dif, when) nutzt das Attribut "$susp": eine
-  # Prolog-Liste von '$s'(Done, Weckziel, Restziel), neuester Eintrag vorn.
-  # Wird die Variable gebunden, laufen die Weckziele aller Einträge mit
-  # ungebundenem Done, in der Reihenfolge des Anhängens. dif-Weckziele
-  # prüft die Maschine selbst (siehe wake_difs/2, '$difs').
+  # Coroutining (freeze, dif, when) nutzt das Attribut "$susp": eine Liste
+  # von Suspensionen (Formen siehe PrologEx.Builtins.Coroutining), neuester
+  # Eintrag vorn. Wird die Variable gebunden, verarbeitet die Maschine die
+  # aktiven Einträge in der Reihenfolge des Anhängens (wake_builtin/4).
   # ---------------------------------------------------------------------
 
   @doc "Ist die (dereferenzierte) Variable attributiert?"
@@ -198,13 +197,30 @@ defmodule PrologEx do
     end
   end
 
+  @doc """
+  Attribut `module` von `var` mit `fun` (alter Wert oder nil → neuer Wert)
+  ändern: ein walk, ein Schreibzugriff.
+  """
+  def update_attr(subst, var, module, fun) do
+    case walk(var, subst) do
+      {:var, {:attv, id}} ->
+        Map.update(subst, {:attrs, id}, %{module => fun.(nil)}, fn attrs ->
+          Map.put(attrs, module, fun.(Map.get(attrs, module)))
+        end)
+
+      {:var, _} = v ->
+        id = attv_id()
+        subst |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{module => fun.(nil)})
+    end
+  end
+
   # Kennung einer neuen attributierten Variablen: aus dem gemeinsamen Zähler
   # (steigend, damit call_residue_vars/2 die während eines Ziels
   # entstandenen erkennt)
   @doc false
   def attv_id, do: PrologEx.Vars.next()
 
-  @doc "Suspension '$s'(Done, Weckziel, Restziel) an alle Variablen hängen"
+  @doc "Suspension an alle Variablen hängen"
   # Die Liste steht mit dem neuesten Eintrag vorn (Anhängen in O(1));
   # gelesen wird sie mit susp_items/1 in Reihenfolge des Anhängens.
   def suspend(subst, vars, susp) do
@@ -213,7 +229,7 @@ defmodule PrologEx do
       case walk(v, s) do
         {:var, {:attv, id}} ->
           Map.update(s, {:attrs, id}, %{"$susp" => [susp]}, fn attrs ->
-            Map.put(attrs, "$susp", [susp | Map.get(attrs, "$susp", [])])
+            Map.put(attrs, "$susp", cons(susp, Map.get(attrs, "$susp", [])))
           end)
 
         {:var, _} = v ->
@@ -262,15 +278,12 @@ defmodule PrologEx do
   defp attvars_args([], _subst, st), do: st
   defp attvars_args([a | as], subst, st), do: attvars_args(as, subst, attvars(a, subst, st))
 
-  @doc "Aktive Suspensionen ('$s'-Terme mit ungebundenem Done) einer Variablen"
+  @doc "Aktive Suspensionen einer Variablen (Done ungebunden oder ohne Done)"
   def suspensions(var, subst) do
     var
     |> get_attrs(subst)
     |> susp_items()
-    |> Enum.filter(fn s ->
-      {_, "$s", [done, _, _]} = unmark_top(s)
-      match?({:var, _}, walk(done, subst))
-    end)
+    |> Enum.filter(&PrologEx.Builtins.Coroutining.active?(&1, subst))
   end
 
   @doc false
@@ -1584,11 +1597,7 @@ defmodule PrologEx do
   defp step({:"$wake", attvs}, _cutb, _mod, rest, st) do
     case verify_modules(current_db()) do
       [] ->
-        case wake_difs(attvs, st.subst) do
-          :fail -> backtrack(st)
-          {s, []} -> run(%{st | subst: s, goals: rest})
-          {s, later} -> run(%{st | subst: s, goals: susp_goals(later, s, st.height) ++ rest})
-        end
+        wake_and_run(attvs, st.subst, st, rest)
 
       mods ->
         pairs = for v <- attvs, do: {v, Map.fetch!(st.subst, v)}
@@ -1611,17 +1620,27 @@ defmodule PrologEx do
     end
   end
 
-  # geweckte freeze/when-Bedingung (siehe susp_goals/3): wie
-  # '$freeze_retry'/'$when_retry', aber ohne vier Inferenzen in Prolog –
-  # Done gebunden: erledigt; sonst Done binden und neu stellen: das Ziel
-  # läuft jetzt (wie call/1, Cut lokal) oder wartet auf neuen Variablen
-  defp step({:struct, "$wake_freeze", [d, x, g]}, _cutb, _mod, rest, st),
-    do: wake_retry(d, st, rest, &PrologEx.Builtins.Coroutining.freeze(x, g, &1))
+  # geweckte freeze-Suspension, die hinter einem anderen Weckziel ansteht
+  # (siehe wake_builtin/4): jetzt neu stellen – das Ziel läuft (wie call/1,
+  # Cut lokal) oder wartet an der Variablen, an die V gebunden wurde
+  defp step({:struct, "$wake_fz", [v, g]}, _cutb, _mod, rest, st) do
+    case PrologEx.Builtins.Coroutining.freeze(v, g, st.subst) do
+      {:call, goal} -> run(%{st | goals: [{goal, st.height, "system"} | rest]})
+      {:ok, s} -> run(%{st | subst: s, goals: rest})
+    end
+  end
 
-  defp step({:struct, "$wake_when", [d, c, g]}, _cutb, _mod, rest, st),
-    do: wake_retry(d, st, rest, &PrologEx.Builtins.Coroutining.when_(c, g, &1))
+  # geweckte when-Suspension hinter einem anderen Weckziel: Done prüfen und
+  # binden, Bedingung neu stellen
+  defp step({:struct, "$wake_wh", [susp]}, _cutb, _mod, rest, st) do
+    case wake_when(susp, st.subst) do
+      :done -> run(%{st | goals: rest})
+      {:call, goal, s} -> run(%{st | subst: s, goals: [{goal, st.height, "system"} | rest]})
+      {:ok, s} -> run(%{st | subst: s, goals: rest})
+    end
+  end
 
-  # Ausschlussmenge einer gebundenen Variablen prüfen (siehe wake_goals/2)
+  # Ausschlussmenge einer gebundenen Variablen prüfen (siehe wake_builtin/4)
   defp step({:struct, "$difset_check", [x, data]}, _cutb, _mod, rest, st) do
     case PrologEx.Builtins.Coroutining.check_excluded(x, data, st.subst) do
       {:ok, s} -> run(%{st | subst: s, goals: rest})
@@ -1629,24 +1648,16 @@ defmodule PrologEx do
     end
   end
 
-  # geweckte dif-Bedingungen (siehe wake_goals/2): je Eintrag mit noch
-  # ungebundenem Done dieses binden und dif neu stellen
+  # geweckte dif-Suspensionen hinter einem anderen Weckziel (siehe
+  # wake_builtin/4): je aktivem Eintrag Done binden und dif neu stellen
   defp step({:struct, "$difs", [difs]}, _cutb, _mod, rest, st) do
     result =
       difs
       |> prolog_items()
-      |> Enum.reduce_while({:ok, st.subst}, fn dxy, {:ok, s} ->
-        {_, "$d", [d, x, y]} = unmark_top(dxy)
-
-        case walk(d, s) do
-          {:var, _} = dv ->
-            case PrologEx.Builtins.Coroutining.dif(x, y, Map.put(s, dv, {:atom, "true"})) do
-              :fail -> {:halt, :fail}
-              ok -> {:cont, ok}
-            end
-
-          _ ->
-            {:cont, {:ok, s}}
+      |> Enum.reduce_while({:ok, st.subst}, fn susp, {:ok, s} ->
+        case wake_dif(susp, s) do
+          :fail -> {:halt, :fail}
+          ok -> {:cont, ok}
         end
       end)
 
@@ -1685,7 +1696,9 @@ defmodule PrologEx do
     case collected do
       {:ok, hook_goals} ->
         again = for g <- Enum.reverse(again), do: {g, st.height, "system"}
-        run(%{st | goals: again ++ hook_goals ++ wake_goals(Enum.reverse(attvs), st) ++ rest})
+        # eingebaute Suspensionen erst nach den Goals der Hooks, alle als Ziele
+        {_s, wake} = wake_builtin(Enum.reverse(attvs), st.subst, st, :deferred)
+        run(%{st | goals: again ++ hook_goals ++ wake ++ rest})
 
       {:thrown, ball} ->
         throw_ball(ball, st)
@@ -2291,16 +2304,33 @@ defmodule PrologEx do
 
   # Nach einer erfolgreichen Unifikation weitermachen. Wurden dabei
   # attributierte Variablen gebunden (:wake), laufen deren Weckziele vor
-  # dem Rest (wie SICStus: am nächsten Aufruf-Port).
-  defp cont(st, s, goals) do
-    {s, goals} = after_unify(s, goals)
-    run(%{st | goals: goals, subst: s})
+  # dem Rest (wie SICStus: am nächsten Aufruf-Port). Ohne Module mit
+  # verify_attributes/3 verarbeitet die Maschine die eingebauten
+  # Suspensionen gleich hier; sonst über das Ziel $wake (Hooks, $attv_redo).
+  defp cont(st, %{wake: ws} = s, goals) do
+    s = Map.delete(s, :wake)
+    attvs = Enum.reverse(ws)
+
+    case verify_modules(current_db()) do
+      [] -> wake_and_run(attvs, s, st, goals)
+      _ -> run(%{st | subst: s, goals: [{{:"$wake", attvs}, 0, "system"} | goals]})
+    end
   end
 
+  defp cont(st, s, goals), do: run(%{st | goals: goals, subst: s})
+
+  # (für Stellen, die das Wecken als Ziel brauchen, siehe call_nth/2)
   defp after_unify(%{wake: ws} = s, goals),
     do: {Map.delete(s, :wake), [{{:"$wake", Enum.reverse(ws)}, 0, "system"} | goals]}
 
   defp after_unify(s, goals), do: {s, goals}
+
+  defp wake_and_run(attvs, s, st, rest) do
+    case wake_builtin(attvs, s, st, :immediate) do
+      :fail -> backtrack(st)
+      {s, goals} -> run(%{st | subst: s, goals: goals ++ rest})
+    end
+  end
 
   # Goals-Liste eines Hooks (Restlisten können gebundene Variablen sein)
   defp goal_list(l, subst) do
@@ -2318,122 +2348,159 @@ defmodule PrologEx do
         do: m
   end
 
-  # Weckziele der gebundenen attributierten Variablen, in der Reihenfolge,
-  # in der sie angehängt wurden; jedes wie call/1 (Cut lokal).
-  # Aufeinanderfolgende dif-Weckziele ('$dif_retry'(Done, X, Y)) werden zu
-  # einem Ziel '$difs'(['$d'(Done, X, Y), ...]) zusammengefasst, das die
-  # Maschine direkt prüft – statt vier Inferenzen je dif in Prolog. Die
-  # Reihenfolge gegenüber anderen Weckzielen bleibt dieselbe. (Ein
-  # gewöhnlicher Term, damit die Kompaktierung seine Variablen sieht.)
-  # (Ausschlussmengen zuerst: ihre Daten gleich mitnehmen – bis das Ziel
-  # läuft, kann die Kompaktierung die Attribute gebundener Variablen
-  # verworfen haben)
-  defp wake_goals(attvs, st) do
-    excl =
-      for {:var, {:attv, id}} = v <- attvs,
-          %{"$difset" => data} <- [Map.get(st.subst, {:attrs, id}, %{})],
-          do: {mk("$difset_check", [v, data]), 0, "system"}
+  # Eingebaute Suspensionen (freeze, dif, when, Ausschlussmengen) der eben
+  # gebundenen attributierten Variablen attvs (in Bindereihenfolge)
+  # verarbeiten; je Variable zuerst die Ausschlussmenge, dann die
+  # Suspensionen in der Reihenfolge des Anhängens. Solange noch kein Ziel
+  # ansteht, wird direkt geprüft und neu aufgehängt (ein Scheitern bricht
+  # sofort ab). Ab dem ersten Ziel, das laufen muss, wird alles Weitere zu
+  # Zielen hinter ihm – so bleibt die Reihenfolge gegenüber diesem Ziel
+  # erhalten (aufeinanderfolgende dif-Prüfungen als ein Ziel $difs). Im
+  # Modus :deferred (nach den Hooks von verify_attributes/3) von Anfang an
+  # nur Ziele. Ergebnis: :fail oder {Substitution, Ziele}.
+  defp wake_builtin(attvs, s, st, mode) do
+    acc = {s, [], mode == :deferred}
 
-    excl ++ susp_goals(suspensions_of(attvs, st.subst), st.subst, st.height)
-  end
-
-  defp suspensions_of(attvs, subst) do
-    for {:var, {:attv, id}} <- attvs,
-        susp <- susp_items(Map.get(subst, {:attrs, id}, %{})),
-        do: susp
-  end
-
-  # Die führenden dif-Weckziele gleich hier prüfen (vor ihnen läuft nichts,
-  # die Reihenfolge bleibt also dieselbe), mit frühem Abbruch beim ersten
-  # Scheitern. Ergebnis: :fail oder {Substitution, übrige Suspensionen ab
-  # dem ersten anderen Weckziel}.
-  defp wake_difs(attvs, subst), do: wake_difs(attvs, subst, subst)
-
-  defp wake_difs([], _orig, s), do: {s, []}
-
-  defp wake_difs([{:var, {:attv, id}} = v | attvs], orig, s) do
-    attrs = Map.get(orig, {:attrs, id}, %{})
-
-    checked =
-      case attrs do
-        %{"$difset" => data} -> PrologEx.Builtins.Coroutining.check_excluded(v, data, s)
-        _ -> {:ok, s}
-      end
-
-    with {:ok, s} <- checked do
-      wake_susps(attrs, attvs, orig, s)
+    case Enum.reduce_while(attvs, acc, &wake_var(&1, &2, st)) do
+      :fail -> :fail
+      {s, items, _} -> {s, wake_items(Enum.reverse(items), [], st.height)}
     end
   end
 
-  defp wake_susps(attrs, attvs, orig, s) do
-    case attrs |> susp_items() |> lead_difs(s) do
-      {:ok, s} -> wake_difs(attvs, orig, s)
-      {:later, s, later} -> {s, later ++ suspensions_of(attvs, orig)}
+  # acc = {Substitution, Einträge (umgekehrt), schon ein Ziel?}; Einträge
+  # {:goal, ziel, cutb, modul} oder {:dif, suspension}
+  defp wake_var({:var, {:attv, id}} = v, {s, _, _} = acc, st) do
+    attrs = Map.get(s, {:attrs, id}, %{})
+
+    acc =
+      case attrs do
+        %{"$difset" => data} -> wake_difset(v, data, acc)
+        _ -> acc
+      end
+
+    case acc do
+      :fail -> {:halt, :fail}
+      acc -> wake_susps(susp_items(attrs), v, acc, st)
+    end
+  end
+
+  defp wake_difset(v, data, {s, items, false}) do
+    case PrologEx.Builtins.Coroutining.check_excluded(v, data, s) do
+      {:ok, s} -> {s, items, false}
       :fail -> :fail
     end
   end
 
-  defp lead_difs([], s), do: {:ok, s}
+  defp wake_difset(v, data, {s, items, true}),
+    do: {s, [{:goal, mk("$difset_check", [v, data]), 0, "system"} | items], true}
 
-  defp lead_difs([susp | more] = all, s) do
-    {_, "$s", [done, wake, _residual]} = unmark_top(susp)
+  defp wake_susps([], _v, acc, _st), do: {:cont, acc}
 
-    case walk(done, s) do
-      {:var, _} = dv ->
-        case unmark_top(wake) do
-          {:struct, "$dif_retry", [_, x, y]} ->
-            case PrologEx.Builtins.Coroutining.dif(x, y, Map.put(s, dv, {:atom, "true"})) do
-              :fail -> :fail
-              {:ok, s} -> lead_difs(more, s)
-            end
+  defp wake_susps([susp | more], v, acc, st) do
+    case wake_susp(unmark_top(susp), susp, v, acc, st) do
+      :fail -> {:halt, :fail}
+      acc -> wake_susps(more, v, acc, st)
+    end
+  end
+
+  # freeze: V an eine Variable gebunden – der Eintrag wandert mit; sonst
+  # läuft das Ziel
+  defp wake_susp({:struct, "$fz", [g]}, susp, v, {s, items, false}, st) do
+    case walk(v, s) do
+      {:var, _} = w -> {suspend(s, [w], susp), items, false}
+      _ -> {s, [goal_item(g, s, st.height) | items], true}
+    end
+  end
+
+  defp wake_susp({:struct, "$fz", [g]}, _susp, v, {s, items, true}, st),
+    do: {s, [{:goal, mk("$wake_fz", [v, g]), st.height, "system"} | items], true}
+
+  defp wake_susp({:struct, "$wh", _}, susp, _v, {s, items, false}, st) do
+    case wake_when(susp, s) do
+      :done -> {s, items, false}
+      {:ok, s} -> {s, items, false}
+      {:call, g, s} -> {s, [goal_item(g, s, st.height) | items], true}
+    end
+  end
+
+  defp wake_susp({:struct, "$wh", _}, susp, _v, {s, items, true}, st) do
+    if PrologEx.Builtins.Coroutining.active?(susp, s),
+      do: {s, [{:goal, mk("$wake_wh", [susp]), st.height, "system"} | items], true},
+      else: {s, items, true}
+  end
+
+  defp wake_susp({:struct, "$df", _}, susp, _v, {s, items, false}, _st) do
+    case wake_dif(susp, s) do
+      {:ok, s} -> {s, items, false}
+      :fail -> :fail
+    end
+  end
+
+  defp wake_susp({:struct, "$df", _}, susp, _v, {s, items, true}, _st) do
+    if PrologEx.Builtins.Coroutining.active?(susp, s),
+      do: {s, [{:dif, susp} | items], true},
+      else: {s, items, true}
+  end
+
+  # Weckziel M:G direkt als Ziel in M (wie der Schritt für ':'), Cut lokal
+  defp goal_item(g, s, height) do
+    with {tag, ":", [m, inner]} when tag in [:struct, :gstruct] <- walk(g, s),
+         {:atom, name} <- walk(m, s) do
+      {:goal, inner, height, name}
+    else
+      _ -> {:goal, g, height, "system"}
+    end
+  end
+
+  # Einträge zu Zielen; aufeinanderfolgende dif-Einträge als ein $difs
+  defp wake_items([], acc, _height), do: Enum.reverse(acc)
+
+  defp wake_items([{:dif, _} | _] = items, acc, height) do
+    {difs, rest} = Enum.split_while(items, &match?({:dif, _}, &1))
+    goal = {mk("$difs", [list(Enum.map(difs, &elem(&1, 1)))]), 0, "system"}
+    wake_items(rest, [goal | acc], height)
+  end
+
+  defp wake_items([{:goal, g, cutb, mod} | rest], acc, height),
+    do: wake_items(rest, [{g, cutb, mod} | acc], height)
+
+  # when-Suspension neu stellen: :done (Done schon gebunden), {:ok, s}
+  # (wartet weiter) oder {:call, Ziel, s}
+  defp wake_when(susp, s) do
+    case unmark_top(walk(susp, s)) do
+      {:struct, "$wh", [c, g]} ->
+        wake_when_(c, g, s)
+
+      {:struct, "$wh", [d, c, g]} ->
+        case walk(d, s) do
+          {:var, _} = dv -> wake_when_(c, g, Map.put(s, dv, {:atom, "true"}))
+          _ -> :done
+        end
+    end
+  end
+
+  defp wake_when_(c, g, s) do
+    case PrologEx.Builtins.Coroutining.when_(c, g, s) do
+      {:call, goal} -> {:call, goal, s}
+      {:ok, s} -> {:ok, s}
+    end
+  end
+
+  # dif-Suspension neu stellen (Done binden): {:ok, s} oder :fail
+  defp wake_dif(susp, s) do
+    case unmark_top(walk(susp, s)) do
+      {:struct, "$df", [l, r]} ->
+        PrologEx.Builtins.Coroutining.dif(l, r, s)
+
+      {:struct, "$df", [d, l, r]} ->
+        case walk(d, s) do
+          {:var, _} = dv ->
+            PrologEx.Builtins.Coroutining.dif(l, r, Map.put(s, dv, {:atom, "true"}))
 
           _ ->
-            {:later, s, all}
+            {:ok, s}
         end
-
-      _ ->
-        lead_difs(more, s)
     end
-  end
-
-  defp wake_retry(d, st, rest, again) do
-    case walk(d, st.subst) do
-      {:var, _} = dv ->
-        case again.(Map.put(st.subst, dv, {:atom, "true"})) do
-          {:call, goal} ->
-            run(%{
-              st
-              | subst: Map.put(st.subst, dv, {:atom, "true"}),
-                goals: [{goal, st.height, "system"} | rest]
-            })
-
-          {:ok, s} ->
-            run(%{st | subst: s, goals: rest})
-        end
-
-      _ ->
-        run(%{st | goals: rest})
-    end
-  end
-
-  # Weckziele zu Suspensionen (mit ungebundenem Done)
-  defp susp_goals(susps, subst, height) do
-    for susp <- susps,
-        {_, "$s", [done, wake, _residual]} = unmark_top(susp),
-        match?({:var, _}, walk(done, subst)) do
-      case unmark_top(wake) do
-        {:struct, "$dif_retry", [d, x, y]} -> {:dif, mk("$d", [d, x, y])}
-        # freeze/when: die Maschine prüft Done und die Bedingung selbst
-        {:struct, "$freeze_retry", args} -> {mk("$wake_freeze", args), height, "system"}
-        {:struct, "$when_retry", args} -> {mk("$wake_when", args), height, "system"}
-        _ -> {wake, height, "system"}
-      end
-    end
-    |> Enum.chunk_by(&match?({:dif, _}, &1))
-    |> Enum.flat_map(fn
-      [{:dif, _} | _] = difs -> [{mk("$difs", [Enum.map(difs, &elem(&1, 1))]), 0, "system"}]
-      goals -> goals
-    end)
   end
 
   # Ergebnis eines Builtins (siehe PrologEx.Builtin) umsetzen
@@ -3102,30 +3169,36 @@ defmodule PrologEx do
   # exponentielles Aufblähen bei DAG-artigen Termen).
   # Dabei werden Terme, die durch das Einsetzen ground geworden sind, als
   # gstruct/glist markiert; markierte Terme werden nie wieder durchlaufen.
-  # Die nächste Schwelle ist 2 × Anzahl der NICHT-ground Knoten in den
-  # lebenden Termen -> amortisiert O(1), unabhängig von großen ground Daten.
+  # Die nächste Schwelle ist das Doppelte des Größeren von: Anzahl der
+  # NICHT-ground Knoten in den lebenden Termen (die Kosten der
+  # Kompaktierung) und Einträge der kompaktierten Substitution (etwa
+  # Attribute vieler lebender attributierter Variablen mit kleinen
+  # Suspensionen). So kommen bis zur nächsten Kompaktierung mindestens so
+  # viele Einträge dazu, wie sie kostet -> amortisiert O(1), unabhängig von
+  # großen ground Daten.
   # ---------------------------------------------------------------------
 
   defp maybe_compact(%{subst: s, threshold: t} = st) when map_size(s) < t, do: st
 
   defp maybe_compact(st) do
-    {goals, {memo, size}} =
-      Enum.map_reduce(st.goals, {%{}, 0}, fn {g, cutb, mod}, acc ->
+    # acc = {Memo, Größe, erreichte attributierte Variablen (Kennungen)}
+    {goals, acc} =
+      Enum.map_reduce(st.goals, {%{}, 0, []}, fn {g, cutb, mod}, acc ->
         {g, acc} = compact(g, st.subst, acc)
         {{g, cutb, mod}, acc}
       end)
 
-    {answer, {memo, size}} =
-      Enum.map_reduce(st.answer, {memo, size}, fn {n, t}, acc ->
+    {answer, acc} =
+      Enum.map_reduce(st.answer, acc, fn {n, t}, acc ->
         {t, acc} = compact(t, st.subst, acc)
         {{n, t}, acc}
       end)
 
     # Cleanups von setup_call_cleanup/3, die mit den aktuellen Bindungen
     # laufen werden (G gelungen, Cut): ihr C gehört zu den Wurzeln
-    {cps, {memo, size}} =
+    {cps, acc} =
       if st.scc do
-        Enum.map_reduce(st.cps, {memo, size}, fn
+        Enum.map_reduce(st.cps, acc, fn
           {:scc, id, c, mod, s, a, cur}, acc ->
             {cur, acc} = compact(cur, st.subst, acc)
             {{:scc, id, c, mod, s, a, cur}, acc}
@@ -3134,8 +3207,10 @@ defmodule PrologEx do
             {cp, acc}
         end)
       else
-        {st.cps, {memo, size}}
+        {st.cps, acc}
       end
+
+    {_memo, _size, root_attvs} = acc
 
     # Attribute der noch lebenden attributierten Variablen mitnehmen (sie
     # können selbst wieder solche enthalten)
@@ -3152,8 +3227,7 @@ defmodule PrologEx do
           []
       end
 
-    {attrs, size} =
-      compact_attrs(attvs_in(memo) ++ keep, MapSet.new(), %{}, {memo, size}, st.subst)
+    {attrs, size} = compact_attrs(root_attvs ++ keep, %{}, acc, st.subst)
 
     # Ebene von call_with_depth_limit/3 mitnehmen
     attrs =
@@ -3174,7 +3248,7 @@ defmodule PrologEx do
         cps: cps,
         subst: attrs,
         counters: counters,
-        threshold: max(st.min_threshold, 2 * size)
+        threshold: max(st.min_threshold, 2 * max(size, map_size(attrs)))
     }
   end
 
@@ -3187,33 +3261,29 @@ defmodule PrologEx do
   defp term_attvs([h | t], acc), do: term_attvs(t, term_attvs(h, acc))
   defp term_attvs(_, acc), do: acc
 
-  defp attvs_in(memo) do
-    for {_var, {{:var, {:attv, id}}, _}} <- memo, uniq: true, do: id
-  end
+  # Attribute der Variablen ids (und der in ihren Attributen erreichten)
+  # kompaktieren; schon behandelte stehen in out
+  defp compact_attrs([], out, {_memo, size, _}, _subst), do: {out, size}
 
-  defp compact_attrs([], _done, out, {_memo, size}, _subst), do: {out, size}
+  defp compact_attrs([id | ids], out, acc, subst) do
+    key = {:attrs, id}
 
-  defp compact_attrs([id | ids], done, out, acc, subst) do
-    if MapSet.member?(done, id) or not Map.has_key?(subst, {:attrs, id}) do
-      compact_attrs(ids, MapSet.put(done, id), out, acc, subst)
-    else
-      {attrs, {memo, _} = acc} =
-        Enum.reduce(Map.fetch!(subst, {:attrs, id}), {%{}, acc}, fn {m, t}, {as, acc} ->
-          {t, acc} = compact(t, subst, acc)
-          {Map.put(as, m, t), acc}
-        end)
+    case subst do
+      %{^key => old} when not is_map_key(out, key) ->
+        {attrs, acc} =
+          Enum.reduce(old, {%{}, acc}, fn {m, t}, {as, acc} ->
+            # tote Suspensionen (Done gebunden) fallen weg
+            t = if m == "$susp", do: live_susps(t, subst), else: t
+            {t, acc} = compact(t, subst, acc)
+            {Map.put(as, m, t), acc}
+          end)
 
-      _ = memo
-      # attributierte Variablen in den (kompaktierten) Attributen selbst
-      new = Enum.flat_map(attrs, fn {_m, t} -> term_attvs(t, []) end)
+        # attributierte Variablen in den (kompaktierten) Attributen selbst
+        new = Enum.flat_map(attrs, fn {_m, t} -> term_attvs(t, []) end)
+        compact_attrs(new ++ ids, Map.put(out, key, attrs), acc, subst)
 
-      compact_attrs(
-        new ++ ids,
-        MapSet.put(done, id),
-        Map.put(out, {:attrs, id}, attrs),
-        acc,
-        subst
-      )
+      _ ->
+        compact_attrs(ids, out, acc, subst)
     end
   end
 
@@ -3221,6 +3291,20 @@ defmodule PrologEx do
     {t2, acc, _changed, _ground} = compact3(t, subst, acc)
     {t2, acc}
   end
+
+  # Eine als ground markierte Liste (oder ein markierter Rest) enthält keine
+  # Done-Variablen: alles aktiv, nichts zu tun (und nicht zu durchlaufen)
+  defp live_susps({:glist, _} = l, _subst), do: l
+
+  defp live_susps([susp | more], subst) do
+    rest = live_susps(more, subst)
+
+    if PrologEx.Builtins.Coroutining.active?(susp, subst),
+      do: cons(susp, rest),
+      else: rest
+  end
+
+  defp live_susps(l, _subst), do: l
 
   # Ergebnis: {Term, {memo, nicht_ground_größe}, verändert?, ground?}
   # Unveränderte Teilterme werden nicht kopiert, sondern geteilt.
@@ -3232,20 +3316,20 @@ defmodule PrologEx do
     {{:"$nth", ref, n2, h}, acc, changed, false}
   end
 
-  defp compact3({:var, _} = var, subst, {memo, size} = acc) do
+  defp compact3({:var, _} = var, subst, {memo, size, attvs} = acc) do
     case Map.fetch(memo, var) do
       {:ok, {t, g}} ->
         {t, acc, t != var, g}
 
       :error ->
         case walk(var, subst) do
-          # freie, nicht attributierte Variable: kein Memo nötig (attvs_in
-          # sucht im Memo nur nach attributierten)
-          {:var, n} = free when not is_tuple(n) ->
-            {free, acc, free != var, false}
+          # freie attributierte Variable: merken, dass sie erreichbar ist
+          # (kein Memo – ein Blatt)
+          {:var, {:attv, id}} = free ->
+            {free, {memo, size, [id | attvs]}, free != var, false}
 
           {:var, _} = free ->
-            {free, {Map.put(memo, var, {free, false}), size}, free != var, false}
+            {free, acc, free != var, false}
 
           # atomar: nichts zu teilen, kein Memo
           atomic when not is_tuple(atomic) and not is_list(atomic) ->
@@ -3257,9 +3341,12 @@ defmodule PrologEx do
           [] ->
             {[], acc, true, true}
 
+          # zusammengesetzt: merken, damit geteilte Teilterme geteilt bleiben
+          # (atomare Werte und Variablen sind oben abgehandelt – die Memo-Map
+          # bleibt klein, ihre Zugriffe billig)
           bound ->
-            {t, {memo, size}, _ch, g} = compact3(bound, subst, {memo, size})
-            {t, {Map.put(memo, var, {t, g}), size}, true, g}
+            {t, {memo, size, attvs}, _ch, g} = compact3(bound, subst, acc)
+            {t, {Map.put(memo, var, {t, g}), size, attvs}, true, g}
         end
     end
   end
@@ -3271,12 +3358,12 @@ defmodule PrologEx do
         {a2, {acc, ch or c, gr and g}}
       end)
 
-    {memo, size} = acc
+    {memo, size, attvs} = acc
 
     cond do
       ground -> {{:gstruct, f, args2}, acc, true, true}
-      changed -> {{:struct, f, args2}, {memo, size + 1}, true, false}
-      true -> {t, {memo, size + 1}, false, false}
+      changed -> {{:struct, f, args2}, {memo, size + 1, attvs}, true, false}
+      true -> {t, {memo, size + 1, attvs}, false, false}
     end
   end
 
@@ -3303,7 +3390,7 @@ defmodule PrologEx do
         compact_spine(t, subst, acc, spine)
 
       {:var, _} = var ->
-        {memo, _} = acc
+        {memo, _, _} = acc
 
         with :error <- Map.fetch(memo, var),
              [_ | _] = next <- walk(var, subst) do
@@ -3319,14 +3406,14 @@ defmodule PrologEx do
 
   defp compact_rebuild([], t, acc, ch, g), do: {t, acc, ch, g}
 
-  defp compact_rebuild([{:link, var} | rest], t, {memo, size}, _ch, g),
-    do: compact_rebuild(rest, t, {Map.put(memo, var, {t, g}), size}, true, g)
+  defp compact_rebuild([{:link, var} | rest], t, {memo, size, attvs}, _ch, g),
+    do: compact_rebuild(rest, t, {Map.put(memo, var, {t, g}), size, attvs}, true, g)
 
-  defp compact_rebuild([{:cell, l, h2, ch, gh} | rest], t2, {memo, size} = acc, ct, gt) do
+  defp compact_rebuild([{:cell, l, h2, ch, gh} | rest], t2, {memo, size, attvs} = acc, ct, gt) do
     cond do
       gh and gt -> compact_rebuild(rest, cons(h2, t2), acc, true, true)
-      ch or ct -> compact_rebuild(rest, [h2 | t2], {memo, size + 1}, true, false)
-      true -> compact_rebuild(rest, l, {memo, size + 1}, false, false)
+      ch or ct -> compact_rebuild(rest, [h2 | t2], {memo, size + 1, attvs}, true, false)
+      true -> compact_rebuild(rest, l, {memo, size + 1, attvs}, false, false)
     end
   end
 
