@@ -347,7 +347,9 @@ defmodule PrologEx.Builtins.IO do
 
   # ---------------------------------------------------------------------
 
-  defp read_from_atom(at, t, opts, s) do
+  @doc false
+  # auch für library(pcre): capture_type(term)
+  def read_from_atom(at, t, opts, s) do
     text =
       case at do
         {:var, _} -> Error.instantiation!()

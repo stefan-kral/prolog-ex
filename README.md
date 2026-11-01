@@ -967,6 +967,63 @@ wie er geschachtelt ist:
 In Prolog (`priv/library/commalist.pl`), ohne Rekursionstiefe: auch
 Bäume mit 100 000 Elementen, links oder rechts geschachtelt.
 
+## Reguläre Ausdrücke: `library(pcre)`
+
+Schnittstelle wie SWI-Prologs `library(pcre)`, gerechnet von Erlangs
+`:re` – seit OTP 28 PCRE2 (`re_config(version(V))`): `re_match/2,3`,
+`re_matchsub/3,4`, `re_foldl/6`, `re_split/3,4`, `re_replace/4,5`,
+`re_compile/3`, `re_flush/0`, `re_config/1`.
+
+```
+?- re_matchsub("(?<y_I>\\d+)-(?<m_I>\\d+)-(?<d_I>\\d+)", "am 2026-11-01", S).
+S = [0-"2026-11-01",d-1,m-11,y-2026].
+?- re_replace("(?<y>\\d+)-(?<m>\\d+)-(?<d>\\d+)"/g, "$d.$m.$y", "2026-11-01", R).
+R = "01.11.2026".
+?- re_split(":\\s*"/n, "Age: 33", L).
+L = ['Age',': ',33].
+```
+
+  * Muster als Text oder `Text/Flags` mit den Buchstaben wie bei SWI
+    (`i m s x` und `a r t` für den Ergebnistyp; `re_split`: `a s n`;
+    `re_replace`: `g a s`), Optionen wie bei SWI (`caseless/1`,
+    `multiline/1`, `dotall/1`, `extended/1`, `greedy/1`, `ucp/1`,
+    `newline/1`, `bsr/1`, `anchored/1`, `bol/1`, `eol/1`, `empty/1`,
+    `start/1`, `capture_type/1`, …); Flags gehen vor, von mehrfach
+    angegebenen Optionen gilt die erste (wie SWI). Optionen nur für
+    Geschwindigkeit (`optimise/1`, `jit/1`, …) werden angenommen und
+    übergangen, unbekannte sind `domain_error(re_option, O)`.
+  * Benannte Gruppen mit Typ-Endung wie SWI (`_S _A _I _F _N _T _R`).
+  * Statt eines Dicts eine Paarliste: `0`, dann die nicht benannten Gruppen
+    nach Nummer, dann die benannten nach Name; nicht gesetzte fehlen. Die
+    Nummern der benannten Gruppen liest die Bibliothek aus dem Muster; wo
+    das nicht sicher geht (`(?|…)`, Optionen im Muster wie `(?x)`),
+    erscheinen benannte Gruppen zusätzlich mit ihrer Nummer.
+  * Texte sind Atome, Zeichen- oder Codelisten. Der Ergebnistyp `string`
+    (Vorgabe) ist die Textart des Subjekts (bei `[]` die von
+    `double_quotes`); dazu `atom`, `chars`, `codes`, `range` (Start-Länge),
+    `term`. Positionen zählen in Zeichen, nicht in Bytes.
+  * Ersetzungstext: `\N`, `\{N}`, `$Name`, `${Name}`, `$$` und `\\`; eine
+    benannte Gruppe nur über ihren Namen, ein unbekannter Name ist
+    `existence_error(re_group, Name)`.
+  * Fehler: ungültiges Muster `syntax_error(Meldung)` (von PCRE),
+    katastrophales Backtracking `resource_error(match_limit)`.
+
+Eine kompilierte Regex ist der lesbare Term `'$regex'(Muster, Optionen)`
+(statt SWIs Blob), etwa `'$regex'('a+b',[caseless(true),greedy(false)])`:
+das Muster als Atom, die Optionen, die das Kompilat bestimmen, ohne
+Vorgabewerte nach Namen sortiert. Das Kompilat steht nie im Term, sondern
+in einem Cache je Prozess (höchstens 256 Einträge, `re_flush/0` leert
+ihn) mit Muster und Optionen als Schlüssel. Ein selbst gebauter Term ist
+darum nie gefährlicher als eine Regex: Er wird geprüft (nicht kanonisch:
+`domain_error(regex, T)`) und wie jede andere kompiliert. Die Terme
+überstehen `copy_term/2`, `findall/3`, `assert` und `fast_write`.
+
+Für Programme ohne `library(pcre)` ändert sich nichts: keine neue Termart,
+nichts in der Maschine; die Prädikate kommen erst mit `use_module`.
+`re:run` läuft wie ein langes eingebautes Ziel – Zeitgrenzen
+(`call_with_timeout`) greifen erst danach, `resource_error(match_limit)`
+schützt vor exponentiellem Backtracking.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
