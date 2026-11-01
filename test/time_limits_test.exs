@@ -55,6 +55,11 @@ defmodule PrologEx.TimeLimitsTest do
     # danach ohne gezählten Schritt endet
     {"call_with_timeout(catch(#{@loop}, _, true), 0.02, [on_timeout(X = t)])", ["X = t"]},
     {"call_with_timeout(catch(#{@loop}, _, !), 0.02, [on_timeout(X = t)])", ["X = t"]},
+    # ... auch wenn G danach scheitert: der Prüfpunkt bleibt gerissen,
+    # schon der nächste Schritt wirft wieder
+    {"call_with_timeout((catch(#{@loop}, _, true), fail), 0.02, [on_timeout(X = t)])", ["X = t"]},
+    # die erste Prüfung kommt sofort: bei abgelaufener Frist läuft G nicht
+    {"call_with_timeout(fail, 0, [on_timeout(X = t)])", ["X = t"]},
     # verschachtelt: wer zuerst abläuft, fängt
     {"call_with_timeout(call_with_timeout(#{@loop}, 30, [on_timeout(X = innen)]), 0.02, " <>
        "[on_timeout(X = aussen)])", ["X = aussen"]},
