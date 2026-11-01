@@ -10,6 +10,9 @@ defmodule PrologEx.ListUtilsTest do
     :- use_module(library(apply)).
     add(X, A0, A) :- A is A0 + X.
     add2(X, Y, A0, A) :- A is A0 + X * Y.
+    add3(X, Y, Z, A0, A) :- A is A0 + X * Y * Z.
+    zaehle(_, A0, A) :- A is A0 + 1.
+    addk(K, X, A0, A) :- A is A0 + X + K.
     ref_max_list([H|T], R) :- lists:'$max_list'(T, H, R).
     ref_min_list([H|T], R) :- lists:'$min_list'(T, H, R).
     ref_max_member(R, [H|T]) :- lists:'$max_member'(T, H, R).
@@ -161,6 +164,57 @@ defmodule PrologEx.ListUtilsTest do
     assert ask(c, "foldl(add, [1, 2, 3], 0, S).") == ["S = 6"]
     assert ask(c, "foldl(add2, [1, 2], [3, 4], 0, S).") == ["S = 11"]
     assert ask(c, "foldl(add, [], 0, S).") == ["S = 0"]
+  end
+
+  # foldl/4..6 führt die Maschine selbst aus; Randfälle über die Klauseln
+  test "foldl/4..6: Stelligkeiten, Listenformen, Ziele", c do
+    assert ask(c, "foldl(add3, [1, 2], [3, 4], [5, 6], 0, S).") == ["S = 63"]
+    assert ask(c, "foldl(add3, [], [], [], 0, S).") == ["S = 0"]
+    assert ask(c, "foldl(add2, [], [], 7, S).") == ["S = 7"]
+    # ungleich lang: scheitert
+    assert ask(c, "foldl(add2, [1], [1, 2], 0, S).") == []
+    assert ask(c, "foldl(add2, [1, 2], [1], 0, S).") == []
+    assert ask(c, "foldl(add3, [1], [1], [1, 2], 0, S).") == []
+    assert ask(c, "foldl(add3, [1, 2], [1, 2], [1], 0, S).") == []
+    # offene Liste: zählt auf
+    assert ask(c, "foldl(zaehle, L, 0, S).", 3) == [
+             "L = [], S = 0",
+             "L = [_A], S = 1",
+             "L = [_A,_B], S = 2"
+           ]
+
+    assert ask(c, "L = [a|T], foldl(zaehle, L, 0, S), T = [b].", 1) == [
+             "L = \"ab\", S = 2, T = \"b\""
+           ]
+
+    # keine Liste: scheitert wie die Klauseln
+    assert ask(c, "foldl(add, foo, 0, S).") == []
+    # Ziel als M:G, verschachtelt (allgemeiner Weg), ungebunden
+    assert ask(c, "foldl(user:add, [1, 2], 0, S).") == ["S = 3"]
+    assert ask(c, "foldl(user:user:add, [1, 2], 0, S).") == ["S = 3"]
+    # Ziel mit eigenen Argumenten; M:G läuft in M (lists, nicht apply)
+    assert ask(c, "foldl(addk(10), [1, 2], 0, S).") == ["S = 23"]
+    assert ask(c, "foldl(user:addk(10), [1, 2], 0, S).") == ["S = 23"]
+    assert ask(c, "foldl(lists:append, [[1], [2]], [], L).") == ["L = [2,1]"]
+
+    assert_raise PrologEx.Error, ~r/instantiation_error/, fn ->
+      ask(c, "foldl(_, [1], 0, S).")
+    end
+
+    assert_raise PrologEx.Error, ~r/type_error\(callable,1\)/, fn ->
+      ask(c, "foldl(1, [1], 0, S).")
+    end
+
+    # gebundenes Ergebnis, Akkumulator als Struktur
+    assert ask(c, "foldl(add, [1, 2, 3], 0, 6).") == ["true"]
+    assert ask(c, "foldl(add, [1, 2, 3], 0, 7).") == []
+    assert ask(c, "foldl(add, [1, 2], 0, S), foldl(add2, [S], [S], 0, T).") == ["S = 3, T = 9"]
+  end
+
+  test "call/N: Steuerkonstrukte gehen den allgemeinen Weg", c do
+    assert ask(c, "call((X = 1, Y = 2)).") == ["X = 1, Y = 2"]
+    assert ask(c, "G = (X = 1 ; X = 2), call(G).") |> length() == 2
+    assert ask(c, "call(user:add, 1, 2, S).") == ["S = 3"]
   end
 
   test "Antworten: Variablenketten und frische Variablen wie SWI", c do

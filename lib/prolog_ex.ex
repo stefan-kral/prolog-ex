@@ -1301,27 +1301,64 @@ defmodule PrologEx do
   # gäbe es unverändert zurück), Fehler sind ausgeschlossen: ohne Closure,
   # ohne zweites walk
   defp step({:struct, "call", [g | extra]}, _cutb, mod, rest, st) do
-    case unmark_top(walk(g, st.subst)) do
-      {:atom, f} = a when f not in @body_ops ->
-        goal = if extra == [], do: a, else: mk(f, extra)
-        run(%{st | goals: [{goal, st.height, mod} | rest]})
+    case call_target(g, extra, mod, st.subst) do
+      {:general, t} -> call_general(t, extra, mod, rest, st)
+      {goal, m} -> run(%{st | goals: [{goal, st.height, m} | rest]})
+    end
+  end
 
-      {:struct, f, args} = t when f not in @body_ops ->
-        goal = if extra == [], do: t, else: mk(f, args ++ extra)
-        run(%{st | goals: [{goal, st.height, mod} | rest]})
+  # foldl/4..6 (library(apply)): '$foldl'(Ls..., G, V0, V) führt die
+  # Maschine selbst aus, solange alle Listen vorn eine Zelle haben bzw.
+  # alle leer sind – statt Klauselauswahl, Kopfunifikation und Rumpf je
+  # Element: call(G, X..., V0, V1) über den Schnellweg von call/N und
+  # dahinter wieder '$foldl'. Dieselben Inferenzen ('$foldl' und G je
+  # Element). Offene oder ungleich lange Listen gehen über die Klauseln
+  # (Aufzählen, Scheitern wie bisher). Nur die Aufrufe der Bibliothek
+  # selbst (Modul apply).
+  # Je Stelligkeit ein eigener Fall (kein Zerlegen der Argumentliste); das
+  # Folgeziel und call(G, X..., V0, V1) werden ohne Ground-Prüfung gebaut –
+  # sie enthalten die frische Variable V1, sind also nie ground.
+  defp step({:struct, "$foldl", [l, g, v0, v]} = goal, cutb, "apply" = mod, rest, st) do
+    case uncons(walk(l, st.subst)) do
+      {:cons, x, t} ->
+        {v1, st} = foldl_var(st)
+        foldl_call(g, [x, v0, v1], {:struct, "$foldl", [t, g, v1, v]}, cutb, mod, rest, st)
 
-      # M:G mit Atom M (so kommen Meta-Argumente an: maplist, foldl, ...):
-      # G direkt in M
-      {:struct, ":", [m, inner]} = t ->
-        with {:atom, mn} <- walk(m, st.subst),
-             goal when goal != nil <- plain_goal(unmark_top(walk(inner, st.subst)), extra) do
-          run(%{st | goals: [{goal, st.height, mn} | rest]})
-        else
-          _ -> call_general(t, extra, mod, rest, st)
-        end
+      :empty ->
+        foldl_done(v0, v, rest, st)
 
-      t ->
-        call_general(t, extra, mod, rest, st)
+      :other ->
+        call_pred(goal, mod, rest, st)
+    end
+  end
+
+  defp step({:struct, "$foldl", [l1, l2, g, v0, v]} = goal, cutb, "apply" = mod, rest, st) do
+    case {uncons(walk(l1, st.subst)), uncons(walk(l2, st.subst))} do
+      {{:cons, x, t1}, {:cons, y, t2}} ->
+        {v1, st} = foldl_var(st)
+        next = {:struct, "$foldl", [t1, t2, g, v1, v]}
+        foldl_call(g, [x, y, v0, v1], next, cutb, mod, rest, st)
+
+      {:empty, :empty} ->
+        foldl_done(v0, v, rest, st)
+
+      _ ->
+        call_pred(goal, mod, rest, st)
+    end
+  end
+
+  defp step({:struct, "$foldl", [l1, l2, l3, g, v0, v]} = goal, cutb, "apply" = mod, rest, st) do
+    case {uncons(walk(l1, st.subst)), uncons(walk(l2, st.subst)), uncons(walk(l3, st.subst))} do
+      {{:cons, x, t1}, {:cons, y, t2}, {:cons, z, t3}} ->
+        {v1, st} = foldl_var(st)
+        next = {:struct, "$foldl", [t1, t2, t3, g, v1, v]}
+        foldl_call(g, [x, y, z, v0, v1], next, cutb, mod, rest, st)
+
+      {:empty, :empty, :empty} ->
+        foldl_done(v0, v, rest, st)
+
+      _ ->
+        call_pred(goal, mod, rest, st)
     end
   end
 
@@ -2823,6 +2860,84 @@ defmodule PrologEx do
   end
 
   # call/N, allgemeiner Weg: Steuerkonstrukte, M:G, Variable, Fehler
+  # Ziel von call(G, Extra...) für den Schnellweg: {Ziel, Modul} für ein
+  # Atom oder eine Struktur ohne Steuer-Funktor, auch als M:G mit Atom M;
+  # sonst {:general, G} (Steuerkonstrukte, Variablen, Fehler)
+  defp call_target(g, extra, mod, subst) do
+    case unmark_top(walk(g, subst)) do
+      {:atom, f} = a when f not in @body_ops ->
+        {if(extra == [], do: a, else: mk(f, extra)), mod}
+
+      {:struct, f, args} = t when f not in @body_ops ->
+        {if(extra == [], do: t, else: mk(f, args ++ extra)), mod}
+
+      # M:G mit Atom M (so kommen Meta-Argumente an: maplist, foldl, ...):
+      # G direkt in M
+      {:struct, ":", [m, inner]} = t ->
+        with {:atom, mn} <- walk(m, subst),
+             goal when goal != nil <- plain_goal(unmark_top(walk(inner, subst)), extra) do
+          {goal, mn}
+        else
+          _ -> {:general, t}
+        end
+
+      t ->
+        {:general, t}
+    end
+  end
+
+  defp foldl_var(st) do
+    st = if st.next_var + 1 > st.var_end, do: new_block(st, 1), else: st
+    {{:var, st.next_var}, %{st | next_var: st.next_var + 1}}
+  end
+
+  # call(G, Extra...) über den Schnellweg von call/N, dahinter das Folgeziel
+  defp foldl_call(g, extra, next, cutb, mod, rest, st) do
+    next = {next, cutb, mod}
+
+    case call_target_open(g, extra, mod, st.subst) do
+      {call, m} -> run(%{st | goals: [{call, st.height, m}, next | rest]})
+      :general -> run(%{st | goals: [{mk("call", [g | extra]), cutb, mod}, next | rest]})
+    end
+  end
+
+  defp foldl_done(v0, v, rest, st) do
+    case unify(v0, v, st.subst) do
+      {:ok, s} -> cont(st, s, rest)
+      :error -> backtrack(st)
+    end
+  end
+
+  # wie call_target/4, aber extra enthält eine frische Variable: das Ziel
+  # ist nie ground, also ohne Ground-Prüfung gebaut
+  defp call_target_open(g, extra, mod, subst) do
+    case unmark_top(walk(g, subst)) do
+      {:atom, f} when f not in @body_ops ->
+        {{:struct, f, extra}, mod}
+
+      {:struct, f, args} when f not in @body_ops ->
+        {{:struct, f, args ++ extra}, mod}
+
+      {:struct, ":", [m, inner]} ->
+        with {:atom, mn} <- walk(m, subst),
+             goal when goal != nil <- open_goal(unmark_top(walk(inner, subst)), extra) do
+          {goal, mn}
+        else
+          _ -> :general
+        end
+
+      _ ->
+        :general
+    end
+  end
+
+  defp open_goal({:atom, f}, extra) when f not in @body_ops, do: {:struct, f, extra}
+
+  defp open_goal({:struct, f, args}, extra) when f not in @body_ops,
+    do: {:struct, f, args ++ extra}
+
+  defp open_goal(_, _), do: nil
+
   defp plain_goal({:atom, f} = a, extra) when f not in @body_ops,
     do: if(extra == [], do: a, else: mk(f, extra))
 

@@ -1650,6 +1650,39 @@ Maschine im Rechenzentrum, ±5 % Rauschen):
 | tak (18, 12, 6) | 193 ms | 1,16 |
 | deriv | 171 ms | 0,65 |
 
+### Vergleich mit Scryer Prolog
+
+`bench/compare.pl` läuft unverändert in PrologEx, Scryer und SWI (jeder
+Fall fünfmal, kleinste CPU-Zeit aus `statistics(runtime, _)`):
+
+```sh
+MIX_ENV=prod mix prolog bench/compare.pl -g main -q
+scryer-prolog -g main -g halt bench/compare.pl
+swipl -g main -t halt bench/compare.pl
+```
+
+Stand 1. November 2026 (OTP 28, Scryer `master` b7066b4 als Release-Build,
+dieselbe Maschine; Zeiten in ms):
+
+| Fall | PrologEx | Scryer | Faktor |
+|---|---|---|---|
+| nrev (30, 2000-mal) | 1248 | 142 | 8,8 |
+| loop (1 Mio., `is`) | 1525 | 121 | 12,6 |
+| tak (18, 12, 6) | 181 | 10 | ≈ 18 |
+| queens (8, alle) | 64 | 7 | ≈ 9 |
+| deriv (20 000) | 714 | 115 | 6,2 |
+| facts (Backtracking) | 722 | 79 | 9,1 |
+| foldl/4 (300 000) | 720 | 172 | 4,2 |
+| dieselbe Summe von Hand | 623 | 138 | 4,5 |
+| findall + sort (200 000) | 588 | 266 | 2,2 |
+| clpb (kleine Formeln) | 1691 | 265 | 6,4 |
+
+Im geometrischen Mittel ist PrologEx rund 7-mal langsamer als Scryer;
+reine Maschinenarbeit (Schleifen, Arithmetik, Klauselwahl) 9–18-mal,
+wo eingebaute Prädikate einen großen Teil tragen (findall, sort, Listen)
+nur 2–4-mal. tak und queens sind bei Scryer so kurz, dass ihre Faktoren
+grob sind.
+
 Wohin die Zeit geht (Profil von nrev): knapp die Hälfte in Kopfabgleich
 und Rumpfaufbau der übersetzten Klauseln, gut ein Zehntel in `walk` und
 Map-Zugriffen der Substitution, ein Zehntel in Buchhaltung (Inferenz-
@@ -1743,6 +1776,18 @@ Arbeit, `call((A, B))` unverändert, Inferenzen wie bisher. Behoben
 nebenbei: `G = member(X), call(lists:G, [a])` gab `instantiation_error`
 (das innere Ziel von `M:G` wurde bei `call/N` mit Zusatzargumenten nicht
 dereferenziert).
+
+`foldl/4..6` (aus `library(apply)`, auch über `library(lists)`) führt die
+Maschine selbst aus: je Element `call(G, X…, V0, V1)` über den Schnellweg
+von `call/N` und dahinter der nächste Schritt – ohne Klauselwahl,
+Kopfunifikation und Rumpfaufbau für die Schleife selbst, je Stelligkeit
+ein eigener Fall, die Ziele ohne Ground-Prüfung gebaut (sie enthalten die
+frische Variable V1). Offene, ungleich lange oder fehlende Listen gehen
+den Weg über die Klauseln (Aufzählen und Scheitern wie bisher); Inferenzen
+wie bisher. 200 000 Elemente (abwechselnd gemessen, je Minimum):
+`foldl(add, L, 0, S)` 630 → 421 ms, mit leerem Schritt 534 → 311 ms,
+`foldl/5` 670 → 431 ms – rund ein Drittel weniger; die Schleife von Hand
+braucht 365 ms, der Rahmen von `foldl` kostet also kaum noch etwas.
 
 `==/2` und `\==/2` führt die Maschine selbst aus (ISO, geschützt; sie
 werfen nie) über einen eigenen Gleichheitstest statt `compare/3`: oben
