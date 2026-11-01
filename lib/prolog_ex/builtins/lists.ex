@@ -315,7 +315,17 @@ defmodule PrologEx.Builtins.Lists do
     nth(1, i, l, e, r, subst())
   end
 
+  # wie im Prologue-Entwurf und Scryer: Length zuerst geprüft (kein
+  # Integer: type_error, negativ: domain_error); ist List weder Liste noch
+  # Teilliste, scheitert length/2
   defbuiltin "length", [l, len], nondet: true, protected: false, module: "system" do
+    case deref(len) do
+      {:var, _} -> :ok
+      k when is_integer(k) and k >= 0 -> :ok
+      k when is_integer(k) -> PrologEx.Error.domain!("not_less_than_zero", k)
+      other -> PrologEx.Error.type!("integer", other)
+    end
+
     {n, rest} = skip_list(l, subst())
 
     case rest do
@@ -338,12 +348,12 @@ defmodule PrologEx.Builtins.Lists do
               {:unify, [{rest, fresh_list(i)}, {len, n + i}]}
             end)
 
-          other ->
-            PrologEx.Error.type!("integer", other)
+          _ ->
+            []
         end
 
       _ ->
-        PrologEx.Error.type!("list", resolve(l))
+        []
     end
   end
 
@@ -560,7 +570,9 @@ defmodule PrologEx.Builtins.Lists do
   defp nth(base, i, l, e, r, s) do
     case PrologEx.walk(i, s) do
       k when is_integer(k) and k >= base -> nth_at(k - base, l, e, r, [], 0, s)
-      k when is_integer(k) -> []
+      # nth1(0, ...) scheitert, ein negativer Index ist ein Fehler (Prologue)
+      k when is_integer(k) and k >= 0 -> []
+      k when is_integer(k) -> PrologEx.Error.domain!("not_less_than_zero", k)
       {:var, _} when r == nil -> nth_enum(base, i, l, e, nil, [], 0, s)
       # nth/4 mit offenem Index: in Prolog ($nth4), damit der Rest geteilt wird
       {:var, _} -> [{:call, nth4_goal(base, i, l, e, r)}]

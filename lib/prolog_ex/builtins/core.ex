@@ -41,19 +41,26 @@ defmodule PrologEx.Builtins.Core do
     [rule(s("repeat", [n]), [s("$must_be_integer", [n]), s(">", [n, 0]), s("$repeat", [n])])]
   end
 
-  # succ(X, Y): Y = X + 1 für natürliche Zahlen (in beide Richtungen)
+  # succ(X, Y): Y = X + 1 für natürliche Zahlen (in beide Richtungen);
+  # Fehler wie im Prologue-Entwurf: beide Argumente geprüft (kein Integer:
+  # type_error, negativ: domain_error), beide offen: instantiation_error
   defbuiltin "succ", [x, y] do
-    case {deref(x), deref(y)} do
-      {a, _} when is_integer(a) and a >= 0 -> {:unify, [{y, a + 1}]}
-      {a, _} when is_integer(a) -> PrologEx.Error.type!("not_less_than_zero", a)
-      {{:var, _}, 0} -> :fail
-      {{:var, _}, b} when is_integer(b) and b > 0 -> {:unify, [{x, b - 1}]}
-      {{:var, _}, b} when is_integer(b) -> PrologEx.Error.type!("not_less_than_zero", b)
+    {a, b} = {deref(x), deref(y)}
+    check_nat!(a)
+    check_nat!(b)
+
+    case {a, b} do
       {{:var, _}, {:var, _}} -> PrologEx.Error.instantiation!()
-      {{:var, _}, b} -> PrologEx.Error.type!("integer", b)
-      {a, _} -> PrologEx.Error.type!("integer", a)
+      {{:var, _}, 0} -> :fail
+      {{:var, _}, b} -> {:unify, [{x, b - 1}]}
+      {a, _} -> {:unify, [{y, a + 1}]}
     end
   end
+
+  defp check_nat!({:var, _}), do: :ok
+  defp check_nat!(n) when is_integer(n) and n >= 0, do: :ok
+  defp check_nat!(n) when is_integer(n), do: PrologEx.Error.domain!("not_less_than_zero", n)
+  defp check_nat!(n), do: PrologEx.Error.type!("integer", n)
 
   defbuiltin "unify_with_occurs_check", [x, y] do
     # gelingt die Unifikation mit Occurs-Check, liefert die gewöhnliche
@@ -215,9 +222,12 @@ defmodule PrologEx.Builtins.Core do
       _ -> PrologEx.Error.type!("list", PrologEx.resolve(opts, s))
     end
 
+    # mehrfach angegeben: die letzte gilt (Cor.3, Neumerkels Tabelle #71);
+    # die Leser nehmen den ersten Eintrag (Keyword.get)
     opts
     |> PrologEx.Builtins.Lists.items(s)
     |> Enum.map(&write_option(PrologEx.unmark(PrologEx.resolve(&1, s)), s))
+    |> Enum.reverse()
   end
 
   @bool_options %{"quoted" => :quoted, "ignore_ops" => :ignore_ops, "numbervars" => :numbervars}
@@ -297,11 +307,11 @@ defmodule PrologEx.Builtins.Core do
   # --- DCG ---------------------------------------------------------------
 
   defbuiltin "phrase", [g, l] do
-    {:call, PrologEx.DCG.body(resolve(g), l, [])}
+    {:call, PrologEx.DCG.phrase_goal(resolve(g), l, [], subst())}
   end
 
   defbuiltin "phrase", [g, l, r] do
-    {:call, PrologEx.DCG.body(resolve(g), l, r)}
+    {:call, PrologEx.DCG.phrase_goal(resolve(g), l, r, subst())}
   end
 
   # --- System ------------------------------------------------------------

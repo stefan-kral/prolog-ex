@@ -387,7 +387,10 @@ defmodule PrologEx.IOTest do
            |> hd() =~ "A = term1, B = term2, C = ' ', D = term3, P = ' '"
   end
 
-  test "read_term/2,3: Optionswerte müssen Variablen oder (Teil-)Listen sein", c do
+  # Neumerkels variable_names-Tabelle (#47-#49, #69/#70), wie Scryer: die
+  # Werte werden nach dem Lesen nur unifiziert (Logtalks lgt_read_term_3_32
+  # bis _37 erwarten dagegen domain_error)
+  test "read_term/2,3: Optionswerte werden nach dem Lesen unifiziert", c do
     File.write!("o.txt", "a. b. c. d.")
 
     assert ask(
@@ -396,14 +399,15 @@ defmodule PrologEx.IOTest do
            )
            |> hd() =~ "T = a"
 
-    for o <- ["variables(a)", "variable_names([_|a])", "singletons([_|1])", "foo(1)"] do
-      assert ask(
-               c,
-               "open('o.txt', read, S), catch(read_term(S, _, [#{o}]), error(E, _), true), close(S)."
-             )
-             |> hd() =~ "E = domain_error(read_option,",
-             o
+    for o <- ["variables(a)", "variable_names([_|a])", "singletons([_|1])"] do
+      ok(c, "open('o.txt', read, S), \\+ read_term(S, _, [#{o}]), close(S).")
     end
+
+    assert ask(
+             c,
+             "open('o.txt', read, S), catch(read_term(S, _, [foo(1)]), error(E, _), true), close(S)."
+           )
+           |> hd() =~ "E = domain_error(read_option,"
   end
 
   # gefunden mit Logtalks Konformitätstests (ISO 6.3.7.1)

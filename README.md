@@ -585,6 +585,7 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     `[1, 2]`).
   * `write_term/2`: `quoted/1`, `ignore_ops/1`, `numbervars/1`,
     `variable_names/1` (ISO), `max_depth/1`, `spacing/1`, `priority/1` (SWI).
+    Mehrfach angegeben gilt die letzte Option (wie Scryer, ISO Cor.3).
   * Die Operatortabelle für die Ausgabe spiegelt die des Readers: `op/3`,
     Operatoren aus Bibliotheken und aus `module/2`-Exportlisten.
   * `listing/1` wie `portray_clause`, mit eingerücktem Wenn-dann-sonst.
@@ -1366,9 +1367,14 @@ exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
 `float_fractional_part/1` nehmen nur Floats – eine Ganzzahl ist
 `type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
 Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
-Float). Gesamt: 4 080 bestanden, 126 fehlgeschlagen, 206 übersprungen.
-Die übrigen
-Fehlschläge betreffen Logtalk-, ECLiPSe- und „commons“-Erweiterungen
+Float). Gesamt: 4 077 bestanden, 129 fehlgeschlagen, 206 übersprungen.
+Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
+den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument
+weder Liste noch Teilliste ist (Logtalk: `type_error(list, L)`), und die
+Werte von `variables/1`, `variable_names/1`, `singletons/1` werden bei
+`read_term/2,3` erst nach dem Lesen unifiziert (Logtalk:
+`domain_error(read_option, O)`, `lgt_read_term_3_32` bis `_37`). Die
+übrigen Fehlschläge betreffen Logtalk-, ECLiPSe- und „commons“-Erweiterungen
 (Klauselreferenzen, `evaluable_property/2`, `atomic_concat/3`, die
 logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
 Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
@@ -1419,6 +1425,31 @@ von github.com/mthom/scryer-prolog). Die übrigen sieben sind Absicht oder
 von ISO offen gelassen: Backquotes lesen sich als Atom (#113; ISO: kein
 Term), `|` ist wie bei gprolog und SWI vordefiniert (#285), dazu Abstände
 und Variablennamen in der Ausgabe (#142, #151, #226, #227, #260).
+
+Drei weitere Tabellen Neumerkels stehen als tabellengetriebene Tests in
+`test/neumerkel_*_test.exs` (je Zeile Anfrage und erwartete Antwort; wo
+die Tabelle mehrere Antworten zulässt, genügt eine):
+
+  * [Prologue](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/prologue)
+    (`member/2`, `append/3`, `length/2`, `between/3`, `select/3`, `succ/2`,
+    `maplist/2..`, `nth0/3,4`, `nth1/3,4`, `foldl/4`): `succ/2` prüft
+    beide Argumente (`succ(1, 1+1)` ist `type_error(integer, 1+1)`, negativ
+    `domain_error(not_less_than_zero, N)`), `nth0(-1, Es, E)` ist ein
+    `domain_error`, `nth1(0, Es, E)` scheitert, `length([a|b], L)`
+    scheitert. Nicht aufgenommen: `length(L, L)` (läuft endlos) und die
+    Zeilen mit `max_integer` (unbeschränkte Ganzzahlen).
+  * [phrase](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/phrase):
+    ungebundener Rumpf und Teillisten (`phrase([a|L], K)`) geben
+    `instantiation_error`; der übersetzte Rumpf wird vor der Ausführung
+    ganz geprüft (`phrase(([a],{1}), [])` ist `type_error(callable, _)`);
+    `\+` übersetzt erst bei der Ausführung, wenn der Rumpf sich nicht
+    übersetzen lässt; `call([], A)` ruft `'[]'/1`; `-->/2` ist reserviert
+    (`asserta((a-->b))`: `permission_error(modify, static_procedure, (-->)/2)`).
+  * [variable_names](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/variable_names)
+    (`write_term/2`, `read_term/2`, Optionen von `open/4`): bei mehrfacher
+    `variable_names/1`-Option gilt die letzte; `read_term/2,3` liest erst
+    und unifiziert dann (`variable_names(42)` scheitert, ein Syntaxfehler
+    geht vor).
 
 Die Tests vergleichen Reader und Writer mit gprolog über aufgezeichnete
 Ergebnisse (`test/fixtures/reader/gprolog_reads.txt`,

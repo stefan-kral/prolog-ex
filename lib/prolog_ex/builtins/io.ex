@@ -685,15 +685,12 @@ defmodule PrologEx.Builtins.IO do
     end
   end
 
-  # das Argument muss eine Variable oder eine (Teil-)Liste sein
-  defp read_option!({:struct, name, [x]} = o, s)
-       when name in ["variables", "variable_names", "singletons"] do
-    case PrologEx.Builtins.Lists.skip_list(x, s) do
-      {_, []} -> o
-      {_, {:var, _}} -> o
-      _ -> Error.domain!("read_option", PrologEx.resolve(o, s))
-    end
-  end
+  # jeder Wert ist erlaubt: erst wird gelesen (ein Syntaxfehler geht vor),
+  # dann unifiziert – variable_names(42) scheitert also (Cor.3,
+  # Neumerkels variable_names-Tabelle)
+  defp read_option!({:struct, name, [_]} = o, _s)
+       when name in ["variables", "variable_names", "singletons"],
+       do: o
 
   defp read_option!(other, s), do: Error.domain!("read_option", PrologEx.resolve(other, s))
 

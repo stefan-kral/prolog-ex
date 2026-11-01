@@ -2938,6 +2938,8 @@ defmodule PrologEx do
     do: mk(":", [m, add_args(unmark_top(walk(g, subst)), extra, subst)])
 
   def add_args({:atom, f}, extra, _subst), do: mk(f, extra)
+  # [] ist in ISO ein Atom: call([], A) ruft '[]'(A)
+  def add_args([], extra, _subst), do: mk("[]", extra)
   def add_args({:struct, f, args}, extra, _subst), do: mk(f, args ++ extra)
   def add_args({:var, _}, _, _subst), do: PrologEx.Error.instantiation!()
   def add_args(g, _, _subst), do: PrologEx.Error.type!("callable", g)

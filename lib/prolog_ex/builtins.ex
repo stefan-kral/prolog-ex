@@ -91,6 +91,12 @@ defmodule PrologEx.Builtins do
             {n, String.to_integer(a)}
           end)
 
+  # -->/2 ist kein Prädikat, aber reserviert (wie die Steuerkonstrukte):
+  # asserta((a-->b)) gibt permission_error(modify, static_procedure, ...),
+  # clause/2 permission_error(access, private_procedure, ...) – der Aufruf
+  # existence_error (Neumerkels phrase-Tabelle, #24–26)
+  @reserved [{"-->", 2}]
+
   # Heimat eingebauter Prädikate, die nicht zu ISO gehören und die auch
   # SICStus nicht eingebaut hat: sichtbar erst nach dem Import der Bibliothek
   # (in den Modulen des Systems und mit dem Flag swi_compat immer). Die
@@ -155,10 +161,10 @@ defmodule PrologEx.Builtins do
   # (ohne die mit einer Heimat-Bibliothek: Benutzer und Bibliotheken dürfen
   # eigene gleichen Namens haben)
   @protected for({{"system", n, a}, {_, _, true}} <- @all, into: MapSet.new(), do: {n, a})
-             |> MapSet.union(MapSet.new(@engine))
+             |> MapSet.union(MapSet.new(@engine ++ @reserved))
              |> MapSet.difference(MapSet.new(Map.keys(@homes)))
 
-  @system_keys (for({"system", n, a} <- Map.keys(@all), do: {n, a}) ++ @engine)
+  @system_keys (for({"system", n, a} <- Map.keys(@all), do: {n, a}) ++ @engine ++ @reserved)
                |> MapSet.new()
 
   # Bibliotheksmodule und ihre Exporte (ohne $-Hilfsprädikate)

@@ -27,6 +27,7 @@ defmodule PrologEx.DCG do
         items =
           case terminals(pb, []) do
             {:ok, items} -> items
+            :partial -> PrologEx.Error.instantiation!()
             :error -> PrologEx.Error.type!("list", pb)
           end
 
@@ -40,6 +41,19 @@ defmodule PrologEx.DCG do
 
   @doc "Übersetzt einen DCG-Rumpf mit Eingabe `s0` und Rest `s`."
   def body(b, s0, s), do: tr(unmark(b), s0, s)
+
+  @doc """
+  Rumpf für phrase/2,3: ungebunden instantiation_error; der übersetzte
+  Rumpf muss sich ganz in ein Ziel umwandeln lassen, bevor etwas
+  ausgeführt wird (wie call/1; sonst type_error(callable, Ziel)).
+  """
+  def phrase_goal({:var, _}, _s0, _s, _subst), do: PrologEx.Error.instantiation!()
+
+  def phrase_goal(b, s0, s, subst) do
+    goal = body(b, s0, s)
+    PrologEx.check_body!(goal, subst)
+    goal
+  end
 
   defp tr({:var, _} = v, s0, s), do: mk("phrase", [v, s0, s])
 
@@ -57,8 +71,18 @@ defmodule PrologEx.DCG do
     mk("->", [tr(c, s0, mid), tr(t, mid, s)])
   end
 
+  # \+ B: B gleich übersetzt; lässt B sich nicht übersetzen, entscheidet
+  # erst die Ausführung (\+ phrase(B, S0, _), wie Scryer und der Entwurf –
+  # ein Fehler kommt nur, wenn \+ wirklich ausgeführt wird)
   defp tr({:struct, "\\+", [x]}, s0, s) do
-    mk(",", [mk("\\+", [tr(x, s0, fresh())]), mk("=", [s0, s])])
+    inner =
+      try do
+        tr(x, s0, fresh())
+      rescue
+        PrologEx.Error -> mk("phrase", [x, s0, fresh()])
+      end
+
+    mk(",", [mk("\\+", [inner]), mk("=", [s0, s])])
   end
 
   defp tr({:struct, "{}", [g]}, s0, s), do: mk(",", [g, mk("=", [s0, s])])
@@ -70,20 +94,24 @@ defmodule PrologEx.DCG do
   # Meta-Prädikat mit //-Argument qualifiziert weitergibt)
   defp tr({:struct, ":", [m, b]}, s0, s), do: mk(":", [m, tr(unmark(b), s0, s)])
 
-  defp tr([_ | _] = l, s0, s) do
+  defp tr([_ | _] = l, s0, s), do: tr_terminals(l, s0, s)
+
+  defp tr(nt, s0, s), do: add_args(nt, s0, s)
+
+  # Terminalliste: Teilliste instantiation_error, keine Liste type_error
+  defp tr_terminals(l, s0, s) do
     case terminals(l, []) do
       {:ok, items} -> mk("=", [s0, list(items, s)])
+      :partial -> PrologEx.Error.instantiation!()
       :error -> PrologEx.Error.type!("list", l)
     end
   end
-
-  defp tr(nt, s0, s), do: add_args(nt, s0, s)
 
   defp terminals(l, acc) do
     case uncons(l) do
       :empty -> {:ok, Enum.reverse(acc)}
       {:cons, h, t} -> terminals(t, [h | acc])
-      :other -> :error
+      :other -> if match?({:var, _}, l), do: :partial, else: :error
     end
   end
 

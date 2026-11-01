@@ -219,8 +219,8 @@ defmodule PrologEx.LibraryTest do
       refute more?
     end
 
-    test "Fehler" do
-      error(s("length", [list([1], a("b")), @n]))
+    test "Fehler; keine (Teil-)Liste scheitert (Prologue)" do
+      assert db() |> solutions(s("length", [list([1], a("b")), @n])) |> Enum.to_list() == []
       error(s("length", [@l, -1]))
       error(s("length", [@l, a("x")]))
     end
