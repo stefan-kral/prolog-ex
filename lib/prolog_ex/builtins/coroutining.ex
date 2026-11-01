@@ -122,13 +122,35 @@ defmodule PrologEx.Builtins.Coroutining do
     {:unify, [{l, list(goals)}]}
   end
 
-  # Attributmodule mit attribute_goal/2, in Deklarationsreihenfolge
+  # Attributmodule mit Restzielen, in Deklarationsreihenfolge: M mit
+  # attribute_goal/2 (SICStus), dcg(M) mit attribute_goals//1 (Scryer, SWI)
   defbuiltin "$attr_goal_modules", [ms] do
     db = db()
 
     mods =
       for m <- Map.get(db, :attr_modules, []),
-          Map.has_key?(db, {m, "attribute_goal", 2}),
+          g = residual_hook(db, m),
+          g != nil,
+          do: g
+
+    {:unify, [{ms, list(mods)}]}
+  end
+
+  defp residual_hook(db, m) do
+    cond do
+      Map.has_key?(db, {m, "attribute_goal", 2}) -> a(m)
+      Map.has_key?(db, {m, "attribute_goals", 3}) -> mk("dcg", [a(m)])
+      true -> nil
+    end
+  end
+
+  # Attributmodule mit project_attributes/2 (Scryer, SWI)
+  defbuiltin "$project_modules", [ms] do
+    db = db()
+
+    mods =
+      for m <- Map.get(db, :attr_modules, []),
+          Map.has_key?(db, {m, "project_attributes", 2}),
           do: a(m)
 
     {:unify, [{ms, list(mods)}]}
@@ -348,8 +370,8 @@ defmodule PrologEx.Builtins.Coroutining do
     import PrologEx, only: [s: 2, v: 1, a: 1, rule: 2, fact: 1]
     g = v("G")
 
-    [vs, v1, ms, m, g0, g1, g2, ag, l, t, cp, b, h, r] =
-      Enum.map(~w(Vs V Ms M G0 G1 G2 AG L T Copy Body H R), &v/1)
+    [vs, v1, ms, m, g0, g1, g2, ag, l, t, cp, b, h, r, m0, x, xs, q, qs, avs] =
+      Enum.map(~w(Vs V Ms M G0 G1 G2 AG L T Copy Body H R M0 X Xs Q QVs AVs), &v/1)
 
     w = v("_")
 
@@ -376,15 +398,50 @@ defmodule PrologEx.Builtins.Coroutining do
         s("$res_vars", [vs, ms, g2, g])
       ]),
       fact(s("$res_mods", [[], w, g, g])),
-      rule(s("$res_mods", [[m | ms], v1, g0, g]), [
+      rule(s("$res_mods", [[m0 | ms], v1, g0, g]), [
         s(";", [
+          # attribute_goals//1: Ziele ohne Modul bekommen M davor
           s("->", [
-            s(":", [m, s("attribute_goal", [v1, ag])]),
-            s("=", [g0, [s(":", [m, ag]) | g1]])
+            s("=", [m0, s("dcg", [m])]),
+            s(",", [
+              s(";", [
+                s("->", [s(":", [m, s("attribute_goals", [v1, l, []])]), a("true")]),
+                s("=", [l, []])
+              ]),
+              s("$res_qual", [l, m, g0, g1])
+            ])
           ]),
-          s("=", [g0, g1])
+          s(";", [
+            s("->", [
+              s(":", [m0, s("attribute_goal", [v1, ag])]),
+              s("=", [g0, [s(":", [m0, ag]) | g1]])
+            ]),
+            s("=", [g0, g1])
+          ])
         ]),
         s("$res_mods", [ms, v1, g1, g])
+      ]),
+      fact(s("$res_qual", [[], w, g, g])),
+      rule(s("$res_qual", [[x | xs], m, [q | g0], g]), [
+        s(";", [
+          s("->", [s("=", [x, s(":", [w, w])]), s("=", [q, x])]),
+          s("=", [q, s(":", [m, x])])
+        ]),
+        s("$res_qual", [xs, m, g0, g])
+      ]),
+      # project_attributes(QueryVars, AttrVars) der Attributmodule (für den
+      # Toplevel, vor den Restzielen)
+      rule(s("$res_project", [qs, avs]), [
+        s("$project_modules", [ms]),
+        s("$res_proj", [ms, qs, avs])
+      ]),
+      fact(s("$res_proj", [[], w, w])),
+      rule(s("$res_proj", [[m | ms], qs, avs]), [
+        s(";", [
+          s("->", [s(":", [m, s("project_attributes", [qs, avs])]), a("true")]),
+          a("true")
+        ]),
+        s("$res_proj", [ms, qs, avs])
       ]),
       fact(s("$res_app", [[], g, g])),
       rule(s("$res_app", [[h | t], [h | g0], g]), [s("$res_app", [t, g0, g])]),
@@ -394,11 +451,12 @@ defmodule PrologEx.Builtins.Coroutining do
         s("$residuals", [vs, l]),
         s("$list_conj", [l, g])
       ]),
-      # copy_term(T, Copy, Body): Kopie ohne Attribute; Body stellt sie her
+      # copy_term(T, Copy, Body): Kopie ohne Attribute; Body stellt sie her.
+      # In findall/3: Restziele mancher Module (attribute_goals//1) bauen
+      # dabei Attribute ab – das Original bleibt so unberührt (wie Scryer)
       rule(s("copy_term", [t, cp, b]), [
         s("term_attvars", [t, vs]),
-        s("$residuals", [vs, l]),
-        s("copy_term", [s("-", [t, l]), s("-", [cp, r])]),
+        s("findall", [s("-", [t, l]), s("$residuals", [vs, l]), [s("-", [cp, r])]]),
         s("$list_conj", [r, b])
       ])
     ]

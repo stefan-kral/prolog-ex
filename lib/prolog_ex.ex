@@ -1404,7 +1404,7 @@ defmodule PrologEx do
       rescue
         e in PrologEx.Error -> throw_ball(e.term, st)
       else
-        _ -> run(%{st | goals: rest})
+        r -> apply_result(r, mod, rest, st)
       end
     else
       call_pred(goal, mod, rest, st)
@@ -3439,6 +3439,24 @@ defmodule PrologEx do
         {st.cps, acc}
       end
 
+    # Werte von bb_b_put/2 (backtrackbar, in der Substitution): Wurzeln
+    bb_key = PrologEx.Builtins.Blackboard.b_key()
+
+    {bb_b, acc} =
+      case st.subst do
+        %{^bb_key => m} ->
+          {kvs, acc} =
+            Enum.map_reduce(m, acc, fn {k, v}, acc ->
+              {v, acc} = compact(v, st.subst, acc)
+              {{k, v}, acc}
+            end)
+
+          {Map.new(kvs), acc}
+
+        _ ->
+          {nil, acc}
+      end
+
     {_memo, _size, root_attvs} = acc
 
     # Attribute der noch lebenden attributierten Variablen mitnehmen (sie
@@ -3464,6 +3482,8 @@ defmodule PrologEx do
         %{@depth_key => level} -> Map.put(attrs, @depth_key, level)
         _ -> attrs
       end
+
+    attrs = if bb_b, do: Map.put(attrs, bb_key, bb_b), else: attrs
 
     # Zähler von call_nth/2 und Uhren von time/1, deren Choice Point (z. B.
     # durch einen Cut) verschwunden ist, werden nie mehr gebraucht
@@ -3741,8 +3761,9 @@ defmodule PrologEx do
     if st.height > 0, do: {{ans, true}, {:retry, st}}, else: {{ans, false}, :halt}
   end
 
-  # Restziele über '$residuals'/2 (eingebaute Bedingungen und
-  # attribute_goal/2 aller Attributmodule), in einer Unter-Maschine im
+  # Restziele über '$residuals'/2 (eingebaute Bedingungen,
+  # attribute_goal/2 und attribute_goals//1 der Attributmodule, vorher
+  # deren project_attributes/2), in einer Unter-Maschine im
   # aktuellen Zustand. M:G wird ohne Modul gezeigt, wenn G in user dasselbe
   # Prädikat meint (oder M = user).
   defp residual_goals(terms, st) do
@@ -3752,7 +3773,16 @@ defmodule PrologEx do
 
       vars ->
         r = {:var, PrologEx.Vars.next()}
-        goal = mk("$residuals", [list(vars), r])
+        # zuerst project_attributes/2 (Anfragevariablen, attributierte)
+        qvars =
+          terms |> Enum.flat_map(&PrologEx.Builtins.Order.variables(&1, st.subst)) |> Enum.uniq()
+
+        goal =
+          mk(",", [
+            mk("$res_project", [list(qvars), list(vars)]),
+            mk("$residuals", [list(vars), r])
+          ])
+
         sub = %{st | goals: [{goal, 0, "system"}], cps: [], height: 0, answer: [{"$r", r}]}
 
         case guarded(fn -> run(sub) end) do

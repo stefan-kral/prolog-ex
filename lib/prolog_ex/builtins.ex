@@ -264,7 +264,8 @@ defmodule PrologEx.Builtins do
         {"call_residue_vars", 2} => "system",
         {"copy_term", 3} => "system",
         {"bb_get", 2} => "blackboard",
-        {"bb_put", 2} => "blackboard"
+        {"bb_put", 2} => "blackboard",
+        {"bb_b_put", 2} => "blackboard"
       }),
     # Übergang: alles, was bisher ohne Import sichtbar war
     "swi" =>
@@ -274,6 +275,7 @@ defmodule PrologEx.Builtins do
     "lists" =>
       Map.new(
         for(n <- 2..8, do: {{"maplist", n}, "apply"}) ++
+          for(n <- 4..6, do: {{"foldl", n}, "apply"}) ++
           [{{"include", 3}, "apply"}, {{"exclude", 3}, "apply"}, {{"partition", 4}, "apply"}]
       ),
     # wie SICStus' library(fastrw) (die Prädikate sind eingebaut, wie in SWI)

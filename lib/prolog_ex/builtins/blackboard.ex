@@ -13,6 +13,18 @@ defmodule PrologEx.Builtins.Blackboard do
   das Kontextmodul, so stören sich gleichnamige Schlüssel verschiedener
   Module nicht. Die Werte überstehen Backtracking (wie assert); gespeichert
   wird eine Kopie mit frischen Variablen, ohne Attribute.
+
+  Dazu wie Scryers `library(iso_ext)`:
+
+    * `bb_b_put(:Key, +Term)`        backtrackbar und ohne Kopie (wie
+                                     SWIs `b_setval/2`): Backtracking
+                                     stellt den vorigen Stand her
+
+  Solche Werte stehen in der Substitution unter `#{inspect(:"$bb_b")}`
+  (eine Map Schlüssel → Term); Backtracking nimmt sie wie Bindungen
+  zurück, die Kompaktierung hält sie (und ihre Variablen) am Leben.
+  `bb_get/2` liefert sie ohne Kopie, dieselben Variablen; `bb_put/2`
+  entfernt sie.
   """
   use PrologEx.Builtin, module: "blackboard"
   require PrologEx
@@ -20,6 +32,17 @@ defmodule PrologEx.Builtins.Blackboard do
 
   defbuiltin "bb_put", [key, t] do
     put(key, t, context_module(), subst())
+  end
+
+  @b_key :"$bb_b"
+
+  @doc "Schlüssel der backtrackbaren Werte in der Substitution"
+  def b_key, do: @b_key
+
+  defbuiltin "bb_b_put", [key, t] do
+    s = subst()
+    k = key!(key, context_module(), s)
+    {:subst, Map.update(s, @b_key, %{k => t}, &Map.put(&1, k, t))}
   end
 
   defbuiltin "bb_get", [key, t] do
@@ -33,7 +56,11 @@ defmodule PrologEx.Builtins.Blackboard do
   def put(key, t, mod, s) do
     k = key!(key, mod, s)
     put(k, value_copy(PrologEx.walk(t, s), s))
-    :ok
+
+    case s do
+      %{@b_key => %{^k => _} = m} -> {:subst, Map.put(s, @b_key, Map.delete(m, k))}
+      _ -> :ok
+    end
   end
 
   @doc """
@@ -42,7 +69,16 @@ defmodule PrologEx.Builtins.Blackboard do
   ein Occurs-Check ist nie nötig (attributierte: Unifikation, die weckt).
   """
   def get(key, t, mod, s) do
-    case fetch(key!(key, mod, s)) do
+    k = key!(key, mod, s)
+
+    case s do
+      %{@b_key => %{^k => v}} -> {:unify, [{t, v}]}
+      _ -> get_global(k, t, s)
+    end
+  end
+
+  defp get_global(k, t, s) do
+    case fetch(k) do
       {:ok, v} ->
         v = value_copy(v, %{})
 

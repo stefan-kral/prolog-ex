@@ -79,6 +79,53 @@ defmodule PrologEx.BlackboardMutablesTest do
       assert ask(c, "bb_get(c, V).") == ["V = 15"]
     end
 
+    test "bb_b_put/2: backtrackbar, ohne Kopie (wie Scryers iso_ext)", c do
+      # Backtracking stellt den vorigen Stand her (Scryers Beispiel)
+      assert ask(
+               c,
+               "bb_put(city, v), (bb_b_put(city, s), false ; bb_get(city, X))."
+             ) == ["X = v"]
+
+      assert ask(c, "bb_put(city, v), (bb_put(city, s), false ; bb_get(city, X)).") ==
+               ["X = s"]
+
+      assert ask(c, "bb_b_put(k, 1), (bb_b_put(k, 2), bb_get(k, A) ; bb_get(k, A)).") ==
+               ["A = 2", "A = 1"]
+
+      # keine Kopie: dieselbe Variable, auch mit Attributen
+      assert ask(c, "bb_b_put(k, f(X)), bb_get(k, f(Y)), X == Y.") |> length() == 1
+      assert ask(c, "freeze(X, true), bb_b_put(k, X), bb_get(k, Y), X == Y.") |> length() == 1
+      assert ask(c, "bb_b_put(k, f(X)), X = 1, bb_get(k, V).") == ["V = f(1), X = 1"]
+      # gilt nur in der Anfrage; bb_put/2 ersetzt den Wert
+      assert ask(c, "bb_b_put(q, 1).") == ["true"]
+      assert ask(c, "bb_get(q, X).") == []
+      assert ask(c, "bb_b_put(q, 1), bb_put(q, 2), bb_get(q, X).") == ["X = 2"]
+      assert ask(c, "bb_put(q, 3), bb_b_put(q, 4), bb_get(q, X).") == ["X = 4"]
+      assert ask(c, "bb_get(q, X).") == ["X = 3"]
+      # Schlüssel je Modul, Fehler wie bb_put/2
+      assert ask(c, "bb_b_put(m1:k, 1), bb_b_put(m2:k, 2), bb_get(m1:k, A), bb_get(m2:k, B).") ==
+               ["A = 1, B = 2"]
+
+      assert err(c, "bb_b_put(_, 1).") =~ "instantiation_error"
+      assert err(c, "bb_b_put(f(x), 1).") =~ "type_error"
+    end
+
+    test "bb_b_put/2: Werte überstehen die Kompaktierung", c do
+      # eine Schleife, die bei jedem Schritt kompaktiert; der Wert enthält
+      # eine Variable, die erst später gebunden wird
+      g =
+        "bb_b_put(k, f(X)), between(1, 50, I), bb_get(k, f(_)), I >= 50, X = done, bb_get(k, V)."
+
+      assert ask(c, g, compact_threshold: 1) == ["I = 50, V = f(done), X = done"]
+
+      assert ask(
+               c,
+               "freeze(X, true), bb_b_put(k, X), between(1, 50, I), I >= 50, bb_get(k, Y), X == Y.",
+               compact_threshold: 1
+             )
+             |> length() == 1
+    end
+
     test "Schlüssel: Atom oder Ganzzahl, je Modul", c do
       assert ask(c, "bb_put(1, eins), bb_put([], leer), bb_get(1, A), bb_get([], B).") ==
                ["A = eins, B = leer"]

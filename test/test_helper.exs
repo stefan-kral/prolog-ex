@@ -1,4 +1,5 @@
-ExUnit.start()
+# langsame Tests (Minuten): mix test --include slow
+ExUnit.start(exclude: [:slow])
 
 # gprolog-Orakel für Aufzeichnungen (GPROLOG_RECORD=1), siehe tools/gprolog
 Code.require_file("../tools/gprolog/gprolog.ex", __DIR__)

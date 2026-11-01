@@ -675,7 +675,8 @@ sonst Float), `random_member/2`, `random_select/3` (auch Einfügen),
 Zahlen aus 1..N in zufälliger Reihenfolge – `randseq(N, N, L)` ist ein
 gemischtes `numlist(1, N, L)`), `randset/3` (dasselbe sortiert),
 `getrand/1`/`setrand/1`; dazu aus SWI `random_between/3` (inklusive H) und
-`set_random(seed(N))`. Generator: Erlangs `exsss`, Zustand je Sitzung,
+`set_random(seed(N))`, aus Scryer `random_integer/3` (L =< X < U; X muss
+ungebunden sein). Generator: Erlangs `exsss`, Zustand je Sitzung,
 anfangs zufällig; `set_random(seed(N))` macht Läufe reproduzierbar.
 `randseq(1000000, 1000000, L)` dauert etwa 1 s.
 
@@ -1024,6 +1025,36 @@ nichts in der Maschine; die Prädikate kommen erst mit `use_module`.
 (`call_with_timeout`) greifen erst danach, `resource_error(match_limit)`
 schützt vor exponentiellem Backtracking.
 
+## Boolesche Bedingungen: `library(clpb)`
+
+CLP(B) von Markus Triska (MIT-Lizenz), unverändert aus Scryer Prolog:
+`sat/1`, `taut/2`, `labeling/1`, `sat_count/2`, `weighted_maximum/3`,
+`random_labeling/2`; Formeln mit `~ * + # =:= =\= =< >= < > ^` (Quantor),
+`card(Is, Fs)`, `+(Ls)`, `*(Ls)`. Atome stehen für allquantifizierte
+Variablen. Die Restziele zeigt der Toplevel wie Scryer:
+
+```prolog
+?- sat(X+Y).
+sat(X=\=X*Y#Y).
+?- sat(X =< Y), sat(Y =< Z), taut(X =< Z, T).
+T = 1, sat(X=:=X*Y), sat(Y=:=Y*Z).
+?- sat(1#X#a#b).
+sat(X=:=a#b).
+```
+
+Dafür kamen allgemeine Bausteine dazu, die auch andere Bibliotheken aus
+Scryer brauchen: `bb_b_put/2` (backtrackbare globale Werte), `foldl/4..6`
+auch in `library(lists)`, `random_integer/3`, die Hooks
+`attribute_goals//1` und `project_attributes/2`. Getestet mit den
+Beispielen der Dokumentation (Tauben, XOR aus NAND-Gattern, Damen) und
+Triskas eigenen Prüfprogrammen aus github.com/triska/clpb
+(`test/fixtures/clpb/`, mit eingeschalteten internen Konsistenzprüfungen
+`clpb:validation`); `testing.pl` mit Größe 1 läuft als langsamer Test
+(rund zwei Minuten), `test_bdd_merging.pl` (65 536 Kombinationen, neun
+Minuten) einmal von Hand, bestanden. Geschwindigkeit: so schnell wie die
+Maschine (rund 0,5 Mio. Inferenzen je Sekunde bei clpb), also deutlich
+langsamer als SWI oder Scryer.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
@@ -1039,6 +1070,11 @@ Wie SICStus (dort eingebaut, hier nach `use_module`):
     `bb_put` kosten so rund 45 % weniger, ein Zähler
     (`bb_get(c, V), V1 is V+1, bb_put(c, V1)`) rund 35 %. Die Werte liegen
     weiter in der Datenbank (gehören zum Programm, nicht zum Prozess).
+  * `bb_b_put(:Key, +T)` wie in Scryers `library(iso_ext)` (dort auch
+    weitergegeben): backtrackbar und ohne Kopie, wie SWIs `b_setval/2` –
+    `bb_get/2` liefert dann dieselben Variablen. Solche Werte stehen in der
+    Substitution (Backtracking nimmt sie zurück, die Kompaktierung hält sie
+    am Leben) und gelten bis zum Ende der Anfrage; `bb_put/2` ersetzt sie.
   * `create_mutable(+W, -M)`, `get_mutable(?W, +M)`, `update_mutable(+W, +M)`,
     `mutable(@M)` – backtrackbare Zuweisung: Backtracking stellt den alten
     Wert her. Der Wert ist das versteckte Attribut einer Variablen, eine
@@ -1326,6 +1362,13 @@ freeze/dif/when. Scheitern, Alternativen und Ausnahmen der Hooks wirken
 normal. `attribute_goal/2` liefert Restziele für Toplevel, `frozen/2`
 und `copy_term/3`. Ohne Attributmodule kostet das alles nichts.
 
+Wie Scryer und SWI gibt es auch die Hooks `attribute_goals//1` (Restziele
+als DCG; Ziele ohne Modul bekommen `M:` davor) und
+`project_attributes(QueryVars, AttrVars)`, den der Toplevel vor den
+Restzielen aufruft (etwa damit `library(clpb)` Hilfsvariablen
+herausrechnet). `copy_term/3` sammelt die Restziele in `findall/3`: Hooks,
+die dabei Attribute abbauen (wie bei clpb), lassen das Original unberührt.
+
 ## Module
 
 Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
@@ -1362,7 +1405,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
     | Bibliothek | Prädikate |
     |---|---|
-    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`; weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `copy_term/3`, `bb_get/2`, `bb_put/2` |
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`; weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `copy_term/3`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3` – und gibt alle obigen weiter |
@@ -1378,8 +1421,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     SWI ohne Import sichtbar (die Logtalk-Testsammlung läuft so).
   * `library(lists)` gibt wie bei SICStus auch `maplist/2..8`, `include/3`,
     `exclude/3` und `partition/4` aus `library(apply)` weiter (Re-Export:
-    importiert wird aus `apply`, beide zusammen ergeben keinen Konflikt).
-    `foldl/4..6` gibt es nur in `library(apply)`.
+    importiert wird aus `apply`, beide zusammen ergeben keinen Konflikt),
+    wie bei Scryer auch `foldl/4..6`.
   * Rümpfe laufen im Modul, in dem das Prädikat definiert ist;
     Meta-Argumente (`0..9`, `^`, `//`, `:`) werden beim Aufruf mit dem
     Kontextmodul qualifiziert. Prädikate von `system` sind geschützt.
@@ -1768,6 +1811,7 @@ ein einziger Test).
 ## Entwicklung
 
 ```sh
-mix test                  # Tests
+mix test                  # Tests (ohne die langsamen, @tag :slow)
+mix test --include slow   # mit den langsamen (Minuten)
 mix run bench/bench.exs   # Speicher- und Laufzeitmessung
 ```

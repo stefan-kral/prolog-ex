@@ -6,6 +6,8 @@ defmodule PrologEx.Builtins.Random do
     * `random(-X)`                 Float in [0.0, 1.0)
     * `random(+L, +U, -X)`         Ganzzahlen: L =< X < U; sonst Float in [L, U)
     * `random_between(+L, +H, -X)` Ganzzahl L =< X =< H (SWI)
+    * `random_integer(+L, +U, -X)` Ganzzahl L =< X < U (Scryer; X muss
+      ungebunden sein, sonst scheitert es)
     * `random_member(-X, +Liste)`  zufälliges Element (leere Liste: scheitert)
     * `random_select(?X, ?Liste, ?Rest)` zufälliges Element entfernen; ist
       nur Rest eine Liste, wird X an zufälliger Stelle eingefügt
@@ -50,6 +52,19 @@ defmodule PrologEx.Builtins.Random do
 
       {lo, hi} ->
         number_args!(lo, hi)
+    end
+  end
+
+  defbuiltin "random_integer", [l, u, x] do
+    case {deref(l), deref(u), deref(x)} do
+      {_, _, x0} when not is_tuple(x0) or elem(x0, 0) != :var ->
+        :fail
+
+      {lo, hi, _} when is_integer(lo) and is_integer(hi) ->
+        if hi > lo, do: {:unify, [{x, lo + int_below(hi - lo)}]}, else: :fail
+
+      {lo, hi, _} ->
+        integer_args!(lo, hi)
     end
   end
 

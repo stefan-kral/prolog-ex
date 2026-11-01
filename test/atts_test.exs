@@ -10,7 +10,7 @@ defmodule PrologEx.AttsTest do
     Reader.put_current(r)
     PrologEx.put_db(%{})
 
-    for f <- ~w(plain spy domain myfreeze),
+    for f <- ~w(plain spy domain myfreeze tag),
         do: {:ok, _} = Consult.load_file(Path.join(@dir, f <> ".pl"))
 
     PrologEx.update_db(&PrologEx.use_library(&1, "lists"))
@@ -130,6 +130,15 @@ defmodule PrologEx.AttsTest do
       assert ask(c, "dif(X, a), domain(X, [a, b, c]), X = b.") == ["X = b"]
       assert ask(c, "dif(X, Y), domain(X, [a, b]), X = a, Y = a.") == []
       assert ask(c, "dif(X, Y), domain(X, [a, b]), X = a.") == ["X = a, dif(Y,a)"]
+    end
+
+    test "attribute_goals//1 (Scryer, SWI): Ziele ohne Modul bekommen es davor", c do
+      assert ask(c, "tag(X, a).") == ["tagged(X,a)"]
+      assert ask(c, "tag(X, a), frozen(X, G).") |> hd() =~ "G = tag:tagged(X,a)"
+      assert ask(c, "tag(X, a), copy_term(X, C, G).") |> hd() =~ "G = tag:tagged(C,a)"
+
+      assert ask(c, "domain(X, [a, b]), tag(X, a), frozen(X, G).") |> hd() =~
+               "G = (domain:domain(X,\"ab\"),tag:tagged(X,a))"
     end
 
     test "frozen/2 und copy_term/3", c do
