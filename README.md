@@ -899,6 +899,38 @@ Maschine gegenüber SWIs Fassung in Prolog: 20 000 `rb_insert/4` 0,4 statt
 statt 3,9 s, `list_to_rbtree/2` und `rb_visit/2` mit 20 000 Paaren 0,06
 statt 1,3 s.
 
+## Konjunktionen als Listen: `library(commalist)`
+
+Schnittstelle nach XSB Prolog: `commalist_to_list/2`,
+`nonemptylist_to_commalist/2`, `commalist_append/3`, `commalist_length/2`,
+`commalist_member/2`, `commalist_memberchk/2`. Die Elemente einer
+Commaliste sind die Blätter ihres `,`-Baums von links nach rechts, gleich
+wie er geschachtelt ist:
+
+```
+?- commalist_to_list((A,(B,C),D), L).      % L = [A,B,C,D]
+?- commalist_to_list(((A,B),C), L).        % L = [A,B,C]
+?- nonemptylist_to_commalist([a,b,c], C).  % C = (a,b,c)
+```
+
+  * Jeder andere Term ist ein Element (`a` ist die Commaliste `[a]`), auch
+    eine Variable als Blatt – das ist nicht monoton:
+    `commalist_to_list((A,b), L)` gibt `[A,b]`, nach `A = (x,y)` aber
+    `[x,y,b]`.
+  * Ist die Commaliste selbst eine Variable, gibt es `instantiation_error`;
+    Bäume werden nicht aufgezählt. Zum Aufzählen:
+    `length(Ls, N), Ls = [_|_], nonemptylist_to_commalist(Ls, C)`.
+  * Erzeugte Commalisten (`nonemptylist_to_commalist/2`,
+    `commalist_append/3`) sind rechts geschachtelt wie ein gelesenes
+    `(a,b,c)`. Eine leere gibt es nicht: `nonemptylist_to_commalist([], C)`
+    ist `domain_error(non_empty_list, [])`, eine Teilliste
+    `instantiation_error`, eine Nicht-Liste `type_error(list, L)`.
+  * `commalist_append/3` braucht beide Eingaben, `commalist_length/2` die
+    Commaliste (Länge wie bei `length/2` geprüft).
+
+In Prolog (`priv/library/commalist.pl`), ohne Rekursionstiefe: auch
+Bäume mit 100 000 Elementen, links oder rechts geschachtelt.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
