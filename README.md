@@ -1027,7 +1027,7 @@ schützt vor exponentiellem Backtracking.
 
 ## Boolesche Bedingungen: `library(clpb)`
 
-CLP(B) von Markus Triska (MIT-Lizenz), unverändert aus Scryer Prolog:
+CLP(B) von Markus Triska (MIT-Lizenz), aus Scryer Prolog (b7066b4):
 `sat/1`, `taut/2`, `labeling/1`, `sat_count/2`, `weighted_maximum/3`,
 `random_labeling/2`; Formeln mit `~ * + # =:= =\= =< >= < > ^` (Quantor),
 `card(Is, Fs)`, `+(Ls)`, `*(Ls)`. Atome stehen für allquantifizierte
@@ -1050,10 +1050,26 @@ Beispielen der Dokumentation (Tauben, XOR aus NAND-Gattern, Damen) und
 Triskas eigenen Prüfprogrammen aus github.com/triska/clpb
 (`test/fixtures/clpb/`, mit eingeschalteten internen Konsistenzprüfungen
 `clpb:validation`); `testing.pl` mit Größe 1 läuft als langsamer Test
-(rund zwei Minuten), `test_bdd_merging.pl` (65 536 Kombinationen, neun
-Minuten) einmal von Hand, bestanden. Geschwindigkeit: so schnell wie die
-Maschine (rund 0,5 Mio. Inferenzen je Sekunde bei clpb), also deutlich
-langsamer als SWI oder Scryer.
+(gut eine Minute), `test_bdd_merging.pl` (65 536 Kombinationen) einmal von
+Hand, bestanden.
+
+Ziel ist, clpb nach und nach ganz in Elixir zu rechnen
+(`PrologEx.Builtins.ClpbPrims`); `clpb.pl` geht dafür bewusst vom
+Snapshot weg (upstream ändert sich die Datei selten: seit 2020 ein paar
+echte Korrekturen, sonst Doku und Anpassungen; Herkunft und Abweichungen
+stehen in ihrem Kopf). Referenz für jeden Schritt:
+
+  * `test/clpb_golden_test.exs`: 400 zufällige Anfragen (mehrere `sat/1`
+    über Variablen und Atome, Bindungen, `taut/2`, `labeling/1`,
+    `sat_count/2`) mit den Antworten der ursprünglichen Fassung, samt
+    Restzielen und Fehlern (erzeugt von `test/fixtures/clpb/gen_golden.exs`);
+  * Vergleiche einzelner Teile mit Triskas Prolog-Code auf Zufallsformeln.
+
+Bisher in Elixir: die Prüfung nach jedem `sat/1` (`satisfiable_bdd/1`:
+welche Variablen nur noch einen Wert zulassen, welche gleich sein
+müssen) – rund zwei Drittel der Arbeit. Kommen Atome vor, rechnet noch
+Triskas Code (er baut dafür neue BDDs). Die kleinen Formeln aus
+`bench/compare.pl` brauchen damit 880 statt 1640 ms (Scryer: 265 ms).
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
@@ -1675,9 +1691,10 @@ dieselbe Maschine; Zeiten in ms):
 | foldl/4 (300 000) | 720 | 172 | 4,2 |
 | dieselbe Summe von Hand | 623 | 138 | 4,5 |
 | findall + sort (200 000) | 588 | 266 | 2,2 |
-| clpb (kleine Formeln) | 1691 | 265 | 6,4 |
+| clpb (kleine Formeln) | 880 | 265 | 3,3 |
 
-Im geometrischen Mittel ist PrologEx rund 7-mal langsamer als Scryer;
+Im geometrischen Mittel ist PrologEx rund 6,5-mal langsamer als Scryer
+(clpb: Stand nach dem ersten Teil in Elixir, siehe dort);
 reine Maschinenarbeit (Schleifen, Arithmetik, Klauselwahl) 9–18-mal,
 wo eingebaute Prädikate einen großen Teil tragen (findall, sort, Listen)
 nur 2–4-mal. tak und queens sind bei Scryer so kurz, dass ihre Faktoren

@@ -1,0 +1,400 @@
+sat(~ (X)), X = 1	false
+sat(b), Y = 0	false
+sat((((W =\= Y) =\= (X + Z)) + Z ^ (card([1],[Y,Z,X])))), sat((Z =\= X)), sat(V)	V = 1, sat(1#W*Y*X#Y*X), sat(X=\=Z)
+sat(+[Z,W]), sat(~ (Y)), sat((Y # Y))	false
+sat((b * V)), sat((1 =:= X))	false
+sat(((Y # X) # Z ^ (Z))), sat_count(+[1,X,Y,Z,W], N)	N = 8, Y = X, sat(X=:=X), sat(Z=:=Z)
+sat(((X + V) + card([1],[W,V,Y]))), sat(((W * X) + card([0],[V,X,Z]))), sat((Y =< 1))	sat(1#X*V#V), sat(1#X*Z#Z), sat(X=:=X*W), sat(X=\=X*V#X*V*W#X*V*Y#X*W#X*Y#V#V*W#V*Y#W#Y)
+sat(Z ^ (card([1],[X,Y,Z])))	sat(1#X*Y), sat(Z=:=Z)
+sat(~ (W)), sat((~ (0) =< card([0],[X,Z,V]))), sat((X ^ (~ (b)) * (card([2],[Z,W,X]) # ~ (Y)))), labeling([X,Y,Z])	error: error(domain_error(clpb_expr,0^(~b)),unknown(0^(~b))-1)
+sat((b =:= 0)), sat(+[X,W]), sat(card([1],[W,V,Y])), sat_count(+[1,X,Y,Z,W], N)	false
+sat((~ (b) * (Y + b))), X = 1	false
+sat((0 # X)), sat((((X # W) + ~ (X)) =:= (card([2],[V,W,X]) + (W =:= Y)))), sat(~ (card([0],[W,Y,X])))	X = 1, sat(W=:=W*V#W*Y#V*Y#Y)
+sat(a), sat((Y + X)), sat_count(+[1,X,Y,Z,W], N)	false
+sat((card([1],[Z,X,Y]) =< +[Z,W])), sat((+[Z,W] # (X # W)))	sat(1#Z*X#Z*X*W#Z*Y#Z*Y*W#X#X*W#Y#Y*W), sat(Z=\=Z*W#X)
+sat(((X =\= Y) + (W =:= Y))), taut(~ ((Z * W)), T)	false
+sat(~ (X)), sat(card([2],[Z,Y,W])), X = Y	W = 1, X = 0, Y = 0, Z = 1
+sat(Y), sat((V =\= X ^ ((0 =< V)))), sat(((Y * V) =< (W * X))), taut(W, T)	false
+sat(+[Y,W]), sat((((Z =< Z) =\= (Z * X)) =:= card([2],[Y,Z,W]))), sat(((V =\= Z) # ~ (0))), X = Y	W = 1, Y = X, Z = V, sat(X=\=X*V#V)
+sat((Z =\= Z)), sat(~ (b)), X = Y	false
+sat((b =\= 1)), sat(~ (((V =\= 1) + (Z =< 1)))), sat(V ^ (X ^ (+[Z,W]))), X = Y	false
+sat(W ^ ((~ (Y) # +[X,Y]))), sat((~ (Z) # ~ (X))), Y = 0	X = 0, Y = 0, Z = 1, sat(W=:=W)
+sat(card([2],[Y,V,W])), sat((W =\= 0))	W = 1, sat(Y=\=V)
+sat(card([2],[Y,Z,V]))	sat(Y*Z#Y*Z*V#Y*V#Z*V)
+sat((+[X,V] # ((W * X) + (Z =:= W)))), sat(((0 + (X + X)) =\= X))	false
+sat(~ (W)), sat((((1 + Y) =:= (b =\= Z)) =< ((Z + 0) + (Y =\= Z)))), sat(0), Y = 0	false
+sat(b), sat((0 * W))	false
+sat((~ (X) =\= (V =< b))), sat(0), sat((card([2],[Z,Y,V]) =:= ((Z * Y) # W))), labeling([X,Y,Z])	false
+sat(a), sat(((0 =\= (V # V)) * (~ (1) =:= (b =\= Z)))), sat((((Z * V) # ~ (b)) # (Z ^ (b) =:= (a =\= V)))), taut(card([2],[Y,V,W]), T)	false
+sat((W =< (X =:= W))), sat(V ^ (V)), sat((Y * b))	false
+sat(card([1],[Z,X,W])), taut(~ (~ (Y)), T)	false
+sat(((W =:= (Y + W)) + (~ (Y) * Y ^ (W)))), sat(1), sat((X =< V)), sat_count(+[1,X,Y,Z,W], N)	N = 12, sat(X=:=X*V), sat(1#W*Y#Y)
+sat(((X =< a) =\= b)), sat(((0 =\= Z) =:= (V =:= W))), sat_count(+[1,X,Y,Z,W], N)	false
+sat(~ ((Z + card([1],[Y,X,W])))), sat(card([1],[Z,Y,V])), sat(card([1],[Y,Z,W])), sat_count(+[1,X,Y,Z,W], N)	N = 2, W = V, X = 1, Z = 0, sat(Y=\=V)
+sat(+[V,X])	sat(V=\=V*X#X)
+sat(+[X,W]), sat((W * 0)), taut(card([2],[V,W,Z]), T)	false
+sat(~ ((0 =:= (V =\= 1)))), sat(W), sat(~ (b)), X = 1	false
+sat((Y ^ (~ (0)) + (card([1],[V,W,X]) =< (W =:= Y))))	sat(Y=:=Y), sat(V=:=V), sat(W=:=W), sat(X=:=X)
+sat((W # 0))	W = 1
+sat((card([2],[X,Y,Z]) =\= ((1 * W) =:= +[X,Y]))), sat(+[Z,X]), sat((X * +[Y,V]))	X = 1, sat(Y=\=Z#W), sat(Y=\=Y*V#V)
+sat(card([0],[V,W,Z])), sat(Y)	V = 0, W = 0, Y = 1, Z = 0
+sat(card([0],[Z,Y,W])), sat((((W + X) # (Y =< Y)) * ((1 + 1) + (W =< a)))), X = Y	W = 0, X = 0, Y = 0, Z = 0
+sat((((b + a) + +[Z,V]) * X ^ (card([0],[V,W,Z]))))	false
+sat((W # ~ ((Y =\= Y)))), sat((((V * 0) + (Y + X)) * (X ^ (V) =< Y ^ (W)))), sat(~ (a)), sat_count(+[1,X,Y,Z,W], N)	false
+sat(~ (((Y * b) # V ^ (Z)))), sat((V * a))	false
+sat(card([1],[Z,W,X])), sat(+[Z,X]), Y = 0	W = 0, Y = 0, sat(Z=\=X)
+sat((Y + (a =:= V))), sat((V + a))	sat(1#Y*V#Y*a#V#a), sat(V=\=V*a#a)
+sat((((W =\= 0) =\= (b * Y)) + (~ (0) =< (1 =:= Y)))), sat((+[W,V] =< (0 * X))), sat(~ (Y)), X = 1	false
+sat(~ ((X =< X))), sat(+[W,V]), X = 1	false
+sat((X # X)), sat((+[X,Y] * (~ (Y) * (b + Y)))), Y = 0	false
+sat(0), sat(card([1],[W,Z,V])), sat(~ (card([1],[Y,V,W])))	false
+sat((Z * W)), sat((1 # Y)), X = Y	W = 1, X = 0, Y = 0, Z = 1
+sat((((V =< 0) # +[Y,X]) # ((a + 0) =:= Y ^ (b)))), sat(~ (+[W,Z]))	W = 0, Z = 0, sat(V=\=Y#Y*X#X#a#b)
+sat(((X =< W) =< (b =< Z)))	sat(1#W*Z*b#W*b), sat(1#X*Z*b#X*b#Z*b#b)
+sat(card([1],[Y,Z,V])), sat((W * ((a * Y) * Y ^ (X)))), sat(Y ^ (~ (V)))	false
+sat(~ (Y)), sat((card([1],[X,Z,Y]) =\= card([0],[W,Z,V]))), Y = 0	Y = 0, sat(X=:=Z*W#Z*W*V#Z*V#W#W*V#V)
+sat((+[W,X] + (X =< V))), X = 1	X = 1, sat(W=:=W), sat(V=:=V)
+sat((b =:= 1)), sat((Y =\= Y)), sat(((+[W,Y] + (Y # Z)) =:= ((Z + W) =\= Z ^ (V)))), Y = 0	false
+sat(((Y =:= V) =:= (V =:= V))), sat(((V * X) =\= (a # 1))), sat(((X # W) # (a + V)))	Y = V, sat(1#V*X#a), sat(V=\=V*a#X#W#a)
+sat((Y + V))	sat(Y=\=Y*V#V)
+sat((+[Y,W] + (+[W,Z] + (a =:= X)))), labeling([X,Y,Z])	X = 0, Y = 0, Z = 0, sat(1#W*a#a) ; X = 1, Y = 0, Z = 0, sat(W=\=W*a#a) ; X = 0, Y = 0, Z = 1, sat(W=:=W) ; X = 1, Y = 0, Z = 1, sat(W=:=W)
+sat((1 # W)), sat((~ ((b + Z)) =< (1 =\= X ^ (1)))), sat_count(+[1,X,Y,Z,W], N)	N = 4, W = 0, sat(Z=\=Z*b#b), sat(X=:=X)
+sat(V), sat(((W * X) + W ^ (X))), X = Y	V = 1, X = 1, Y = 1, sat(W=:=W)
+sat((Z + X)), Y = 0	Y = 0, sat(Z=\=Z*X#X)
+sat((1 =:= X)), sat_count(+[1,X,Y,Z,W], N)	N = 8, X = 1
+sat((Z ^ (card([1],[W,Z,X])) =\= ~ (~ (W))))	sat(W=:=W*X), sat(Z=:=Z)
+sat((X + Z)), sat(b), X = Y	false
+sat(((W + Y) =:= (Z * V))), labeling([X,Y,Z])	W = 0, X = 0, Y = 0, Z = 0, sat(V=:=V) ; W = V, X = 0, Y = 0, Z = 1, sat(V=:=V) ; V = 1, X = 0, Y = 1, Z = 1, sat(W=:=W) ; W = 0, X = 1, Y = 0, Z = 0, sat(V=:=V)
+sat((X * b)), sat(((X ^ (Y) * (1 * Z)) + W))	false
+sat((card([1],[Z,V,X]) * W ^ (Y)))	Y = 1, sat(Z=\=Z*V*X#V#X), sat(W=:=W)
+sat(((b =\= 0) =< (X + 0))), sat((~ ((X # W)) # ((b =\= b) * (W * W)))), sat((V =< a)), X = Y	W = Y, X = W, sat(V=:=V*a), sat(1#Y*b#b)
+sat((Z =\= Z)), sat(1)	false
+sat(+[V,W]), sat(((X # card([1],[V,X,W])) * +[Y,V]))	sat(V=\=V*W#W), sat(V=\=V*Y#Y), sat(V=\=V*W*X#W)
+sat(~ ((b =\= b))), sat((b =:= Z))	Z = b
+sat(+[Z,Y]), sat((W =\= a)), sat_count(+[1,X,Y,Z,W], N)	N = 0, sat(W=\=a), sat(Z=\=Z*Y#Y)
+sat(Y ^ (((a =\= W) # ~ (0)))), X = 1	W = a, X = 1, sat(Y=:=Y)
+sat((0 * Z)), sat((W # W)), Y = 0	false
+sat(((1 =< Z) * Y ^ (W))), sat((V ^ (X) =< (Y * Z))), sat(V ^ (~ (card([2],[Y,Z,V])))), sat_count(+[1,X,Y,Z,W], N)	N = 3, W = 1, Z = 1, sat(1#Y*X#X), sat(V=:=V)
+sat(((card([2],[Z,Y,X]) =:= (1 + 0)) # ((X =\= 0) + (1 =\= Z)))), sat(((V # X) # W)), sat((W + a)), X = Y	Y = X, Z = Y, sat(X=\=V#W), sat(W=\=W*a#a)
+sat(Y), sat((W =< V)), sat((1 * 1)), Y = 0	false
+sat((Y * W)), sat(Y)	W = 1, Y = 1
+sat((card([2],[Y,W,X]) * (b # 0))), sat(1), sat_count(+[1,X,Y,Z,W], N)	false
+sat((+[Y,Z] # V ^ (V))), X = 1	X = 1, Y = 0, Z = 0, sat(V=:=V)
+sat((0 # Z)), sat((((X =\= X) * X ^ (W)) =< ((Y =< Z) =< (W # 1)))), X = Y	X = Y, Z = 1, sat(Y=:=Y), sat(W=:=W)
+sat((b # +[W,V])), sat(((V ^ (W) =< (Z =\= X)) =:= W ^ (+[V,Y]))), sat(card([0],[Y,Z,X])), X = Y	false
+sat((V =< 0)), sat((X =\= a)), sat(((card([1],[W,X,V]) + ~ (W)) * X)), sat_count(+[1,X,Y,Z,W], N)	false
+sat(((Y =\= X) =:= +[Y,W])), sat(card([1],[W,V,Y])), labeling([X,Y,Z])	V = 1, W = 0, X = 0, Y = 0, Z = 0 ; V = 0, W = 1, X = 1, Y = 0, Z = 0 ; V = 1, W = 0, X = 0, Y = 0, Z = 1 ; V = 0, W = 1, X = 1, Y = 0, Z = 1
+sat(W ^ ((1 =:= X))), sat(((Y # X) * (b =\= V))), sat_count(+[1,X,Y,Z,W], N)	N = 4, X = 1, Y = 0, sat(V=\=b), sat(W=:=W)
+sat(+[Z,V]), sat((((X =:= Z) * (Y =\= b)) =\= card([1],[W,X,Z]))), X = 1	X = 1, sat(1#Z*W#W), sat(Z=:=Z*Y#Z*b), sat(Z=\=Z*V#V)
+sat((V =:= X))	V = X, sat(X=:=X)
+sat(((X =< W) =\= +[V,W])), sat(Z), sat((V =\= b))	W = 0, X = V, Z = 1, sat(V=\=b)
+sat((+[X,V] * ~ (W))), sat(W), X = 1	false
+sat(((W ^ (V) * X ^ (X)) # +[V,Z])), Y = 0	V = 0, Y = 0, Z = 1, sat(W=:=W), sat(X=:=X)
+sat(Z ^ (~ (V ^ (X)))), sat((1 =< 0)), taut(+[Y,Z], T)	false
+sat(+[Z,X]), sat(((~ (W) + card([2],[Y,V,W])) # V)), sat((Z =< W))	sat(1#W*V#V), sat(Z=:=Z*W), sat(W=:=W*Y), sat(Z=\=Z*X#X)
+sat(card([2],[Y,Z,W]))	sat(Y*Z#Y*Z*W#Y*W#Z*W)
+sat((~ (card([2],[X,W,Y])) =\= (card([1],[Z,V,Y]) =:= +[W,X]))), sat((b * W)), sat(card([0],[Z,X,Y])), sat_count(+[1,X,Y,Z,W], N)	false
+sat(Y ^ (Z)), sat(~ (1)), sat((V =:= V))	false
+sat(V), sat(V), X = 1	V = 1, X = 1
+sat(~ ((+[Y,W] =< (W + Z))))	W = 0, Y = 1, Z = 0
+sat((card([2],[W,V,X]) # (V * a))), X = Y	X = Y, sat(W*V#W*V*Y#W*Y#V*Y#V*a)
+sat(((b # a) =< V ^ (W))), sat(((Z =:= X) * Y ^ (X)))	X = 1, Z = 1, sat(1#W*a#W*b#a#b), sat(V=:=V), sat(Y=:=Y)
+sat((((W =\= a) * (1 =\= a)) # +[Y,Z])), sat(((card([1],[X,Z,V]) * (V # a)) # +[W,X])), sat(W ^ (~ (Y))), X = 1	X = 1, Y = 0, sat(1#Z*V*a#Z*a#V*a#a), sat(W=\=W*a#Z), sat(V=:=V)
+sat(((1 =< W) + (W =\= W))), sat((b * 1)), sat(+[V,W]), labeling([X,Y,Z])	false
+sat(V ^ (W))	W = 1, sat(V=:=V)
+sat(card([0],[X,Y,W])), sat(+[W,Z])	W = 0, X = 0, Y = 0, Z = 1
+sat(card([2],[W,Z,Y])), sat(0), Y = 0	false
+sat(((card([1],[W,Y,X]) + (a =\= a)) =:= V ^ ((W * W)))), sat(X ^ (card([0],[Z,V,X]))), sat(~ (V)), Y = 0	V = 0, X = 0, Y = 0, Z = 0
+sat((Y + (card([1],[V,Z,Y]) =< Z ^ (V))))	sat(1#Y*V*Z#Y*Z#V*Z#Z)
+sat((a =\= Y)), sat(card([1],[Y,V,Z])), labeling([X,Y,Z])	false
+sat((W =< X)), sat(Y), labeling([X,Y,Z])	W = 0, X = 0, Y = 1, Z = 0 ; X = 1, Y = 1, Z = 0, sat(W=:=W) ; W = 0, X = 0, Y = 1, Z = 1 ; X = 1, Y = 1, Z = 1, sat(W=:=W)
+sat(((card([0],[X,W,Y]) + +[Z,Y]) =\= (+[X,W] =\= V)))	sat(1#X*W*Y#X*W*Y*Z#X*W*Z#X*Y#X*Y*Z#X*Z#W*Y#W*Y*Z#W*Z#V)
+sat(1), sat(((Z =< Z) * ~ (0))), sat((1 =\= V)), labeling([X,Y,Z])	V = 0, X = 0, Y = 0, Z = 0 ; V = 0, X = 0, Y = 0, Z = 1 ; V = 0, X = 0, Y = 1, Z = 0 ; V = 0, X = 0, Y = 1, Z = 1
+sat(~ ((W # W))), sat(X), sat(X ^ ((0 # W))), sat_count(+[1,X,Y,Z,W], N)	error: error(domain_error(clpb_expr,1^(0#_1913187)),unknown(1^(0#_1913187))-1)
+sat(card([2],[V,Z,X])), Y = 0	Y = 0, sat(V*Z#V*Z*X#V*X#Z*X)
+sat(Z ^ ((b # X))), sat((W =< +[X,Z]))	sat(1#Z*X*W#Z*W#X*W#W), sat(X=\=b)
+sat((Y * Z)), sat(+[V,X]), Y = 0	false
+sat((Z =\= X)), labeling([X,Y,Z])	X = 1, Y = 0, Z = 0 ; X = 0, Y = 0, Z = 1 ; X = 1, Y = 1, Z = 0 ; X = 0, Y = 1, Z = 1
+sat((Z # W))	sat(Z=\=W)
+sat((V # V)), Y = 0	false
+sat((b # 0)), sat(Z), X = Y	false
+sat((0 =\= a)), sat(((a + X) =< V)), sat(X ^ (W))	false
+sat(((Y =< (V =:= 0)) # (~ (0) + +[X,V]))), sat(~ (X)), X = Y	false
+sat(Z ^ (~ (Y))), sat(+[W,X]), sat((V * a)), sat_count(+[1,X,Y,Z,W], N)	false
+sat(((b =:= X) =\= X ^ (V))), sat(+[W,X]), sat(+[V,X])	sat(X*V#X*V*b#X*b#V*b), sat(X=\=X*W#W)
+sat(((W ^ (Y) + (W =:= W)) * ((b # V) # (0 =< Y))))	V = b, sat(W=:=W), sat(Y=:=Y)
+sat(((card([0],[V,X,W]) # (W * V)) =\= ((V + a) =\= (Z =< 1))))	sat(V=:=V*W#V*W*a#W*a), sat(X=\=X*W#W#W*a#a), sat(Z=:=Z)
+sat((1 * V)), labeling([X,Y,Z])	V = 1, X = 0, Y = 0, Z = 0 ; V = 1, X = 0, Y = 0, Z = 1 ; V = 1, X = 0, Y = 1, Z = 0 ; V = 1, X = 0, Y = 1, Z = 1
+sat(~ (((Y * W) + (V =:= X)))), sat(~ (Z)), sat(Z ^ (+[W,X]))	error: error(domain_error(clpb_expr,0^ +[_2015868,_2015869]),unknown(0^ +[_2015868,_2015869])-1)
+sat(Y ^ ((0 # 0))), sat((1 # card([2],[Z,Y,V]))), Y = 0	false
+sat(+[Z,Y]), sat(V)	V = 1, sat(Z=\=Z*Y#Y)
+sat(((W =\= X) =< (V =< Z))), sat_count(+[1,X,Y,Z,W], N)	N = 16, sat(1#W*V#W*V*Z#X*V#X*V*Z)
+sat((card([0],[Z,V,W]) =< X ^ ((Z + Y)))), X = 1	X = 1
+sat(+[W,V]), sat(X ^ (V))	V = 1, sat(W=:=W), sat(X=:=X)
+sat(~ (Y))	Y = 0
+sat(V ^ (+[W,Y])), sat(card([0],[Z,X,Y]))	W = 1, X = 0, Y = 0, Z = 0, sat(V=:=V)
+sat(((Y =< (1 # X)) =\= ((a =:= V) * (Z =:= X))))	sat(Y*X#X#X*V#X*a#V#V*Z#Z#Z*a#a)
+sat(b), labeling([X,Y,Z])	false
+sat(card([0],[Y,V,X])), sat((V =:= W)), X = 1	false
+sat(+[X,V]), sat((Z # W))	sat(X=\=X*V#V), sat(Z=\=W)
+sat((+[X,W] + Y ^ (b))), sat(W ^ ((X =\= a))), X = Y	X = Y, sat(1#W*a#W*a*b#a#a*b), sat(Y=\=a)
+sat(+[Y,W]), sat(~ (Y ^ (b))), sat((Z * X)), X = Y	false
+sat(+[V,X]), sat(Y), sat((+[W,V] # (1 =:= X)))	Y = 1, sat(V=\=V*W#X#W), sat(V=\=V*X#X)
+sat(W ^ (1)), sat((Y =< V)), sat((Z ^ (Y) + (Z =\= b))), Y = 0	Y = 0, sat(Z=\=b), sat(V=:=V), sat(W=:=W)
+sat((~ ((Z =:= 0)) =:= card([2],[V,W,X])))	sat(Z=:=V*W#V*W*X#V*X#W*X)
+sat(((card([1],[W,Z,V]) =\= (0 =\= W)) * W)), sat((V ^ (~ (X)) =< ~ ((W =< X)))), sat(Y ^ (a)), X = Y	false
+sat((card([1],[W,V,Y]) =:= 1)), sat(+[Z,Y]), labeling([X,Y,Z])	X = 0, Y = 0, Z = 1, sat(W=\=V) ; V = 0, W = 0, X = 0, Y = 1, Z = 0 ; V = 0, W = 0, X = 0, Y = 1, Z = 1 ; X = 1, Y = 0, Z = 1, sat(W=\=V)
+sat(~ (a)), X = Y	false
+sat((b =< 0)), sat(X ^ ((V =:= Y)))	false
+sat(~ ((~ (X) =< card([2],[V,W,X])))), sat((W =\= (Z =:= Y))), sat((1 # card([1],[X,Z,W])))	W = Z, X = 0, Y = 0, sat(1#V*Z)
+sat(X), sat_count(+[1,X,Y,Z,W], N)	N = 8, X = 1
+sat((~ ((V =< Y)) =< (card([1],[W,X,V]) =\= X))), sat(Z), sat((X # V)), X = 1	V = 0, X = 1, Z = 1, sat(Y=:=Y), sat(W=:=W)
+sat(card([1],[Z,W,X])), sat((Z ^ (~ (1)) # card([0],[V,Z,Y]))), Y = 0	V = 0, Y = 0, Z = 0
+sat(card([0],[Z,V,Y])), sat(Z), taut(((Z + a) + (Z * a)), T)	false
+sat((0 =:= X)), sat((V ^ (W) * Y))	W = 1, X = 0, Y = 1, sat(V=:=V)
+sat(Y ^ (((1 + Y) * (1 * Y)))), sat((W =\= X)), sat(V)	V = 1, sat(W=\=X), sat(Y=:=Y)
+sat((a # W)), sat(Z), labeling([X,Y,Z])	X = 0, Y = 0, Z = 1, sat(W=\=a) ; X = 0, Y = 1, Z = 1, sat(W=\=a) ; X = 1, Y = 0, Z = 1, sat(W=\=a) ; X = 1, Y = 1, Z = 1, sat(W=\=a)
+sat(X ^ ((X =:= 1))), Y = 0	Y = 0, sat(X=:=X)
+sat(((W + W) =:= (W # a))), sat((X # (~ (V) =< +[W,V])))	false
+sat(((W * 1) =< ~ (0)))	sat(W=:=W)
+sat(((card([1],[V,W,Y]) + (Y # a)) =:= card([1],[W,Z,Y])))	sat(V=:=V*W*Y*a#V*Y#V*a#W*Y#W*Y*Z#W*a#Y*a#Z#a)
+sat((~ ((Z * Z)) * (Z ^ (a) + card([0],[Z,Y,W])))), sat(X ^ (Y ^ (V)))	error: error(domain_error(clpb_expr,0^a+card([0],[0,_2278798,_2278799])),unknown(0^a+card([0],[0,_2278798,_2278799]))-1)
+sat((Z + a)), sat(X), sat(Y), Y = 0	false
+sat((Y =\= V)), sat(+[V,Z]), sat((V =< a))	sat(V=:=V*a), sat(Y=\=V), sat(V=\=V*Z#Z)
+sat((a * ((1 + X) =< (X =:= X))))	false
+sat(Z), sat(card([0],[Z,V,Y])), labeling([X,Y,Z])	false
+sat((Z =:= a)), sat(~ (Y)), sat(W ^ (((0 # V) =:= ~ (Y)))), Y = 0	V = 1, Y = 0, Z = a, sat(W=:=W)
+sat(W), sat(((W ^ (0) =:= ~ (Y)) + ((1 =\= V) =< ~ (a)))), sat(Z), Y = 0	error: error(domain_error(clpb_expr,(1^0=:= ~_2307574)+((1=\=_2307575)=< ~a)),unknown((1^0=:= ~_2307574)+((1=\=_2307575)=< ~a))-1)
+sat(((+[V,W] * (0 # Z)) =< (card([2],[Z,W,X]) =:= (a * W)))), sat(((Z # ~ (1)) =< card([0],[Z,Y,X]))), sat(((Z # Y) * card([0],[Y,X,V])))	false
+sat((Z # Y)), sat((+[W,Z] * ~ (Z)))	W = 1, Y = 1, Z = 0
+sat(+[X,Y]), sat(W ^ ((a + X))), sat(Y ^ (a))	false
+sat((~ ((Z =\= Z)) =< (W ^ (Z) =< (X =:= V)))), sat(Y ^ ((~ (V) =\= +[V,W]))), taut(((0 # X) * W ^ (X)), T)	false
+sat((((b =< Y) # (V * Z)) * (Y + ~ (Z)))), sat(card([1],[X,Z,Y]))	Z = 0, sat(1#Y*b#b), sat(Y=\=X), sat(V=:=V)
+sat((W # X)), labeling([X,Y,Z])	W = 1, X = 0, Y = 0, Z = 0 ; W = 0, X = 1, Y = 0, Z = 0 ; W = 1, X = 0, Y = 0, Z = 1 ; W = 0, X = 1, Y = 0, Z = 1
+sat((Y =\= b)), sat((((1 =\= X) =< Z) # (+[Y,X] + +[X,Y]))), sat((((b =:= 1) =< card([2],[Z,Y,W])) # ((V + b) * V ^ (1))))	X = 0, Z = b, sat(1#Y*b#W*b), sat(V=:=V*b), sat(Y=\=b)
+sat((V # 1)), sat(+[X,W]), sat_count(+[1,X,Y,Z,W], N)	N = 12, V = 0, sat(X=\=X*W#W)
+sat(Y ^ (0))	false
+sat((a * (Y ^ (b) # Z ^ (Y)))), sat((X + X))	false
+sat(+[X,Y]), sat((a + X)), sat(((X + V) + (0 * b)))	sat(X=\=X*Y#Y), sat(X=\=X*V#V), sat(X=\=X*a#a)
+sat((V =< W))	sat(V=:=V*W)
+sat(card([2],[V,Z,X]))	sat(V*Z#V*Z*X#V*X#Z*X)
+sat((card([0],[X,V,W]) # (1 * 1))), sat((card([0],[Y,W,V]) =< (+[Z,X] =\= Y))), sat_count(+[1,X,Y,Z,W], N)	N = 16, sat(X=\=X*V#X*V*W#X*V*W*Y#X*V*W*Y*Z#X*V*W*Z#X*V*Y#X*V*Y*Z#X*V*Z#X*W#X*W*Y#X*W*Y*Z#X*W*Z#X*Y#X*Y*Z#X*Z#V#V*W#V*W*Y#V*W*Y*Z#V*W*Z#V*Y#V*Y*Z#V*Z#W#W*Y#W*Y*Z#W*Z#Y#Y*Z#Z), sat(X=\=X*V#X*V*W#X*W#V#V*W#W), sat(Y=:=Y), sat(Z=:=Z)
+sat(~ (+[Z,Y])), sat((Y * (V =\= W)))	false
+sat(card([2],[V,X,W])), labeling([X,Y,Z])	V = 1, W = 1, X = 0, Y = 0, Z = 0 ; X = 1, Y = 0, Z = 0, sat(V=\=W) ; V = 1, W = 1, X = 0, Y = 0, Z = 1 ; X = 1, Y = 0, Z = 1, sat(V=\=W)
+sat(1), sat(((W =\= b) + (Z + 1)))	sat(W=:=W), sat(Z=:=Z)
+sat(Z), sat(+[X,W])	Z = 1, sat(X=\=X*W#W)
+sat(X ^ (~ (1))), sat((0 + Z)), sat((((b # a) # Y) + ((Z + W) # 1))), sat_count(+[1,X,Y,Z,W], N)	false
+sat((X =\= Z))	sat(X=\=Z)
+sat(card([0],[V,Z,W])), X = Y	V = 0, W = 0, X = Y, Z = 0
+sat((V * 1)), sat(Y ^ ((0 # b)))	false
+sat((a =< Y)), X = Y	Y = X, sat(1#X*a#a)
+sat((~ ((W =\= Z)) * ((V # Z) =:= (W * 1)))), sat((1 + ((V + W) # (X # V)))), sat(((V + V) + V))	false
+sat(((~ (V) * (X * b)) =< (a =:= (Z + b)))), sat((b =:= (Y * W))), sat((+[W,Y] =:= Y ^ (V))), Y = 0	false
+sat((X =:= Z))	X = Z, sat(Z=:=Z)
+sat((X * (V * W)))	V = 1, W = 1, X = 1
+sat(+[X,Z]), sat(card([2],[Y,W,Z])), X = 1	X = 1, sat(Z*Y#Z*Y*W#Z*W#Y*W)
+sat((((Z =< W) * card([1],[V,Z,W])) =\= ((Y # X) =< card([1],[X,V,Y])))), sat((((W =< b) # (Y + W)) =:= ~ ((Z =:= 1))))	sat(1#Z*W#Z*V#W#V#V*Y#V*X), sat(Z=:=W*Y#W*b#Y)
+sat((a =\= (~ (X) =\= V))), sat((~ (X) * (0 =:= 0)))	V = a, X = 0
+sat(V ^ (Z))	Z = 1, sat(V=:=V)
+sat((W * a)), sat((b * Y)), sat(~ (~ ((V =\= Z)))), X = 1	false
+sat(~ (W)), taut((+[Z,Y] =:= (Y + 1)), T)	false
+sat(V)	V = 1
+sat((b =< a)), sat(b), Y = 0	false
+sat(+[Y,X]), sat(((b * 0) =\= (V =< Y)))	sat(1#Y*V#V), sat(Y=\=Y*X#X)
+sat(card([0],[Z,W,Y])), X = Y	W = 0, X = 0, Y = 0, Z = 0
+sat(((a =:= 0) =\= X)), sat((((X =:= V) * (b =\= X)) =< (W =< (b * V))))	X = a, sat(1#V*W*a#V*W*b#W*a*b#W*b)
+sat((+[X,Y] + (1 =< ~ (b)))), taut(((b * X) # (a =\= 0)), T)	T = 0, sat(1#X*Y*b#X*b#Y*b#b)
+sat((V + X)), sat((((V =\= Z) =:= 1) * ~ ((Y =\= X))))	X = Y, sat(V=\=Z), sat(V=\=V*Y#Y)
+sat(~ (Z))	Z = 0
+sat(~ ((X =:= V))), sat(card([0],[X,Y,W]))	V = 1, W = 0, X = 0, Y = 0
+sat(((1 =:= b) =< W)), sat((b + Z)), labeling([X,Y,Z])	X = 0, Y = 0, Z = 1, sat(1#W*b#b) ; X = 0, Y = 1, Z = 1, sat(1#W*b#b) ; X = 1, Y = 0, Z = 1, sat(1#W*b#b) ; X = 1, Y = 1, Z = 1, sat(1#W*b#b)
+sat((((Z + W) + ~ (0)) =\= Y))	Y = 0, sat(Z=:=Z), sat(W=:=W)
+sat(1), Y = 0	Y = 0
+sat((card([2],[V,Y,X]) * X ^ ((W + b))))	sat(V*Y#V*Y*X#V*X#Y*X), sat(W=\=W*b#b)
+sat((card([1],[V,W,Z]) =\= (1 * b))), sat(+[V,W]), X = 1	X = 1, sat(V=\=V*W*Z#W#Z#b), sat(V=\=V*W#W)
+sat((card([2],[W,Y,Z]) =\= 0)), sat(card([1],[X,Y,Z])), Y = 0	W = 1, X = 0, Y = 0, Z = 1
+sat(~ (Y)), sat((W + Y)), labeling([X,Y,Z])	W = 1, X = 0, Y = 0, Z = 0 ; W = 1, X = 0, Y = 0, Z = 1 ; W = 1, X = 1, Y = 0, Z = 0 ; W = 1, X = 1, Y = 0, Z = 1
+sat(~ (Y)), sat_count(+[1,X,Y,Z,W], N)	N = 8, Y = 0
+sat(card([1],[W,Y,V])), labeling([X,Y,Z])	X = 0, Y = 0, Z = 0, sat(W=\=V) ; V = 0, W = 0, X = 0, Y = 1, Z = 0 ; X = 0, Y = 0, Z = 1, sat(W=\=V) ; V = 0, W = 0, X = 0, Y = 1, Z = 1
+sat((((X =< V) * (W =\= V)) + ((W # X) =:= (Y + V)))), Y = 0	Y = 0, sat(X=:=X*V#X*W)
+sat(card([2],[Y,W,Z])), taut(((Z # W) * ~ (Y)), T)	T = 0, sat(Y*W#Y*W*Z#Y*Z#W*Z)
+sat(1)	true
+sat(((W =\= X) =\= (Z =:= a))), sat((+[W,Y] =:= ~ (1)))	W = 0, Y = 0, sat(X=:=Z#a)
+sat((X * (V ^ (V) =:= ~ (X)))), sat(+[X,W]), sat(V ^ ((0 * V))), labeling([X,Y,Z])	false
+sat((Z + a)), X = Y	X = Y, sat(Z=\=Z*a#a)
+sat(card([2],[X,Y,Z])), sat(~ (0)), labeling([X,Y,Z])	X = 0, Y = 1, Z = 1 ; X = 1, Y = 0, Z = 1 ; X = 1, Y = 1, Z = 0
+sat((((V # 1) =:= (1 =< X)) =\= +[X,W])), sat(Y ^ (card([1],[Z,X,V]))), Y = 0	W = Z, X = 0, Y = 0
+sat(X), sat(+[Z,Y])	X = 1, sat(Z=\=Z*Y#Y)
+sat(+[X,V])	sat(X=\=X*V#V)
+sat(~ (card([2],[V,X,Y]))), sat(Y ^ ((X + W))), sat((+[X,W] + W ^ ((Z =:= b)))), labeling([X,Y,Z])	W = 1, X = 0, Y = 0, Z = 0 ; W = 1, X = 0, Y = 0, Z = 1 ; V = 0, W = 1, X = 0, Y = 1, Z = 0 ; V = 0, W = 1, X = 0, Y = 1, Z = 1
+sat(((W # W) =\= (b =< Z))), sat((W # W)), sat((X =< Z)), taut(+[X,V], T)	false
+sat((Y ^ (V) + card([2],[X,Z,Y]))), sat((Z * W)), sat(Y ^ (card([0],[V,X,Z])))	false
+sat(~ (a)), sat(X ^ (V)), sat(~ (Z))	false
+sat(card([1],[V,X,Y])), sat((Y =\= (V + Z))), sat((Z =\= W))	sat(V=\=V*Z#Y#Z), sat(V=\=V*X*Y#X#Y), sat(Z=\=W)
+sat((~ ((Z =\= V)) =\= (+[V,Y] =< (Y # b)))), sat(~ ((card([1],[Y,X,Z]) # ~ (a)))), sat(V ^ (1)), taut(X, T)	T = 0, sat(Z=\=V*Y#V*Y*b#V*b#Y*b), sat(Z=\=Z*Y*X#Y#X#a)
+sat((b # W)), sat(((V =< 0) =\= (W # b))), Y = 0	V = 1, Y = 0, sat(W=\=b)
+sat(card([0],[V,Z,W])), sat(W ^ (((Z =< Z) =\= Y ^ (V)))), sat(V ^ (Y))	error: error(domain_error(clpb_expr,0^((0=<0)=\=_2874574^0)),unknown(0^((0=<0)=\=_2874574^0))-1)
+sat((((Z * Z) =< card([1],[Z,Y,X])) * 0))	false
+sat((+[W,V] =< (Y =\= Z))), sat((~ (W) # (V =< 0))), sat(((Y ^ (W) =< +[Z,X]) =\= 0)), X = Y	Y = X, sat(W=:=W*X#W*X*Z#W*Z), sat(W=:=W*X#W*Z), sat(V=:=V*X#V*Z), sat(W=\=V)
+sat(((W * a) # (X =\= Z))), sat((Z ^ (V) * (1 + Z)))	V = 1, sat(W*a#X#Z)
+sat(+[V,W]), sat(+[W,V]), sat(W)	W = 1, sat(V=:=V)
+sat((b + W)), sat((1 + a)), sat((((X =\= Y) + X ^ (W)) * Z))	Z = 1, sat(W=\=W*X#W*Y#X#Y), sat(W=\=W*b#b)
+sat((Y ^ ((0 + V)) =< 0)), sat(0), sat((((Y =:= X) * (W # 1)) =:= +[Z,X])), taut(~ ((V # Y)), T)	false
+sat(((Y =\= W) =\= Y ^ (0))), sat((V + Y)), Y = 0	V = 1, W = 1, Y = 0
+sat((W =< a)), sat((1 * 0)), sat(~ ((X + Z))), labeling([X,Y,Z])	false
+sat(~ ((Y ^ (W) =< (X =:= Z)))), sat(((V * b) =\= card([2],[Y,Z,V])))	W = 1, sat(Y*Z#Y*Z*V#Y*V#Z*V#V*b), sat(X=\=Z)
+sat((Z + +[X,W])), sat((V ^ ((b =< W)) =\= Y ^ (card([0],[Y,W,V])))), X = 1	X = 1, sat(W=\=W*V#W*b#V#b), sat(Z=:=Z), sat(Y=:=Y)
+sat(((Y =< 0) =:= (0 =< b))), sat((Z ^ (~ (V)) =< b)), sat(+[W,Z])	Y = 0, sat(Z=\=Z*W#W), sat(V=\=V*b#b)
+sat(card([2],[W,Y,Z])), sat(((a =< W) * Y ^ (X))), X = Y	X = 1, Y = 1
+sat(~ (1))	false
+sat(card([1],[Y,W,V])), sat((+[Y,Z] =:= ((X + b) =:= (Y =:= a)))), sat((((W * 0) =\= ~ (b)) + Z))	sat(1#Z*b#b), sat(1#Y*Z#Z#X#X*b#a#b), sat(Y=\=Y*W*V#W#V)
+sat((a =:= 0)), X = 1	false
+sat((X ^ ((0 # W)) =< Y ^ (~ (1)))), sat((Z ^ ((b =:= Y)) =:= card([0],[Z,V,X]))), sat(((card([0],[X,Z,W]) * card([0],[X,V,Z])) =\= ((V * b) + (Z # V)))), sat_count(+[1,X,Y,Z,W], N)	N = 0, W = 0, sat(X=:=X*Z#X*Z*V#X*V#Y#Z#Z*V#V#b), sat(X=:=X*Z#X*Z*V#X*V#Z*V#Z*V*b)
+sat((Z =< W))	sat(Z=:=Z*W)
+sat(a), labeling([X,Y,Z])	false
+sat(((X =\= 0) + (1 # b))), sat((card([1],[Z,X,W]) + ~ (+[Y,X]))), sat((X =< b))	X = b, sat(1#Z*W*b#Z*Y#Z*Y*b#Z*b#W*Y#W*Y*b#W*b#Y#Y*b)
+sat(((card([2],[W,Z,V]) =< (Y # W)) + ((X =:= Z) =:= +[Y,V]))), labeling([X,Y,Z])	X = 0, Y = 0, Z = 0, sat(W=:=W), sat(V=:=V) ; X = 1, Y = 0, Z = 0, sat(W=:=W), sat(V=:=V) ; X = 0, Y = 1, Z = 0, sat(W=:=W), sat(V=:=V) ; X = 1, Y = 1, Z = 0, sat(1#W*V)
+sat(V ^ (+[W,Y])), sat(~ (X ^ (Z)))	Z = 0, sat(W=\=W*Y#Y), sat(V=:=V), sat(X=:=X)
+sat((V + b)), sat(X ^ ((X =:= (Z =\= V)))), X = Y	X = Y, sat(V=\=V*b#b), sat(Y=:=Y), sat(Z=:=Z)
+sat(W ^ (+[X,Y])), sat(Y), Y = 0	false
+sat(+[Z,V])	sat(Z=\=Z*V#V)
+sat((((W =\= Z) =\= card([1],[V,X,Y])) =< (card([0],[Z,X,V]) =\= (W + X)))), sat(Z ^ ((b # a))), sat(Z ^ ((+[Y,W] =:= +[X,W]))), X = Y	false
+sat(((b + 1) =\= (X * Z))), Y = 0	Y = 0, sat(1#X*Z)
+sat(+[V,Y]), sat(V ^ (((Y =:= X) =:= (X # Y))))	false
+sat(~ ((Z =:= V))), Y = 0	Y = 0, sat(Z=\=V)
+sat(((+[Z,X] =\= b) * ((b + Y) =\= +[Z,Y]))), labeling([X,Y,Z])	false
+sat((Y =\= ((V # Y) =\= (0 # Y))))	sat(Y=\=V)
+sat(card([0],[Z,V,X])), sat((X =:= W)), sat((W =\= Z)), sat_count(+[1,X,Y,Z,W], N)	false
+sat(+[V,W]), sat_count(+[1,X,Y,Z,W], N)	N = 16, sat(V=\=V*W#W)
+sat(((0 =:= V) # b)), Y = 0	V = b, Y = 0
+sat(~ (a)), X = Y	false
+sat(~ (X ^ ((a # W)))), sat((W * ((b + X) * W))), sat((W =< 0))	false
+sat((+[X,W] =\= Y)), sat((X * Z)), labeling([X,Y,Z])	X = 1, Y = 0, Z = 1, sat(W=:=W)
+sat(~ (b)), sat((V =:= X)), sat(+[X,Z]), taut(((0 =< V) * (0 =\= Z)), T)	false
+sat(((1 * 0) =\= (V + 0)))	V = 1
+sat(+[Y,W]), X = Y	Y = X, sat(X=\=X*W#W)
+sat(((Y + X) # ~ (a))), sat((b =< V))	sat(1#V*b#b), sat(Y=:=Y*X#X#a)
+sat((Z * +[W,Z])), sat((~ ((W * V)) + (~ (0) # +[Z,V]))), sat((Z =\= 0)), sat_count(+[1,X,Y,Z,W], N)	N = 8, Z = 1, sat(1#W*V)
+sat((V * 1))	V = 1
+sat((((0 =:= 0) # ~ (W)) # (~ (1) =:= W ^ (Z))))	W = 1, Z = 1
+sat((a # V)), sat(card([2],[V,X,Z])), sat(card([1],[Y,Z,X]))	false
+sat(W ^ (((Z =< X) # (Z * W)))), sat(V ^ (((X =:= Z) =< (a # V)))), labeling([X,Y,Z])	X = 0, Y = 0, Z = 0, sat(W=:=W), sat(V=:=V) ; X = 1, Y = 0, Z = 0, sat(W=:=W), sat(V=:=V) ; X = 0, Y = 0, Z = 1, sat(W=:=W), sat(V=:=V) ; X = 1, Y = 0, Z = 1, sat(W=:=W), sat(V=:=V)
+sat(((+[W,Y] =< (0 * a)) + ((X =\= a) * (a + 0)))), sat(W ^ ((V # W))), sat(~ ((V + Y))), X = 1	V = 0, W = 0, X = 1, Y = 0
+sat((+[W,Z] =\= ((b =:= 0) + ~ (W))))	sat(W=:=W*Z#W*b#Z)
+sat((V =:= 0)), sat(((b + Y) =< (0 # 1))), Y = 0	V = 0, Y = 0
+sat(V ^ (b)), sat(X), sat(Y)	false
+sat(~ (0)), sat((0 * 0)), sat((W =\= V))	false
+sat(V ^ ((X ^ (a) =:= (Z =:= 0)))), sat(~ (((W # V) =< (b * X)))), sat(+[Z,V]), labeling([X,Y,Z])	false
+sat(((Y # Z) =< (W # Z))), sat(+[X,W]), sat((b =:= Y))	Y = b, sat(1#Z*W#Z*b#W*b#b), sat(W=\=W*X#X)
+sat((V =:= ~ (X))), sat(W ^ ((Z =< Y)))	sat(V=\=X), sat(Z=:=Z*Y), sat(W=:=W)
+sat(~ ((W =:= W)))	false
+sat(((Z * 0) * 0)), labeling([X,Y,Z])	false
+sat(W), sat((V =:= X)), sat(((W # V) =< (V # Z)))	V = X, W = 1, sat(X=\=X*Z#Z)
+sat((a * a)), Y = 0	false
+sat((X =\= 0)), sat(+[Y,Z])	X = 1, sat(Y=\=Y*Z#Z)
+sat((X ^ ((V # b)) =:= ((b * Y) =\= Y ^ (a)))), sat((X =:= Z)), sat((0 =\= a)), taut((+[Y,W] * (0 # 1)), T)	false
+sat(+[V,X]), sat((((Y =< a) =\= card([1],[V,Y,W])) =\= X ^ ((W =\= Z)))), X = Y	X = Y, sat(V=:=V*Y*W#Y*a#Z), sat(V=\=V*Y#Y)
+sat(+[V,W]), sat(card([0],[Z,V,X])), sat((W =< Y)), X = Y	false
+sat(card([1],[X,W,Y])), sat(~ ((W =< Z))), sat(V), X = 1	false
+sat((+[V,Z] =\= ~ (+[V,Y]))), taut((Y ^ (W) =< (Z =< Y)), T)	false
+sat(((Z ^ (W) + (1 * W)) # W ^ ((1 * 0)))), X = 1	W = 1, X = 1
+sat((X =\= V)), sat((1 * V))	V = 1, X = 0
+sat(((Z # X) # (V # Z))), sat(((Y * Y) * ~ (1))), sat(card([0],[V,W,Z])), Y = 0	false
+sat((~ (~ (W)) =:= +[Y,Z])), sat(~ (card([0],[V,Y,X]))), sat((Y =:= 1))	W = 1, Y = 1, sat(Z=:=Z), sat(V=:=V), sat(X=:=X)
+sat(~ (Y)), X = Y	X = 0, Y = 0
+sat(~ (a)), sat((Z + b)), sat((~ (card([0],[Y,X,W])) =:= (X + (Z =\= Z)))), Y = 0	false
+sat(W), sat(((1 + V) * +[V,Z])), sat_count(+[1,X,Y,Z,W], N)	N = 8, W = 1, sat(V=\=V*Z#Z)
+sat((Y * V)), sat(~ (0)), X = Y	V = 1, X = 1, Y = 1
+sat(Z), Y = 0	Y = 0, Z = 1
+sat(((Y # 0) =:= +[W,X]))	sat(Y=:=W#W*X#X)
+sat(X ^ (~ (b))), sat(+[W,V]), sat(card([2],[X,Y,V])), labeling([X,Y,Z])	false
+sat(+[Y,Z]), sat(((1 + 1) + (Y # 1))), sat_count(+[1,X,Y,Z,W], N)	N = 12, sat(Y=\=Y*Z#Z)
+sat((0 =\= Y)), sat(card([2],[V,X,Z]))	Y = 1, sat(V*X#V*X*Z#V*Z#X*Z)
+sat((card([0],[Y,Z,W]) =\= card([1],[W,Y,V]))), sat((W # a))	sat(1#Y*Z#Y*Z*W#Y*W#Y*W*V#Z#Z*W#V), sat(W=\=a)
+sat(card([0],[W,Z,X])), sat(((b # a) =\= (V * V))), taut((W # +[W,X]), T)	T = 0, W = 0, X = 0, Z = 0, sat(V=\=a#b)
+sat((~ (0) =< (a * Y))), sat(+[W,V]), sat(Z ^ (1)), labeling([X,Y,Z])	false
+sat((~ ((Z * Z)) * +[V,Z])), sat(((W =\= (Y * Y)) =:= (~ (1) =< (1 # V)))), sat(X), sat_count(+[1,X,Y,Z,W], N)	N = 2, V = 1, X = 1, Z = 0, sat(W=\=Y)
+sat(((card([2],[X,Y,W]) =:= (X =< W)) # (~ (0) =< (X =:= b)))), sat(((Z + a) =< (a * 0))), sat((V * Z)), labeling([X,Y,Z])	false
+sat(card([2],[X,Y,W])), sat((card([1],[X,W,Y]) =:= card([2],[V,X,W]))), sat((W =< Z)), labeling([X,Y,Z])	V = 0, W = 1, X = 0, Y = 1, Z = 1 ; V = 1, W = 1, X = 1, Y = 0, Z = 1 ; V = 0, W = 0, X = 1, Y = 1, Z = 0 ; V = 0, W = 0, X = 1, Y = 1, Z = 1
+sat(card([2],[X,Z,W])), sat((W + V))	sat(X*Z#X*Z*W#X*W#Z*W), sat(W=\=W*V#V)
+sat((V * 1)), sat((W # Z))	V = 1, sat(W=\=Z)
+sat(+[Z,V]), sat(card([0],[Y,V,X])), sat((Z * (X =< Y)))	V = 0, X = 0, Y = 0, Z = 1
+sat((Z * 0)), sat(+[V,X]), sat(b), sat_count(+[1,X,Y,Z,W], N)	false
+sat((V =\= Z)), X = Y	X = Y, sat(V=\=Z)
+sat(+[W,Y]), sat(V ^ (b)), sat(Z ^ (~ (X))), X = Y	false
+sat(~ (Y ^ ((Z + W)))), sat(((1 =< V) =\= (0 =< 1))), Y = 0	V = 0, W = 0, Y = 0, Z = 0
+sat(+[Y,X]), sat((((Z =\= a) + (X =\= X)) * card([1],[X,Y,W]))), sat(1)	W = 0, sat(Y=\=X), sat(Z=\=a)
+sat(+[V,Z]), sat((V ^ (X) =\= (X # b))), sat(~ (X)), Y = 0	false
+sat((Z =< W))	sat(Z=:=Z*W)
+sat((Y ^ (1) * b)), sat(((+[V,X] =\= (W =< Y)) # ((W =:= X) =:= +[Y,X]))), sat(Y ^ (card([1],[V,W,Y])))	false
+sat(~ (~ (X ^ (a)))), sat(((0 # Z) =\= (b =\= 0))), X = 1	false
+sat(Y ^ (Z))	Z = 1, sat(Y=:=Y)
+sat(+[V,W]), sat((a =\= 1)), sat((b =:= V))	false
+sat((card([1],[Z,W,V]) =\= (Z =\= (1 # 1)))), sat(((+[Y,Z] + (0 + W)) # card([2],[X,V,W]))), sat((~ (Z ^ (Z)) =:= ((Y =\= 0) * (Y # X))))	sat(Z*W*V#W#V), sat(Y=:=Y*X), sat(Z=\=Z*W#Z*W*Y#Z*Y#W#W*V#W*V*X#W*Y#W*X#V*X#Y)
+sat((V =:= W)), sat(((1 + 1) =:= ~ (1)))	false
+sat(((X ^ (a) + (1 # b)) # (Y ^ (b) + ~ (Z)))), sat(~ (X ^ ((W =\= Y)))), X = Y	false
+sat(((X ^ (V) =:= (X + X)) =:= card([0],[Z,V,W]))), sat((Y =:= X)), sat(~ (((b # a) =:= ~ (a))))	false
+sat((+[Y,Z] + (V ^ (Y) =:= (X =:= 0)))), sat((X =< Y))	sat(1#Y*X#X), sat(Y=\=Y*Z#Y*Z*X#Y*X#Z#Z*X#X), sat(V=:=V)
+sat((Z =:= V)), X = 1	X = 1, Z = V, sat(V=:=V)
+sat((1 # Z)), sat((+[Y,V] =\= +[Z,V])), sat((W + ((X # X) + V))), X = Y	V = 0, W = 1, X = 1, Y = 1, Z = 0
+sat(+[Z,X])	sat(Z=\=Z*X#X)
+sat((Y * (0 # W))), sat(((Y * (V * b)) =< ((V =< V) =:= (Z # 0)))), sat(+[X,W])	W = 1, Y = 1, sat(1#V*Z*b#V*b), sat(X=:=X)
+sat(W ^ (a)), sat(+[V,X]), sat((card([0],[W,X,Y]) + W ^ ((W + V)))), labeling([X,Y,Z])	false
+sat(W ^ ((W =:= Y))), sat(((X * Z) # (0 * 1))), labeling([X,Y,Z])	X = 1, Y = 0, Z = 1, sat(W=:=W) ; X = 1, Y = 1, Z = 1, sat(W=:=W)
+sat(X ^ ((V # 0))), X = 1	V = 1, X = 1
+sat((Z * Z))	Z = 1
+sat((((Y # 0) =:= +[Y,Z]) =< (card([2],[W,Y,V]) # Z ^ (Y)))), sat((card([1],[Y,V,W]) * Y)), labeling([X,Y,Z])	V = 0, W = 0, X = 0, Y = 1, Z = 0 ; V = 0, W = 0, X = 0, Y = 1, Z = 1 ; V = 0, W = 0, X = 1, Y = 1, Z = 0 ; V = 0, W = 0, X = 1, Y = 1, Z = 1
+sat(((X =\= Z) # (X =:= b))), sat((a =:= V)), sat(((Y + a) =< ~ (b)))	false
+sat((Z ^ (Y) + +[Z,W]))	sat(Z=\=Z*Y#Z*Y*W#Z*W#Y#Y*W#W)
+sat((X + 1))	sat(X=:=X)
+sat(card([0],[W,Y,X])), sat(W)	false
+sat(card([0],[Y,W,Z])), sat(Z ^ ((W ^ (a) + (X # Z)))), X = Y	error: error(domain_error(clpb_expr,0^(0^a+(_3770283#0))),unknown(0^(0^a+(_3770283#0)))-1)
+sat(Y ^ (~ (Z))), sat(~ (Z)), sat((1 # 1))	false
+sat((((X =:= X) # +[W,V]) =:= X ^ (Y ^ (V)))), sat((Y # X)), sat((a * X))	false
+sat((+[Y,Z] =\= +[V,Z])), sat(+[X,V]), sat(~ (~ (card([2],[W,Z,Y]))))	V = 0, W = 1, X = 1, Y = 1, Z = 0
+sat((0 * W)), X = 1	false
+sat(+[Y,Z]), sat((((Z =:= W) * W) =< +[Z,W])), X = Y	Y = X, sat(X=\=X*Z#Z), sat(W=:=W)
+sat((X ^ (card([0],[W,V,Z])) * (b =:= (W =< 1)))), sat(V), sat(W), labeling([X,Y,Z])	false
+sat((1 =\= (Y + 1))), X = 1	false
+sat((X ^ ((V =:= Y)) # Y ^ (V)))	Y = 0
+sat(b), X = 1	false
+sat((Z + Y)), X = 1	X = 1, sat(Z=\=Z*Y#Y)
+sat(V)	V = 1
+sat(~ (((X # b) =:= Z)))	sat(X=\=Z#b)
+sat(Z), taut(((b # 0) * (W =< X)), T)	T = 0, Z = 1, sat(W=:=W), sat(X=:=X)
+sat(+[Z,X])	sat(Z=\=Z*X#X)
+sat(+[V,Z]), sat(Y ^ (~ ((Z + Z)))), sat(~ (((V =\= a) # (Z =< a))))	false
+sat(X ^ (card([2],[Y,W,Z]))), sat(W ^ ((X * W))), sat_count(+[1,X,Y,Z,W], N)	N = 3, X = 1
+sat((b =:= X)), sat((~ (X) =:= +[V,Z])), Y = 0	X = b, Y = 0, sat(V=\=V*Z#Z#b)
+sat(((V =\= b) # (Z =< Y))), sat(+[V,Y]), X = 1	X = 1, sat(V=:=Z#Z*Y#b), sat(V=\=V*Y#Y)
+sat((card([0],[W,Y,X]) + ~ (+[Y,Z]))), sat((W =:= X)), sat(+[Z,V])	W = X, Y = 0, sat(1#X*Z), sat(Z=\=Z*V#V)
+sat((0 =:= Y)), sat(+[Y,X]), X = 1	X = 1, Y = 0
+sat(b), Y = 0	false
+sat((+[W,X] # (Y # X))), sat(+[V,Z]), sat(0)	false
+sat((((Z =:= 0) * (V + Z)) # (~ (b) =:= +[Z,X]))), sat(Y ^ (X))	X = 1, sat(1#Z*V#V#b), sat(Y=:=Y)
+sat(((card([1],[W,V,Z]) =\= +[V,Y]) # (Z + Y ^ (X)))), sat(+[W,V]), sat(~ ((+[V,Z] + X ^ (1)))), sat_count(+[1,X,Y,Z,W], N)	error: error(domain_error(clpb_expr,~1^1),unknown(~1^1)-1)
+sat(a), sat(1)	false
+sat((((W # W) * W) =\= ~ ((a + Z)))), taut((+[V,W] =:= (b =< 0)), T)	false
+sat(Z ^ ((W =\= W))), sat(((V # V) + (0 =:= a))), sat(((W + Z) # +[Z,X]))	false
+sat(Y), sat_count(+[1,X,Y,Z,W], N)	N = 8, Y = 1
+sat((+[Z,V] + ~ (a)))	sat(1#Z*V*a#Z*a#V*a#a)
+sat((+[Z,Y] =:= ((1 + 0) =< ~ (V)))), sat(Z ^ (card([0],[X,W,Z])))	W = 0, X = 0, sat(Z=\=Z*Y#Y#V)
+sat(((Z * 1) =:= card([1],[Z,W,Y])))	W = Y, sat(1#Z*Y)
+sat(((a # Z) * (Y + b)))	sat(Y=\=Y*b#b), sat(Z=\=a)
+sat(Z), sat((X =\= V)), X = 1	V = 0, X = 1, Z = 1
+sat(V ^ (X ^ ((a + Y)))), sat((X ^ (Y) =:= (X # Y))), X = 1	false
+sat(~ (Z ^ (Y)))	Y = 0, sat(Z=:=Z)
+sat(((0 # 0) =< ~ (X)))	sat(X=:=X)
+sat((((X * 1) =:= ~ (X)) =\= V ^ ((Y =:= b)))), sat((+[W,X] =:= ((0 =:= W) =:= (W =< 0)))), sat((((W =:= Z) * W) =:= ((W * X) =\= W ^ (W))))	W = 1, Y = b
+sat(~ (0)), sat(card([1],[Y,V,X])), Y = 0	Y = 0, sat(V=\=X)
+sat(Z), sat((((V * W) * +[Y,Z]) =\= +[Y,X])), X = Y	Y = X, Z = 1, sat(V*W#X)
+sat(((card([0],[Z,Y,V]) =< (0 =:= X)) * (X ^ (a) =< Y ^ (X))))	sat(1#X*a#a), sat(1#Z*Y*V*X#Z*Y*X#Z*V*X#Z*X#Y*V*X#Y*X#V*X#X)
+sat(((+[W,Z] * (Y * 1)) + Y ^ (+[Y,V])))	sat(W=:=W), sat(Z=:=Z), sat(Y=:=Y), sat(V=:=V)
+sat(+[Z,V]), sat((W ^ (X) =:= b)), sat(~ (((X =:= 0) =< (Y =\= V)))), X = 1	false
+sat(Z), sat((Y ^ (Z ^ (b)) # ((X =:= V) =:= (Y * V)))), sat_count(+[1,X,Y,Z,W], N)	error: error(domain_error(clpb_expr,_4037415^1^b#((_4037416=:=_4037417)=:=_4037415*_4037417)),unknown(_4037415^1^b#((_4037416=:=_4037417)=:=_4037415*_4037417))-1)
+sat(((Y =< Z) =< (1 * 1))), sat(((+[V,Y] * (Y + 0)) * card([2],[Z,W,V]))), X = Y	X = 1, Y = 1, sat(Z*V#Z*V*W#Z*W#V*W)
+sat((+[Y,V] =\= (0 * 1))), taut((card([2],[W,Z,V]) =< 1), T)	T = 1, sat(Y=\=Y*V#V), sat(W=:=W), sat(Z=:=Z)
+sat((card([2],[V,Z,W]) =:= ((Y =\= b) =\= ~ (a))))	sat(V*Z#V*Z*W#V*W#Z*W#Y#a#b)
+sat((W =:= Y))	W = Y, sat(Y=:=Y)
+sat((1 =< Y)), sat(~ ((V =:= V))), X = 1	false
+sat((card([1],[Y,W,Z]) =\= V)), X = Y	Y = X, sat(X=\=X*W*Z#W#Z#V)

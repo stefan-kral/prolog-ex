@@ -40,6 +40,50 @@ defmodule PrologEx.ClpbTest do
           nand_gate(Y, T1, T3),
           nand_gate(T2, T3, Z).
 
+  % Vergleich der Propagation: '$clpb_propagate'/2 (Elixir) gegen
+  % Triskas Prolog-Code, auf demselben BDD vor jeder Unifikation
+  ref_propagate(BDD, P) :-
+          (   clpb:bdd_nodes(clpb:var_unbound, BDD, Nodes) ->
+              clpb:bdd_variables_classification(BDD, Nodes, Classes),
+              clpb:partition(clpb:var_class, Classes, Eqs, Bs, Ds),
+              clpb:domain_consistency(Eqs, Vs=Values),
+              clpb:aliasing_consistency(Bs, Ds, Goals),
+              P = prop(Vs, Values, Goals)
+          ;   P = skip
+          ).
+
+  % zufällige Formel der Tiefe D über Vs
+  rf(0, Vs, V) :- !, random_member(V, Vs).
+  rf(D, Vs, F) :-
+          random_integer(0, 9, K), D1 is D - 1,
+          (   K =:= 0 -> rf(0, Vs, F)
+          ;   K =:= 1 -> rf(D1, Vs, A), F = ~(A)
+          ;   K =:= 2 -> rf(D1, Vs, A), rf(D1, Vs, B), F = A+B
+          ;   K =:= 3 -> rf(D1, Vs, A), rf(D1, Vs, B), F = A*B
+          ;   K =:= 4 -> rf(D1, Vs, A), rf(D1, Vs, B), F = #(A, B)
+          ;   K =:= 5 -> rf(D1, Vs, A), rf(D1, Vs, B), F = (A=:=B)
+          ;   K =:= 6 -> rf(D1, Vs, A), rf(D1, Vs, B), F = (A=<B)
+          ;   K =:= 7 -> F = card([1], Vs)
+          ;   rf(D1, Vs, A), rf(D1, Vs, B), F = (A*B =:= ~(B))
+          ).
+
+  % ein Fall: gleiches Ergebnis? Art des Ergebnisses für die Statistik
+  compare_propagation(Seed, Kind) :-
+          set_random(seed(Seed)),
+          length(Vs, 6),
+          rf(4, Vs, F),
+          clpb:parse_sat(F, Sat),
+          clpb:sat_bdd(Sat, BDD),
+          clpb:'$clpb_propagate'(BDD, P1),
+          ref_propagate(BDD, P2),
+          (   P1 == P2 -> true ; throw(verschieden(F, P1, P2)) ),
+          (   BDD == 0 -> Kind = falsch
+          ;   BDD == 1 -> Kind = wahr
+          ;   P1 = prop(_, [], []) -> Kind = nichts
+          ;   P1 = prop(_, _, []) -> Kind = fest
+          ;   Kind = gleich
+          ).
+
   % Hilfsvariablen (Y, Z): project_attributes/2 blendet sie aus
   hidden(X) :- sat(X =:= _Y*_Z).
   hidden2(X, Y) :- sat(X =:= Y*Z), sat(Z =< Y).
@@ -172,6 +216,26 @@ defmodule PrologEx.ClpbTest do
     end
   end
 
+  test "Propagation in Elixir gleich Triskas Prolog-Code (2000 Zufallsformeln)", c do
+    q = "findall(K, (between(1, 2000, S), compare_propagation(S, K)), Ks)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    counts = ~r/\b(falsch|wahr|nichts|fest|gleich)\b/ |> Regex.scan(a) |> Enum.frequencies()
+    # genug Fälle mit Festlegungen und Gleichsetzungen, nicht nur Triviales
+    assert Map.get(counts, ["fest", "fest"], 0) >= 50, inspect(counts)
+    assert Map.get(counts, ["gleich", "gleich"], 0) >= 50, inspect(counts)
+  end
+
+  test "Propagation: skip bei gebundener Variable, universal bei Atomen", c do
+    # eine gebundene Knotenvariable (sonst prüft der Hook beim Binden)
+    q = "clpb:'$clpb_propagate'(node(7, x, 0, 1, _), P)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    assert a =~ "P = skip"
+
+    q = "clpb:parse_sat(a+X, S), clpb:sat_bdd(S, B), clpb:'$clpb_propagate'(B, P)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    assert a =~ "P = universal"
+  end
+
   # Triskas Prüfprogramme (mit clpb:validation): run(N) scheitert, wenn
   # alle Formeln der Größe N übereinstimmen, und wirft sonst
   defp fixture(c, name) do
@@ -209,7 +273,7 @@ defmodule PrologEx.ClpbTest do
 
   @tag :slow
   @tag timeout: :infinity
-  test "Triskas testing.pl, Größe 1 (rund zwei Minuten)", c do
+  test "Triskas testing.pl, Größe 1 (gut eine Minute)", c do
     db = fixture(c, "testing.pl")
     assert holds?(c, db, "\\+ run(1)")
   end

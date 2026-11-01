@@ -27,6 +27,19 @@
 
 */
 
+/* PrologEx: aus Scryer Prolog (src/lib/clpb.pl, Stand b7066b4; letzte
+   Änderung der Datei dort 333d6740 vom 2. Januar 2025). Ziel: clpb nach
+   und nach ganz in Elixir (PrologEx.Builtins.ClpbPrims); Referenz für
+   jeden Schritt sind die Antworten der ursprünglichen Fassung
+   (test/clpb_golden_test.exs) und Vergleiche mit Triskas Code
+   (test/clpb_test.exs). Abweichungen:
+     - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
+       Gleichsetzungen) rechnet '$clpb_propagate'/2 in Elixir
+       (PrologEx.Builtins.ClpbPrims); der Originalcode steht unverändert
+       als satisfiable_bdd_/1 daneben – für allquantifizierte Variablen
+       und als Referenz der Tests (test/clpb_test.exs).
+*/
+
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    CLP(B): Constraint Logic Programming over Boolean Variables.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
@@ -696,6 +709,18 @@ tautology(Sat) :-
         ).
 
 satisfiable_bdd(BDD) :-
+        (   BDD == 0 -> false
+        ;   BDD == 1 -> true
+        ;   '$clpb_propagate'(BDD, P),
+            (   P = prop(Vs, Values, Goals) ->
+                maplist(unification, [Vs=Values|Goals])
+            ;   P == skip -> true
+            ;   satisfiable_bdd_(BDD)
+            )
+        ).
+
+% Original (Triska); für allquantifizierte Variablen und als Referenz
+satisfiable_bdd_(BDD) :-
         (   BDD == 0 -> false
         ;   BDD == 1 -> true
         ;   (   bdd_nodes(var_unbound, BDD, Nodes) ->
