@@ -14,7 +14,8 @@ Ein Prolog-Kern in Elixir:
 
 ## Loslegen
 
-Voraussetzung: nur Elixir (ab 1.14, OTP 25). Gelesen und ausgeführt wird
+Voraussetzung: nur Elixir (ab 1.18.4) auf Erlang/OTP 28 oder neuer (`mix`
+bricht sonst mit einer Meldung ab). Gelesen und ausgeführt wird
 alles in Elixir; keine weiteren Programme, keine Abhängigkeiten.
 
 ```sh

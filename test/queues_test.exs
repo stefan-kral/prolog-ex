@@ -136,7 +136,9 @@ defmodule PrologEx.QueuesTest do
 
   test "portray_queue/1", c do
     out =
-      ExUnit.CaptureIO.capture_io(fn -> ask(c, "list_queue([a,'b c',1], Q), portray_queue(Q)") end)
+      ExUnit.CaptureIO.capture_io(fn ->
+        ask(c, "list_queue([a,'b c',1], Q), portray_queue(Q)")
+      end)
 
     assert out == "Queue[a,'b c',1]"
 

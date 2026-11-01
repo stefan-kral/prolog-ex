@@ -39,9 +39,6 @@ defmodule PrologEx.VarNamesTest do
     |> Enum.map(&PrologEx.format_answer(&1, PrologEx.query_var_names(g)))
   end
 
-  defp more(c, q), do: db(c, "") |> PrologEx.solutions(goal(c, q)) |> Enum.map(&elem(&1, 1))
-  defp err(c, g), do: ask(c, "catch((#{g}), error(E, _), true)")
-
   defp out(c, q, src \\ "") do
     db = db(c, src)
     g = goal(c, q)

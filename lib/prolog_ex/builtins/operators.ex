@@ -49,7 +49,7 @@ defmodule PrologEx.Builtins.Operators do
       # ISO: kein Name zugleich Infix und Postfix
       other = %{infix: :postfix, postfix: :infix}[Ops.class(type)]
 
-      if p > 0 and other && Ops.lookup(Ops.table(), name, other),
+      if (p > 0 and other) && Ops.lookup(Ops.table(), name, other),
         do: Error.permission!("create", "operator", a(name))
     end
 

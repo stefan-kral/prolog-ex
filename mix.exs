@@ -1,11 +1,18 @@
 defmodule PrologEx.MixProject do
   use Mix.Project
 
+  # Erlang/OTP 28 oder neuer (z. B. PCRE2 in :re für library(pcre))
+  @min_otp 28
+
   def project do
+    if String.to_integer(System.otp_release()) < @min_otp,
+      do: Mix.raise("PrologEx braucht Erlang/OTP #{@min_otp} oder neuer")
+
     [
       app: :prolog_ex,
       version: "0.1.0",
-      elixir: "~> 1.14",
+      # die ersten Fassungen mit Unterstützung für OTP 28
+      elixir: "~> 1.18.4 or ~> 1.19",
       start_permanent: Mix.env() == :prod,
       aliases: [
         # alles neu, wie make clean && make all
@@ -13,20 +20,14 @@ defmodule PrologEx.MixProject do
       ],
       # Hilfsdateien der Tests (z. B. der frühere Writer als Referenz)
       test_ignore_filters: [~r"^test/fixtures/"],
+      # library(http/...): ssl und inets erst beim ersten Aufruf starten
+      # (als Abhängigkeit kosteten sie jeden Start ~60 ms). Dafür dürfen
+      # sie nicht als fehlend gemeldet werden, und Mix darf sie nicht aus
+      # dem Suchpfad nehmen.
+      elixirc_options: [no_warn_undefined: [:ssl, :public_key, :httpc, :inets]],
+      prune_code_paths: false,
       deps: []
-    ] ++ lazy_otp_apps()
-  end
-
-  # library(http/...): ssl und inets erst beim ersten Aufruf starten (als
-  # Abhängigkeit kosteten sie jeden Start ~60 ms). Dafür dürfen sie nicht
-  # als fehlend gemeldet werden, und Mix (ab 1.15) darf sie nicht aus dem
-  # Suchpfad nehmen; Elixir 1.14 kennt dafür nur xref.
-  @lazy [:ssl, :public_key, :httpc, :inets]
-
-  defp lazy_otp_apps do
-    if Version.match?(System.version(), ">= 1.15.0"),
-      do: [elixirc_options: [no_warn_undefined: @lazy], prune_code_paths: false],
-      else: [xref: [exclude: @lazy]]
+    ]
   end
 
   def application do
