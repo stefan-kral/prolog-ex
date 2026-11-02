@@ -205,6 +205,37 @@ defmodule PrologEx.ClpbTest do
           ;   functor(R1, Kind, _)
           ).
 
+  % sat/1 (Elixir) gegen sat_ref/1 (Triska): mehrere Bedingungen
+  % nacheinander, dann Bindungen, Restziele und Zählerstände
+  sat_result(P, Vs, Fs, R) :-
+          findall(R0,
+                  catch(( maplist(P, Fs) ->
+                          copy_term(Vs, Ws, Gs),
+                          b_getval_(N1, N2),
+                          R0 = ok(Vs, Ws, Gs, N1, N2)
+                        ; R0 = scheitert
+                        ), E, R0 = fehler(E)),
+                  [R]).
+
+  compare_sat(Seed, Kind) :-
+          set_random(seed(Seed)),
+          length(Vs, 5),
+          random_integer(1, 4, K),
+          length(Fs, K),
+          maplist(rs(3, Vs), Fs),
+          sat_result(clpb:sat, Vs, Fs, R1),
+          sat_result(clpb:sat_ref, Vs, Fs, R2),
+          (   R1 =@= R2 -> true ; throw(verschieden(Fs, R1, R2)) ),
+          functor(R1, Kind, _).
+
+  % sat_ands//1 mit offenen Listen: dieselben Bindungen wie das Original
+  compare_sat_ands(G, P) :-
+          copy_term(G, G1), copy_term(G, G2),
+          G1 = [V1, F1], G2 = [V2, F2],
+          sat_result(clpb:sat, V1, [F1], R1),
+          sat_result(clpb:sat_ref, V2, [F2], R2),
+          (   R1 =@= R2 -> P = R1 ; throw(verschieden(G, R1, R2)) ).
+
   % Vergleich des BDD-Kerns: apply/4 (Elixir) gegen apply_ref/4 (Triska)
   ref_bdd(V, N) :- var(V), !, clpb:make_node_ref(V, 0, 1, N).
   ref_bdd(I, I) :- integer(I), !.
@@ -436,6 +467,32 @@ defmodule PrologEx.ClpbTest do
       if e,
         do: assert({_, {:error, ^e}} = r),
         else: assert({_, {:answers, [_]}} = r)
+    end
+  end
+
+  test "sat/1 in Elixir gleich Triskas Prolog-Code (1500 Folgen von Bedingungen)", c do
+    q = "findall(K, (between(1, 1500, S), compare_sat(S, K)), Ks)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    counts = ~r/\b(ok|scheitert|fehler)\b/ |> Regex.scan(a) |> Enum.frequencies()
+    assert Map.get(counts, ["ok", "ok"], 0) >= 500, inspect(counts)
+    assert Map.get(counts, ["scheitert", "scheitert"], 0) >= 200, inspect(counts)
+  end
+
+  test "sat/1: Zerlegung mit offenen Listen wie das Original", c do
+    for g <- [
+          "[L, *(L)]",
+          "[L-X, *([X|L])]",
+          "[L, ~(+(L))]",
+          "[L-X, *(L)*X]",
+          "[L-M, *(L) * *(M)]",
+          "[L-X-Y, *([X,Y|L])]",
+          "[L-X, ~(X + +(L))]",
+          "[x, *([a|b])]",
+          "[X, *([X|b]) * X]",
+          "[L-X, *(L) * ~(X)]"
+        ] do
+      q = "compare_sat_ands(#{g}, P)"
+      assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), g
     end
   end
 

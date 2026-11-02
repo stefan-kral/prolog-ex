@@ -39,6 +39,9 @@ defmodule PrologEx.Builtins.ClpbPrims do
     * `'$clpb_sat_bdd'(+Sat, -BDD)` – `sat_bdd/2`: der BDD einer
       umgeschriebenen Formel, `card/2` über das Zählnetz des Originals
       (`counter_network/3`, mit denselben Hilfsvariablen).
+    * `'$clpb_sat'(+Sat0, +Monotonic, -R)` – `sat/1` bis auf die
+      Propagation: `ands(Glieder)` zum einzelnen Aufrufen oder `bdd(BDD)`,
+      mit den Wurzeln vereinigt und dort abgelegt.
 
   Der Zustand bleibt, wo ihn der Prolog-Code erwartet (Attribute,
   backtrackbarer Zähler), damit beide Teile zusammenpassen, solange es
@@ -582,20 +585,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # von term_variables/2)
   defbuiltin "$clpb_parse", [sat0, mono, sat] do
     s = subst()
-    mono = PrologEx.walk(mono, s) == a("true")
-
-    unless PrologEx.Builtins.Terms.acyclic?(sat0, s),
-      do: clpb_error(mk("domain_error", [a("acyclic_term"), sat0]), sat0)
-
-    if not sat?(sat0, mono, s),
-      do: clpb_error(mk("domain_error", [a("clpb_expr"), sat0]), sat0)
-
-    {res, s} = rewrite(sat0, s)
-
-    s =
-      res
-      |> PrologEx.Builtins.Order.variables(s)
-      |> Enum.reduce(s, &enumerate/2)
+    {res, s} = parse(sat0, PrologEx.walk(mono, s) == a("true"), s)
 
     case PrologEx.unify(sat, res, s) do
       {:ok, s} -> {:subst, s}
@@ -961,6 +951,219 @@ defmodule PrologEx.Builtins.ClpbPrims do
     case top(l, s) do
       [h | t] -> [h | items(t, s)]
       _ -> []
+    end
+  end
+
+  # --- sat/1 -------------------------------------------------------------------------
+
+  # '$clpb_sat'(+Sat0, +Monotonic, -R): R = ands(Ands), wenn sich Sat0 in
+  # mehrere Konjunktionsglieder zerlegen lässt (sat_ands//1; dann ruft
+  # sat/1 sich für jedes auf), sonst R = bdd(BDD): Sat0 übersetzt, mit den
+  # BDDs aller beteiligten Wurzeln verknüpft, die Knotentabellen neu
+  # aufgebaut, die Wurzeln vereinigt und Formel und BDD dort abgelegt –
+  # bereit für satisfiable_bdd/1
+  defbuiltin "$clpb_sat", [sat0, mono, r] do
+    s = subst()
+
+    case ands(sat0, s) do
+      {:split, items, s} ->
+        case PrologEx.unify(r, mk("ands", [list(items)]), s) do
+          {:ok, s} -> {:subst, s}
+          :error -> :fail
+        end
+
+      :single ->
+        try do
+          {bdd, s} = sat_single(sat0, PrologEx.walk(mono, s) == a("true"), s)
+
+          case PrologEx.unify(r, mk("bdd", [bdd]), s) do
+            {:ok, s} -> {:subst, s}
+            :error -> :fail
+          end
+        catch
+          :clpb_fail -> :fail
+        end
+    end
+  end
+
+  defp sat_single(sat0, mono, s) do
+    {sat, s} = parse(sat0, mono, s)
+    {bdd, st} = sat_bdd(sat, %{s: s, memo: %{}, idx: %{}})
+    roots = sat_roots(sat, st.s)
+
+    # roots_and/3: die Formeln und BDDs der Wurzeln dazunehmen
+    {formula, bdd, st} =
+      Enum.reduce(roots, {sat0, bdd, st}, fn root, {f0, b0, st} ->
+        case Atts.get_one(root, "clpb", "clpb_bdd", st.s) do
+          nil ->
+            {f0, b0, st}
+
+          fb ->
+            {:struct, "-", [f, b]} = top(fb, st.s)
+            {b, st} = apply_fresh("*", top(b, st.s), b0, st)
+            {mk("*", [f, f0]), b, st}
+        end
+      end)
+
+    s = rebuild_hashes(bdd, st.s)
+
+    s =
+      case roots do
+        [] ->
+          s
+
+        [root | rest] ->
+          # del_bdd/1 und maplist(=(Root), Roots): die übrigen Wurzeln
+          # an die erste binden – ihre Attribute sind damit unerreichbar,
+          # und das Wecken bliebe ohne Wirkung (sie haben keinen Index)
+          s = Enum.reduce(rest, s, &Map.put(&2, &1, root))
+          Atts.put_one(s, root, "clpb", mk("clpb_bdd", [mk("-", [formula, bdd])]))
+      end
+
+    {bdd, s}
+  end
+
+  # parse_sat/2
+  defp parse(sat0, mono, s) do
+    unless PrologEx.Builtins.Terms.acyclic?(sat0, s),
+      do: clpb_error(mk("domain_error", [a("acyclic_term"), sat0]), sat0)
+
+    if not sat?(sat0, mono, s),
+      do: clpb_error(mk("domain_error", [a("clpb_expr"), sat0]), sat0)
+
+    {res, s} = rewrite(sat0, s)
+    s = res |> PrologEx.Builtins.Order.variables(s) |> Enum.reduce(s, &enumerate/2)
+    {res, s}
+  end
+
+  # sat_roots/2: die (verschiedenen) Wurzeln der Variablen
+  defp sat_roots(sat, s) do
+    sat
+    |> PrologEx.Builtins.Order.variables(s)
+    |> Enum.map(fn v ->
+      case Atts.get_one(v, "clpb", "clpb", s) do
+        nil -> throw(:clpb_fail)
+        ir -> with {:struct, "index_root", [_, root]} <- top(ir, s), do: root
+      end
+    end)
+    |> list()
+    |> PrologEx.Builtins.Order.variables(s)
+  end
+
+  # rebuild_hashes/1: die Knotentabellen der Variablen des BDDs enthalten
+  # danach genau seine Knoten (erst alle leeren, dann eintragen)
+  defp rebuild_hashes(bdd, s) do
+    nodes = node_list(bdd, s)
+
+    s =
+      Enum.reduce(nodes, s, fn {:struct, "node", [_, var, _, _, _]}, s ->
+        case PrologEx.walk(var, s) do
+          {:var, _} = v ->
+            Atts.put_one(s, v, "clpb", mk("clpb_hash", [a("t")]))
+
+          other ->
+            PrologEx.Error.uninstantiation!(PrologEx.resolve(other, s))
+        end
+      end)
+
+    Enum.reduce(nodes, s, fn {:struct, "node", [_, var, low, high, _]} = node, s ->
+      var = PrologEx.walk(var, s)
+      key = mk("node", [nid_term(top(low, s), s), nid_term(top(high, s), s)])
+      hash = Atts.get_one(var, "clpb", "clpb_hash", s)
+      Atts.put_one(s, var, "clpb", mk("clpb_hash", [Assoc.put_value(hash, key, node, s)]))
+    end)
+  end
+
+  # die Knoten in der Reihenfolge von bdd_nodes/3 (Präordnung, Low zuerst)
+  defp node_list(bdd, s) do
+    {acc, _} = node_list(top(bdd, s), s, {[], MapSet.new()})
+    Enum.reverse(acc)
+  end
+
+  defp node_list({:struct, "node", [id, _, low, high, _]} = node, s, {acc, seen}) do
+    id = PrologEx.walk(id, s)
+
+    if MapSet.member?(seen, id) do
+      {acc, seen}
+    else
+      st = {[node | acc], MapSet.put(seen, id)}
+      st = node_list(top(low, s), s, st)
+      node_list(top(high, s), s, st)
+    end
+  end
+
+  defp node_list(_, _s, st), do: st
+
+  # sat_ands//1: Konjunktionsglieder von Sat0 – A*B, *(Ls), ~ über A+B und
+  # +(Ls). Offene Listen bindet das Original beim Zurücksetzen: alle an
+  # [], die letzte an so viele neue Variablen, dass es zwei Glieder sind.
+  defp ands(sat0, s) do
+    if PrologEx.Builtins.Terms.acyclic?(sat0, s) do
+      try do
+        segs = sat_ands(sat0, s, []) |> Enum.reverse()
+        n = Enum.count(segs, &match?({:item, _}, &1))
+        tails = for {:tail, _, _} = t <- segs, do: t
+
+        cond do
+          tails == [] and n < 2 ->
+            :single
+
+          true ->
+            last = List.last(tails)
+            k = if tails == [], do: 0, else: max(0, 2 - n)
+
+            {items, s} =
+              Enum.flat_map_reduce(segs, s, fn
+                {:item, t}, s ->
+                  {[t], s}
+
+                {:tail, v, kind} = t, s ->
+                  fresh =
+                    if t == last,
+                      do: for(_ <- 1..k//1, do: {:var, PrologEx.Vars.next()}),
+                      else: []
+
+                  {:ok, s} = PrologEx.unify(v, list(fresh), s)
+                  {Enum.map(fresh, &if(kind == :not, do: mk("~", [&1]), else: &1)), s}
+              end)
+
+            {:split, items, s}
+        end
+      catch
+        :no_ands -> :single
+      end
+    else
+      :single
+    end
+  end
+
+  defp sat_ands(x, s, acc) do
+    case top(x, s) do
+      {:var, _} -> [{:item, x} | acc]
+      {:struct, "*", [a, b]} -> sat_ands(b, s, sat_ands(a, s, acc))
+      {:struct, "*", [ls]} -> seq(ls, s, :and, acc)
+      {:struct, "~", [y]} -> not_ors(y, s, acc)
+      _ -> [{:item, x} | acc]
+    end
+  end
+
+  defp not_ors(x, s, acc) do
+    case top(x, s) do
+      {:var, _} -> [{:item, mk("~", [x])} | acc]
+      {:struct, "+", [a, b]} -> not_ors(b, s, not_ors(a, s, acc))
+      {:struct, "+", [ls]} -> seq(ls, s, :not, acc)
+      _ -> [{:item, mk("~", [x])} | acc]
+    end
+  end
+
+  # sat_ands_//1, not_ors_//1: die Elemente selbst (bzw. ~L); ein anderer
+  # Rest als eine Variable oder [] lässt sat_ands//1 scheitern
+  defp seq(l, s, kind, acc) do
+    case top(l, s) do
+      [] -> acc
+      [h | t] -> seq(t, s, kind, [{:item, if(kind == :not, do: mk("~", [h]), else: h)} | acc])
+      {:var, _} = v -> [{:tail, v, kind} | acc]
+      _ -> throw(:no_ands)
     end
   end
 end

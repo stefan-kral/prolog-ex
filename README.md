@@ -1076,15 +1076,20 @@ Bisher in Elixir:
   * das Übersetzen der Formeln (`parse_sat/2`): Typprüfung mit denselben
     Fehlern, Umschreiben der Synonyme, Atome durch ihre Variablen;
   * der Aufbau des BDDs aus der Formel (`sat_bdd/2`), auch `card/2` (über
-    dasselbe Zählnetz wie das Original) und `^`.
+    dasselbe Zählnetz wie das Original) und `^`;
+  * `sat/1` selbst: Zerlegen in Konjunktionsglieder (samt der Eigenheit
+    des Originals bei offenen Listen wie `sat(*(L))`), Verknüpfen mit den
+    BDDs der beteiligten Wurzeln, Neuaufbau der Knotentabellen. In
+    Prolog bleiben nur die Unifikationen der Propagation, weil jede die
+    Hooks der gebundenen Variablen wecken muss, bevor die nächste kommt.
 
 Triskas Fassungen dieser Prädikate bleiben als `…_ref` in `clpb.pl` und
-dienen den Vergleichstests (je 2000–3000 Zufallsformeln bzw. -terme, für
-`parse_sat/2` auch fehlerhafte). Die kleinen Formeln aus
-`bench/compare.pl` brauchen damit rund 220 statt 1640 ms – schneller als
-Scryer (265 ms). Noch in Prolog: das Zusammenführen mit den bisherigen
-Bedingungen in `sat/1`, `labeling/1`, `sat_count/2`,
-`weighted_maximum/3` und die Restziele.
+dienen den Vergleichstests (je 1500–3000 Zufallsformeln, -terme bzw.
+Folgen von Bedingungen, für `parse_sat/2` auch fehlerhafte). Die kleinen Formeln aus
+`bench/compare.pl` brauchen damit rund 80 statt 1640 ms – gut dreimal
+schneller als Scryer (265 ms). Noch in Prolog: `taut/2`, die Hooks beim
+Binden, `labeling/1`, `sat_count/2`, `weighted_maximum/3` und die
+Restziele.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
@@ -1706,11 +1711,10 @@ dieselbe Maschine; Zeiten in ms):
 | foldl/4 (300 000) | 720 | 172 | 4,2 |
 | dieselbe Summe von Hand | 623 | 138 | 4,5 |
 | findall + sort (200 000) | 588 | 266 | 2,2 |
-| clpb (kleine Formeln) | 220 | 265 | 0,8 |
+| clpb (kleine Formeln) | 80 | 265 | 0,3 |
 
-Im geometrischen Mittel ist PrologEx rund 5,7-mal langsamer als Scryer
-(clpb: Stand mit Propagation, BDD-Kern, Parser und BDD-Aufbau in Elixir,
-siehe dort);
+Im geometrischen Mittel ist PrologEx rund 5-mal langsamer als Scryer
+(clpb: Stand mit `sat/1` in Elixir, siehe dort);
 reine Maschinenarbeit (Schleifen, Arithmetik, Klauselwahl) 9–18-mal,
 wo eingebaute Prädikate einen großen Teil tragen (findall, sort, Listen)
 nur 2–4-mal. tak und queens sind bei Scryer so kurz, dass ihre Faktoren

@@ -42,6 +42,8 @@
      - sat_bdd/2 (BDD einer Formel, mit Zählnetz für card/2): in Elixir
        ('$clpb_sat_bdd'/2); das Original als sat_bdd_ref/2 (dessen
        counter_network/3 ruft für Teilformeln noch sat_bdd/2 auf)
+     - sat/1: in Elixir ('$clpb_sat'/3) bis auf die Unifikationen der
+       Propagation, die die Hooks wecken müssen; das Original als sat_ref/1
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -608,9 +610,20 @@ sat_roots(Sat, Roots) :-
 %
 % True iff Expr is a satisfiable Boolean expression.
 
+% PrologEx: in Elixir ('$clpb_sat'/3) bis auf die Propagation mit ihren
+% Unifikationen (satisfiable_bdd/1); das Original als sat_ref/1
 sat(Sat0) :-
+        (   monotonic -> M = true ; M = false ),
+        '$clpb_sat'(Sat0, M, R),
+        (   R = ands(Ands) -> maplist(sat, Ands)
+        ;   R = bdd(BDD),
+            is_bdd(BDD),
+            satisfiable_bdd(BDD)
+        ).
+
+sat_ref(Sat0) :-
         (   phrase(sat_ands(Sat0), Ands), Ands = [_,_|_] ->
-            maplist(sat, Ands)
+            maplist(sat_ref, Ands)
         ;   parse_sat(Sat0, Sat),
             sat_bdd(Sat, BDD),
             sat_roots(Sat, Roots),
