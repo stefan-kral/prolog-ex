@@ -600,6 +600,44 @@ defmodule PrologEx.ClpbTest do
     end
   end
 
+  test "labeling/1, random_labeling/2, weighted_maximum/3: Sonderfälle wie das Original", c do
+    for g <- [
+          "catch(labeling([A|_]), E, true)",
+          "catch(labeling([a]), E, true)",
+          "catch(labeling(x), E, true)",
+          "catch(labeling([1.0]), E, true)",
+          "catch(labeling([A, 2]), E, true)",
+          "sat(A+B), findall(A-B, labeling([B, 1, A, 0]), L)",
+          "sat(A#B), sat(C =< A), findall(A-B-C, labeling([C, B, A, B]), L)",
+          # Variablen ohne Bedingung: maybe_zero/1
+          "sat(A+B), random_labeling(7, [A, B, C, D])",
+          "random_labeling(3, [A, B])",
+          "random_labeling(3, [1, 0])",
+          "sat(card([2], [A, B, C, D])), findall(A-B-C-D, (between(1, 8, S), random_labeling(S, [A, B, C, D])), L)",
+          # wiederholte Variablen, Gewicht 0, negative Gewichte
+          "sat(A+B), findall(M-A-B, weighted_maximum([1, -2, 3], [A, B, A], M), L)",
+          "sat(A#B), findall(M-A-B-C, weighted_maximum([0, 0, 1], [A, B, C], M), L)",
+          "sat(card([1], [A, B, C])), findall(M-A-B-C, weighted_maximum([-1, -2, -3], [A, B, C], M), L)",
+          "catch(weighted_maximum([a], [A], M), E, true)",
+          "catch(weighted_maximum([1], [0], M), E, true)",
+          "weighted_maximum([1, 2], [A], M)",
+          # Index-Reihenfolge anders als die Reihenfolge der Variablen
+          "sat(C =< B), sat(B =< A), findall(M-A-B-C, weighted_maximum([1, 2, 3], [A, B, C], M), L)",
+          "sat(C # B), sat(B + A), findall(M-A-B-C, weighted_maximum([3, -1, 2], [A, B, C], M), L)",
+          # Standardordnung anders als Index-Reihenfolge (früher attributiert)
+          "freeze(C, true), freeze(B, true), sat(A + B * C), " <>
+            "findall(M-A-B-C, weighted_maximum([1, -2, 3], [A, B, C], M), L)",
+          # übersprungene Variable mit positivem Gewicht zwischen zwei Knoten
+          "sat(A + ~A), sat(B + ~B), sat(C + ~C), sat(A =:= C), " <>
+            "findall(M-A-B-C, weighted_maximum([1, 5, 1], [A, B, C], M), L)",
+          "sat(A + ~A), sat(B + ~B), sat(C + ~C), sat(D + ~D), sat(A # D), " <>
+            "findall(M-A-B-C-D, weighted_maximum([-1, 2, 0, 3], [A, B, C, D], M), L)"
+        ] do
+      q = "compare_goal((#{g}), P)"
+      assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), g
+    end
+  end
+
   test "Hook beim Binden: Sonderfälle wie das Original", c do
     for g <- [
           # keine Wahrheitswerte
@@ -661,7 +699,7 @@ defmodule PrologEx.ClpbTest do
     x = Enum.random(~w(A B C D))
     y = Enum.random(~w(A B C D))
 
-    case :rand.uniform(13) do
+    case :rand.uniform(16) do
       n when n <= 6 ->
         "sat(#{rand_formula(3)})"
 
@@ -685,6 +723,15 @@ defmodule PrologEx.ClpbTest do
 
       13 ->
         "weighted_maximum([#{Enum.random(~w(1 -1 2 0))},#{Enum.random(~w(1 -2 3))}], [#{x},#{y}], _)"
+
+      14 ->
+        "weighted_maximum([#{Enum.random(~w(1 -1 2 0))},#{Enum.random(~w(1 -2 3 0))},2], [A,B,C], M)"
+
+      15 ->
+        "labeling([#{Enum.join(Enum.take_random(~w(A B C D), Enum.random(1..4)), ",")}])"
+
+      16 ->
+        "random_labeling(#{:rand.uniform(100)}, [A,B,C,D])"
     end
   end
 

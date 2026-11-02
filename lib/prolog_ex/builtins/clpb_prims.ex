@@ -47,6 +47,9 @@ defmodule PrologEx.Builtins.ClpbPrims do
     * `'$clpb_sat_count'(+Sat0, +Monotonic, ?N)` – `sat_count/2`.
     * `'$clpb_attribute_goals'/4`, `'$clpb_project'/1` – die Restziele
       (`attribute_goals//1`, `project_attributes/2`).
+    * `'$clpb_labeling_vars'/2`, `'$clpb_random_bindings'/2`,
+      `'$clpb_weighted'/6` – die Rechenteile von `labeling/1`,
+      `random_labeling/2` und `weighted_maximum/3`.
 
   Der Zustand bleibt, wo ihn der Prolog-Code erwartet (Attribute,
   backtrackbarer Zähler), damit beide Teile zusammenpassen, solange es
@@ -1822,4 +1825,194 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
     Atts.put_one(s, root, "clpb", mk("clpb_bdd", [mk("-", [ex_formula, bdd])]))
   end
+
+  # --- labeling/1, random_labeling/2, weighted_maximum/3 ------------------------------
+
+  # '$clpb_labeling_vars'(+Vs0, -Vs): die Prüfungen von labeling/1 (eine
+  # Liste aus Variablen, 0 und 1) und die Variablen in Index-Reihenfolge;
+  # das Binden selbst bleibt Prolog (indomains/1), weil jede Bindung die
+  # Hooks wecken muss, bevor die nächste kommt
+  defbuiltin "$clpb_labeling_vars", [vs0, vs] do
+    s = subst()
+
+    unless PrologEx.Builtins.Terms.acyclic?(vs0, s),
+      do: clpb_error(mk("type_error", [a("list"), vs0]), vs0)
+
+    items = must_be_list(vs0, s)
+
+    Enum.each(items, fn v ->
+      case PrologEx.walk(v, s) do
+        {:var, _} -> :ok
+        b when b === 0 or b === 1 -> :ok
+        other -> clpb_error(mk("domain_error", [a("clpb_variable"), other]), other)
+      end
+    end)
+
+    {:unify, [{vs, list(in_index_order(items, s))}]}
+  end
+
+  # '$clpb_random_bindings'(+BDD, -Bs): random_bindings//2 – vom Kopf des
+  # BDDs abwärts je Knoten 0 oder 1, gewichtet mit der Zahl der Lösungen
+  # darunter (bdd_count/3 nach Umnummerieren der Variablen); Zufallszahlen
+  # aus demselben Generator wie random_integer/3
+  defbuiltin "$clpb_random_bindings", [bdd, bs] do
+    s = subst()
+
+    try do
+      bdd = top(bdd, s)
+      ivs = bdd |> bdd_variables(s) |> in_index_order(s)
+      renum = ivs |> Enum.with_index(1) |> Map.new()
+      ctx = %{s: s, renum: renum, vnum: length(ivs) + 1}
+      {:unify, [{bs, list(random_bindings(bdd, ctx, %{}))}]}
+    catch
+      :clpb_fail -> :fail
+    end
+  end
+
+  defp random_bindings(1, _ctx, _memo), do: []
+
+  defp random_bindings({:struct, "node", [_, var, low, high, _]} = node, ctx, memo) do
+    {total, memo} = bdd_count(node, ctx, memo)
+    low = top(low, ctx.s)
+    {lcount, memo} = bdd_count(low, ctx, memo)
+
+    # weighted_maybe/2: random_integer(0, Total, X), X < LCount
+    if total > 0 and PrologEx.Builtins.Random.int_below(total) < lcount do
+      [mk("=", [var, 0]) | random_bindings(low, ctx, memo)]
+    else
+      [mk("=", [var, 1]) | random_bindings(top(high, ctx.s), ctx, memo)]
+    end
+  end
+
+  defp random_bindings(_, _ctx, _memo), do: throw(:clpb_fail)
+
+  # '$clpb_weighted'(+Ws, +Vars, +BDD0, -BDD, -Pairs, ?Max): der Teil von
+  # weighted_maximum/3 zwischen single_bdd/1 und max_labeling/2 – die
+  # Variablen außerhalb von Vars herausrechnen, Gewichte je Variable in
+  # Index-Reihenfolge zusammenfassen (Var-Gewicht), das Maximum über den
+  # BDD (bdd_maximum/3; Maximum und Richtung je Knoten im Attribut
+  # clpb_max(max(Max, Dir)) seiner Aux-Variablen, wie das Original – dort
+  # liest max_labeling/2 sie)
+  defbuiltin "$clpb_weighted", [ws, vars, bdd0, bdd, pairs, max] do
+    s = subst()
+
+    try do
+      ws = items(ws, s)
+      vars = vars |> items(s) |> Enum.map(&PrologEx.walk(&1, s))
+      if length(ws) != length(vars), do: throw(:clpb_fail)
+      bdd0 = top(bdd0, s)
+      in_vars = MapSet.new(vars)
+      others = bdd0 |> bdd_variables(s) |> Enum.reject(&MapSet.member?(in_vars, &1))
+
+      {b, st} =
+        Enum.reduce(others, {bdd0, %{s: s, memo: %{}, idx: %{}}}, fn v, {b, st} ->
+          existential(v, b, st)
+        end)
+
+      s = st.s
+
+      # keysort nach I-V (Index, dann Standardordnung), gleiche
+      # Variablen zusammenfassen
+      ps =
+        vars
+        |> Enum.zip(ws)
+        |> Enum.map(fn {v, w} ->
+          k = mk("-", [index_of(v, s) || 0, v])
+          {k, {k, {v, PrologEx.walk(w, s)}}}
+        end)
+        |> PrologEx.Order.keysort(s)
+        |> group_consecutive(s)
+        |> Enum.map(fn {_k, [{v, _} | _] = vws} ->
+          {v, vws |> Enum.map(&elem(&1, 1)) |> Enum.sum()}
+        end)
+
+      {m, s} = bdd_maximum(b, ps, s)
+      pairs_term = list(Enum.map(ps, fn {v, w} -> mk("-", [v, w]) end))
+
+      with {:ok, s} <- PrologEx.unify(bdd, b, s),
+           {:ok, s} <- PrologEx.unify(pairs, pairs_term, s),
+           {:ok, s} <- PrologEx.unify(max, m, s) do
+        {:subst, s}
+      else
+        :error -> :fail
+      end
+    catch
+      :clpb_fail -> :fail
+    end
+  end
+
+  # bdd_maximum/3
+  defp bdd_maximum(1, ps, s), do: {positive_sum(ps), s}
+
+  defp bdd_maximum({:struct, "node", [_, var, low, high, aux]}, ps0, s) do
+    aux = PrologEx.walk(aux, s)
+
+    case Atts.get_one(aux, "clpb", "clpb_max", s) do
+      nil ->
+        var = PrologEx.walk(var, s)
+        {weight, ps} = skip_to_var(var, ps0, s)
+        low = top(low, s)
+        high = top(high, s)
+
+        {m, dir, s} =
+          cond do
+            low === 0 ->
+              {mh, to_h, s} = bdd_maximum_(high, ps, s)
+              {to_h + mh + weight, a("high"), s}
+
+            high === 0 ->
+              {ml, to_l, s} = bdd_maximum_(low, ps, s)
+              {to_l + ml, a("low"), s}
+
+            true ->
+              {ml, to_l, s} = bdd_maximum_(low, ps, s)
+              {mh, to_h, s} = bdd_maximum_(high, ps, s)
+              m0 = to_l + ml
+              m1 = to_h + mh + weight
+
+              dir =
+                cond do
+                  m0 == m1 -> {:var, PrologEx.Vars.next()}
+                  m0 < m1 -> a("high")
+                  true -> a("low")
+                end
+
+              {max(m0, m1), dir, s}
+          end
+
+        {m, Atts.put_one(s, aux, "clpb", mk("clpb_max", [mk("max", [m, dir])]))}
+
+      mx ->
+        {:struct, "max", [m, _]} = top(mx, s)
+        {PrologEx.walk(m, s), s}
+    end
+  end
+
+  defp bdd_maximum(_, _ps, _s), do: throw(:clpb_fail)
+
+  defp bdd_maximum_(node, ps, s) do
+    {m, s} = bdd_maximum(node, ps, s)
+    {m, between_weights(node, ps, s), s}
+  end
+
+  # die positiven Gewichte vor der Variablen des Knotens
+  defp between_weights(1, _ps, _s), do: 0
+
+  defp between_weights({:struct, "node", [_, var | _]}, ps, s) do
+    var = PrologEx.walk(var, s)
+
+    ps
+    |> Enum.take_while(fn {v, _} -> v != var end)
+    |> positive_sum()
+    |> tap(fn _ -> if not Enum.any?(ps, fn {v, _} -> v == var end), do: throw(:clpb_fail) end)
+  end
+
+  defp skip_to_var(var, ps, _s) do
+    case Enum.split_while(ps, fn {v, _} -> v != var end) do
+      {_, [{_, w} | rest]} -> {w, rest}
+      _ -> throw(:clpb_fail)
+    end
+  end
+
+  defp positive_sum(ps), do: ps |> Enum.map(&elem(&1, 1)) |> Enum.filter(&(&1 > 0)) |> Enum.sum()
 end

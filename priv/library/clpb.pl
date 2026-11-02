@@ -55,6 +55,11 @@
        ('$clpb_attribute_goals'/4, '$clpb_project'/1); die ANF mit
        Merktabelle je Knoten. Die Originale mit der Endung _ref (auch
        mit ref_mode)
+     - labeling/1 (Prüfen, Sortieren), random_labeling/2 (die zufälligen
+       Bindungen), weighted_maximum/3 (der BDD-Teil): in Elixir
+       ('$clpb_labeling_vars'/2, '$clpb_random_bindings'/2,
+       '$clpb_weighted'/6); das Binden mit Backtracking bleibt Prolog. Die
+       Originale mit der Endung _ref (auch mit ref_mode)
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -1520,7 +1525,19 @@ node_ite(Node, Node-ite(Var,High,Low)) :-
 % Enumerate concrete solutions. Assigns truth values to the Boolean
 % variables Vs such that all stated constraints are satisfied.
 
+% PrologEx: Prüfen und Sortieren in Elixir ('$clpb_labeling_vars'/2),
+% das Binden in Prolog (jede Bindung weckt die Hooks, bevor die nächste
+% kommt); das Original als labeling_ref/1 (auch mit ref_mode)
 labeling(Vs0) :-
+        (   ref_mode -> labeling_ref(Vs0)
+        ;   '$clpb_labeling_vars'(Vs0, Vs),
+            indomains(Vs)
+        ).
+
+indomains([]).
+indomains([V|Vs]) :- indomain(V), indomains(Vs).
+
+labeling_ref(Vs0) :-
         must_be(list, Vs0),
         maplist(labeling_var, Vs0),
         variables_in_index_order(Vs0, Vs),
@@ -1656,7 +1673,31 @@ single_bdd(Vars0) :-
         % capture all variables with a single BDD
         sat(+[1|Vars]).
 
+% PrologEx: random_bindings//2 in Elixir ('$clpb_random_bindings'/2), mit
+% denselben Zufallszahlen; das Original als random_labeling_ref/2 (auch
+% mit ref_mode)
 random_labeling(Seed, Vars) :-
+        (   ref_mode -> random_labeling_ref(Seed, Vars)
+        ;   must_be(list, Vars),
+            set_random(seed(Seed)),
+            (   ground(Vars) -> true
+            ;   catch((single_bdd(Vars),
+                       once((member(Var, Vars),var(Var))),
+                       var_index_root(Var, _, Root),
+                       root_get_formula_bdd(Root, _, BDD),
+                       '$clpb_random_bindings'(BDD, Bs),
+                       % reset all attribute modifications
+                       throw(randsol(Vars, Bs))),
+                      randsol(Vars, Bs),
+                      true),
+                maplist(call, Bs),
+                % set remaining variables to 0 or 1 with equal probability
+                include(var, Vars, Remaining),
+                maplist(maybe_zero, Remaining)
+            )
+        ).
+
+random_labeling_ref(Seed, Vars) :-
         must_be(list, Vars),
         set_random(seed(Seed)),
         (   ground(Vars) -> true
@@ -1722,7 +1763,23 @@ weighted_maybe(K, N) :-
 %    A = 0, B = 1, C = 1, Maximum = 3.
 % ```
 
+% PrologEx: der BDD-Teil in Elixir ('$clpb_weighted'/6: Herausrechnen,
+% Gewichte zusammenfassen, bdd_maximum/3 mit den clpb_max-Attributen);
+% das Binden (max_labeling/2, mit Backtracking) bleibt Prolog. Das
+% Original als weighted_maximum_ref/3 (auch mit ref_mode)
 weighted_maximum(Ws, Vars, Max) :-
+        (   ref_mode -> weighted_maximum_ref(Ws, Vars, Max)
+        ;   must_be(list(integer), Ws),
+            must_be(list(var), Vars),
+            single_bdd(Vars),
+            Vars = [Var|_],
+            var_index_root(Var, _,  Root),
+            root_get_formula_bdd(Root, _, BDD0),
+            '$clpb_weighted'(Ws, Vars, BDD0, BDD, Pairs, Max),
+            max_labeling(BDD, Pairs)
+        ).
+
+weighted_maximum_ref(Ws, Vars, Max) :-
         must_be(list(integer), Ws),
         must_be(list(var), Vars),
         single_bdd(Vars),

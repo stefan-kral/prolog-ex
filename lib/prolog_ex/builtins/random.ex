@@ -202,8 +202,9 @@ defmodule PrologEx.Builtins.Random do
     x
   end
 
-  # gleichverteilt in 0..n-1
-  defp int_below(n), do: draw(&:rand.uniform_s(n, &1)) - 1
+  # gleichverteilt in 0..n-1 (auch für Bibliotheken in Elixir: clpb)
+  @doc false
+  def int_below(n), do: draw(&:rand.uniform_s(n, &1)) - 1
 
   # Mischen: jedem Element einen zufälligen 56-Bit-Schlüssel geben und
   # danach sortieren (O(n log n), auf der BEAM schneller als Fisher-Yates

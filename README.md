@@ -1095,7 +1095,13 @@ Bisher in Elixir:
     Variablen, `clpb_residuals(bdd)`. Die Ausgabe ist um ein Vielfaches
     schneller (`card([2], Vs)` über 12 Variablen: 0,8 statt 21 s, Scryer
     9 s), bleibt aber exponentiell, weil die ANF selbst exponentiell
-    groß werden kann.
+    groß werden kann;
+  * von `labeling/1` das Prüfen und Sortieren, von `random_labeling/2` die
+    zufälligen Bindungen (mit denselben Zufallszahlen), von
+    `weighted_maximum/3` der BDD-Teil (`weighted_maximum/3`: 51 → 3 ms
+    bei 6 Damen). In Prolog bleibt nur das Binden mit Backtracking
+    (`indomains/1`, `max_labeling/2`): Jede Bindung muss die Hooks aller
+    Module wecken, bevor die nächste kommt.
 
 Triskas Fassungen dieser Prädikate bleiben als `…_ref` in `clpb.pl` und
 dienen den Vergleichstests (je 1500–3000 Zufallsformeln, -terme bzw.
@@ -1103,8 +1109,7 @@ Folgen von Bedingungen, für `parse_sat/2` auch fehlerhafte). Die kleinen Formel
 `bench/compare.pl` brauchen damit rund 80 statt 1640 ms – gut dreimal
 schneller als Scryer (265 ms). Mit `clpb:ref_mode` (dynamisch, für die
 Tests) rechnen `sat/1`, `taut/2`, `sat_count/2` und der Hook wieder mit
-Triskas Code, ebenso die Restziele. Noch in Prolog: `labeling/1`,
-`random_labeling/2` und `weighted_maximum/3`.
+Triskas Code, ebenso die Restziele und die drei Prädikate zum Belegen.
 
 Eine Eigenheit des Originals bleibt erhalten (Scryer verhält sich
 genauso): Bindet eine einzige Unifikation mehrere Variablen aus
