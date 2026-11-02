@@ -235,6 +235,8 @@ defmodule PrologEx.ClpbTest do
           random_member(X, Vs), random_member(Y, Vs),
           (   K < 4 -> rs(3, Vs, F), Op = sat(F)
           ;   K < 6 -> rs(2, Vs, F), Op = taut(F, _)
+          ;   K < 7, random_integer(0, 2, 0) ->
+              rs(3, Vs, F), Op = sat_count(F, _)
           ;   K < 7 -> random_member(B, [0, 1]), Op = (X = B)
           ;   K < 8 -> Op = (X = Y)
           ;   K < 9 ->
@@ -289,6 +291,27 @@ defmodule PrologEx.ClpbTest do
           goal_result(G, R2),
           retractall(clpb:ref_mode),
           (   R1 =@= R2 -> true ; throw(verschieden(G, R1, R2)) ).
+
+  % sat_count/2 nach einigen Bedingungen, mit Elixir und mit ref_mode
+  compare_count(Seed, N) :-
+          set_random(seed(Seed)),
+          length(Vs, 5),
+          random_integer(0, 3, K),
+          length(Fs, K),
+          maplist(rs(3, Vs), Fs),
+          random_integer(0, 3, J),
+          (   J =:= 0 -> rs(3, Vs, C)
+          ;   J =:= 1 -> C = +[1|Vs]
+          ;   Vs = [A, B|_], C = +[1, A, B]
+          ),
+          G = (maplist(sat, Fs), sat_count(C, N)),
+          goal_result(G, R1),
+          assertz(clpb:ref_mode),
+          goal_result(G, R2),
+          retractall(clpb:ref_mode),
+          (   R1 =@= R2 -> true ; throw(verschieden(G, R1, R2)) ),
+          findall(N, catch(G, _, fail), Ns),
+          (   Ns = [N0] -> N = N0 ; N = keine ).
 
   % sat_ands//1 mit offenen Listen: dieselben Bindungen wie das Original
   compare_sat_ands(G, P) :-
@@ -546,6 +569,35 @@ defmodule PrologEx.ClpbTest do
     counts = ~r/\b(ok|scheitert|fehler)\b/ |> Regex.scan(a) |> Enum.frequencies()
     assert Map.get(counts, ["ok", "ok"], 0) >= 500, inspect(counts)
     assert Map.get(counts, ["scheitert", "scheitert"], 0) >= 300, inspect(counts)
+  end
+
+  test "sat_count/2 in Elixir gleich Triskas Prolog-Code (1500 Fälle)", c do
+    q =
+      "findall(N, (between(1, 1500, S), compare_count(S, N)), Ns), " <>
+        "include(integer, Ns, Is), length(Is, L), max_list(Is, M), sum_list(Is, T)"
+
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    [_, l] = Regex.run(~r/L = (\d+)/, a)
+    [_, m] = Regex.run(~r/M = (\d+)/, a)
+    assert String.to_integer(l) >= 800, a
+    assert String.to_integer(m) >= 16, a
+  end
+
+  test "sat_count/2: Sonderfälle wie das Original", c do
+    for g <- [
+          # Index-Reihenfolge weicht von der Reihenfolge in der Formel ab
+          "sat(Y+Z), sat(X =< Y), sat_count(X + ~Y, N)",
+          "sat(Z # Y), sat(X =< Z), sat_count(+[1, X, Y, Z], N)",
+          "sat(C * ~B), sat(A + B), sat_count(A # C # B, N)",
+          # monotonic: neue Variablen sind ein instantiation_error
+          "assertz(clpb:monotonic), catch(sat_count(X+Y, N), E, true), " <>
+            "retractall(clpb:monotonic)",
+          "sat(X+Y), assertz(clpb:monotonic), sat_count(X*Y, N), retractall(clpb:monotonic)"
+        ] do
+      q = "compare_goal((#{g}), P)"
+      assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q), g
+      assert a =~ "ok(", a
+    end
   end
 
   test "Hook beim Binden: Sonderfälle wie das Original", c do

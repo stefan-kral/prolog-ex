@@ -42,6 +42,9 @@ defmodule PrologEx.Builtins.ClpbPrims do
     * `'$clpb_sat'(+Sat0, +Monotonic, -R)` – `sat/1` bis auf die
       Propagation: `ands(Glieder)` zum einzelnen Aufrufen oder `bdd(BDD)`,
       mit den Wurzeln vereinigt und dort abgelegt.
+    * `'$clpb_tautology'/1`, `'$clpb_verify'/4`, `'$clpb_rebuild'/4` –
+      `tautology/1`, der Hook beim Binden, `root_rebuild_bdd/2`.
+    * `'$clpb_sat_count'(+Sat0, +Monotonic, ?N)` – `sat_count/2`.
 
   Der Zustand bleibt, wo ihn der Prolog-Code erwartet (Attribute,
   backtrackbarer Zähler), damit beide Teile zusammenpassen, solange es
@@ -524,12 +527,17 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   # existential/3: V herausrechnen – BDD[V:=0] + BDD[V:=1]; eigene
   # Merktabellen für jede Einschränkung und für apply (wie das Original)
-  defp existential(v, bdd, st) do
+  defp existential(v, bdd, st), do: quantify("+", v, bdd, st)
+
+  # universal/3 (sat_count/2): BDD[V:=0] * BDD[V:=1]
+  defp universal(v, bdd, st), do: quantify("*", v, bdd, st)
+
+  defp quantify(op, v, bdd, st) do
     {vi, st} = var_idx(v, st)
     if vi == nil, do: throw(:clpb_fail)
     {na, st} = restrict(bdd, vi, 0, Map.put(st, :rmemo, %{}))
     {nb, st} = restrict(bdd, vi, 1, %{st | rmemo: %{}})
-    {node, st2} = apply_bdd("+", na, nb, %{st | memo: %{}})
+    {node, st2} = apply_bdd(op, na, nb, %{st | memo: %{}})
     {node, %{st2 | memo: st.memo}}
   end
 
@@ -1311,4 +1319,111 @@ defmodule PrologEx.Builtins.ClpbPrims do
       :clpb_fail -> :fail
     end
   end
+
+  # --- sat_count/2 -------------------------------------------------------------------
+
+  # '$clpb_sat_count'(+Sat0, +Monotonic, ?N): die Zahl der Belegungen der
+  # Variablen von Sat0, die Sat0 und die bisherigen Bedingungen erfüllen.
+  # Wie im Original: Sat0 übersetzen, mit den BDDs der Wurzeln verknüpfen,
+  # alle anderen Variablen herausrechnen (Atome mit ∀, sonst ∃), die
+  # Variablen von Sat0 von 1 an neu nummerieren und über die Knoten
+  # zählen. Alle Änderungen dabei werden verworfen (dort throw/catch);
+  # nur N wird unifiziert.
+  defbuiltin "$clpb_sat_count", [sat0, mono, n] do
+    s = subst()
+
+    try do
+      count = sat_count(sat0, PrologEx.walk(mono, s) == a("true"), s)
+
+      case PrologEx.unify(n, count, s) do
+        {:ok, s} -> {:subst, s}
+        :error -> :fail
+      end
+    catch
+      :clpb_fail -> :fail
+    end
+  end
+
+  defp sat_count(sat0, mono, s0) do
+    {sat, s} = parse(sat0, mono, s0)
+    {bdd, st} = sat_bdd(sat, %{s: s, memo: %{}, idx: %{}})
+
+    {bdd1, st} =
+      Enum.reduce(sat_roots(sat, st.s), {bdd, st}, fn root, {b0, st} ->
+        case Atts.get_one(root, "clpb", "clpb_bdd", st.s) do
+          nil ->
+            {b0, st}
+
+          fb ->
+            {:struct, "-", [_, b]} = top(fb, st.s)
+            apply_fresh("*", top(b, st.s), b0, st)
+        end
+      end)
+
+    # die übrigen Variablen des BDDs (nicht in Sat0) herausrechnen
+    vs = PrologEx.Builtins.Order.variables(sat0, st.s)
+    in_sat0 = MapSet.new(vs)
+
+    others =
+      for {:struct, "node", [_, var | _]} <- node_list(bdd1, st.s),
+          v = PrologEx.walk(var, st.s),
+          match?({:var, _}, v),
+          not MapSet.member?(in_sat0, v),
+          uniq: true,
+          do: v
+
+    {univs, exis} = Enum.split_with(others, &(Atts.get_one(&1, "clpb", "clpb_atom", st.s) != nil))
+    {bdd2, st} = Enum.reduce(univs, {bdd1, st}, fn v, {b, st} -> universal(v, b, st) end)
+    {bdd3, st} = Enum.reduce(exis, {bdd2, st}, fn v, {b, st} -> existential(v, b, st) end)
+
+    # renumber_variable/3: die Variablen von Sat0 in Index-Reihenfolge 1, 2, …
+    renum =
+      vs
+      |> Enum.with_index()
+      |> Enum.sort_by(fn {v, k} -> {index_of(v, st.s) || 0, k} end)
+      |> Enum.with_index(1)
+      |> Map.new(fn {{v, _}, i} -> {v, i} end)
+
+    vnum = length(vs) + 1
+    ctx = %{s: st.s, renum: renum, vnum: vnum}
+    {count0, _memo} = bdd_count(bdd3, ctx, %{})
+    pow2(var_u(bdd3, ctx) - 1) * count0
+  end
+
+  # bdd_count/3: Belegungen unterhalb eines Knotens; übersprungene Ebenen
+  # zählen doppelt (2^Abstand). Merktabelle nach Knoten-ID (im Original
+  # die Aux-Variable des Knotens).
+  defp bdd_count(node, _ctx, memo) when is_integer(node), do: {node, memo}
+
+  defp bdd_count({:struct, "node", [id, var, low, high, _]}, ctx, memo) do
+    id = PrologEx.walk(id, ctx.s)
+
+    case memo do
+      %{^id => c} ->
+        {c, memo}
+
+      _ ->
+        low = top(low, ctx.s)
+        high = top(high, ctx.s)
+        {lc, memo} = bdd_count(low, ctx, memo)
+        {hc, memo} = bdd_count(high, ctx, memo)
+        i = count_idx(PrologEx.walk(var, ctx.s), ctx)
+        c = pow2(var_u(low, ctx) - i - 1) * lc + pow2(var_u(high, ctx) - i - 1) * hc
+        {c, Map.put(memo, id, c)}
+    end
+  end
+
+  # var_u/3: Index der Variablen des Knotens, für Blätter VNum
+  defp var_u(node, ctx) when is_integer(node), do: ctx.vnum
+
+  defp var_u({:struct, "node", [_, var | _]}, ctx),
+    do: count_idx(PrologEx.walk(var, ctx.s), ctx)
+
+  # der neue Index (oder, für eine nicht umnummerierte Variable, der alte)
+  defp count_idx(v, ctx) do
+    Map.get(ctx.renum, v) || index_of(v, ctx.s) || throw(:clpb_fail)
+  end
+
+  defp pow2(k) when k >= 0, do: Integer.pow(2, k)
+  defp pow2(_), do: throw(:clpb_fail)
 end

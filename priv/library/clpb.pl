@@ -49,6 +49,8 @@
        ('$clpb_tautology'/1, '$clpb_verify'/4, '$clpb_rebuild'/4); die
        Originale mit der Endung _ref. Mit ref_mode (dynamisch) rechnen
        sat/1, tautology/1, der Hook und root_rebuild_bdd/2 mit ihnen.
+     - sat_count/2: in Elixir ('$clpb_sat_count'/3); das Original als
+       sat_count_ref/2 (auch mit ref_mode)
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -526,8 +528,9 @@ is_sat(card(Is,Fs)) :-
 
 :- dynamic(monotonic/0).
 
-% PrologEx: mit ref_mode rechnen sat/1, tautology/1, der Hook beim Binden
-% und root_rebuild_bdd/2 mit Triskas Originalcode (für die Vergleichstests)
+% PrologEx: mit ref_mode rechnen sat/1, tautology/1, sat_count/2, der Hook
+% beim Binden und root_rebuild_bdd/2 mit Triskas Originalcode (für die
+% Vergleichstests)
 :- dynamic(ref_mode/0).
 
 non_monotonic(X) :-
@@ -1558,7 +1561,15 @@ indomain(1).
 
 
 
+% PrologEx: in Elixir ('$clpb_sat_count'/3); das Original als
+% sat_count_ref/2 (auch mit ref_mode)
 sat_count(Sat0, N) :-
+        (   ref_mode -> sat_count_ref(Sat0, N)
+        ;   (   monotonic -> M = true ; M = false ),
+            '$clpb_sat_count'(Sat0, M, N)
+        ).
+
+sat_count_ref(Sat0, N) :-
         catch((parse_sat(Sat0, Sat),
                sat_bdd(Sat, BDD),
                sat_roots(Sat, Roots),
