@@ -1064,28 +1064,36 @@ defmodule PrologEx.Builtins.ClpbPrims do
   end
 
   # rebuild_hashes/1: die Knotentabellen der Variablen des BDDs enthalten
-  # danach genau seine Knoten (erst alle leeren, dann eintragen)
+  # danach genau seine Knoten. Statt jeden Knoten einzeln einzufügen (wie
+  # das Original) je Variable die Schlüssel node(LID, HID) einmal sortieren
+  # und den AVL-Baum in O(n) bauen – derselbe Inhalt, nur die Form des
+  # Baums kann anders sein.
   defp rebuild_hashes(bdd, s) do
-    nodes = node_list(bdd, s)
-
-    s =
-      Enum.reduce(nodes, s, fn {:struct, "node", [_, var, _, _, _]}, s ->
+    bdd
+    |> node_list(s)
+    |> Enum.group_by(
+      fn {:struct, "node", [_, var | _]} ->
         case PrologEx.walk(var, s) do
-          {:var, _} = v ->
-            Atts.put_one(s, v, "clpb", mk("clpb_hash", [a("t")]))
-
-          other ->
-            PrologEx.Error.uninstantiation!(PrologEx.resolve(other, s))
+          {:var, _} = v -> v
+          other -> PrologEx.Error.uninstantiation!(PrologEx.resolve(other, s))
         end
-      end)
-
-    Enum.reduce(nodes, s, fn {:struct, "node", [_, var, low, high, _]} = node, s ->
-      var = PrologEx.walk(var, s)
-      key = mk("node", [nid_term(top(low, s), s), nid_term(top(high, s), s)])
-      hash = Atts.get_one(var, "clpb", "clpb_hash", s)
-      Atts.put_one(s, var, "clpb", mk("clpb_hash", [Assoc.put_value(hash, key, node, s)]))
+      end,
+      fn {:struct, "node", [_, _, low, high, _]} = node ->
+        l = nid_term(top(low, s), s)
+        h = nid_term(top(high, s), s)
+        {{id_rank(l), id_rank(h)}, {mk("node", [l, h]), node}}
+      end
+    )
+    |> Enum.reduce(s, fn {var, entries}, s ->
+      tree = entries |> List.keysort(0) |> Enum.map(&elem(&1, 1)) |> Assoc.from_sorted()
+      Atts.put_one(s, var, "clpb", mk("clpb_hash", [tree]))
     end)
   end
+
+  # Standardordnung der Knotenkennungen: Zahlen vor Atomen, false vor true
+  defp id_rank(n) when is_integer(n), do: {0, n}
+  defp id_rank({:atom, "false"}), do: {1, 0}
+  defp id_rank({:atom, "true"}), do: {1, 1}
 
   # die Knoten in der Reihenfolge von bdd_nodes/3 (Präordnung, Low zuerst)
   defp node_list(bdd, s) do

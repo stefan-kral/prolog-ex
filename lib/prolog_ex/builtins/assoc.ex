@@ -556,6 +556,12 @@ defmodule PrologEx.Builtins.Assoc do
   defp deltable(">", :right), do: {"-", true, false}
   defp deltable(">", :left), do: {"-", true, true}
 
+  @doc false
+  # für andere Bibliotheken (clpb): AVL-Baum aus streng aufsteigend
+  # sortierten Paaren {Schlüssel, Wert}, in O(n)
+  def from_sorted([]), do: a("t")
+  def from_sorted(ps), do: build(ps)
+
   # ausgewogener Baum aus n sortierten Paaren (wie SWIs list_to_assoc/5)
   defp build(ps) do
     {t, [], _} = build(length(ps), ps)

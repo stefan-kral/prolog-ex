@@ -1096,6 +1096,9 @@ Bisher in Elixir:
     schneller (`card([2], Vs)` über 12 Variablen: 0,8 statt 21 s, Scryer
     9 s), bleibt aber exponentiell, weil die ANF selbst exponentiell
     groß werden kann;
+  * der Neuaufbau der Knotentabellen nach jedem `sat/1` baut je Variable
+    den AVL-Baum in O(n) aus den sortierten Schlüsseln (statt jeden
+    Knoten einzeln einzufügen): 7 Damen aufstellen 5,6 → 3,3 s;
   * von `labeling/1` das Prüfen und Sortieren, von `random_labeling/2` die
     zufälligen Bindungen (mit denselben Zufallszahlen), von
     `weighted_maximum/3` der BDD-Teil (`weighted_maximum/3`: 51 → 3 ms
