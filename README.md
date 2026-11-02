@@ -1065,11 +1065,20 @@ stehen in ihrem Kopf). Referenz für jeden Schritt:
     Restzielen und Fehlern (erzeugt von `test/fixtures/clpb/gen_golden.exs`);
   * Vergleiche einzelner Teile mit Triskas Prolog-Code auf Zufallsformeln.
 
-Bisher in Elixir: die Prüfung nach jedem `sat/1` (`satisfiable_bdd/1`:
-welche Variablen nur noch einen Wert zulassen, welche gleich sein
-müssen) – rund zwei Drittel der Arbeit. Kommen Atome vor, rechnet noch
-Triskas Code (er baut dafür neue BDDs). Die kleinen Formeln aus
-`bench/compare.pl` brauchen damit 880 statt 1640 ms (Scryer: 265 ms).
+Bisher in Elixir:
+
+  * die Prüfung nach jedem `sat/1` (`satisfiable_bdd/1`: welche
+    Variablen nur noch einen Wert zulassen, welche gleich sein müssen),
+    auch mit Atomen (allquantifizierten Variablen);
+  * der BDD-Kern: `apply/4` (Verknüpfung zweier BDDs), `make_node/4`
+    (eindeutige Knoten über die Tabelle an jeder Variablen),
+    `bdd_restriction/4` und `existential/3` (Quantoren).
+
+Triskas Fassungen dieser Prädikate bleiben als `…_ref` in `clpb.pl` und
+dienen den Vergleichstests (je 2000 Zufallsformeln). Die kleinen Formeln
+aus `bench/compare.pl` brauchen damit gut 400 statt 1640 ms (Scryer:
+265 ms). Noch in Prolog: das Übersetzen der Formeln (`parse_sat/2`),
+`labeling/1`, `sat_count/2`, `weighted_maximum/3` und die Restziele.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
@@ -1691,10 +1700,10 @@ dieselbe Maschine; Zeiten in ms):
 | foldl/4 (300 000) | 720 | 172 | 4,2 |
 | dieselbe Summe von Hand | 623 | 138 | 4,5 |
 | findall + sort (200 000) | 588 | 266 | 2,2 |
-| clpb (kleine Formeln) | 880 | 265 | 3,3 |
+| clpb (kleine Formeln) | 405 | 265 | 1,5 |
 
-Im geometrischen Mittel ist PrologEx rund 6,5-mal langsamer als Scryer
-(clpb: Stand nach dem ersten Teil in Elixir, siehe dort);
+Im geometrischen Mittel ist PrologEx rund 6-mal langsamer als Scryer
+(clpb: Stand mit Propagation und BDD-Kern in Elixir, siehe dort);
 reine Maschinenarbeit (Schleifen, Arithmetik, Klauselwahl) 9–18-mal,
 wo eingebaute Prädikate einen großen Teil tragen (findall, sort, Listen)
 nur 2–4-mal. tak und queens sind bei Scryer so kurz, dass ihre Faktoren

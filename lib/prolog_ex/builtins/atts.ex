@@ -111,6 +111,44 @@ defmodule PrologEx.Builtins.Atts do
     end
   end
 
+  @doc false
+  # für Bibliotheken in Elixir (clpb): Argument des Attributs name/1 von v
+  # im Modul mod, oder nil (ohne die Attributwerte zu kopieren)
+  def get_one(v, mod, name, s) do
+    v
+    |> PrologEx.get_attrs(s)
+    |> Map.get(mod, [])
+    |> top_items()
+    |> Enum.find_value(fn
+      {:struct, ^name, [x]} -> x
+      _ -> nil
+    end)
+  end
+
+  @doc false
+  # wie put_atts(V, +Att) im Modul mod; v ist eine (attributierte) Variable
+  def put_one(s, v, mod, att) do
+    decl = declared!(mod)
+    k = PrologEx.Compiler.key(att)
+
+    v
+    |> PrologEx.get_attrs(s)
+    |> Map.get(mod, [])
+    |> top_items()
+    |> Enum.map(&{PrologEx.Compiler.key(&1), &1})
+    |> List.keystore(k, 0, {k, att})
+    |> Enum.sort_by(fn {k, _} -> Enum.find_index(decl, &(&1 == k)) end)
+    |> Enum.map(&elem(&1, 1))
+    |> then(&PrologEx.put_attr(s, v, mod, list(&1)))
+  end
+
+  defp top_items(l) do
+    case PrologEx.unmark_top(l) do
+      [h | t] -> [PrologEx.unmark_top(h) | top_items(t)]
+      _ -> []
+    end
+  end
+
   # vorhandene Attribute im Modul: [{key, term}]
   defp current(v, mod, s) do
     v

@@ -268,6 +268,14 @@ defmodule PrologEx.Builtins.Assoc do
     end
   end
 
+  @doc false
+  # für andere Bibliotheken (clpb): Wert zu key oder :none
+  def lookup_value(key, t, s), do: lookup(key, t, s)
+
+  @doc false
+  # für andere Bibliotheken (clpb): put_assoc/4
+  def put_value(t, key, val, s), do: t |> insert(key, val, s) |> elem(0)
+
   defp lookup(key, t, s) do
     case node!(t, s) do
       :empty ->

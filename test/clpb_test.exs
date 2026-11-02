@@ -84,6 +84,72 @@ defmodule PrologEx.ClpbTest do
           ;   Kind = gleich
           ).
 
+  % mit Atomen (allquantifizierten Variablen): Elixir prüft wie
+  % bdd_variables_classification/3, ob der BDD nach Herausrechnen der
+  % anderen Variablen 1 ist; scheitern beide, ist das gleich
+  compare_propagation_atoms(Seed, Kind) :-
+          set_random(seed(Seed)),
+          length(Vs0, 4), append(Vs0, [a,b], Vs),
+          rf(3, Vs, F),
+          catch(clpb:parse_sat(F, Sat), _, fail),
+          clpb:sat_bdd(Sat, BDD),
+          (   clpb:'$clpb_propagate'(BDD, P1) -> true ; P1 = scheitert ),
+          (   ref_propagate(BDD, P2) -> true ; P2 = scheitert ),
+          (   P1 == P2 -> true ; throw(verschieden(F, P1, P2)) ),
+          (   P1 == scheitert -> Kind = scheitert ; Kind = prop ).
+
+  % existential/3 (Elixir) gegen existential_ref/3 (Triska)
+  compare_existential(Seed, Size) :-
+          set_random(seed(Seed)),
+          length(Vs, 6),
+          rf2(5, Vs, F),
+          clpb:parse_sat(F, Sat),
+          clpb:sat_bdd(Sat, B),
+          random_member(V, Vs),
+          clpb:existential(V, B, N1),
+          clpb:existential_ref(V, B, N2),
+          canon(N1, C1), canon(N2, C2),
+          (   C1 == C2, N1 == N2 -> true ; throw(verschieden(F, V, C1, C2)) ),
+          clpb:bdd_nodes(N1, Ns), length(Ns, Size).
+
+  % Vergleich des BDD-Kerns: apply/4 (Elixir) gegen apply_ref/4 (Triska)
+  ref_bdd(V, N) :- var(V), !, clpb:make_node_ref(V, 0, 1, N).
+  ref_bdd(I, I) :- integer(I), !.
+  ref_bdd(S, N) :-
+          S =.. [F,A,B], ref_bdd(A, NA), ref_bdd(B, NB),
+          clpb:apply_ref(F, NA, NB, N).
+
+  % BDD als ite(Index, Low, High) – unabhängig von den Knoten-IDs
+  canon(I, I) :- integer(I), !.
+  canon(Node, ite(I, L, H)) :-
+          clpb:node_var_low_high(Node, V, Low, High),
+          clpb:var_index(V, I),
+          canon(Low, L), canon(High, H).
+
+  % ohne card und ^ (apply/4 und make_node/4 allein)
+  rf2(0, Vs, V) :- !, random_member(V, Vs).
+  rf2(D, Vs, F) :-
+          random_integer(0, 7, K), D1 is D - 1,
+          (   K =:= 0 -> rf2(0, Vs, F)
+          ;   K =:= 1 -> rf2(D1, Vs, A), F = ~(A)
+          ;   K =:= 2 -> rf2(D1, Vs, A), rf2(D1, Vs, B), F = A+B
+          ;   K =:= 3 -> rf2(D1, Vs, A), rf2(D1, Vs, B), F = A*B
+          ;   K =:= 4 -> rf2(D1, Vs, A), rf2(D1, Vs, B), F = #(A, B)
+          ;   K =:= 5 -> rf2(D1, Vs, A), rf2(D1, Vs, B), F = (A=:=B)
+          ;   rf2(D1, Vs, A), rf2(D1, Vs, B), F = (A=<B)
+          ).
+
+  compare_apply(Seed, Size) :-
+          set_random(seed(Seed)),
+          length(Vs, 6),
+          rf2(5, Vs, F),
+          clpb:parse_sat(F, Sat),
+          clpb:sat_bdd(Sat, B1),
+          ref_bdd(Sat, B2),
+          canon(B1, C1), canon(B2, C2),
+          (   C1 == C2, B1 == B2 -> true ; throw(verschieden(F, C1, C2)) ),
+          clpb:bdd_nodes(B1, Ns), length(Ns, Size).
+
   % Hilfsvariablen (Y, Z): project_attributes/2 blendet sie aus
   hidden(X) :- sat(X =:= _Y*_Z).
   hidden2(X, Y) :- sat(X =:= Y*Z), sat(Z =< Y).
@@ -225,15 +291,74 @@ defmodule PrologEx.ClpbTest do
     assert Map.get(counts, ["gleich", "gleich"], 0) >= 50, inspect(counts)
   end
 
-  test "Propagation: skip bei gebundener Variable, universal bei Atomen", c do
+  test "apply/4 und make_node/4 in Elixir gleich Triskas Prolog-Code (2000 Zufallsformeln)", c do
+    q =
+      "findall(N, (between(1, 2000, S), compare_apply(S, N)), Ns), sum_list(Ns, T), max_list(Ns, M)"
+
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    # genug große BDDs dabei
+    [_, total, max] =
+      Regex.run(~r/M = (\d+), .*T = (\d+)/, a) |> then(fn [w, m, t] -> [w, t, m] end)
+
+    assert String.to_integer(total) > 5000 and String.to_integer(max) >= 15, a
+  end
+
+  test "Propagation mit Atomen gleich Triskas Prolog-Code (2000 Zufallsformeln)", c do
+    q = "findall(K, (between(1, 2000, S), compare_propagation_atoms(S, K)), Ks)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    counts = ~r/\b(scheitert|prop)\b/ |> Regex.scan(a) |> Enum.frequencies()
+    assert Map.get(counts, ["scheitert", "scheitert"], 0) >= 100, inspect(counts)
+    assert Map.get(counts, ["prop", "prop"], 0) >= 100, inspect(counts)
+  end
+
+  test "existential/3 in Elixir gleich Triskas Prolog-Code (2000 Zufallsformeln)", c do
+    q = "findall(N, (between(1, 2000, S), compare_existential(S, N)), Ns), sum_list(Ns, T)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    [_, total] = Regex.run(~r/T = (\d+)/, a)
+    assert String.to_integer(total) > 3000, a
+  end
+
+  test "Propagation: skip bei gebundener Variable; Atome", c do
     # eine gebundene Knotenvariable (sonst prüft der Hook beim Binden)
     q = "clpb:'$clpb_propagate'(node(7, x, 0, 1, _), P)"
     assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
     assert a =~ "P = skip"
 
+    # a+X: nach Herausrechnen von X ist der BDD 1 – nichts zu tun
     q = "clpb:parse_sat(a+X, S), clpb:sat_bdd(S, B), clpb:'$clpb_propagate'(B, P)"
     assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
-    assert a =~ "P = universal"
+    assert a =~ "P = prop([],[],[])"
+
+    # a*X: bleibt a – scheitert
+    q = "clpb:parse_sat(a*X, S), clpb:sat_bdd(S, B), clpb:'$clpb_propagate'(B, P)"
+    assert {_, {:answers, []}} = TableCase.run(c.reader, c.db, q)
+
+    # a=:=X: Gleichsetzung mit dem Atom selbst
+    q = "sat(a =:= X)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    assert a =~ "X = a"
+
+    # handgebaute Knoten: Variable ohne Index scheitert überall
+    for q <- [
+          "clpb:'$clpb_propagate'(node(0, V, 0, 1, _), P)",
+          "clpb:'$clpb_existential'(V, 1, N)",
+          "clpb:'$clpb_restriction'(node(7, V, 0, 1, _), 0, 1, R)"
+        ] do
+      assert {_, {:answers, []}} = TableCase.run(c.reader, c.db, q), q
+    end
+
+    # gebundene Knotenvariable: 0 nimmt Low, 1 nimmt High
+    q =
+      "clpb:'$clpb_restriction'(node(7, 0, 0, 1, _), 0, 1, R0), " <>
+        "clpb:'$clpb_restriction'(node(7, 1, 0, 1, _), 0, 1, R1)"
+
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    assert a =~ "R0 = 0, R1 = 1"
+
+    # Fehler im BDD: eine an eine Zahl ungleich 0/1 gebundene Knotenvariable
+    q = "clpb:'$clpb_restriction'(node(7, 2, 0, 1, _), 0, 1, R)"
+    assert {_, {:error, e}} = TableCase.run(c.reader, c.db, q)
+    assert e =~ "domain_error(clpb_expr,2)"
   end
 
   # Triskas Prüfprogramme (mit clpb:validation): run(N) scheitert, wenn

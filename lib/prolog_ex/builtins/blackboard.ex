@@ -145,6 +145,24 @@ defmodule PrologEx.Builtins.Blackboard do
 
   # ---------------------------------------------------------------------
 
+  @doc false
+  # für Bibliotheken in Elixir (clpb): b_getval/2 bzw. b_setval/2 im
+  # Modul mod (Schlüssel ein Atomname)
+  def b_value(mod, name, s) do
+    k = {mod, {:atom, name}}
+
+    case s do
+      %{@b_key => %{^k => v}} -> {:ok, v}
+      _ -> with {:ok, v} <- fetch(k), do: {:ok, value_copy(v, %{})}
+    end
+  end
+
+  @doc false
+  def b_put(s, mod, name, v) do
+    k = {mod, {:atom, name}}
+    Map.update(s, @b_key, %{k => v}, &Map.put(&1, k, v))
+  end
+
   defp fetch(k), do: PrologEx.current_db() |> Map.get(:blackboard, %{}) |> Map.fetch(k)
 
   defp put(k, v),

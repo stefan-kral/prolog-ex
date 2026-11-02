@@ -33,11 +33,15 @@
    jeden Schritt sind die Antworten der ursprünglichen Fassung
    (test/clpb_golden_test.exs) und Vergleiche mit Triskas Code
    (test/clpb_test.exs). Abweichungen:
+     - apply/4, make_node/4, bdd_restriction/4, existential/3 (der
+       BDD-Kern): in Elixir ('$clpb_apply'/4, '$clpb_make_node'/4,
+       '$clpb_restriction'/4, '$clpb_existential'/3); die Originale mit
+       der Endung _ref
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
-       Gleichsetzungen) rechnet '$clpb_propagate'/2 in Elixir
-       (PrologEx.Builtins.ClpbPrims); der Originalcode steht unverändert
-       als satisfiable_bdd_/1 daneben – für allquantifizierte Variablen
-       und als Referenz der Tests (test/clpb_test.exs).
+       Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
+       '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
+       Originalcode steht unverändert als satisfiable_bdd_/1 daneben, als
+       Referenz der Tests (test/clpb_test.exs).
 */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -714,8 +718,7 @@ satisfiable_bdd(BDD) :-
         ;   '$clpb_propagate'(BDD, P),
             (   P = prop(Vs, Values, Goals) ->
                 maplist(unification, [Vs=Values|Goals])
-            ;   P == skip -> true
-            ;   satisfiable_bdd_(BDD)
+            ;   true    % skip: eine Knotenvariable ist gebunden
             )
         ).
 
@@ -920,7 +923,12 @@ nodes_with_variable([Node|Nodes], VI) -->
    Node management. Always use an existing node, if there is one.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+% PrologEx: in Elixir ('$clpb_make_node'/4); das Original als
+% make_node_ref/4 (Referenz der Tests)
 make_node(Var, Low, High, Node) :-
+        '$clpb_make_node'(Var, Low, High, Node).
+
+make_node_ref(Var, Low, High, Node) :-
         (   Low == High -> Node = Low
         ;   low_high_key(Low, High, Key),
             (   lookup_node(Var, Key, Node) -> true
@@ -992,7 +1000,12 @@ sat_bdd(Sat, Node)         :- !,
         sat_bdd(B, NB),
         apply(F, NA, NB, Node).
 
+% PrologEx: in Elixir ('$clpb_existential'/3); das Original als
+% existential_ref/3
 existential(V, BDD, Node) :-
+        '$clpb_existential'(V, BDD, Node).
+
+existential_ref(V, BDD, Node) :-
         var_index(V, Index),
         bdd_restriction(BDD, Index, 0, NA),
         bdd_restriction(BDD, Index, 1, NB),
@@ -1077,7 +1090,12 @@ del_attrs(Var) :-
    association table F(IDA,IDB) -> Node, used for memoization.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+% PrologEx: in Elixir ('$clpb_apply'/4); das Original als apply_ref/4
+% (Referenz der Tests)
 apply(F, NA, NB, Node) :-
+        '$clpb_apply'(F, NA, NB, Node).
+
+apply_ref(F, NA, NB, Node) :-
         empty_assoc(G0),
         phrase(apply(F, NA, NB, Node), [G0], _).
 
@@ -1260,7 +1278,13 @@ quantify_existantially(E, E0, E^E0) :- put_attr(E, clpb_omit_boolean, true).
    BDD restriction.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+% PrologEx: in Elixir ('$clpb_restriction'/4); das Original als
+% bdd_restriction_ref/4
 bdd_restriction(Node, VI, Value, Res) :-
+        '$clpb_restriction'(Node, VI, Value, Res),
+        is_bdd(Res).
+
+bdd_restriction_ref(Node, VI, Value, Res) :-
         empty_assoc(G0),
         phrase(bdd_restriction_(Node, VI, Value, Res), [G0], _),
         is_bdd(Res).
