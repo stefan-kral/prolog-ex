@@ -1166,4 +1166,149 @@ defmodule PrologEx.Builtins.ClpbPrims do
       _ -> throw(:no_ands)
     end
   end
+
+  # --- tautology/1 -------------------------------------------------------------------
+
+  # '$clpb_tautology'(+Sat): Sat (übersetzt) ist unter den bisherigen
+  # Bedingungen immer wahr – für jedes Konjunktionsglied ist der BDD von
+  # ~Glied verknüpft mit den BDDs der Wurzeln 0. Wie im Original ohne
+  # bleibende Änderungen (dort über throw/catch): die Substitution der
+  # Rechnung wird verworfen. Den Neuaufbau der Knotentabellen
+  # (rebuild_hashes/1) spart das: er entfernt nur Einträge, und mit mehr
+  # Einträgen entsteht derselbe kanonische BDD.
+  defbuiltin "$clpb_tautology", [sat] do
+    s = subst()
+
+    items =
+      case ands(sat, s) do
+        {:split, items, _} -> items
+        :single -> [sat]
+      end
+
+    try do
+      Enum.all?(items, &tautology?(&1, s))
+    catch
+      :clpb_fail -> false
+    end
+  end
+
+  defp tautology?(sat, s) do
+    roots = sat_roots(sat, s)
+    st = %{s: s, memo: %{}, idx: %{}}
+
+    {ands, st} =
+      Enum.reduce(roots, {1, st}, fn root, {b0, st} ->
+        case Atts.get_one(root, "clpb", "clpb_bdd", st.s) do
+          nil ->
+            {b0, st}
+
+          fb ->
+            {:struct, "-", [_, b]} = top(fb, st.s)
+            apply_fresh("*", top(b, st.s), b0, st)
+        end
+      end)
+
+    {bdd, st} = sat_bdd(mk("#", [1, sat]), st)
+    {b, _st} = apply_fresh("*", bdd, ands, st)
+    b == 0
+  end
+
+  # --- verify_attributes/3 und root_rebuild_bdd/2 -------------------------------------
+
+  # '$clpb_verify'(+Var, +Other, +Monotonic, -Goals): der Hook beim Binden
+  # von Var an Other (Var noch ungebunden). Goals wie im Original:
+  #   * Other 0/1: den BDD der Wurzel einschränken – [satisfiable_bdd(BDD)]
+  #   * Other ein Atom: [root_rebuild_bdd(Root, Formel)]
+  #   * sonst (Variable, Formel): die Wurzeln von Var und Other vereinigen,
+  #     [root_rebuild_bdd(Root, Konjunktion ihrer Formeln)]
+  defbuiltin "$clpb_verify", [var, other, mono, gs] do
+    s = subst()
+
+    try do
+      {goals, s} = verify(var, other, PrologEx.walk(mono, s) == a("true"), s)
+
+      case PrologEx.unify(gs, list(goals), s) do
+        {:ok, s} -> {:subst, s}
+        :error -> :fail
+      end
+    catch
+      :clpb_fail -> :fail
+    end
+  end
+
+  defp verify(var, other, mono, s) do
+    case Atts.get_one(var, "clpb", "clpb", s) do
+      nil ->
+        {[], s}
+
+      ir ->
+        {:struct, "index_root", [i, root]} = top(ir, s)
+
+        case top(other, s) do
+          o when is_integer(o) ->
+            if o not in [0, 1], do: clpb_error(mk("domain_error", [a("clpb_expr"), o]), o)
+            {sat, bdd0} = formula_bdd(root, s)
+
+            {bdd, st} =
+              restrict(bdd0, PrologEx.walk(i, s), o, %{s: s, idx: %{}, rmemo: %{}})
+
+            s = Atts.put_one(st.s, root, "clpb", mk("clpb_bdd", [mk("-", [sat, bdd])]))
+            {[mk("satisfiable_bdd", [bdd])], s}
+
+          o when o == [] or (is_tuple(o) and elem(o, 0) == :atom) ->
+            {sat0, _} = formula_bdd(root, s)
+            {[mk("root_rebuild_bdd", [root, sat0])], s}
+
+          _ ->
+            {sat0, _} = formula_bdd(root, s)
+            {other_sat, s} = parse(other, mono, s)
+            roots = sat_roots(mk("*", [sat0, other_sat]), s)
+
+            fs =
+              for r <- roots, fb = Atts.get_one(r, "clpb", "clpb_bdd", s), fb != nil do
+                {:struct, "-", [f, _]} = top(fb, s)
+                f
+              end
+
+            if fs == [], do: throw(:clpb_fail)
+            [f | fs] = fs
+            conj = Enum.reduce(fs, f, &mk("*", [&2, &1]))
+            s = Enum.reduce(roots, s, &Atts.del_one(&2, &1, "clpb", "clpb_bdd"))
+            [root | rest] = roots
+            s = Enum.reduce(rest, s, &Map.put(&2, &1, root))
+            {[mk("root_rebuild_bdd", [root, conj])], s}
+        end
+    end
+  end
+
+  # root_get_formula_bdd/3: {Formel, BDD} der Wurzel, sonst scheitern
+  defp formula_bdd(root, s) do
+    case Atts.get_one(root, "clpb", "clpb_bdd", s) do
+      nil ->
+        throw(:clpb_fail)
+
+      fb ->
+        {:struct, "-", [f, b]} = top(fb, s)
+        {f, top(b, s)}
+    end
+  end
+
+  # '$clpb_rebuild'(+Root, +Formel, +Monotonic, -BDD): root_rebuild_bdd/2
+  # bis auf is_bdd/1 und satisfiable_bdd/1
+  defbuiltin "$clpb_rebuild", [root, formula, mono, bdd] do
+    s = subst()
+
+    try do
+      {sat, s} = parse(formula, PrologEx.walk(mono, s) == a("true"), s)
+      {b, st} = sat_bdd(sat, %{s: s, memo: %{}, idx: %{}})
+      s = Atts.put_one(st.s, root, "clpb", mk("clpb_bdd", [mk("-", [formula, b])]))
+
+      case PrologEx.unify(bdd, b, s) do
+        {:ok, s} -> {:subst, s}
+        :error -> :fail
+      end
+    catch
+      :clpb_fail -> :fail
+    end
+  end
 end

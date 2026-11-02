@@ -1081,15 +1081,26 @@ Bisher in Elixir:
     des Originals bei offenen Listen wie `sat(*(L))`), Verknüpfen mit den
     BDDs der beteiligten Wurzeln, Neuaufbau der Knotentabellen. In
     Prolog bleiben nur die Unifikationen der Propagation, weil jede die
-    Hooks der gebundenen Variablen wecken muss, bevor die nächste kommt.
+    Hooks der gebundenen Variablen wecken muss, bevor die nächste kommt;
+  * `taut/2` (die Prüfung auf Tautologie, ohne bleibende Änderungen) und
+    der Hook beim Binden (`verify_attributes/3`, samt Neuaufbau des BDDs
+    einer Wurzel).
 
 Triskas Fassungen dieser Prädikate bleiben als `…_ref` in `clpb.pl` und
 dienen den Vergleichstests (je 1500–3000 Zufallsformeln, -terme bzw.
 Folgen von Bedingungen, für `parse_sat/2` auch fehlerhafte). Die kleinen Formeln aus
 `bench/compare.pl` brauchen damit rund 80 statt 1640 ms – gut dreimal
-schneller als Scryer (265 ms). Noch in Prolog: `taut/2`, die Hooks beim
-Binden, `labeling/1`, `sat_count/2`, `weighted_maximum/3` und die
-Restziele.
+schneller als Scryer (265 ms). Mit `clpb:ref_mode` (dynamisch, für die
+Tests) rechnen `sat/1`, `taut/2` und der Hook wieder mit Triskas Code.
+Noch in Prolog: `labeling/1`, `sat_count/2`, `weighted_maximum/3` und
+die Restziele.
+
+Eine Eigenheit des Originals bleibt erhalten (Scryer verhält sich
+genauso): Bindet eine einzige Unifikation mehrere Variablen aus
+verschiedenen Bedingungen, scheitert sie, etwa
+`sat(X =\= Y), sat(A =\= B), f(X, Y) = f(A, B)` – der Hook der zweiten
+Variablen findet die Formel ihrer Wurzel nicht mehr, weil der erste sie
+zum Neuaufbau schon abgeräumt hat.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 

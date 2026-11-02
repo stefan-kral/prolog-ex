@@ -142,6 +142,17 @@ defmodule PrologEx.Builtins.Atts do
     |> then(&PrologEx.put_attr(s, v, mod, list(&1)))
   end
 
+  @doc false
+  # wie put_atts(V, -name(_)) im Modul mod
+  def del_one(s, v, mod, name) do
+    items = v |> PrologEx.get_attrs(s) |> Map.get(mod, []) |> top_items()
+    kept = Enum.reject(items, &match?({:struct, ^name, [_]}, &1))
+
+    if length(kept) == length(items),
+      do: s,
+      else: PrologEx.put_attr(s, v, mod, list(kept))
+  end
+
   defp top_items(l) do
     case PrologEx.unmark_top(l) do
       [h | t] -> [PrologEx.unmark_top(h) | top_items(t)]

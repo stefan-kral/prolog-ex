@@ -44,6 +44,11 @@
        counter_network/3 ruft für Teilformeln noch sat_bdd/2 auf)
      - sat/1: in Elixir ('$clpb_sat'/3) bis auf die Unifikationen der
        Propagation, die die Hooks wecken müssen; das Original als sat_ref/1
+     - tautology/1 (für taut/2), der Hook beim Binden
+       (verify_attributes/3) und root_rebuild_bdd/2: in Elixir
+       ('$clpb_tautology'/1, '$clpb_verify'/4, '$clpb_rebuild'/4); die
+       Originale mit der Endung _ref. Mit ref_mode (dynamisch) rechnen
+       sat/1, tautology/1, der Hook und root_rebuild_bdd/2 mit ihnen.
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -521,6 +526,10 @@ is_sat(card(Is,Fs)) :-
 
 :- dynamic(monotonic/0).
 
+% PrologEx: mit ref_mode rechnen sat/1, tautology/1, der Hook beim Binden
+% und root_rebuild_bdd/2 mit Triskas Originalcode (für die Vergleichstests)
+:- dynamic(ref_mode/0).
+
 non_monotonic(X) :-
         (   var_index(X, _) ->
             % OK: already constrained to a CLP(B) variable
@@ -613,8 +622,13 @@ sat_roots(Sat, Roots) :-
 % PrologEx: in Elixir ('$clpb_sat'/3) bis auf die Propagation mit ihren
 % Unifikationen (satisfiable_bdd/1); das Original als sat_ref/1
 sat(Sat0) :-
-        (   monotonic -> M = true ; M = false ),
-        '$clpb_sat'(Sat0, M, R),
+        (   ref_mode -> sat_ref(Sat0)
+        ;   (   monotonic -> M = true ; M = false ),
+            '$clpb_sat'(Sat0, M, R),
+            sat_(R)
+        ).
+
+sat_(R) :-
         (   R = ands(Ands) -> maplist(sat, Ands)
         ;   R = bdd(BDD),
             is_bdd(BDD),
@@ -721,9 +735,16 @@ taut(Sat0, T) :-
    formula is 0. Critically, this avoids constraint propagation.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+% PrologEx: in Elixir ('$clpb_tautology'/1); das Original als
+% tautology_ref/1
 tautology(Sat) :-
+        (   ref_mode -> tautology_ref(Sat)
+        ;   '$clpb_tautology'(Sat)
+        ).
+
+tautology_ref(Sat) :-
         (   phrase(sat_ands(Sat), Ands), Ands = [_,_|_] ->
-            maplist(tautology, Ands)
+            maplist(tautology_ref, Ands)
         ;   catch((sat_roots(Sat, Roots),
                    roots_and(Roots, _-1, _-Ands),
                    sat_bdd(1#Sat, BDD),
@@ -1215,7 +1236,15 @@ state(S0, S), [S] --> [S0].
    Unification. X = Expr is equivalent to sat(X =:= Expr).
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+% PrologEx: in Elixir ('$clpb_verify'/4); das Original als
+% verify_attributes_ref/3
 verify_attributes(Var, Other, Gs) :-
+        (   ref_mode -> verify_attributes_ref(Var, Other, Gs)
+        ;   (   monotonic -> M = true ; M = false ),
+            '$clpb_verify'(Var, Other, M, Gs)
+        ).
+
+verify_attributes_ref(Var, Other, Gs) :-
         % format("~w = ~w\n", [Var,Other]),
         (   get_attr(Var, clpb, index_root(I,Root)) ->
             (   integer(Other) ->
@@ -1254,7 +1283,17 @@ formulas_([Root|Roots]) -->
         ),
         formulas_(Roots).
 
+% PrologEx: in Elixir ('$clpb_rebuild'/4) bis auf die Propagation; das
+% Original als root_rebuild_bdd_ref/2
 root_rebuild_bdd(Root, Formula) :-
+        (   ref_mode -> root_rebuild_bdd_ref(Root, Formula)
+        ;   (   monotonic -> M = true ; M = false ),
+            '$clpb_rebuild'(Root, Formula, M, BDD),
+            is_bdd(BDD),
+            satisfiable_bdd(BDD)
+        ).
+
+root_rebuild_bdd_ref(Root, Formula) :-
         parse_sat(Formula, Sat),
         sat_bdd(Sat, BDD),
         is_bdd(BDD),

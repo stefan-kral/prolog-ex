@@ -228,6 +228,68 @@ defmodule PrologEx.ClpbTest do
           (   R1 =@= R2 -> true ; throw(verschieden(Fs, R1, R2)) ),
           functor(R1, Kind, _).
 
+  % ganze Abläufe: sat/1, taut/2 und Bindungen (Hook beim Binden), einmal
+  % mit Elixir, einmal mit ref_mode (Triskas Code)
+  random_op(Vs, Op) :-
+          random_integer(0, 11, K),
+          random_member(X, Vs), random_member(Y, Vs),
+          (   K < 4 -> rs(3, Vs, F), Op = sat(F)
+          ;   K < 6 -> rs(2, Vs, F), Op = taut(F, _)
+          ;   K < 7 -> random_member(B, [0, 1]), Op = (X = B)
+          ;   K < 8 -> Op = (X = Y)
+          ;   K < 9 ->
+              random_member(A, [a, b]), Op = (X = A)
+          ;   K < 10, random_integer(0, 2, 0) ->
+              % zwei Bindungen in einer Unifikation
+              random_member(Z, Vs), random_member(W, Vs),
+              Op = (f(X, Y) = f(Z, W))
+          ;   % über neue Variablen (sonst entstehen über Ketten wie
+              % B = ~D, D = B^a zyklische Terme)
+              rs(1, [_, _], F), Op = (X = F)
+          ).
+
+  run_ops([]).
+  run_ops([Op|Ops]) :- call(Op), run_ops(Ops).
+
+  ops_result(Vs, Ops, R) :-
+          findall(R0,
+                  catch(( run_ops(Ops) ->
+                          copy_term(Vs-Ops, Ws, Gs),
+                          b_getval_(N1, N2),
+                          R0 = ok(Vs-Ops, Ws, Gs, N1, N2)
+                        ; R0 = scheitert
+                        ), E, R0 = fehler(E)),
+                  [R]).
+
+  compare_ops(Seed, Kind) :-
+          set_random(seed(Seed)),
+          length(Vs, 4),
+          random_integer(1, 6, K),
+          length(Ops, K),
+          maplist(random_op(Vs), Ops),
+          ops_result(Vs, Ops, R1),
+          assertz(clpb:ref_mode),
+          ops_result(Vs, Ops, R2),
+          retractall(clpb:ref_mode),
+          (   R1 =@= R2 -> true ; throw(verschieden(Ops, R1, R2)) ),
+          functor(R1, Kind, _).
+
+  % ein Ziel einmal mit Elixir, einmal mit ref_mode
+  goal_result(G, R) :-
+          term_variables(G, Vs),
+          findall(R0,
+                  catch(( call(G) -> copy_term(Vs, Ws, Gs), R0 = ok(Vs, Ws, Gs)
+                        ; R0 = scheitert
+                        ), E, R0 = fehler(E)),
+                  [R]).
+
+  compare_goal(G, R1) :-
+          goal_result(G, R1),
+          assertz(clpb:ref_mode),
+          goal_result(G, R2),
+          retractall(clpb:ref_mode),
+          (   R1 =@= R2 -> true ; throw(verschieden(G, R1, R2)) ).
+
   % sat_ands//1 mit offenen Listen: dieselben Bindungen wie das Original
   compare_sat_ands(G, P) :-
           copy_term(G, G1), copy_term(G, G2),
@@ -476,6 +538,36 @@ defmodule PrologEx.ClpbTest do
     counts = ~r/\b(ok|scheitert|fehler)\b/ |> Regex.scan(a) |> Enum.frequencies()
     assert Map.get(counts, ["ok", "ok"], 0) >= 500, inspect(counts)
     assert Map.get(counts, ["scheitert", "scheitert"], 0) >= 200, inspect(counts)
+  end
+
+  test "taut/2 und Bindungen in Elixir gleich Triskas Prolog-Code (2000 Abläufe)", c do
+    q = "findall(K, (between(1, 2000, S), compare_ops(S, K)), Ks)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    counts = ~r/\b(ok|scheitert|fehler)\b/ |> Regex.scan(a) |> Enum.frequencies()
+    assert Map.get(counts, ["ok", "ok"], 0) >= 500, inspect(counts)
+    assert Map.get(counts, ["scheitert", "scheitert"], 0) >= 300, inspect(counts)
+  end
+
+  test "Hook beim Binden: Sonderfälle wie das Original", c do
+    for g <- [
+          # keine Wahrheitswerte
+          "sat(X+Y), catch(X = 2, E, true)",
+          # [] ist ein Atom (allquantifiziert)
+          "sat(X+Y), X = []",
+          # Wurzel ohne Formel (nur über taut/2 angemeldet): scheitert,
+          # bevor Other übersetzt wird
+          "taut(X + ~X, _), catch(X = f(y), E, true)",
+          # monotonic: Other ohne Index ist ein instantiation_error
+          "sat(X+Y), freeze(Z, true), assertz(clpb:monotonic), " <>
+            "catch(X = Z, E, true), retractall(clpb:monotonic)",
+          # mehrere Bindungen in einer Unifikation
+          "sat(X =\\= Y), sat(A =\\= B), f(X, Y) = f(A, B)",
+          "sat(X =\\= Y), sat(A =:= B), f(X, Y) = f(A, B)",
+          "sat(X + Y), sat(A * B), sat(C # D), f(X, Y, C) = f(A, D, B)"
+        ] do
+      q = "compare_goal((#{g}), P)"
+      assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), g
+    end
   end
 
   test "sat/1: Zerlegung mit offenen Listen wie das Original", c do
