@@ -13,6 +13,11 @@ defmodule PrologEx.CompactTest do
   seta([a|T]) :- seta(T).
   share(0, X, X) :- !.
   share(N, X, R) :- N1 is N - 1, share(N1, f(X, X), R).
+  % zwischen den beiden Vorkommen von X liegen andere n/4-Strukturen
+  share3(0, X, X) :- !.
+  share3(N, X, R) :-
+      N1 is N - 1,
+      share3(N1, n(N, X, u(n(-1, Y, Y, Y), n(-2, Y, Y, Y)), X), R).
   """
 
   setup_all do
@@ -77,6 +82,50 @@ defmodule PrologEx.CompactTest do
     # R ist ein DAG mit 2^40 Pfaden; ohne Memo würde die Kompaktierung
     # (bei jedem Schritt) ihn ausrollen
     assert both(c, "\\+ \\+ (share(40, a, R), functor(R, F, N), F == f, N == 2).") == ["true"]
+  end
+
+  test "geteilte Teilterme mit Variablen: einmal abgelaufen, geteilt kopiert", c do
+    # nicht ground (keine Markierung): die Kompaktierung erkennt geteilte
+    # Teilterme an der physischen Identität; ohne das 2^40 Pfade
+    assert both(c, "\\+ \\+ (share(40, g(_), R), functor(R, F, N), F == f, N == 2).") ==
+             ["true"]
+
+    # unten gebunden: die Kompaktierung setzt die Bindung ein und muss den
+    # DAG dabei geteilt kopieren
+    assert both(
+             c,
+             "\\+ \\+ (share(40, g(X), R), X = 1, R = f(A, _), A = f(B, _), B = f(_, _))."
+           ) == ["true"]
+
+    # Strukturen mit atomarem erstem Argument (wie BDD-Knoten mit ihrer ID)
+    assert both(
+             c,
+             "\\+ \\+ (share(30, g(X), R0), R = n(7, R0, R0), X = 2, R = n(7, f(_, _), _))."
+           ) == ["true"]
+  end
+
+  test "geteilte Teilterme mit Zahl als erstem Argument (wie BDD-Knoten)", c do
+    # Zwischen den beiden Vorkommen von X liegen andere n/4-Strukturen; ohne
+    # eigenen Schlüssel je erstem Argument fiele X aus dem Memo, und jede
+    # Kompaktierung (hier durch die 300 000 Bindungen) liefe 2^21 Pfade ab.
+    # Mit Zeitgrenze im eigenen Prozess, damit ein Rückfall nicht den
+    # ganzen Testlauf mit Speicherüberlauf abbricht.
+    [{:term, g, _}] =
+      Reader.read_terms(
+        c.reader,
+        "share3(21, g(X), R), X = 1, length(L, 300000), seta(L), R = n(1, _, _, _)."
+      )
+
+    db = c.db
+    reader = c.reader
+
+    task =
+      Task.async(fn ->
+        Reader.put_current(reader)
+        db |> PrologEx.query(g) |> Enum.take(1) |> length()
+      end)
+
+    assert {:ok, 1} = Task.yield(task, 10_000) || Task.shutdown(task, :brutal_kill)
   end
 
   test "attributierte Variablen in langen Listen bleiben erhalten", c do

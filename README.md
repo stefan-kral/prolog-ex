@@ -10,7 +10,13 @@ Ein Prolog-Kern in Elixir:
   im Kopf, Rumpf wird erst nach passendem Kopf gebaut
 - explizite Ziel- und Choice-Point-Stacks mit Last-Call-Optimierung,
   vorberechneter Index nach dem ersten Argument
-- Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen
+- Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen;
+  geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
+  Knoten eines BDDs) läuft sie nur einmal ab und kopiert sie geteilt –
+  erkannt an der physischen Identität (`:erts_debug.same/2`; fehlt die
+  Funktion, wird wie früher ohne dieses Memo kompaktiert). Vorher wuchs
+  der Aufwand mit der Zahl der Pfade: Bei 24 Stufen lief der Speicher
+  über; 8 Damen mit `library(clpb)` und `labeling/1` brach deshalb ab.
 
 ## Loslegen
 

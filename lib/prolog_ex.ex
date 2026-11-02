@@ -3715,7 +3715,59 @@ defmodule PrologEx do
     end
   end
 
-  defp compact3({:struct, f, args} = t, subst, acc) do
+  @share_bucket 8
+  @share_bucket_nokey 2
+  # :erts_debug.same/2 ist nicht offiziell dokumentiert; fehlt sie, wird
+  # ohne Memo kompaktiert (wie früher – dasselbe Ergebnis, nur bei
+  # geteilten Termen langsamer)
+  @share_same Code.ensure_loaded?(:erts_debug) and function_exported?(:erts_debug, :same, 2)
+
+  # Geteilte Teilterme (ein DAG, etwa die Knoten eines BDDs) nur einmal
+  # ablaufen: Memo nach {Funktor, Stelligkeit, erstes Argument falls
+  # atomar}, Treffer nur bei physischer Identität (:erts_debug.same/2).
+  # Ein Treffer liefert, was die Rechnung ergäbe; ohne Treffer wird
+  # gerechnet wie bisher. Je Schlüssel die letzten @share_bucket Einträge,
+  # ohne atomares erstes Argument nur @share_bucket_nokey (alle solchen
+  # Strukturen teilen sich einen Schlüssel; der geteilte Teilterm ist
+  # meist der zuletzt bearbeitete, etwa bei T1 = f(T0, T0)).
+  if @share_same do
+    defp compact3({:struct, f, args} = t, subst, {memo, _, _} = acc) do
+      key = {:"$s", f, length(args), share_key(args)}
+      bucket = Map.get(memo, key, [])
+
+      case Enum.find(bucket, fn {orig, _} -> :erts_debug.same(orig, t) end) do
+        {_, {t2, changed, ground}} ->
+          {t2, acc, changed, ground}
+
+        nil ->
+          {t2, {memo, size, attvs}, changed, ground} = compact_struct(t, f, args, subst, acc)
+          n = if elem(key, 3) == nil, do: @share_bucket_nokey, else: @share_bucket
+          bucket = Enum.take([{t, {t2, changed, ground}} | Map.get(memo, key, [])], n)
+          {t2, {Map.put(memo, key, bucket), size, attvs}, changed, ground}
+      end
+    end
+  else
+    defp compact3({:struct, f, args} = t, subst, acc),
+      do: compact_struct(t, f, args, subst, acc)
+  end
+
+  # Listen: den Rücken iterativ ablaufen (auch über gebundene
+  # Rest-Variablen), dann von hinten neu aufbauen. Rekursion über den Rest
+  # hieße einen Stack so tief wie die Liste – und jede GC durchsucht den
+  # ganzen Stack (bei 400 000 Zellen ein Mehrfaches der eigentlichen Arbeit).
+  defp compact3([_ | _] = l, subst, acc) do
+    {spine, tail, acc} = compact_spine(l, subst, acc, [])
+    {t2, acc, ct, gt} = compact3(tail, subst, acc)
+    compact_rebuild(spine, t2, acc, ct, gt)
+  end
+
+  defp compact3(t, _subst, acc), do: {t, acc, false, true}
+
+  defp share_key([a | _]) when is_integer(a) or is_atom(a), do: a
+  defp share_key([{:atom, _} = a | _]), do: a
+  defp share_key(_), do: nil
+
+  defp compact_struct(t, f, args, subst, acc) do
     {args2, {acc, changed, ground}} =
       Enum.map_reduce(args, {acc, false, true}, fn arg, {acc, ch, gr} ->
         {a2, acc, c, g} = compact3(arg, subst, acc)
@@ -3730,18 +3782,6 @@ defmodule PrologEx do
       true -> {t, {memo, size + 1, attvs}, false, false}
     end
   end
-
-  # Listen: den Rücken iterativ ablaufen (auch über gebundene
-  # Rest-Variablen), dann von hinten neu aufbauen. Rekursion über den Rest
-  # hieße einen Stack so tief wie die Liste – und jede GC durchsucht den
-  # ganzen Stack (bei 400 000 Zellen ein Mehrfaches der eigentlichen Arbeit).
-  defp compact3([_ | _] = l, subst, acc) do
-    {spine, tail, acc} = compact_spine(l, subst, acc, [])
-    {t2, acc, ct, gt} = compact3(tail, subst, acc)
-    compact_rebuild(spine, t2, acc, ct, gt)
-  end
-
-  defp compact3(t, _subst, acc), do: {t, acc, false, true}
 
   # Köpfe der Reihe nach kompaktieren; Einträge {:cell, zelle, h2, ch, gh}
   # oder {:link, var} (gebundene Rest-Variable, wird beim Aufbau memoisiert)
