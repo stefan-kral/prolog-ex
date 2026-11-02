@@ -51,6 +51,10 @@
        sat/1, tautology/1, der Hook und root_rebuild_bdd/2 mit ihnen.
      - sat_count/2: in Elixir ('$clpb_sat_count'/3); das Original als
        sat_count_ref/2 (auch mit ref_mode)
+     - die Restziele (attribute_goals//1, project_attributes/2): in Elixir
+       ('$clpb_attribute_goals'/4, '$clpb_project'/1); die ANF mit
+       Merktabelle je Knoten. Die Originale mit der Endung _ref (auch
+       mit ref_mode)
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -1317,7 +1321,14 @@ root_rebuild_bdd_ref(Root, Formula) :-
    residual goals. This is very easy to do in the case of CLP(B).
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-project_attributes(QueryVars0, _) :-
+% PrologEx: in Elixir ('$clpb_project'/1); das Original als
+% project_attributes_ref/2 (auch mit ref_mode)
+project_attributes(QueryVars0, AttrVars) :-
+        (   ref_mode -> project_attributes_ref(QueryVars0, AttrVars)
+        ;   '$clpb_project'(QueryVars0)
+        ).
+
+project_attributes_ref(QueryVars0, _) :-
         include(clpb_variable, QueryVars0, QueryVars),
         maplist(var_index_root, QueryVars, _, Roots0),
         sort(Roots0, Roots),
@@ -1820,7 +1831,17 @@ skip_to_var_(Var, Weight, [Var0-Weight0|VWs0], VWs) -->
 
 :- dynamic(clpb_residuals/1).
 
+% PrologEx: in Elixir ('$clpb_attribute_goals'/4); das Original als
+% attribute_goals_ref//1 (auch mit ref_mode)
 attribute_goals(Var) -->
+        (   { ref_mode } -> attribute_goals_ref(Var)
+        ;   { (   monotonic -> M = true ; M = false ),
+              (   clpb_residuals(bdd) -> R = bdd ; R = anf ),
+              '$clpb_attribute_goals'(Var, M, R, Gs) },
+            list(Gs)
+        ).
+
+attribute_goals_ref(Var) -->
         { var_index_root(Var, _, Root) },
         !,
         (   { root_get_formula_bdd(Root, Formula, BDD) } ->
@@ -1849,11 +1870,11 @@ attribute_goals(Var) -->
             booleans(RestVs)
         ;   boolean(Var)  % the variable may have occurred only in taut/2
         ).
-attribute_goals(Var) -->
+attribute_goals_ref(Var) -->
         { get_atts(Var, clpb_max(_)),
           !,
           put_atts(Var, -clpb_max(_)) }.
-attribute_goals(Var) -->
+attribute_goals_ref(Var) -->
         { get_atts(Var, clpb_bdd(BDD)),
           ground(BDD),
           put_atts(Var, -clpb_bdd(_)) }.

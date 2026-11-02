@@ -45,6 +45,8 @@ defmodule PrologEx.Builtins.ClpbPrims do
     * `'$clpb_tautology'/1`, `'$clpb_verify'/4`, `'$clpb_rebuild'/4` –
       `tautology/1`, der Hook beim Binden, `root_rebuild_bdd/2`.
     * `'$clpb_sat_count'(+Sat0, +Monotonic, ?N)` – `sat_count/2`.
+    * `'$clpb_attribute_goals'/4`, `'$clpb_project'/1` – die Restziele
+      (`attribute_goals//1`, `project_attributes/2`).
 
   Der Zustand bleibt, wo ihn der Prolog-Code erwartet (Attribute,
   backtrackbarer Zähler), damit beide Teile zusammenpassen, solange es
@@ -1426,4 +1428,398 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   defp pow2(k) when k >= 0, do: Integer.pow(2, k)
   defp pow2(_), do: throw(:clpb_fail)
+
+  # --- Restziele: attribute_goals//1 und project_attributes/2 -------------------------
+
+  # '$clpb_attribute_goals'(+Var, +Monotonic, +Modus, -Goals): die Restziele
+  # einer Variablen wie attribute_goals//1 des Originals (Modus anf oder
+  # bdd für clpb_residuals(bdd)), mit denselben Änderungen an den
+  # Attributen: die Formel der Wurzel wird abgeräumt (die anderen
+  # Variablen der Wurzel geben dann nichts mehr aus), die Variablen des
+  # BDDs verlieren ihre clpb-Attribute. Scheitert wie das Original.
+  defbuiltin "$clpb_attribute_goals", [var, mono, mode, gs] do
+    s = subst()
+    mono = PrologEx.walk(mono, s) == a("true")
+    bdd_mode = PrologEx.walk(mode, s) == a("bdd")
+
+    try do
+      {goals, s} = attribute_goals(PrologEx.walk(var, s), mono, bdd_mode, s)
+
+      case PrologEx.unify(gs, list(goals), s) do
+        {:ok, s} -> {:subst, s}
+        :error -> :fail
+      end
+    catch
+      :clpb_fail -> :fail
+    end
+  end
+
+  defp attribute_goals(var, mono, bdd_mode, s) do
+    case Atts.get_one(var, "clpb", "clpb", s) do
+      nil ->
+        cond do
+          Atts.get_one(var, "clpb", "clpb_max", s) != nil ->
+            {[], Atts.del_one(s, var, "clpb", "clpb_max")}
+
+          (fb = Atts.get_one(var, "clpb", "clpb_bdd", s)) != nil and
+              PrologEx.Builtins.Order.variables(fb, s) == [] ->
+            {[], Atts.del_one(s, var, "clpb", "clpb_bdd")}
+
+          true ->
+            throw(:clpb_fail)
+        end
+
+      ir ->
+        {:struct, "index_root", [_, root]} = top(ir, s)
+
+        case Atts.get_one(root, "clpb", "clpb_bdd", s) do
+          nil ->
+            boolean(var, s)
+
+          fb ->
+            {:struct, "-", [formula, bdd]} = top(fb, s)
+            bdd = top(bdd, s)
+            s = Atts.del_one(s, root, "clpb", "clpb_bdd")
+
+            {goals, s} =
+              if bdd_mode,
+                do: {[clpb_goal("$clpb_bdd", list(bdd_projection(bdd, s)))], s},
+                else: anf_goals(formula, mono, s)
+
+            atom_goals =
+              case Atts.get_one(var, "clpb", "clpb_atom", s) do
+                nil -> []
+                at -> [clpb_goal("sat", mk("=:=", [var, at]))]
+              end
+
+            # Variablen der Formel, die nicht im BDD vorkommen, sind boolesch
+            s = Enum.reduce(bdd_variables(bdd, s), s, &del_clpb(&2, &1))
+
+            rest =
+              formula
+              |> PrologEx.Builtins.Order.variables(s)
+              |> Enum.filter(&(index_of(&1, s) != nil))
+
+            {bools, s} =
+              Enum.reduce(rest, {[], s}, fn v, {acc, s} ->
+                {g, s} = boolean(v, s)
+                {acc ++ g, s}
+              end)
+
+            {goals ++ atom_goals ++ bools, s}
+        end
+    end
+  end
+
+  defp clpb_goal(name, arg), do: mk(":", [a("clpb"), mk(name, [arg])])
+
+  # del_clpb/1
+  defp del_clpb(s, v) do
+    s
+    |> Atts.del_one(v, "clpb", "clpb")
+    |> Atts.del_one(v, "clpb", "clpb_hash")
+    |> Atts.del_one(v, "clpb", "clpb_atom")
+  end
+
+  # boolean//1: sat(V =:= V), außer die Variable ist dafür markiert
+  defp boolean(v, s) do
+    s = del_clpb(s, v)
+
+    if Atts.get_one(v, "clpb", "clpb_omit_boolean", s) != nil do
+      {[], Atts.del_one(s, v, "clpb", "clpb_omit_boolean")}
+    else
+      {[clpb_goal("sat", mk("=:=", [v, v]))], s}
+    end
+  end
+
+  # bdd_variables/2: die ungebundenen Variablen der Knoten, ohne Wiederholung
+  defp bdd_variables(bdd, s) do
+    for {:struct, "node", [_, var | _]} <- node_list(bdd, s),
+        v = PrologEx.walk(var, s),
+        match?({:var, _}, v),
+        uniq: true,
+        do: v
+  end
+
+  # nodes//1 (clpb_residuals(bdd)): ID-(v(Var,Index) -> High ; Low)
+  defp bdd_projection(bdd, s) do
+    for {:struct, "node", [_, var0, low, high, _]} = node <- node_list(bdd, s) do
+      var0 = PrologEx.walk(var0, s)
+      vi = index_of(var0, s) || throw(:clpb_fail)
+      ite = mk("->", [mk("v", [var_or_atom(var0, s), vi]), projection(top(high, s), s)])
+      mk("-", [projection(node, s), mk(";", [ite, projection(top(low, s), s)])])
+    end
+  end
+
+  defp projection(0, _s), do: a("false")
+  defp projection(1, _s), do: a("true")
+  defp projection(node, s), do: mk("node", [nid(node, s)])
+
+  # Restziele in (meist) algebraischer Normalform: Konjunktionsglieder der
+  # Formel, nach Variablen zusammengefasst (ands_fusion/2), je als ANF,
+  # sortiert, ohne 1, Variablen getrennt, wo möglich
+  defp anf_goals(formula, mono, s) do
+    {items, s} = ands_first(formula, s)
+
+    fused =
+      items
+      |> Enum.map(fn f ->
+        k = f |> PrologEx.Builtins.Order.variables(s) |> in_index_order(s) |> list()
+        {k, {k, f}}
+      end)
+      |> PrologEx.Order.keysort(s)
+      |> group_consecutive(s)
+      |> Enum.map(fn {_k, fs} -> conjunction(fs) end)
+
+    {anfs, s} =
+      Enum.map_reduce(fused, s, fn f, s ->
+        {sat, s} = parse(f, mono, s)
+        {node, st} = sat_bdd(sat, %{s: s, memo: %{}, idx: %{}})
+        {node_anf(node, mono, st.s), st.s}
+      end)
+
+    anfs = anfs |> PrologEx.Order.sort_unique(s) |> Enum.reject(&(&1 === 1))
+    {anfs, s} = separation(anfs, [], mono, s)
+    {Enum.map(anfs, &clpb_goal("sat", &1)), s}
+  end
+
+  # variables_in_index_order/2 (ohne Index: 0; stabil)
+  defp in_index_order(vs, s) do
+    vs
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {v, k} -> {index_of(v, s) || 0, k} end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  # group_pairs_by_key/2: aufeinanderfolgende gleiche (==) Schlüssel
+  defp group_consecutive(pairs, s) do
+    pairs
+    |> Enum.chunk_while(
+      nil,
+      fn {k, v}, acc ->
+        case acc do
+          nil ->
+            {:cont, {k, [v]}}
+
+          {k0, vs} ->
+            if PrologEx.Order.equal?(k0, k, s),
+              do: {:cont, {k0, [v | vs]}},
+              else: {:cont, {k0, Enum.reverse(vs)}, {k, [v]}}
+        end
+      end,
+      fn
+        nil -> {:cont, nil}
+        {k0, vs} -> {:cont, {k0, Enum.reverse(vs)}, nil}
+      end
+    )
+  end
+
+  # list_to_conjunction/2: [] ist 1, sonst ((L1*L2)*L3)...
+  defp conjunction([]), do: 1
+  defp conjunction([l | ls]), do: Enum.reduce(ls, l, &mk("*", [&2, &1]))
+
+  # phrase(sat_ands(F), Ands): die erste Lösung – offene Listen werden []
+  defp ands_first(formula, s) do
+    segs = sat_ands(formula, s, []) |> Enum.reverse()
+
+    Enum.flat_map_reduce(segs, s, fn
+      {:item, t}, s ->
+        {[t], s}
+
+      {:tail, v, _}, s ->
+        {:ok, s} = PrologEx.unify(v, [], s)
+        {[], s}
+    end)
+  catch
+    :no_ands -> throw(:clpb_fail)
+  end
+
+  # node_anf/2: die ANF eines BDDs als Formel; die Monome von node_xors/2
+  # (mit Merktabelle je Knoten – das Original rechnet sie für jeden Pfad
+  # neu)
+  defp node_anf(node, mono, s) do
+    {xors, _} = node_xors(node, s, %{})
+
+    conjs =
+      Enum.map(xors, fn m ->
+        m
+        |> Enum.map(fn
+          {:var, _} = v -> if mono, do: mk("v", [v]), else: v
+          x -> x
+        end)
+        |> conjunction()
+      end)
+
+    xor = fn [c | rest] -> Enum.reduce(rest, c, &mk("#", [&2, &1])) end
+
+    case conjs do
+      [v, c | rest] ->
+        if clpb_var?(v),
+          do: mk("=\\=", [v, xor.([c | rest])]),
+          else: anf_one(conjs, xor)
+
+      _ ->
+        anf_one(conjs, xor)
+    end
+  end
+
+  defp anf_one(conjs, xor) do
+    case conjs do
+      [1, v, c | rest] ->
+        if clpb_var?(v), do: mk("=:=", [v, xor.([c | rest])]), else: xor.(conjs)
+
+      [] ->
+        throw(:clpb_fail)
+
+      _ ->
+        xor.(conjs)
+    end
+  end
+
+  defp clpb_var?({:var, _}), do: true
+  defp clpb_var?({:struct, "v", [_]}), do: true
+  defp clpb_var?(_), do: false
+
+  # node_xors/2: Monome (sortierte Listen von Variablen/Atomen), die
+  # gerade oft vorkommenden heben sich auf (A#A = 0)
+  defp node_xors(0, _s, memo), do: {[], memo}
+  defp node_xors(1, _s, memo), do: {[[]], memo}
+
+  defp node_xors({:struct, "node", [id, var0, low, high, _]}, s, memo) do
+    id = PrologEx.walk(id, s)
+
+    case memo do
+      %{^id => xs} ->
+        {xs, memo}
+
+      _ ->
+        var = var_or_atom(PrologEx.walk(var0, s), s)
+        {ls0, memo} = node_xors(top(low, s), s, memo)
+        {hs0, memo} = node_xors(top(high, s), s, memo)
+        raw = ls0 ++ Enum.map(ls0, &[var | &1]) ++ Enum.map(hs0, &[var | &1])
+        xs = normalize_xors(raw, s)
+        {xs, Map.put(memo, id, xs)}
+    end
+  end
+
+  # wie im Original: jedes Monom sortieren (Standardordnung, ohne
+  # Doppelte), nach Monomen sortieren, gerade Anzahlen streichen, 1 aus
+  # den Monomen entfernen
+  defp normalize_xors(raw, s) do
+    raw
+    |> Enum.map(fn m ->
+      m = PrologEx.Order.sort_unique(m, s)
+      k = list(m)
+      {k, {k, m}}
+    end)
+    |> PrologEx.Order.keysort(s)
+    |> group_consecutive(s)
+    |> Enum.filter(fn {_k, ms} -> rem(length(ms), 2) == 1 end)
+    |> Enum.map(fn {_k, [m | _]} -> Enum.reject(m, &(&1 === 1)) end)
+  end
+
+  # variables_separation/2: Formeln in Teile zerlegen, wo
+  # (A^F)*(B^F) = F gilt, bis zum Fixpunkt
+  defp separation(fs0, ds0, mono, s) do
+    {out, rest, s} = separation_(fs0, ds0, mono, s)
+    ds2 = for {:done, f} <- out, do: f
+    fs3 = for {:anf, f} <- out, do: f
+    fs5 = PrologEx.Order.sort_unique(rest ++ fs3, s)
+    ds4 = PrologEx.Order.sort_unique(ds0 ++ ds2, s)
+    if fs5 == [], do: {ds4, s}, else: separation(fs5, ds4, mono, s)
+  end
+
+  defp separation_([], _ds, _mono, s), do: {[], [], s}
+
+  defp separation_([f0 | fs0], ds, mono, s) do
+    if Enum.any?(ds, &PrologEx.Order.equal?(f0, &1, s)) do
+      separation_(fs0, ds, mono, s)
+    else
+      {f, s} = rewrite(f0, s)
+      {bdd, st} = sat_bdd(f, %{s: s, memo: %{}, idx: %{}})
+
+      vs =
+        bdd
+        |> bdd_variables(st.s)
+        |> Enum.reject(&(Atts.get_one(&1, "clpb", "clpb_atom", st.s) != nil))
+
+      {nodes, st} = Enum.map_reduce(vs, st, fn v, st -> existential(v, bdd, st) end)
+
+      pairs =
+        for {a, i} <- Enum.with_index(nodes),
+            b <- Enum.drop(nodes, i + 1),
+            do: {a, b}
+
+      {anfs, st} =
+        pairs
+        |> group_consecutive(st.s)
+        |> Enum.flat_map_reduce(st, fn {bdd1, bdds}, st ->
+          {sep, st} =
+            Enum.flat_map_reduce(bdds, st, fn bdd2, st ->
+              {and_, st} = apply_fresh("*", bdd1, bdd2, st)
+              {if(PrologEx.Order.equal?(and_, bdd, st.s), do: [bdd2], else: []), st}
+            end)
+
+          if sep == [],
+            do: {[], st},
+            else: {Enum.map([bdd1 | sep], &node_anf(&1, mono, st.s)), st}
+        end)
+
+      if anfs != [] do
+        {Enum.map(anfs, &{:anf, &1}), fs0, st.s}
+      else
+        {out, rest, s} = separation_(fs0, ds, mono, st.s)
+        {[{:done, f0} | out], rest, s}
+      end
+    end
+  end
+
+  # '$clpb_project'(+QueryVars, +Monotonic): project_attributes/2 – alle
+  # Variablen der BDDs, die keine Anfragevariablen sind (und keine Atome),
+  # werden herausgerechnet (auch in der Formel: V^F) und bekommen
+  # clpb_omit_boolean(true)
+  defbuiltin "$clpb_project", [qvs] do
+    s = subst()
+
+    try do
+      qvs =
+        qvs
+        |> items(s)
+        |> Enum.map(&PrologEx.walk(&1, s))
+        |> Enum.filter(&(match?({:var, _}, &1) and index_of(&1, s) != nil))
+
+      roots =
+        qvs
+        |> Enum.map(fn v ->
+          {:struct, "index_root", [_, root]} = top(Atts.get_one(v, "clpb", "clpb", s), s)
+          root
+        end)
+        |> PrologEx.Order.sort_unique(s)
+
+      in_query = MapSet.new(qvs)
+      {:subst, Enum.reduce(roots, s, &remove_hidden(&1, in_query, &2))}
+    catch
+      :clpb_fail -> :fail
+    end
+  end
+
+  defp remove_hidden(root, in_query, s) do
+    {formula, bdd0} = formula_bdd(root, s)
+
+    hidden =
+      bdd0
+      |> bdd_variables(s)
+      |> Enum.reject(&MapSet.member?(in_query, &1))
+      |> Enum.reject(&(Atts.get_one(&1, "clpb", "clpb_atom", s) != nil))
+
+    st = %{s: s, memo: %{}, idx: %{}}
+    {bdd, st} = Enum.reduce(hidden, {bdd0, st}, fn v, {b, st} -> existential(v, b, st) end)
+
+    {ex_formula, s} =
+      Enum.reduce(hidden, {formula, st.s}, fn e, {f, s} ->
+        {mk("^", [e, f]), Atts.put_one(s, e, "clpb", mk("clpb_omit_boolean", [a("true")]))}
+      end)
+
+    Atts.put_one(s, root, "clpb", mk("clpb_bdd", [mk("-", [ex_formula, bdd])]))
+  end
 end

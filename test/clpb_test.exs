@@ -622,6 +622,117 @@ defmodule PrologEx.ClpbTest do
     end
   end
 
+  # zufällige Anfragen: Antworten des Toplevels (project_attributes/2 und
+  # attribute_goals//1) mit Elixir und mit Triskas Code (ref_mode)
+  defp rand_formula(0) do
+    Enum.random(~w(A B C D _H _H a b 0 1 A B C D))
+  end
+
+  defp rand_formula(d) do
+    case :rand.uniform(10) do
+      1 ->
+        rand_formula(0)
+
+      2 ->
+        "~(#{rand_formula(d - 1)})"
+
+      3 ->
+        "#{Enum.random(["X#{d}", "_E#{d}"])}^(#{rand_formula(d - 1)})"
+
+      4 ->
+        "card([#{Enum.random(~w(0 1 2 1-2 0-1))}],[#{rand_formula(d - 1)},#{rand_formula(0)},#{rand_formula(0)}])"
+
+      5 ->
+        "+[#{rand_formula(d - 1)},#{rand_formula(d - 1)}]"
+
+      _ ->
+        op = Enum.random(~w(* + # =:= =\\= =< >= < >))
+        "(#{rand_formula(d - 1)}) #{op} (#{rand_formula(d - 1)})"
+    end
+  end
+
+  defp wrap_v(op) do
+    if op =~ ~r/^(sat|taut|sat_count)\(/,
+      do: Regex.replace(~r/\b([A-D]|_H)\b/, op, "v(\\1)"),
+      else: op
+  end
+
+  defp rand_op do
+    x = Enum.random(~w(A B C D))
+    y = Enum.random(~w(A B C D))
+
+    case :rand.uniform(13) do
+      n when n <= 6 ->
+        "sat(#{rand_formula(3)})"
+
+      7 ->
+        "taut(#{rand_formula(2)}, _)"
+
+      8 ->
+        "#{x} = #{Enum.random(~w(0 1))}"
+
+      9 ->
+        "#{x} = #{y}"
+
+      10 ->
+        "#{x} = #{Enum.random(~w(a b))}"
+
+      11 ->
+        "sat_count(#{rand_formula(2)}, _)"
+
+      12 ->
+        "f(#{x}, #{y}) = f(#{y}, #{x})"
+
+      13 ->
+        "weighted_maximum([#{Enum.random(~w(1 -1 2 0))},#{Enum.random(~w(1 -2 3))}], [#{x},#{y}], _)"
+    end
+  end
+
+  test "Restziele des Toplevels in Elixir gleich Triskas Prolog-Code (600 Anfragen)", c do
+    :rand.seed(:exsss, {17, 4, 2026})
+
+    results =
+      for _ <- 1..600 do
+        ops = for _ <- 1..Enum.random(1..4), do: rand_op()
+
+        prefix =
+          case :rand.uniform(8) do
+            1 -> "assertz(clpb:clpb_residuals(bdd)), "
+            2 -> "assertz(clpb:monotonic), "
+            _ -> ""
+          end
+
+        # unter monotonic: Variablen in Formeln als v(X)
+        ops =
+          if prefix =~ "monotonic",
+            do: Enum.map(ops, &wrap_v/1),
+            else: ops
+
+        q = prefix <> Enum.join(ops, ", ")
+        r1 = TableCase.run(c.reader, c.db, q)
+        r2 = TableCase.run(c.reader, c.db, "assertz(clpb:ref_mode), " <> q)
+        # interne Variablennummern (in Fehlern) normalisieren
+        norm = fn r -> r |> inspect() |> String.replace(~r/_\d+/, "_") end
+        assert norm.(r1) == norm.(r2), q
+        r1
+      end
+
+    kinds = Enum.frequencies_by(results, fn {_, r} -> elem(r, 0) end)
+
+    with_goals =
+      Enum.count(results, fn {_, r} ->
+        match?({:answers, [a | _]} when is_binary(a), r) and
+          r |> elem(1) |> hd() |> String.contains?("sat(")
+      end)
+
+    assert with_goals >= 150, inspect({kinds, with_goals})
+
+    # auch unter monotonic Antworten mit Restzielen (v(X) in der ANF)
+    assert Enum.any?(results, fn {_, r} ->
+             match?({:answers, [_ | _]}, r) and r |> elem(1) |> hd() |> String.contains?("v(")
+           end)
+  end
+
   test "sat/1: Zerlegung mit offenen Listen wie das Original", c do
     for g <- [
           "[L, *(L)]",

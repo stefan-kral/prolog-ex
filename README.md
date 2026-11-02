@@ -1089,7 +1089,13 @@ Bisher in Elixir:
     der übrigen Variablen (Atome mit ∀, sonst ∃), Zählen über die Knoten
     mit Merktabelle. Bei `length(Vs, 30), sat(card([10-15], Vs))` zählt
     es in rund 20–30 ms (Scryer 24–93 ms); die Prolog-Fassung kam hier
-    in 300 s nicht zum Ende.
+    in 300 s nicht zum Ende;
+  * die Restziele (`attribute_goals//1`, `project_attributes/2`): ANF der
+    Formeln (mit Merktabelle je Knoten), Zusammenfassen und Trennen der
+    Variablen, `clpb_residuals(bdd)`. Die Ausgabe ist um ein Vielfaches
+    schneller (`card([2], Vs)` über 12 Variablen: 0,8 statt 21 s, Scryer
+    9 s), bleibt aber exponentiell, weil die ANF selbst exponentiell
+    groß werden kann.
 
 Triskas Fassungen dieser Prädikate bleiben als `…_ref` in `clpb.pl` und
 dienen den Vergleichstests (je 1500–3000 Zufallsformeln, -terme bzw.
@@ -1097,9 +1103,8 @@ Folgen von Bedingungen, für `parse_sat/2` auch fehlerhafte). Die kleinen Formel
 `bench/compare.pl` brauchen damit rund 80 statt 1640 ms – gut dreimal
 schneller als Scryer (265 ms). Mit `clpb:ref_mode` (dynamisch, für die
 Tests) rechnen `sat/1`, `taut/2`, `sat_count/2` und der Hook wieder mit
-Triskas Code. Noch in Prolog: `labeling/1`, `weighted_maximum/3` und die
-Restziele (bei großen BDDs langsam – die Ausgabe der Restziele einer
-`card/2`-Bedingung über 30 Variablen dauert Minuten).
+Triskas Code, ebenso die Restziele. Noch in Prolog: `labeling/1`,
+`random_labeling/2` und `weighted_maximum/3`.
 
 Eine Eigenheit des Originals bleibt erhalten (Scryer verhält sich
 genauso): Bindet eine einzige Unifikation mehrere Variablen aus
