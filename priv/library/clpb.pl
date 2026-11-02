@@ -37,6 +37,8 @@
        BDD-Kern): in Elixir ('$clpb_apply'/4, '$clpb_make_node'/4,
        '$clpb_restriction'/4, '$clpb_existential'/3); die Originale mit
        der Endung _ref
+     - parse_sat/2 (Typprüfung, Umschreiben, Variablen anmelden): in
+       Elixir ('$clpb_parse'/3); das Original als parse_sat_ref/2
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -568,7 +570,12 @@ must_be_sat(Sat) :-
 
 no_truth_value(Term) :- domain_error(clpb_expr, Term).
 
+% PrologEx: in Elixir ('$clpb_parse'/3); das Original als parse_sat_ref/2
 parse_sat(Sat0, Sat) :-
+        (   monotonic -> M = true ; M = false ),
+        '$clpb_parse'(Sat0, M, Sat).
+
+parse_sat_ref(Sat0, Sat) :-
         must_be_sat(Sat0),
         sat_rewrite(Sat0, Sat),
         term_variables(Sat, Vs),

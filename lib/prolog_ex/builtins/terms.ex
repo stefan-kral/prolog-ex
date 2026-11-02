@@ -76,8 +76,12 @@ defmodule PrologEx.Builtins.Terms do
   # die Variablen auf dem aktuellen Pfad und die schon als azyklisch
   # bekannten (jede gebundene Variable wird so höchstens einmal besucht).
   defbuiltin "acyclic_term", [t] do
-    acyclic(t, subst(), MapSet.new(), MapSet.new()) != :cyclic
+    acyclic?(t, subst())
   end
+
+  @doc false
+  # auch für Bibliotheken in Elixir (clpb)
+  def acyclic?(t, s), do: acyclic(t, s, MapSet.new(), MapSet.new()) != :cyclic
 
   defp acyclic({:var, _} = x, s, path, done) do
     cond do

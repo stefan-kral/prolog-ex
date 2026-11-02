@@ -1073,12 +1073,17 @@ Bisher in Elixir:
   * der BDD-Kern: `apply/4` (Verknüpfung zweier BDDs), `make_node/4`
     (eindeutige Knoten über die Tabelle an jeder Variablen),
     `bdd_restriction/4` und `existential/3` (Quantoren).
+  * das Übersetzen der Formeln (`parse_sat/2`): Typprüfung mit denselben
+    Fehlern, Umschreiben der Synonyme, Atome durch ihre Variablen.
 
 Triskas Fassungen dieser Prädikate bleiben als `…_ref` in `clpb.pl` und
-dienen den Vergleichstests (je 2000 Zufallsformeln). Die kleinen Formeln
-aus `bench/compare.pl` brauchen damit gut 400 statt 1640 ms (Scryer:
-265 ms). Noch in Prolog: das Übersetzen der Formeln (`parse_sat/2`),
-`labeling/1`, `sat_count/2`, `weighted_maximum/3` und die Restziele.
+dienen den Vergleichstests (je 2000–3000 Zufallsformeln bzw. -terme, für
+`parse_sat/2` auch fehlerhafte). Die kleinen Formeln aus
+`bench/compare.pl` brauchen damit rund 300 statt 1640 ms (Scryer:
+265 ms). Noch in Prolog: der Aufbau des BDDs aus der Formel
+(`sat_bdd/2`, mit `card/2` und `^`), das Zusammenführen mit den
+bisherigen Bedingungen, `labeling/1`, `sat_count/2`,
+`weighted_maximum/3` und die Restziele.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
@@ -1700,10 +1705,10 @@ dieselbe Maschine; Zeiten in ms):
 | foldl/4 (300 000) | 720 | 172 | 4,2 |
 | dieselbe Summe von Hand | 623 | 138 | 4,5 |
 | findall + sort (200 000) | 588 | 266 | 2,2 |
-| clpb (kleine Formeln) | 405 | 265 | 1,5 |
+| clpb (kleine Formeln) | 300 | 265 | 1,1 |
 
 Im geometrischen Mittel ist PrologEx rund 6-mal langsamer als Scryer
-(clpb: Stand mit Propagation und BDD-Kern in Elixir, siehe dort);
+(clpb: Stand mit Propagation, BDD-Kern und Parser in Elixir, siehe dort);
 reine Maschinenarbeit (Schleifen, Arithmetik, Klauselwahl) 9–18-mal,
 wo eingebaute Prädikate einen großen Teil tragen (findall, sort, Listen)
 nur 2–4-mal. tak und queens sind bei Scryer so kurz, dass ihre Faktoren

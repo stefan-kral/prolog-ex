@@ -7,10 +7,10 @@ defmodule PrologEx.Builtins.ClpbPrims do
       und welche gleich sein müssen. P ist
       * `skip`: eine Knotenvariable ist schon gebunden (wie im Original:
         dann keine Propagation),
-      * `universal`: allquantifizierte Variablen (Atome) kommen vor – das
-        übernimmt der Prolog-Code des Originals,
       * `prop(Vs, Werte, Gleichungen)`: `Vs = Werte` und die Gleichungen
         `D = B` sind zu unifizieren, in der Reihenfolge des Originals.
+      Mit allquantifizierten Variablen (Atomen) muss der BDD nach
+      Herausrechnen aller anderen Variablen 1 sein, sonst scheitert es.
 
   Dieselbe Rechnung wie `bdd_variables_classification/3` und
   `aliasing_consistency/3` in Triskas Code, Schritt für Schritt: die
@@ -30,6 +30,12 @@ defmodule PrologEx.Builtins.ClpbPrims do
       Hashtabelle von Var (Attribut `clpb_hash`, ein AVL-Baum mit
       Schlüssel `node(LID, HID)`) oder ein neuer mit der nächsten ID
       (backtrackbarer Wert `'$clpb_next_node'`), der dort eingetragen wird.
+    * `'$clpb_restriction'/4`, `'$clpb_existential'/3` – `bdd_restriction/4`
+      (eine Variable auf 0 oder 1 setzen) und `existential/3`.
+    * `'$clpb_parse'(+Sat0, +Monotonic, -Sat)` – `parse_sat/2`: Typprüfung
+      mit denselben Fehlern wie das Original, Umschreiben auf `*`, `+`,
+      `#`, `^` und `card/2`, Atome durch ihre Variablen, neue Variablen
+      bekommen Index und Knotentabelle.
 
   Der Zustand bleibt, wo ihn der Prolog-Code erwartet (Attribute,
   backtrackbarer Zähler), damit beide Teile zusammenpassen, solange es
@@ -563,4 +569,236 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   defp restrict(other, _vi, _value, st),
     do: PrologEx.Error.domain!("node", PrologEx.resolve(other, st.s))
+
+  # --- parse_sat/2 -------------------------------------------------------------------
+
+  # '$clpb_parse'(+Sat0, +Monotonic, -Sat): must_be_sat/1 (Typprüfung mit
+  # denselben Fehlern), sat_rewrite/2 (Synonyme auf *, +, #, ^, card;
+  # Atome durch ihre allquantifizierten Variablen) und enumerate_variable/1
+  # (Index und leere Knotentabelle für neue Variablen, in der Reihenfolge
+  # von term_variables/2)
+  defbuiltin "$clpb_parse", [sat0, mono, sat] do
+    s = subst()
+    mono = PrologEx.walk(mono, s) == a("true")
+
+    unless PrologEx.Builtins.Terms.acyclic?(sat0, s),
+      do: clpb_error(mk("domain_error", [a("acyclic_term"), sat0]), sat0)
+
+    if not sat?(sat0, mono, s),
+      do: clpb_error(mk("domain_error", [a("clpb_expr"), sat0]), sat0)
+
+    {res, s} = rewrite(sat0, s)
+
+    s =
+      res
+      |> PrologEx.Builtins.Order.variables(s)
+      |> Enum.reduce(s, &enumerate/2)
+
+    case PrologEx.unify(sat, res, s) do
+      {:ok, s} -> {:subst, s}
+      :error -> :fail
+    end
+  end
+
+  # error(Formal, unknown(Term)-1) wie die Fehler in Triskas clpb.pl
+  defp clpb_error(formal, term),
+    do: PrologEx.Error.throw!(mk("error", [formal, unknown_ctx(term)]))
+
+  defp unknown_ctx(term), do: mk("-", [mk("unknown", [term]), 1])
+
+  # instantiation_error/2 des Originals: Kontext instantiation_error(unknown(T), 1)
+  defp inst_error(t) do
+    PrologEx.Error.throw!(
+      mk("error", [a("instantiation_error"), mk("instantiation_error", [mk("unknown", [t]), 1])])
+    )
+  end
+
+  # is_sat/1
+  defp sat?(t, mono, s) do
+    case top(t, s) do
+      {:var, _} = v ->
+        if mono and index_of(v, s) == nil do
+          inst_error(v)
+        end
+
+        true
+
+      {:struct, "v", [x]} ->
+        case PrologEx.walk(x, s) do
+          {:var, _} -> true
+          i -> i in [0, 1]
+        end
+
+      i when is_integer(i) ->
+        i in [0, 1]
+
+      {:atom, _} ->
+        true
+
+      [] ->
+        true
+
+      {:struct, "~", [x]} ->
+        sat?(x, mono, s)
+
+      {:struct, op, [x, y]} when op in ["*", "+", "#", "=:=", "=\\=", "=<", ">=", "<", ">"] ->
+        sat?(x, mono, s) and sat?(y, mono, s)
+
+      {:struct, op, [ls]} when op in ["+", "*"] ->
+        must_be_list(ls, s) |> Enum.all?(&sat?(&1, mono, s))
+
+      {:struct, "^", [x, f]} ->
+        match?({:var, _}, PrologEx.walk(x, s)) and sat?(f, mono, s)
+
+      {:struct, "card", [is, fs]} ->
+        is |> must_be_list(s) |> Enum.each(&must_be_nonvar(&1, s))
+        fs |> must_be_list(s) |> Enum.all?(&sat?(&1, mono, s))
+
+      _ ->
+        false
+    end
+  end
+
+  # must_be(list, _): Elemente der Liste; offene Liste: instantiation_error,
+  # sonst type_error(list, _), beide mit Kontext unknown(Liste)-1
+  defp must_be_list(l, s), do: must_be_list(l, l, s, [])
+
+  defp must_be_list(l0, l, s, acc) do
+    case top(l, s) do
+      [] ->
+        Enum.reverse(acc)
+
+      [h | t] ->
+        must_be_list(l0, t, s, [h | acc])
+
+      {:var, _} ->
+        inst_error(l0)
+
+      _ ->
+        clpb_error(mk("type_error", [a("list"), l0]), l0)
+    end
+  end
+
+  # must_be(ground, _, T) ist im Original functor(T, _, _)
+  defp must_be_nonvar(t, s) do
+    if match?({:var, _}, PrologEx.walk(t, s)), do: PrologEx.Error.instantiation!()
+  end
+
+  # sat_rewrite/2; {Term, Substitution} – neue Atome bekommen Variablen
+  defp rewrite(t, s) do
+    case top(t, s) do
+      {:var, _} = v ->
+        {v, s}
+
+      i when is_integer(i) ->
+        {i, s}
+
+      {:atom, _} = at ->
+        atom_var(at, s)
+
+      [] ->
+        atom_var([], s)
+
+      {:struct, "v", [x]} ->
+        {PrologEx.walk(x, s), s}
+
+      {:struct, op, [p, q]} when op in ["*", "+", "#"] ->
+        bin(op, p, q, s)
+
+      {:struct, "^", [x, f]} ->
+        {f, s} = rewrite(f, s)
+        {mk("^", [PrologEx.walk(x, s), f]), s}
+
+      {:struct, "card", [is, fs]} ->
+        {fs, s} = fs |> must_be_list(s) |> Enum.map_reduce(s, &rewrite/2)
+        {mk("card", [is, list(fs)]), s}
+
+      {:struct, "~", [p]} ->
+        bin("#", 1, p, s)
+
+      {:struct, "=:=", [p, q]} ->
+        {np, s} = negate(p, s)
+        bin_r("#", np, q, s)
+
+      {:struct, "=\\=", [p, q]} ->
+        bin("#", p, q, s)
+
+      {:struct, "=<", [p, q]} ->
+        {np, s} = negate(p, s)
+        bin_r("+", np, q, s)
+
+      {:struct, ">=", [p, q]} ->
+        {nq, s} = negate(q, s)
+        bin_r("+", nq, p, s)
+
+      {:struct, "<", [p, q]} ->
+        {np, s} = negate(p, s)
+        bin_r("*", np, q, s)
+
+      {:struct, ">", [p, q]} ->
+        {nq, s} = negate(q, s)
+        bin_r("*", nq, p, s)
+
+      {:struct, "+", [ls]} ->
+        fold(ls, "+", 0, s)
+
+      {:struct, "*", [ls]} ->
+        fold(ls, "*", 1, s)
+    end
+  end
+
+  defp bin(op, p, q, s) do
+    {p, s} = rewrite(p, s)
+    bin_r(op, p, q, s)
+  end
+
+  # linke Seite schon umgeschrieben
+  defp bin_r(op, p, q, s) do
+    {q, s} = rewrite(q, s)
+    {mk(op, [p, q]), s}
+  end
+
+  # ~P umgeschrieben: 1 # P
+  defp negate(p, s) do
+    {p, s} = rewrite(p, s)
+    {mk("#", [1, p]), s}
+  end
+
+  # foldl(or/and, Ls, Neutral, F): ((N op L1) op L2) ...
+  defp fold(ls, op, neutral, s) do
+    ls
+    |> must_be_list(s)
+    |> Enum.reduce({neutral, s}, fn l, {acc, s} -> bin_r(op, acc, l, s) end)
+  end
+
+  # clpb_atom_var/2: die Variable eines Atoms (global über alle sat/1)
+  defp atom_var(at, s) do
+    {:ok, atoms} = Blackboard.b_value("clpb", "$clpb_atoms", s)
+
+    case Assoc.lookup_value(at, atoms, s) do
+      {:ok, v} ->
+        {PrologEx.walk(v, s), s}
+
+      :none ->
+        v = {:var, PrologEx.Vars.next()}
+        s = Atts.put_one(s, v, "clpb", mk("clpb_atom", [at]))
+        s = Atts.put_one(s, v, "clpb", mk("clpb_omit_boolean", [a("true")]))
+        s = Blackboard.b_put(s, "clpb", "$clpb_atoms", Assoc.put_value(atoms, at, v, s))
+        {PrologEx.walk(v, s), s}
+    end
+  end
+
+  # enumerate_variable/1
+  defp enumerate(v, s) do
+    if index_of(v, s) != nil do
+      s
+    else
+      {:ok, i} = Blackboard.b_value("clpb", "$clpb_next_var", s)
+      i = PrologEx.walk(i, s)
+      s = Blackboard.b_put(s, "clpb", "$clpb_next_var", i + 1)
+      root = {:var, PrologEx.Vars.next()}
+      s = Atts.put_one(s, v, "clpb", mk("clpb", [mk("index_root", [i, root])]))
+      Atts.put_one(s, v, "clpb", mk("clpb_hash", [a("t")]))
+    end
+  end
 end

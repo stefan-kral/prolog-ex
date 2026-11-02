@@ -11,6 +11,7 @@ defmodule PrologEx.ClpbTest do
   :- use_module(library(dcgs)).
   :- use_module(library(between)).
   :- use_module(library(random)).
+  :- use_module(library(swi), [(=@=)/2]).
 
   % Tauben (aus der Dokumentation)
   pigeon(I, J, Rows, Cs) :-
@@ -111,6 +112,55 @@ defmodule PrologEx.ClpbTest do
           canon(N1, C1), canon(N2, C2),
           (   C1 == C2, N1 == N2 -> true ; throw(verschieden(F, V, C1, C2)) ),
           clpb:bdd_nodes(N1, Ns), length(Ns, Size).
+
+  % parse_sat/2 (Elixir) gegen parse_sat_ref/2 (Triska): Ergebnis samt
+  % Indizes der Variablen, oder derselbe Fehler; je in findall/3, damit
+  % beide vom selben Zustand ausgehen
+  rp(0, Vs, F) :- !,
+          random_integer(0, 14, K),
+          (   K < 5 -> random_member(F, Vs)
+          ;   K < 12 -> random_member(F, [a, b, 0, 1, v(_), v(1), [], v(0)])
+          ;   random_member(F, [2, v(a), 1.0, f(x), -1, v(2), "s"])
+          ).
+  rp(D, Vs, F) :-
+          random_integer(0, 30, K), D1 is D - 1,
+          (   K < 3 -> rp(0, Vs, F)
+          ;   K < 5 -> rp(D1, Vs, A), F = ~(A)
+          ;   K < 15 ->
+              rp(D1, Vs, A), rp(D1, Vs, B),
+              random_member(Op, [*, +, #, =:=, =\=, =<, >=, <, >]),
+              F =.. [Op, A, B]
+          ;   K < 18 ->
+              rp(D1, Vs, A), rp(D1, Vs, B), random_member(Op, [+, *]),
+              random_member(L, [[A,B], [A], [], [A|_], [A|x]]),
+              F =.. [Op, L]
+          ;   K < 20 -> random_member(X, Vs), rp(D1, Vs, A), F = (X^A)
+          ;   K < 21 -> rp(D1, Vs, A), F = (a^A)
+          ;   K < 24 ->
+              rp(D1, Vs, A), rp(D1, Vs, B),
+              random_member(Is, [[1], [0,2], [_], [1|_], x, [f(_)]]),
+              random_member(Fs, [[A,B], [A], [A|_], y]),
+              F = card(Is, Fs)
+          ;   rp(D1, Vs, F)
+          ).
+
+  parse_result(P, F, R) :-
+          findall(R0,
+                  catch(( call(P, F, S),
+                          term_variables(S, Vs),
+                          maplist(clpb:var_index, Vs, Is),
+                          R0 = ok(F, S, Is)
+                        ), E, R0 = fehler(F, E)),
+                  [R]).
+
+  compare_parse(Seed, Kind) :-
+          set_random(seed(Seed)),
+          length(Vs, 3),
+          rp(4, Vs, F),
+          parse_result(clpb:parse_sat, F, R1),
+          parse_result(clpb:parse_sat_ref, F, R2),
+          (   R1 =@= R2 -> true ; throw(verschieden(R1, R2)) ),
+          functor(R1, Kind, _).
 
   % Vergleich des BDD-Kerns: apply/4 (Elixir) gegen apply_ref/4 (Triska)
   ref_bdd(V, N) :- var(V), !, clpb:make_node_ref(V, 0, 1, N).
@@ -309,6 +359,32 @@ defmodule PrologEx.ClpbTest do
     counts = ~r/\b(scheitert|prop)\b/ |> Regex.scan(a) |> Enum.frequencies()
     assert Map.get(counts, ["scheitert", "scheitert"], 0) >= 100, inspect(counts)
     assert Map.get(counts, ["prop", "prop"], 0) >= 100, inspect(counts)
+  end
+
+  test "parse_sat/2 in Elixir gleich Triskas Prolog-Code (3000 Zufallsterme)", c do
+    q = "findall(K, (between(1, 3000, S), compare_parse(S, K)), Ks)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    counts = ~r/\b(ok|fehler)\b/ |> Regex.scan(a) |> Enum.frequencies()
+    assert Map.get(counts, ["ok", "ok"], 0) >= 300, inspect(counts)
+    assert Map.get(counts, ["fehler", "fehler"], 0) >= 300, inspect(counts)
+  end
+
+  test "parse_sat/2: Fehler mit monotonic", c do
+    q =
+      "assertz(clpb:monotonic), catch(sat(X+Y), E, true), retract(clpb:monotonic), " <>
+        "catch(sat(v(X)), E2, true)"
+
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    assert a =~ "E = error(instantiation_error,instantiation_error(unknown(_A),1))"
+    assert a =~ "X = 1"
+
+    # schon eingeschränkte Variablen sind auch mit monotonic erlaubt
+    q =
+      "sat(X+Y), assertz(clpb:monotonic), catch(sat(X=:=Y), E, true), retract(clpb:monotonic)"
+
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    refute a =~ "E = "
+    assert a =~ "X = 1, Y = 1"
   end
 
   test "existential/3 in Elixir gleich Triskas Prolog-Code (2000 Zufallsformeln)", c do
