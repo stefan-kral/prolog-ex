@@ -162,6 +162,49 @@ defmodule PrologEx.ClpbTest do
           (   R1 =@= R2 -> true ; throw(verschieden(R1, R2)) ),
           functor(R1, Kind, _).
 
+  % sat_bdd/2 (Elixir) gegen sat_bdd_ref/2 (Triska): derselbe BDD samt
+  % Knoten-IDs und Zählerständen, oder derselbe Fehler
+  rs(0, Vs, F) :- !, random_member(F, [0, 1, a, b|Vs]).
+  rs(D, Vs, F) :-
+          random_integer(0, 12, K), D1 is D - 1,
+          (   K < 2 -> rs(0, Vs, F)
+          ;   K < 3 -> rs(D1, Vs, A), F = ~(A)
+          ;   K < 7 ->
+              rs(D1, Vs, A), rs(D1, Vs, B),
+              random_member(Op, [*, +, #, =:=, =<, <]),
+              F =.. [Op, A, B]
+          ;   K < 9 -> random_member(X, Vs), rs(D1, Vs, A), F = (X^A)
+          ;   rs(D1, Vs, A), random_member(B, Vs), random_member(C, Vs),
+              random_member(Is, [[1], [0,2], [1-2], [0-inf], [2,0-1], [3]]),
+              random_member(Fs, [[A,B,C], [B,C], [B,B,C], [A], [C,B,A,B]]),
+              F = card(Is, Fs)
+          ).
+
+  bdd_result(P, F, R) :-
+          findall(R0,
+                  catch(( clpb:parse_sat(F, Sat),
+                          call(P, Sat, B),
+                          canon(B, C),
+                          b_getval_(N1, N2),
+                          R0 = ok(F, B, C, N1, N2)
+                        ), E, R0 = fehler(F, E)),
+                  [R]).
+
+  b_getval_(N1, N2) :-
+          clpb:b_getval('$clpb_next_var', N1),
+          clpb:b_getval('$clpb_next_node', N2).
+
+  compare_sat_bdd(Seed, Kind) :-
+          set_random(seed(Seed)),
+          length(Vs, 4),
+          rs(4, Vs, F),
+          bdd_result(clpb:sat_bdd, F, R1),
+          bdd_result(clpb:sat_bdd_ref, F, R2),
+          (   R1 =@= R2 -> true ; throw(verschieden(R1, R2)) ),
+          (   R1 = ok(_, B, _, _, _), integer(B) -> Kind = blatt
+          ;   functor(R1, Kind, _)
+          ).
+
   % Vergleich des BDD-Kerns: apply/4 (Elixir) gegen apply_ref/4 (Triska)
   ref_bdd(V, N) :- var(V), !, clpb:make_node_ref(V, 0, 1, N).
   ref_bdd(I, I) :- integer(I), !.
@@ -367,6 +410,33 @@ defmodule PrologEx.ClpbTest do
     counts = ~r/\b(ok|fehler)\b/ |> Regex.scan(a) |> Enum.frequencies()
     assert Map.get(counts, ["ok", "ok"], 0) >= 300, inspect(counts)
     assert Map.get(counts, ["fehler", "fehler"], 0) >= 300, inspect(counts)
+  end
+
+  test "sat_bdd/2 in Elixir gleich Triskas Prolog-Code (2000 Zufallsformeln)", c do
+    q = "findall(K, (between(1, 2000, S), compare_sat_bdd(S, K)), Ks)"
+    assert {_, {:answers, [a]}} = TableCase.run(c.reader, c.db, q)
+    counts = ~r/\b(ok|blatt|fehler)\b/ |> Regex.scan(a) |> Enum.frequencies()
+    assert Map.get(counts, ["ok", "ok"], 0) >= 1000, inspect(counts)
+    assert Map.get(counts, ["blatt", "blatt"], 0) >= 50, inspect(counts)
+  end
+
+  test "card/2: Fehler der Bereiche wie between/3", c do
+    for {q, e} <- [
+          {"sat(card([a-2], [X]))", "type_error(integer,a)"},
+          {"sat(card([1-a], [X]))", "type_error(integer,a)"},
+          {"sat(card([_-2], [X]))", "instantiation_error"},
+          {"sat(card([f(_), 1], [X])), X == 1", nil},
+          # memberchk/2: 1.0 ist nicht 1
+          {"sat(card([1.0, 0], [X])), X == 0", nil},
+          {"sat(card([2-infinite], [X, Y])), X == 1, Y == 1", nil},
+          {"sat(card([2-inf], [X, Y])), X == 1, Y == 1", nil}
+        ] do
+      r = TableCase.run(c.reader, c.db, q)
+
+      if e,
+        do: assert({_, {:error, ^e}} = r),
+        else: assert({_, {:answers, [_]}} = r)
+    end
   end
 
   test "parse_sat/2: Fehler mit monotonic", c do

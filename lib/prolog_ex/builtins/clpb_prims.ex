@@ -36,6 +36,9 @@ defmodule PrologEx.Builtins.ClpbPrims do
       mit denselben Fehlern wie das Original, Umschreiben auf `*`, `+`,
       `#`, `^` und `card/2`, Atome durch ihre Variablen, neue Variablen
       bekommen Index und Knotentabelle.
+    * `'$clpb_sat_bdd'(+Sat, -BDD)` – `sat_bdd/2`: der BDD einer
+      umgeschriebenen Formel, `card/2` über das Zählnetz des Originals
+      (`counter_network/3`, mit denselben Hilfsvariablen).
 
   Der Zustand bleibt, wo ihn der Prolog-Code erwartet (Attribute,
   backtrackbarer Zähler), damit beide Teile zusammenpassen, solange es
@@ -799,6 +802,165 @@ defmodule PrologEx.Builtins.ClpbPrims do
       root = {:var, PrologEx.Vars.next()}
       s = Atts.put_one(s, v, "clpb", mk("clpb", [mk("index_root", [i, root])]))
       Atts.put_one(s, v, "clpb", mk("clpb_hash", [a("t")]))
+    end
+  end
+
+  # --- sat_bdd/2 ---------------------------------------------------------------------
+
+  # '$clpb_sat_bdd'(+Sat, -BDD): der BDD einer umgeschriebenen Formel
+  # (aus parse_sat/2) – Variablen, 0/1, *, +, #, V^F und card/2 (über ein
+  # Zählnetz wie counter_network/3 des Originals)
+  defbuiltin "$clpb_sat_bdd", [sat, bdd] do
+    s = subst()
+
+    try do
+      {node, st} = sat_bdd(sat, %{s: s, memo: %{}, idx: %{}})
+
+      case PrologEx.unify(bdd, node, st.s) do
+        {:ok, s} -> {:subst, s}
+        :error -> :fail
+      end
+    catch
+      :clpb_fail -> :fail
+    end
+  end
+
+  defp sat_bdd(t, st) do
+    case top(t, st.s) do
+      {:var, _} = v ->
+        make_node(v, 0, 1, st)
+
+      i when is_integer(i) ->
+        {i, st}
+
+      {:struct, "^", [v, f]} ->
+        {b, st} = sat_bdd(f, st)
+        existential(PrologEx.walk(v, st.s), b, st)
+
+      {:struct, "card", [is, fs]} ->
+        counter_network(is, fs, st)
+
+      {:struct, f, [x, y]} ->
+        {na, st} = sat_bdd(x, st)
+        {nb, st} = sat_bdd(y, st)
+        apply_fresh(f, na, nb, st)
+
+      _ ->
+        throw(:clpb_fail)
+    end
+  end
+
+  # apply/4: eigene Merktabelle je Aufruf
+  defp apply_fresh(f, na, nb, st) do
+    {node, st2} = apply_bdd(f, na, nb, %{st | memo: %{}})
+    {node, %{st2 | memo: st.memo}}
+  end
+
+  # counter_network/3: Indikatoren 0/1 für jede mögliche Anzahl wahrer
+  # Formeln, Hilfsvariablen für Formeln, die keine (neue) Variable sind,
+  # das Netz von der Variablen mit dem höchsten Index an aufwärts, dann
+  # die Hilfsvariablen herausrechnen
+  defp counter_network(cs, fs, st) do
+    cs = items(cs, st.s)
+    fs = items(fs, st.s)
+    indicators = for k <- 0..length(fs), do: indicator(k, cs, st.s)
+
+    {vars, exs, _seen, st} =
+      Enum.reduce(fs, {[], [], MapSet.new(), st}, fn f, {vars, exs, seen, st} ->
+        case PrologEx.walk(f, st.s) do
+          {:var, _} = v ->
+            if MapSet.member?(seen, v),
+              do: helper(f, vars, exs, seen, st),
+              else: {[v | vars], exs, MapSet.put(seen, v), st}
+
+          _ ->
+            helper(f, vars, exs, seen, st)
+        end
+      end)
+
+    {vars, st} =
+      vars
+      |> Enum.reverse()
+      |> Enum.map_reduce(st, fn v, st ->
+        {i, st} = var_idx(v, st)
+        {{i || 0, v}, st}
+      end)
+
+    vars = vars |> Enum.with_index() |> Enum.sort_by(fn {{i, _}, k} -> {i, k} end)
+    vars = vars |> Enum.map(fn {{_, v}, _} -> v end) |> Enum.reverse()
+
+    {node, st} = network(vars, indicators, st)
+
+    exs
+    |> Enum.reverse()
+    |> Enum.reduce({node, st}, fn {ex, bdd}, {node0, st} ->
+      {node1, st} = apply_fresh("*", bdd, node0, st)
+      {node, st} = existential(ex, node1, st)
+      # del_attrs/1: die Hilfsvariable verliert alle clpb-Attribute
+      {node, %{st | s: PrologEx.put_attr(st.s, ex, "clpb", []), idx: Map.delete(st.idx, ex)}}
+    end)
+  end
+
+  # neue Hilfsvariable V mit V =:= F
+  defp helper(f, vars, exs, seen, st) do
+    v = {:var, PrologEx.Vars.next()}
+    s = enumerate(v, st.s)
+    v = PrologEx.walk(v, s)
+    {sat, s} = rewrite(mk("=:=", [v, f]), s)
+    {bdd, st} = sat_bdd(sat, %{st | s: s})
+    {[v | vars], [{v, bdd} | exs], seen, st}
+  end
+
+  defp network([], [node], st), do: {node, st}
+
+  defp network([var | vars], [i | is0], st) do
+    {is, {_, st}} =
+      Enum.map_reduce(is0, {i, st}, fn ind, {prev, st} ->
+        {node, st} = make_node(var, prev, ind, st)
+        {node, {ind, st}}
+      end)
+
+    network(vars, is, st)
+  end
+
+  # fill_indicators/3: 1, wenn k in Cs steht oder in einem Bereich A-B
+  # (Fehler wie between/3)
+  defp indicator(k, cs, s) do
+    cond do
+      Enum.any?(cs, &(PrologEx.walk(&1, s) === k)) ->
+        1
+
+      Enum.any?(cs, fn c ->
+        case top(c, s) do
+          {:struct, "-", [lo, hi]} -> in_range?(k, lo, hi, s)
+          _ -> false
+        end
+      end) ->
+        1
+
+      true ->
+        0
+    end
+  end
+
+  defp in_range?(k, lo, hi, s) do
+    lo = int_arg(PrologEx.walk(lo, s))
+
+    case PrologEx.walk(hi, s) do
+      {:atom, inf} when inf in ["inf", "infinite"] -> k >= lo
+      hi -> k >= lo and k <= int_arg(hi)
+    end
+  end
+
+  defp int_arg(n) when is_integer(n), do: n
+  defp int_arg({:var, _}), do: PrologEx.Error.instantiation!()
+  defp int_arg(other), do: PrologEx.Error.type!("integer", other)
+
+  # Elemente einer echten Liste
+  defp items(l, s) do
+    case top(l, s) do
+      [h | t] -> [h | items(t, s)]
+      _ -> []
     end
   end
 end

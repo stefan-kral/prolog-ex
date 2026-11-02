@@ -39,6 +39,9 @@
        der Endung _ref
      - parse_sat/2 (Typprüfung, Umschreiben, Variablen anmelden): in
        Elixir ('$clpb_parse'/3); das Original als parse_sat_ref/2
+     - sat_bdd/2 (BDD einer Formel, mit Zählnetz für card/2): in Elixir
+       ('$clpb_sat_bdd'/2); das Original als sat_bdd_ref/2 (dessen
+       counter_network/3 ruft für Teilformeln noch sat_bdd/2 auf)
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -997,14 +1000,19 @@ node_var_low_high(Node, Var, Low, High) :-
    and reduced BDD.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-sat_bdd(V, Node)           :- var(V), !, make_node(V, 0, 1, Node).
-sat_bdd(I, I)              :- integer(I), !.
-sat_bdd(V^Sat, Node)       :- !, sat_bdd(Sat, BDD), existential(V, BDD, Node).
-sat_bdd(card(Is,Fs), Node) :- !, counter_network(Is, Fs, Node).
-sat_bdd(Sat, Node)         :- !,
+% PrologEx: in Elixir ('$clpb_sat_bdd'/2); das Original als sat_bdd_ref/2
+sat_bdd(Sat, BDD) :-
+        '$clpb_sat_bdd'(Sat, BDD),
+        is_bdd(BDD).
+
+sat_bdd_ref(V, Node)           :- var(V), !, make_node(V, 0, 1, Node).
+sat_bdd_ref(I, I)              :- integer(I), !.
+sat_bdd_ref(V^Sat, Node)       :- !, sat_bdd_ref(Sat, BDD), existential(V, BDD, Node).
+sat_bdd_ref(card(Is,Fs), Node) :- !, counter_network(Is, Fs, Node).
+sat_bdd_ref(Sat, Node)         :- !,
         Sat =.. [F,A,B],
-        sat_bdd(A, NA),
-        sat_bdd(B, NB),
+        sat_bdd_ref(A, NA),
+        sat_bdd_ref(B, NB),
         apply(F, NA, NB, Node).
 
 % PrologEx: in Elixir ('$clpb_existential'/3); das Original als
