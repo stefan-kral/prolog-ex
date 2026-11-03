@@ -636,15 +636,21 @@ sat_roots(Sat, Roots) :-
 sat(Sat0) :-
         (   ref_mode -> sat_ref(Sat0)
         ;   (   monotonic -> M = true ; M = false ),
-            '$clpb_sat'(Sat0, M, R),
+            (   validation -> V = true ; V = false ),
+            '$clpb_sat'(Sat0, M, V, R),
             sat_(R)
         ).
 
+% R: ands(Glieder), bdd(BDD) (mit clpb:validation, für is_bdd/1), sonst
+% schon das Ergebnis der Propagation (wie '$clpb_propagate'/2)
 sat_(R) :-
         (   R = ands(Ands) -> maplist(sat, Ands)
-        ;   R = bdd(BDD),
+        ;   R = bdd(BDD) ->
             is_bdd(BDD),
             satisfiable_bdd(BDD)
+        ;   R = prop(Vs, Values, Goals) ->
+            maplist(unification, [Vs=Values|Goals])
+        ;   true    % skip
         ).
 
 sat_ref(Sat0) :-

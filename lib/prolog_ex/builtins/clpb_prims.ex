@@ -76,8 +76,14 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # anderen Variablen muss der BDD 1 sein; die dabei gebauten Knoten
   # bleiben (wie im Original)
   defp propagate(bdd, s) do
-    with {:ok, order, nodes} <- preorder(bdd, s),
-         vars = distinct_vars(order, nodes),
+    case dense(bdd, s) do
+      {:ok, g} -> propagate(g, bdd, s)
+      :bound -> {a("skip"), s}
+    end
+  end
+
+  defp propagate(g, bdd, s) do
+    with vars = g.vars,
          {:ok, idx} <- indices(vars, s) do
       vs = Enum.sort_by(vars, &Map.fetch!(idx, &1))
       {universal, es} = Enum.split_with(vs, &(Atts.get_one(&1, "clpb", "clpb_atom", s) != nil))
@@ -94,19 +100,23 @@ defmodule PrologEx.Builtins.ClpbPrims do
           if res == 1, do: st.s, else: throw(:clpb_fail)
         end
 
-      {prop(vs, bdd, nodes, idx, s), s}
+      vix = g.var |> Tuple.to_list() |> Enum.map(&Map.fetch!(idx, &1)) |> List.to_tuple()
+      {prop(vs, Map.merge(g, %{vix: vix, vix_of: idx}), idx, s), s}
     else
-      :bound -> {a("skip"), s}
       :fail -> throw(:clpb_fail)
     end
   end
 
-  defp prop(vs, bdd, nodes, idx, s) do
-    classes = classify(vs, [child(bdd, s)], MapSet.new(), nodes, idx, [])
+  defp prop(vs, g, idx, s) do
+    classes = classify(vs, [g.root], g, :atomics.new(max(g.n, 1), signed: false), [])
 
     eqs = for {:eq, v, val} <- classes, do: {v, val}
     bs = for {:fb, b, bnodes} <- classes, do: {b, bnodes}
     ds = for {:nd, d} <- classes, do: d
+
+    # Besucht-Marken der Gleichsetzungs-Prüfung: Generationen statt Löschen
+    vis = :atomics.new(max(g.n, 1), signed: false)
+    gen = :counters.new(1, [])
 
     aliases =
       for {b, bnodes} <- bs,
@@ -114,8 +124,8 @@ defmodule PrologEx.Builtins.ClpbPrims do
           d <- ds,
           di = Map.fetch!(idx, d),
           di > bi,
-          always_false?(:high, di, bnodes, nodes, idx),
-          always_false?(:low, di, bnodes, nodes, idx),
+          always_false?(:high, di, bnodes, g, vis, gen),
+          always_false?(:low, di, bnodes, g, vis, gen),
           # wie [DA=BA] im Original: D = B (bestimmt, welche Variable
           # gebunden wird – sichtbar in Antworten und beim labeling);
           # Atome statt ihrer Variablen (var_or_atom/2)
@@ -132,54 +142,65 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   # --- BDD lesen -----------------------------------------------------------------
 
-  # Kind eines Knotens: 0, 1 oder {:n, ID}
-  defp child(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
-      0 -> 0
-      1 -> 1
-      {:struct, "node", [id | _]} -> {:n, PrologEx.walk(id, s)}
-    end
-  end
+  # Der BDD als dichte Arrays für die Propagation: die inneren Knoten in
+  # Präordnung (wie bdd_nodes/3) mit 0..n-1 nummeriert, je Knoten die
+  # Variable und die Kinder als Code (-1 = Blatt 0, -2 = Blatt 1, sonst
+  # Nummer); :bound, wenn eine Variable gebunden ist (var_unbound/1 im
+  # Original). vars: die Variablen in Knotenreihenfolge ohne Wiederholung.
+  @leaf0 -1
+  @leaf1 -2
 
-  # alle inneren Knoten in Präordnung (wie bdd_nodes/3) und
-  # ID => {Var, Low, High}; :bound, wenn eine Variable gebunden ist
-  # (var_unbound/1 im Original)
-  defp preorder(bdd, s) do
-    {order, nodes} = visit(bdd, s, [], %{})
-    {:ok, Enum.reverse(order), nodes}
+  defp dense(bdd, s) do
+    {root, {num, entries}} = dense_visit(bdd, s, {%{}, %{}})
+    n = map_size(num)
+    rows = for i <- 0..(n - 1)//1, do: Map.fetch!(entries, i)
+    vars = Enum.map(rows, &elem(&1, 0))
+
+    {:ok,
+     %{
+       n: n,
+       root: root,
+       var: List.to_tuple(vars),
+       low: rows |> Enum.map(&elem(&1, 1)) |> List.to_tuple(),
+       high: rows |> Enum.map(&elem(&1, 2)) |> List.to_tuple(),
+       ids: rows |> Enum.map(&elem(&1, 3)) |> List.to_tuple(),
+       nodes: Enum.map(rows, &elem(&1, 4)),
+       vars: Enum.uniq(vars)
+     }}
   catch
     :bound -> :bound
   end
 
-  defp visit(t, s, order, nodes) do
+  # Code des Teilbaums; die Nummer vergibt die Präordnung (erst der Knoten,
+  # dann Low, dann High)
+  defp dense_visit(t, s, {num, entries} = acc) do
     case PrologEx.unmark_top(PrologEx.walk(t, s)) do
-      {:struct, "node", [id, var, low, high, _aux]} ->
+      {:struct, "node", [id, var, low, high, _aux]} = node ->
         id = PrologEx.walk(id, s)
 
-        if Map.has_key?(nodes, id) do
-          {order, nodes}
-        else
-          var =
-            case PrologEx.walk(var, s) do
-              {:var, _} = v -> v
-              _ -> throw(:bound)
-            end
+        case num do
+          %{^id => i} ->
+            {i, acc}
 
-          nodes = Map.put(nodes, id, {var, child(low, s), child(high, s)})
-          {order, nodes} = visit(low, s, [id | order], nodes)
-          visit(high, s, order, nodes)
+          _ ->
+            var =
+              case PrologEx.walk(var, s) do
+                {:var, _} = v -> v
+                _ -> throw(:bound)
+              end
+
+            i = map_size(num)
+            {lc, acc} = dense_visit(low, s, {Map.put(num, id, i), entries})
+            {hc, {num, entries}} = dense_visit(high, s, acc)
+            {i, {num, Map.put(entries, i, {var, lc, hc, id, node})}}
         end
 
-      _ ->
-        {order, nodes}
-    end
-  end
+      0 ->
+        {@leaf0, acc}
 
-  # Variablen in der Reihenfolge der Knoten, ohne Wiederholung
-  defp distinct_vars(order, nodes) do
-    order
-    |> Enum.map(fn id -> elem(Map.fetch!(nodes, id), 0) end)
-    |> Enum.uniq()
+      1 ->
+        {@leaf1, acc}
+    end
   end
 
   # Index jeder Variablen; ohne Index scheitert die Propagation (wie
@@ -208,107 +229,114 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   # --- Klassen (variables_classification//2) -----------------------------------------
 
-  defp classify([], _frontier, _visited, _nodes, _idx, acc), do: Enum.reverse(acc)
+  # visited: Besucht-Marken (1) über alle Variablen hinweg; die Knoten einer
+  # gefundenen Ebene werden wieder freigegeben
+  defp classify([], _frontier, _g, _visited, acc), do: Enum.reverse(acc)
 
-  defp classify([v | vs], frontier, visited, nodes, idx, acc) do
-    vi = Map.fetch!(idx, v)
+  defp classify([v | vs], frontier, g, visited, acc) do
+    vi = Map.fetch!(g.vix_of, v)
 
-    case with_variable(frontier, vi, visited, nodes, idx) do
-      {:ok, level, visited} ->
-        lhs = for {:n, id} <- level, do: Map.fetch!(nodes, id)
+    case with_variable(frontier, vi, g, visited, [], []) do
+      {:ok, level} ->
+        lows = Enum.map(level, &elem(g.low, &1))
+        highs = Enum.map(level, &elem(g.high, &1))
 
         acc =
           cond do
-            Enum.all?(lhs, fn {_, low, _} -> low == 0 end) -> [{:eq, v, 1} | acc]
-            Enum.all?(lhs, fn {_, _, high} -> high == 0 end) -> [{:eq, v, 0} | acc]
+            Enum.all?(lows, &(&1 == @leaf0)) -> [{:eq, v, 1} | acc]
+            Enum.all?(highs, &(&1 == @leaf0)) -> [{:eq, v, 0} | acc]
             true -> acc
           end
 
         acc =
-          if Enum.all?(lhs, fn {_, low, high} -> low != 1 and high != 1 end),
+          if Enum.all?(level, &(elem(g.low, &1) != @leaf1 and elem(g.high, &1) != @leaf1)),
             do: [{:fb, v, level} | acc],
             else: acc
 
         acc =
-          if Enum.all?(lhs, fn {_, low, high} -> low == 0 or high == 0 end),
+          if Enum.all?(level, &(elem(g.low, &1) == @leaf0 or elem(g.high, &1) == @leaf0)),
             do: [{:nd, v} | acc],
             else: acc
 
-        visited = Enum.reduce(level, visited, fn {:n, id}, vis -> MapSet.delete(vis, id) end)
-        classify(vs, level, visited, nodes, idx, acc)
+        Enum.each(level, &:atomics.put(visited, &1 + 1, 0))
+        classify(vs, level, g, visited, acc)
 
       :fail ->
-        classify(vs, frontier, visited, nodes, idx, acc)
+        classify(vs, frontier, g, visited, acc)
     end
   end
 
   # nodes_with_variable//2: die Knoten mit Variablen-Index vi unterhalb der
-  # Front; ein Pfad zu 1 oder ein Knoten unterhalb von vi: :fail
-  defp with_variable([], _vi, visited, _nodes, _idx), do: {:ok, [], visited}
-  defp with_variable([1 | _], _vi, _visited, _nodes, _idx), do: :fail
+  # Front (Tiefensuche, Low vor High); ein Pfad zu 1 oder ein Knoten
+  # unterhalb von vi: :fail – dann werden die Marken dieses Laufs
+  # zurückgenommen (wie im Original, wo der Besucht-Zustand dann verworfen
+  # wird)
+  defp with_variable([], _vi, _g, _visited, level, _marked), do: {:ok, Enum.reverse(level)}
 
-  defp with_variable([0 | rest], vi, visited, nodes, idx),
-    do: with_variable(rest, vi, visited, nodes, idx)
+  defp with_variable([@leaf1 | _], _vi, _g, visited, _level, marked) do
+    Enum.each(marked, &:atomics.put(visited, &1 + 1, 0))
+    :fail
+  end
 
-  defp with_variable([{:n, id} = n | rest], vi, visited, nodes, idx) do
-    if MapSet.member?(visited, id) do
-      with_variable(rest, vi, visited, nodes, idx)
+  defp with_variable([@leaf0 | rest], vi, g, visited, level, marked),
+    do: with_variable(rest, vi, g, visited, level, marked)
+
+  defp with_variable([n | rest], vi, g, visited, level, marked) do
+    if :atomics.get(visited, n + 1) == 1 do
+      with_variable(rest, vi, g, visited, level, marked)
     else
-      visited = MapSet.put(visited, id)
-      {var, low, high} = Map.fetch!(nodes, id)
-      ovi = Map.fetch!(idx, var)
+      :atomics.put(visited, n + 1, 1)
+      marked = [n | marked]
+      ovi = elem(g.vix, n)
 
       cond do
         ovi > vi ->
+          Enum.each(marked, &:atomics.put(visited, &1 + 1, 0))
           :fail
 
         ovi == vi ->
-          with {:ok, r, visited} <- with_variable(rest, vi, visited, nodes, idx),
-               do: {:ok, [n | r], visited}
+          with_variable(rest, vi, g, visited, [n | level], marked)
 
         true ->
-          with {:ok, r1, visited} <- with_variable([low, high], vi, visited, nodes, idx),
-               {:ok, r2, visited} <- with_variable(rest, vi, visited, nodes, idx),
-               do: {:ok, r1 ++ r2, visited}
+          with_variable([elem(g.low, n), elem(g.high, n) | rest], vi, g, visited, level, marked)
       end
     end
   end
 
   # --- Gleichsetzungen (always_false/3) -------------------------------------------------
 
-  defp always_false?(which, di, level, nodes, idx) do
-    opposite = if which == :high, do: :low, else: :high
-
-    result =
-      Enum.reduce_while(level, MapSet.new(), fn {:n, id}, vis ->
-        case opposite_false(opposite, di, pick(which, Map.fetch!(nodes, id)), vis, nodes, idx) do
-          {:ok, vis} -> {:cont, vis}
-          :fail -> {:halt, :fail}
-        end
-      end)
-
-    result != :fail
+  # für jeden Knoten der Ebene von B: auf der Seite `which` hat jeder
+  # erreichbare Knoten der Ebene di auf der Gegenseite 0; besuchte Knoten
+  # (Marke = aktuelle Generation) gelten als erfüllt
+  defp always_false?(which, di, level, g, vis, gen) do
+    :counters.add(gen, 1, 1)
+    stamp = :counters.get(gen, 1)
+    {side, opp} = if which == :high, do: {g.high, g.low}, else: {g.low, g.high}
+    opposite_false(Enum.map(level, &elem(side, &1)), di, opp, g, vis, stamp)
   end
 
-  defp pick(:low, {_, low, _}), do: low
-  defp pick(:high, {_, _, high}), do: high
+  defp opposite_false([], _di, _opp, _g, _vis, _stamp), do: true
 
-  # opposite_always_false//3: unterhalb von t hat jeder Knoten der Ebene di
-  # auf der Gegenseite 0; Blätter und besuchte Knoten gelten als erfüllt
-  defp opposite_false(_opp, _di, leaf, vis, _nodes, _idx) when leaf in [0, 1], do: {:ok, vis}
+  defp opposite_false([c | rest], di, opp, g, vis, stamp) when c < 0,
+    do: opposite_false(rest, di, opp, g, vis, stamp)
 
-  defp opposite_false(opp, di, {:n, id}, vis, nodes, idx) do
-    if MapSet.member?(vis, id) do
-      {:ok, vis}
+  defp opposite_false([n | rest], di, opp, g, vis, stamp) do
+    if :atomics.get(vis, n + 1) == stamp do
+      opposite_false(rest, di, opp, g, vis, stamp)
     else
-      vis = MapSet.put(vis, id)
-      {var, low, high} = node = Map.fetch!(nodes, id)
+      :atomics.put(vis, n + 1, stamp)
+      vi = elem(g.vix, n)
 
-      if Map.fetch!(idx, var) == di do
-        if pick(opp, node) == 0, do: {:ok, vis}, else: :fail
-      else
-        with {:ok, vis} <- opposite_false(opp, di, low, vis, nodes, idx),
-             do: opposite_false(opp, di, high, vis, nodes, idx)
+      cond do
+        vi == di ->
+          elem(opp, n) == @leaf0 and opposite_false(rest, di, opp, g, vis, stamp)
+
+        # unterhalb von di kommt die Ebene nicht mehr vor
+        vi > di ->
+          opposite_false(rest, di, opp, g, vis, stamp)
+
+        true ->
+          opposite_false([elem(g.low, n), elem(g.high, n) | rest], di, opp, g, vis, stamp)
       end
     end
   end
@@ -975,7 +1003,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # BDDs aller beteiligten Wurzeln verknüpft, die Knotentabellen neu
   # aufgebaut, die Wurzeln vereinigt und Formel und BDD dort abgelegt –
   # bereit für satisfiable_bdd/1
-  defbuiltin "$clpb_sat", [sat0, mono, r] do
+  defbuiltin "$clpb_sat", [sat0, mono, validation, r] do
     s = subst()
 
     case ands(sat0, s) do
@@ -987,9 +1015,19 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
       :single ->
         try do
-          {bdd, s} = sat_single(sat0, PrologEx.walk(mono, s) == a("true"), s)
+          {bdd, g, s} = sat_single(sat0, PrologEx.walk(mono, s) == a("true"), s)
 
-          case PrologEx.unify(r, mk("bdd", [bdd]), s) do
+          # ohne clpb:validation gleich die Propagation (satisfiable_bdd/1)
+          # auf demselben eingelesenen BDD; mit ihr erst is_bdd/1 in Prolog
+          {res, s} =
+            cond do
+              PrologEx.walk(validation, s) == a("true") -> {mk("bdd", [bdd]), s}
+              bdd === 0 -> throw(:clpb_fail)
+              bdd === 1 -> {a("skip"), s}
+              true -> propagate(g, bdd, s)
+            end
+
+          case PrologEx.unify(r, res, s) do
             {:ok, s} -> {:subst, s}
             :error -> :fail
           end
@@ -1018,7 +1056,8 @@ defmodule PrologEx.Builtins.ClpbPrims do
         end
       end)
 
-    s = rebuild_hashes(bdd, st.s)
+    {s, g} =
+      if is_integer(bdd), do: {st.s, nil}, else: rebuild_hashes(bdd, st.s)
 
     s =
       case roots do
@@ -1033,7 +1072,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
           Atts.put_one(s, root, "clpb", mk("clpb_bdd", [mk("-", [formula, bdd])]))
       end
 
-    {bdd, s}
+    {bdd, g, s}
   end
 
   # parse_sat/2
@@ -1069,24 +1108,42 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # und den AVL-Baum in O(n) bauen – derselbe Inhalt, nur die Form des
   # Baums kann anders sein.
   defp rebuild_hashes(bdd, s) do
-    bdd
-    |> node_list(s)
+    case dense(bdd, s) do
+      {:ok, g} -> {rebuild_hashes(g, bdd, s), g}
+      # eine gebundene Knotenvariable: wie put_atts/2 im Original
+      :bound -> rebuild_bound(bdd, s)
+    end
+  end
+
+  defp rebuild_hashes(g, _bdd, s) do
+    idt = fn
+      @leaf0 -> a("false")
+      @leaf1 -> a("true")
+      c -> elem(g.ids, c)
+    end
+
+    g.nodes
+    |> Enum.with_index()
     |> Enum.group_by(
-      fn {:struct, "node", [_, var | _]} ->
-        case PrologEx.walk(var, s) do
-          {:var, _} = v -> v
-          other -> PrologEx.Error.uninstantiation!(PrologEx.resolve(other, s))
-        end
-      end,
-      fn {:struct, "node", [_, _, low, high, _]} = node ->
-        l = nid_term(top(low, s), s)
-        h = nid_term(top(high, s), s)
+      fn {_, i} -> elem(g.var, i) end,
+      fn {node, i} ->
+        l = idt.(elem(g.low, i))
+        h = idt.(elem(g.high, i))
         {{id_rank(l), id_rank(h)}, {mk("node", [l, h]), node}}
       end
     )
     |> Enum.reduce(s, fn {var, entries}, s ->
       tree = entries |> List.keysort(0) |> Enum.map(&elem(&1, 1)) |> Assoc.from_sorted()
       Atts.put_one(s, var, "clpb", mk("clpb_hash", [tree]))
+    end)
+  end
+
+  defp rebuild_bound(bdd, s) do
+    Enum.each(node_list(bdd, s), fn {:struct, "node", [_, var | _]} ->
+      case PrologEx.walk(var, s) do
+        {:var, _} -> :ok
+        other -> PrologEx.Error.uninstantiation!(PrologEx.resolve(other, s))
+      end
     end)
   end
 

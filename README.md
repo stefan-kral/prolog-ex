@@ -14,9 +14,12 @@ Ein Prolog-Kern in Elixir:
   geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
   Knoten eines BDDs) läuft sie nur einmal ab und kopiert sie geteilt –
   erkannt an der physischen Identität (`:erts_debug.same/2`; fehlt die
-  Funktion, wird wie früher ohne dieses Memo kompaktiert). Vorher wuchs
-  der Aufwand mit der Zahl der Pfade: Bei 24 Stufen lief der Speicher
-  über; 8 Damen mit `library(clpb)` und `labeling/1` brach deshalb ab.
+  Funktion, wird wie früher ohne dieses Memo kompaktiert). Auch die
+  attributierten Variablen in den Attributen sammelt sie dabei mit,
+  statt die Attribute danach noch einmal (ohne Memo) abzulaufen. Vorher
+  wuchs der Aufwand mit der Zahl der Pfade: Bei 24 Stufen lief der
+  Speicher über; 8 Damen mit `library(clpb)` und `labeling/1` brach
+  deshalb ab.
 
 ## Loslegen
 
@@ -1104,7 +1107,12 @@ Bisher in Elixir:
     groß werden kann;
   * der Neuaufbau der Knotentabellen nach jedem `sat/1` baut je Variable
     den AVL-Baum in O(n) aus den sortierten Schlüsseln (statt jeden
-    Knoten einzeln einzufügen): 7 Damen aufstellen 5,6 → 3,3 s;
+    Knoten einzeln einzufügen); die Propagation rechnet auf dem BDD als
+    dichte Arrays (Knoten 0…n-1, Besucht-Marken in `:atomics`), und ohne
+    `clpb:validation` liest `sat/1` den BDD für Neuaufbau und
+    Propagation nur einmal. 7 Damen aufstellen: 5,6 → 2,0 s; 8 Damen
+    aufstellen 31 → 12 s, dazu `labeling/1` (früher Speicherüberlauf)
+    2,5 s. Scryer braucht schon für das Aufstellen von 6 Damen 20 s;
   * von `labeling/1` das Prüfen und Sortieren, von `random_labeling/2` die
     zufälligen Bindungen (mit denselben Zufallszahlen), von
     `weighted_maximum/3` der BDD-Teil (`weighted_maximum/3`: 51 → 3 ms
