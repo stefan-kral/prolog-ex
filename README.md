@@ -1210,8 +1210,36 @@ Geschwindigkeit: ohne Start (PrologEx rund 1 s, das Laden von clpz,
 Scryer 0,4 s) gemessen braucht PrologEx für die Beispielprogramme das 9-
 bis 17-Fache (alle 92 Lösungen der 8 Damen 2,4 s statt 0,18 s,
 Aufgabenplanung 9,6 statt 0,6 s). Wie bei clpb soll clpz nach und nach in
-Elixir rechnen; die Golden-Anfragen und der Vergleich mit Scryer sind die
-Referenz dafür.
+Elixir rechnen (`PrologEx.Builtins.ClpzPrims`); die Golden-Anfragen und der
+Vergleich mit Scryer sind die Referenz dafür, Triskas Fassungen bleiben
+als `…_ref` in `clpz.pl` für Zufallsvergleiche (`test/clpz_prims_test.exs`).
+
+Wohin die Zeit geht (Eigenzeit je Ziel, den clpz-Prädikaten zugeordnet,
+in deren Klauseln die Ziele stehen): bei Damen, Sechseck und Planung gut
+die Hälfte in der Verwaltung – Domäne ablegen (`fd_put`), betroffene
+Propagatoren auslösen, die Warteschlange, die clpz (für Scryer, ohne
+veränderliche Werte) in Attributen von Hilfsvariablen führt; bei Sudoku
+und Springerweg der größte Teil in `all_distinct/1` und `circuit/1`
+(Paarungen und starke Zusammenhangskomponenten über Attribute); Domänen
+und Schranken 2–19 %, die arithmetischen Propagatoren um 10 %.
+
+Bisher in Elixir:
+
+  * die Domänen (`domain_remove/3`, Schnitt, Vereinigung, Differenz,
+    Komplement, Infimum/Supremum, Strecken, Stauchen, Verschieben,
+    Spiegeln, Intervalle, Listen) und die Schranken-Arithmetik (`cis_*`,
+    mit `inf`/`sup`): reine Funktionen, die clpz.pl über `goal_expansion/2`
+    direkt aufruft (kein zusätzlicher Schritt). Weg entlang eines Pfads
+    (`domain_remove/3`, `domain_contains/2`, Infimum, Supremum) auf dem
+    Term, die übrigen Teilbäume bleiben geteilt wie im Original.
+    Unerwartete Argumente (ungebunden, keine Domäne) und alles, was im
+    Original einen Fehler wirft, rechnet das Original. Einzeln gemessen
+    (ohne Aufrufrahmen): `domain_remove/3` 10 → 2 µs (16 Intervalle 28 →
+    1,5), Schnitt 65 → 6 µs, `domain_contains/2` 11 → 0,5 µs. Insgesamt
+    (abwechselnd gemessen, je Bestwert aus 5): 8 Damen alle Lösungen
+    −5 bis −9 %, 40 Damen −11 bis −21 %, Sechseck −6 bis −9 %, Planung
+    −3 bis −8 %, Sudoku −3 bis −5 %, Fakultät rückwärts −9 bis −22 %;
+    kein Beispiel langsamer.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 

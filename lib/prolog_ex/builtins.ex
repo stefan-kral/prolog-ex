@@ -75,6 +75,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Heaps,
     PrologEx.Builtins.RbtreePrims,
     PrologEx.Builtins.ClpbPrims,
+    PrologEx.Builtins.ClpzPrims,
     PrologEx.Builtins.Pcre,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,

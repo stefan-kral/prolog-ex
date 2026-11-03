@@ -39,6 +39,19 @@
 
 */
 
+/* PrologEx: aus Scryer Prolog (src/lib/clpz.pl, Stand b7066b4). Ziel:
+   clpz nach und nach in Elixir (PrologEx.Builtins.ClpzPrims); Referenz für
+   jeden Schritt sind die Antworten der ursprünglichen Fassung
+   (test/clpz_golden_test.exs), der Vergleich mit Scryer
+   (test/fixtures/clpz/harness.pl) und Vergleiche mit Triskas Code
+   (test/clpz_test.exs). Abweichungen:
+     - Domänen (domain_.../2,3, domains_intersection/3, domains_union/3,
+       list_to_domain/2, intervals_to_domain/2, merge_intervals/2) und die
+       Schranken-Arithmetik (cis_.../2,3): in Elixir ('$clpz_Name');
+       Aufrufe über goal_expansion/2 (nach den goal_expansion-Klauseln
+       des Originals), die Originale mit der Endung _ref
+*/
+
 
 :- module(clpz, [
                  op(760, yfx, #<==>),
@@ -1078,6 +1091,98 @@ goal_expansion(A cis_geq B, cis_geq_numeric(A, N)) :- nonvar(B), B = n(N).
 goal_expansion(A cis_gt B, cis_lt_numeric(B, N))   :- nonvar(A), A = n(N).
 goal_expansion(A cis_gt B, cis_gt_numeric(A, N))   :- nonvar(B), B = n(N).
 
+% PrologEx: Domänen und Schranken in Elixir (PrologEx.Builtins.ClpzPrims):
+% Aufrufe in den folgenden Klauseln gehen direkt an die Builtins
+% '$clpz_Name', Meta-Aufrufe über die Klauseln darunter. Die Originale
+% stehen mit der Endung _ref an ihrer Stelle (Referenz der Tests).
+goal_expansion(domain_infimum(A,B), '$clpz_domain_infimum'(A,B)).
+goal_expansion(domain_supremum(A,B), '$clpz_domain_supremum'(A,B)).
+goal_expansion(domain_num_elements(A,B), '$clpz_domain_num_elements'(A,B)).
+goal_expansion(domain_contains(A,B), '$clpz_domain_contains'(A,B)).
+goal_expansion(domain_subdomain(A,B), '$clpz_domain_subdomain'(A,B)).
+goal_expansion(domain_remove(A,B,C), '$clpz_domain_remove'(A,B,C)).
+goal_expansion(domain_remove_greater_than(A,B,C), '$clpz_domain_remove_greater_than'(A,B,C)).
+goal_expansion(domain_remove_smaller_than(A,B,C), '$clpz_domain_remove_smaller_than'(A,B,C)).
+goal_expansion(domain_subtract(A,B,C), '$clpz_domain_subtract'(A,B,C)).
+goal_expansion(domain_complement(A,B), '$clpz_domain_complement'(A,B)).
+goal_expansion(domain_intervals(A,B), '$clpz_domain_intervals'(A,B)).
+goal_expansion(domains_intersection(A,B,C), '$clpz_domains_intersection'(A,B,C)).
+goal_expansion(domains_union(A,B,C), '$clpz_domains_union'(A,B,C)).
+goal_expansion(domain_shift(A,B,C), '$clpz_domain_shift'(A,B,C)).
+goal_expansion(domain_expand(A,B,C), '$clpz_domain_expand'(A,B,C)).
+goal_expansion(domain_expand_more(A,B,C), '$clpz_domain_expand_more'(A,B,C)).
+goal_expansion(domain_contract(A,B,C), '$clpz_domain_contract'(A,B,C)).
+goal_expansion(domain_contract_less(A,B,C), '$clpz_domain_contract_less'(A,B,C)).
+goal_expansion(domain_negate(A,B), '$clpz_domain_negate'(A,B)).
+goal_expansion(list_to_domain(A,B), '$clpz_list_to_domain'(A,B)).
+goal_expansion(intervals_to_domain(A,B), '$clpz_intervals_to_domain'(A,B)).
+goal_expansion(merge_intervals(A,B), '$clpz_merge_intervals'(A,B)).
+goal_expansion(domain_spread(A,B), '$clpz_domain_spread'(A,B)).
+goal_expansion(domain_smallest_finite(A,B), '$clpz_domain_smallest_finite'(A,B)).
+goal_expansion(domain_largest_finite(A,B), '$clpz_domain_largest_finite'(A,B)).
+goal_expansion(domain_to_list(A,B), '$clpz_domain_to_list'(A,B)).
+goal_expansion(cis_gt(A,B), '$clpz_cis_gt'(A,B)).
+goal_expansion(cis_lt_numeric(A,B), '$clpz_cis_lt_numeric'(A,B)).
+goal_expansion(cis_gt_numeric(A,B), '$clpz_cis_gt_numeric'(A,B)).
+goal_expansion(cis_geq(A,B), '$clpz_cis_geq'(A,B)).
+goal_expansion(cis_leq_numeric(A,B), '$clpz_cis_leq_numeric'(A,B)).
+goal_expansion(cis_geq_numeric(A,B), '$clpz_cis_geq_numeric'(A,B)).
+goal_expansion(cis_min(A,B,C), '$clpz_cis_min'(A,B,C)).
+goal_expansion(cis_max(A,B,C), '$clpz_cis_max'(A,B,C)).
+goal_expansion(cis_plus(A,B,C), '$clpz_cis_plus'(A,B,C)).
+goal_expansion(cis_minus(A,B,C), '$clpz_cis_minus'(A,B,C)).
+goal_expansion(cis_uminus(A,B), '$clpz_cis_uminus'(A,B)).
+goal_expansion(cis_abs(A,B), '$clpz_cis_abs'(A,B)).
+goal_expansion(cis_times(A,B,C), '$clpz_cis_times'(A,B,C)).
+goal_expansion(cis_exp(A,B,C), '$clpz_cis_exp'(A,B,C)).
+goal_expansion(cis_sign(A,B), '$clpz_cis_sign'(A,B)).
+goal_expansion(cis_div(A,B,C), '$clpz_cis_div'(A,B,C)).
+goal_expansion(cis_slash(A,B,C), '$clpz_cis_slash'(A,B,C)).
+
+domain_infimum(A,B) :- '$clpz_domain_infimum'(A,B).
+domain_supremum(A,B) :- '$clpz_domain_supremum'(A,B).
+domain_num_elements(A,B) :- '$clpz_domain_num_elements'(A,B).
+domain_contains(A,B) :- '$clpz_domain_contains'(A,B).
+domain_subdomain(A,B) :- '$clpz_domain_subdomain'(A,B).
+domain_remove(A,B,C) :- '$clpz_domain_remove'(A,B,C).
+domain_remove_greater_than(A,B,C) :- '$clpz_domain_remove_greater_than'(A,B,C).
+domain_remove_smaller_than(A,B,C) :- '$clpz_domain_remove_smaller_than'(A,B,C).
+domain_subtract(A,B,C) :- '$clpz_domain_subtract'(A,B,C).
+domain_complement(A,B) :- '$clpz_domain_complement'(A,B).
+domain_intervals(A,B) :- '$clpz_domain_intervals'(A,B).
+domains_intersection(A,B,C) :- '$clpz_domains_intersection'(A,B,C).
+domains_union(A,B,C) :- '$clpz_domains_union'(A,B,C).
+domain_shift(A,B,C) :- '$clpz_domain_shift'(A,B,C).
+domain_expand(A,B,C) :- '$clpz_domain_expand'(A,B,C).
+domain_expand_more(A,B,C) :- '$clpz_domain_expand_more'(A,B,C).
+domain_contract(A,B,C) :- '$clpz_domain_contract'(A,B,C).
+domain_contract_less(A,B,C) :- '$clpz_domain_contract_less'(A,B,C).
+domain_negate(A,B) :- '$clpz_domain_negate'(A,B).
+list_to_domain(A,B) :- '$clpz_list_to_domain'(A,B).
+intervals_to_domain(A,B) :- '$clpz_intervals_to_domain'(A,B).
+merge_intervals(A,B) :- '$clpz_merge_intervals'(A,B).
+domain_spread(A,B) :- '$clpz_domain_spread'(A,B).
+domain_smallest_finite(A,B) :- '$clpz_domain_smallest_finite'(A,B).
+domain_largest_finite(A,B) :- '$clpz_domain_largest_finite'(A,B).
+domain_to_list(A,B) :- '$clpz_domain_to_list'(A,B).
+cis_gt(A,B) :- '$clpz_cis_gt'(A,B).
+cis_lt_numeric(A,B) :- '$clpz_cis_lt_numeric'(A,B).
+cis_gt_numeric(A,B) :- '$clpz_cis_gt_numeric'(A,B).
+cis_geq(A,B) :- '$clpz_cis_geq'(A,B).
+cis_leq_numeric(A,B) :- '$clpz_cis_leq_numeric'(A,B).
+cis_geq_numeric(A,B) :- '$clpz_cis_geq_numeric'(A,B).
+cis_min(A,B,C) :- '$clpz_cis_min'(A,B,C).
+cis_max(A,B,C) :- '$clpz_cis_max'(A,B,C).
+cis_plus(A,B,C) :- '$clpz_cis_plus'(A,B,C).
+cis_minus(A,B,C) :- '$clpz_cis_minus'(A,B,C).
+cis_uminus(A,B) :- '$clpz_cis_uminus'(A,B).
+cis_abs(A,B) :- '$clpz_cis_abs'(A,B).
+cis_times(A,B,C) :- '$clpz_cis_times'(A,B,C).
+cis_exp(A,B,C) :- '$clpz_cis_exp'(A,B,C).
+cis_sign(A,B) :- '$clpz_cis_sign'(A,B).
+cis_div(A,B,C) :- '$clpz_cis_div'(A,B,C).
+cis_slash(A,B,C) :- '$clpz_cis_slash'(A,B,C).
+
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    A bound is either:
@@ -1099,87 +1204,87 @@ defaulty_to_bound(D, P) :- ( integer(D) -> P = n(D) ; P = D ).
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 % cis_gt only works for terms of depth 0 on both sides
-cis_gt(sup, B0) :- B0 \== sup.
-cis_gt(n(N), B) :- cis_lt_numeric(B, N).
+cis_gt_ref(sup, B0) :- B0 \== sup.
+cis_gt_ref(n(N), B) :- cis_lt_numeric_ref(B, N).
 
-cis_lt_numeric(inf, _).
-cis_lt_numeric(n(B), A) :- B < A.
+cis_lt_numeric_ref(inf, _).
+cis_lt_numeric_ref(n(B), A) :- B < A.
 
-cis_gt_numeric(sup, _).
-cis_gt_numeric(n(B), A) :- B > A.
+cis_gt_numeric_ref(sup, _).
+cis_gt_numeric_ref(n(B), A) :- B > A.
 
-cis_geq(inf, inf).
-cis_geq(sup, _).
-cis_geq(n(N), B) :- cis_leq_numeric(B, N).
+cis_geq_ref(inf, inf).
+cis_geq_ref(sup, _).
+cis_geq_ref(n(N), B) :- cis_leq_numeric_ref(B, N).
 
-cis_leq_numeric(inf, _).
-cis_leq_numeric(n(B), A) :- B =< A.
+cis_leq_numeric_ref(inf, _).
+cis_leq_numeric_ref(n(B), A) :- B =< A.
 
-cis_geq_numeric(sup, _).
-cis_geq_numeric(n(B), A) :- B >= A.
+cis_geq_numeric_ref(sup, _).
+cis_geq_numeric_ref(n(B), A) :- B >= A.
 
-cis_min(inf, _, inf).
-cis_min(sup, B, B).
-cis_min(n(N), B, Min) :- cis_min_(B, N, Min).
+cis_min_ref(inf, _, inf).
+cis_min_ref(sup, B, B).
+cis_min_ref(n(N), B, Min) :- cis_min_(B, N, Min).
 
 cis_min_(inf, _, inf).
 cis_min_(sup, N, n(N)).
 cis_min_(n(B), A, n(M)) :- M is min(A,B).
 
-cis_max(sup, _, sup).
-cis_max(inf, B, B).
-cis_max(n(N), B, Max) :- cis_max_(B, N, Max).
+cis_max_ref(sup, _, sup).
+cis_max_ref(inf, B, B).
+cis_max_ref(n(N), B, Max) :- cis_max_(B, N, Max).
 
 cis_max_(inf, N, n(N)).
 cis_max_(sup, _, sup).
 cis_max_(n(B), A, n(M)) :- M is max(A,B).
 
-cis_plus(inf, _, inf).
-cis_plus(sup, _, sup).
-cis_plus(n(A), B, Plus) :- cis_plus_(B, A, Plus).
+cis_plus_ref(inf, _, inf).
+cis_plus_ref(sup, _, sup).
+cis_plus_ref(n(A), B, Plus) :- cis_plus_(B, A, Plus).
 
 cis_plus_(sup, _, sup).
 cis_plus_(inf, _, inf).
 cis_plus_(n(B), A, n(S)) :- S is A + B.
 
-cis_minus(inf, _, inf).
-cis_minus(sup, _, sup).
-cis_minus(n(A), B, M) :- cis_minus_(B, A, M).
+cis_minus_ref(inf, _, inf).
+cis_minus_ref(sup, _, sup).
+cis_minus_ref(n(A), B, M) :- cis_minus_(B, A, M).
 
 cis_minus_(inf, _, sup).
 cis_minus_(sup, _, inf).
 cis_minus_(n(B), A, n(M)) :- M is A - B.
 
-cis_uminus(inf, sup).
-cis_uminus(sup, inf).
-cis_uminus(n(A), n(B)) :- B is -A.
+cis_uminus_ref(inf, sup).
+cis_uminus_ref(sup, inf).
+cis_uminus_ref(n(A), n(B)) :- B is -A.
 
-cis_abs(inf, sup).
-cis_abs(sup, sup).
-cis_abs(n(A), n(B)) :- B is abs(A).
+cis_abs_ref(inf, sup).
+cis_abs_ref(sup, sup).
+cis_abs_ref(n(A), n(B)) :- B is abs(A).
 
-cis_times(inf, B, P) :-
+cis_times_ref(inf, B, P) :-
         (   B cis_lt n(0) -> P = sup
         ;   B cis_gt n(0) -> P = inf
         ;   P = n(0)
         ).
-cis_times(sup, B, P) :-
+cis_times_ref(sup, B, P) :-
         (   B cis_gt n(0) -> P = sup
         ;   B cis_lt n(0) -> P = inf
         ;   P = n(0)
         ).
-cis_times(n(N), B, P) :- cis_times_(B, N, P).
+cis_times_ref(n(N), B, P) :- cis_times_(B, N, P).
 
-cis_times_(inf, A, P)     :- cis_times(inf, n(A), P).
-cis_times_(sup, A, P)     :- cis_times(sup, n(A), P).
+cis_times_(inf, A, P)     :- cis_times_ref(inf, n(A), P).
+cis_times_(sup, A, P)     :- cis_times_ref(sup, n(A), P).
 cis_times_(n(B), A, n(P)) :- P is A * B.
 
-cis_exp(inf, n(Y), R) :-
+cis_exp_ref(inf, n(Y), R) :-
         (   even(Y) -> R = sup
         ;   R = inf
         ).
-cis_exp(sup, _, sup).
-cis_exp(n(N), Y, R) :- cis_exp_(Y, N, R).
+cis_exp_ref(sup, _, sup).
+cis_exp_ref(n(N), Y, R) :- cis_exp_(Y, N, R).
 
 cis_exp_(n(Y), N, n(R)) :- R is N^Y.
 cis_exp_(sup, _, sup).
@@ -1230,13 +1335,13 @@ list_goal([G|Gs], Goal) :- foldl(list_goal_, Gs, G, Goal).
 
 list_goal_(G, G0, (G0,G)).
 
-cis_sign(sup, n(1)).
-cis_sign(inf, n(-1)).
-cis_sign(n(N), n(S)) :- S is sign(N).
+cis_sign_ref(sup, n(1)).
+cis_sign_ref(inf, n(-1)).
+cis_sign_ref(n(N), n(S)) :- S is sign(N).
 
-cis_div(sup, Y, Z)  :- ( Y cis_geq n(0) -> Z = sup ; Z = inf ).
-cis_div(inf, Y, Z)  :- ( Y cis_geq n(0) -> Z = inf ; Z = sup ).
-cis_div(n(X), Y, Z) :- cis_div_(Y, X, Z).
+cis_div_ref(sup, Y, Z)  :- ( Y cis_geq n(0) -> Z = sup ; Z = inf ).
+cis_div_ref(inf, Y, Z)  :- ( Y cis_geq n(0) -> Z = inf ; Z = sup ).
+cis_div_ref(n(X), Y, Z) :- cis_div_(Y, X, Z).
 
 cis_div_(sup, _, n(0)).
 cis_div_(inf, _, n(0)).
@@ -1245,9 +1350,9 @@ cis_div_(n(Y), X, Z) :-
         ;   Z0 is X // Y, Z = n(Z0)
         ).
 
-cis_slash(sup, _, sup).
-cis_slash(inf, _, inf).
-cis_slash(n(N), B, S) :- cis_slash_(B, N, S).
+cis_slash_ref(sup, _, sup).
+cis_slash_ref(inf, _, inf).
+cis_slash_ref(n(N), B, S) :- cis_slash_(B, N, S).
 
 cis_slash_(sup, _, n(0)).
 cis_slash_(inf, _, n(0)).
@@ -1309,17 +1414,17 @@ all_greater_than(split(S0,Left,Right), S) :-
 
 default_domain(from_to(inf,sup)).
 
-domain_infimum(from_to(I, _), I).
-domain_infimum(split(_, Left, _), I) :- domain_infimum(Left, I).
+domain_infimum_ref(from_to(I, _), I).
+domain_infimum_ref(split(_, Left, _), I) :- domain_infimum_ref(Left, I).
 
-domain_supremum(from_to(_, S), S).
-domain_supremum(split(_, _, Right), S) :- domain_supremum(Right, S).
+domain_supremum_ref(from_to(_, S), S).
+domain_supremum_ref(split(_, _, Right), S) :- domain_supremum_ref(Right, S).
 
-domain_num_elements(empty, n(0)).
-domain_num_elements(from_to(From,To), Num) :- Num cis To - From + n(1).
-domain_num_elements(split(_, Left, Right), Num) :-
-        domain_num_elements(Left, NL),
-        domain_num_elements(Right, NR),
+domain_num_elements_ref(empty, n(0)).
+domain_num_elements_ref(from_to(From,To), Num) :- Num cis To - From + n(1).
+domain_num_elements_ref(split(_, Left, Right), Num) :-
+        domain_num_elements_ref(Left, NL),
+        domain_num_elements_ref(Right, NR),
         Num cis NL + NR.
 
 domain_direction_element(from_to(n(From), n(To)), Dir, E) :-
@@ -1341,31 +1446,31 @@ domain_direction_element(split(_, D1, D2), Dir, E) :-
    Test whether domain contains a given integer.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_contains(from_to(From,To), I) :- From cis_leq n(I), n(I) cis_leq To.
-domain_contains(split(S, Left, Right), I) :-
-        (   I < S -> domain_contains(Left, I)
-        ;   I > S -> domain_contains(Right, I)
+domain_contains_ref(from_to(From,To), I) :- From cis_leq n(I), n(I) cis_leq To.
+domain_contains_ref(split(S, Left, Right), I) :-
+        (   I < S -> domain_contains_ref(Left, I)
+        ;   I > S -> domain_contains_ref(Right, I)
         ).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Test whether a domain contains another domain.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_subdomain(Dom, Sub) :- domain_subdomain(Dom, Dom, Sub).
+domain_subdomain_ref(Dom, Sub) :- domain_subdomain_ref(Dom, Dom, Sub).
 
-domain_subdomain(from_to(_,_), Dom, Sub) :-
+domain_subdomain_ref(from_to(_,_), Dom, Sub) :-
         domain_subdomain_fromto(Sub, Dom).
-domain_subdomain(split(_, _, _), Dom, Sub) :-
+domain_subdomain_ref(split(_, _, _), Dom, Sub) :-
         domain_subdomain_split(Sub, Dom, Sub).
 
 domain_subdomain_split(empty, _, _).
 domain_subdomain_split(from_to(From,To), split(S,Left0,Right0), Sub) :-
-        (   To cis_lt n(S) -> domain_subdomain(Left0, Left0, Sub)
-        ;   From cis_gt n(S) -> domain_subdomain(Right0, Right0, Sub)
+        (   To cis_lt n(S) -> domain_subdomain_ref(Left0, Left0, Sub)
+        ;   From cis_gt n(S) -> domain_subdomain_ref(Right0, Right0, Sub)
         ).
 domain_subdomain_split(split(_,Left,Right), Dom, _) :-
-        domain_subdomain(Dom, Dom, Left),
-        domain_subdomain(Dom, Dom, Right).
+        domain_subdomain_ref(Dom, Dom, Left),
+        domain_subdomain_ref(Dom, Dom, Right).
 
 domain_subdomain_fromto(empty, _).
 domain_subdomain_fromto(from_to(From,To), from_to(From0,To0)) :-
@@ -1380,22 +1485,22 @@ domain_subdomain_fromto(split(_,Left,Right), Dom) :-
    it is clear that no such interval exists.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_remove(empty, _, empty).
-domain_remove(from_to(L0, U0), X, D) :- domain_remove_(L0, U0, X, D).
-domain_remove(split(S, Left0, Right0), X, D) :-
+domain_remove_ref(empty, _, empty).
+domain_remove_ref(from_to(L0, U0), X, D) :- domain_remove_(L0, U0, X, D).
+domain_remove_ref(split(S, Left0, Right0), X, D) :-
         (   X =:= S -> D = split(S, Left0, Right0)
         ;   X < S ->
-            domain_remove(Left0, X, Left1),
+            domain_remove_ref(Left0, X, Left1),
             (   Left1 == empty -> D = Right0
             ;   D = split(S, Left1, Right0)
             )
-        ;   domain_remove(Right0, X, Right1),
+        ;   domain_remove_ref(Right0, X, Right1),
             (   Right1 == empty -> D = Left0
             ;   D = split(S, Left0, Right1)
             )
         ).
 
-%?- domain_remove(from_to(n(0),n(5)), 3, D).
+%?- domain_remove_ref(from_to(n(0),n(5)), 3, D).
 
 domain_remove_(inf, U0, X, D) :-
         (   U0 == n(X) -> U1 is X - 1, D = from_to(inf, n(U1))
@@ -1425,32 +1530,32 @@ domain_remove_upper(n(U0), L0, X, D) :-
    Remove all elements greater than / less than a constant.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_remove_greater_than(empty, _, empty).
-domain_remove_greater_than(from_to(From0,To0), G, D) :-
+domain_remove_greater_than_ref(empty, _, empty).
+domain_remove_greater_than_ref(from_to(From0,To0), G, D) :-
         (   From0 cis_gt n(G) -> D = empty
         ;   To cis min(To0,n(G)), D = from_to(From0,To)
         ).
-domain_remove_greater_than(split(S,Left0,Right0), G, D) :-
+domain_remove_greater_than_ref(split(S,Left0,Right0), G, D) :-
         (   S =< G ->
-            domain_remove_greater_than(Right0, G, Right),
+            domain_remove_greater_than_ref(Right0, G, Right),
             (   Right == empty -> D = Left0
             ;   D = split(S, Left0, Right)
             )
-        ;   domain_remove_greater_than(Left0, G, D)
+        ;   domain_remove_greater_than_ref(Left0, G, D)
         ).
 
-domain_remove_smaller_than(empty, _, empty).
-domain_remove_smaller_than(from_to(From0,To0), V, D) :-
+domain_remove_smaller_than_ref(empty, _, empty).
+domain_remove_smaller_than_ref(from_to(From0,To0), V, D) :-
         (   To0 cis_lt n(V) -> D = empty
         ;   From cis max(From0,n(V)), D = from_to(From,To0)
         ).
-domain_remove_smaller_than(split(S,Left0,Right0), V, D) :-
+domain_remove_smaller_than_ref(split(S,Left0,Right0), V, D) :-
         (   S >= V ->
-            domain_remove_smaller_than(Left0, V, Left),
+            domain_remove_smaller_than_ref(Left0, V, Left),
             (   Left == empty -> D = Right0
             ;   D = split(S, Left, Right0)
             )
-        ;   domain_remove_smaller_than(Right0, V, D)
+        ;   domain_remove_smaller_than_ref(Right0, V, D)
         ).
 
 
@@ -1458,13 +1563,13 @@ domain_remove_smaller_than(split(S,Left0,Right0), V, D) :-
    Remove a whole domain from another domain. (Set difference.)
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_subtract(Dom0, Sub, Dom) :- domain_subtract(Dom0, Dom0, Sub, Dom).
+domain_subtract_ref(Dom0, Sub, Dom) :- domain_subtract_ref(Dom0, Dom0, Sub, Dom).
 
-domain_subtract(empty, _, _, empty).
-domain_subtract(from_to(From0,To0), Dom, Sub, D) :-
+domain_subtract_ref(empty, _, _, empty).
+domain_subtract_ref(from_to(From0,To0), Dom, Sub, D) :-
         (   Sub == empty -> D = Dom
         ;   Sub = from_to(From,To) ->
-            (   From == To -> From = n(X), domain_remove(Dom, X, D)
+            (   From == To -> From = n(X), domain_remove_ref(Dom, X, D)
             ;   From cis_gt To0 -> D = Dom
             ;   To cis_lt From0 -> D = Dom
             ;   From cis_leq From0 ->
@@ -1481,15 +1586,15 @@ domain_subtract(from_to(From0,To0), Dom, Sub, D) :-
                 )
             )
         ;   Sub = split(S, Left, Right) ->
-            (   n(S) cis_gt To0 -> domain_subtract(Dom, Dom, Left, D)
-            ;   n(S) cis_lt From0 -> domain_subtract(Dom, Dom, Right, D)
-            ;   domain_subtract(Dom, Dom, Left, D1),
-                domain_subtract(D1, D1, Right, D)
+            (   n(S) cis_gt To0 -> domain_subtract_ref(Dom, Dom, Left, D)
+            ;   n(S) cis_lt From0 -> domain_subtract_ref(Dom, Dom, Right, D)
+            ;   domain_subtract_ref(Dom, Dom, Left, D1),
+                domain_subtract_ref(D1, D1, Right, D)
             )
         ).
-domain_subtract(split(S, Left0, Right0), _, Sub, D) :-
-        domain_subtract(Left0, Left0, Sub, Left),
-        domain_subtract(Right0, Right0, Sub, Right),
+domain_subtract_ref(split(S, Left0, Right0), _, Sub, D) :-
+        domain_subtract_ref(Left0, Left0, Sub, Left),
+        domain_subtract_ref(Right0, Right0, Sub, Right),
         (   Left == empty -> D = Right
         ;   Right == empty -> D = Left
         ;   D = split(S, Left, Right)
@@ -1499,20 +1604,20 @@ domain_subtract(split(S, Left0, Right0), _, Sub, D) :-
    Complement of a domain
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_complement(D, C) :-
+domain_complement_ref(D, C) :-
         default_domain(Default),
-        domain_subtract(Default, D, C).
+        domain_subtract_ref(Default, D, C).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Convert domain to a list of disjoint intervals From-To.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_intervals(D, Is) :- phrase(domain_intervals(D), Is).
+domain_intervals_ref(D, Is) :- phrase(domain_intervals_ref(D), Is).
 
-domain_intervals(split(_, Left, Right)) -->
-        domain_intervals(Left), domain_intervals(Right).
-domain_intervals(empty)                 --> [].
-domain_intervals(from_to(From,To))      --> [From-To].
+domain_intervals_ref(split(_, Left, Right)) -->
+        domain_intervals_ref(Left), domain_intervals_ref(Right).
+domain_intervals_ref(empty)                 --> [].
+domain_intervals_ref(from_to(From,To))      --> [From-To].
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    To compute the intersection of two domains D1 and D2, we choose D1
@@ -1520,7 +1625,7 @@ domain_intervals(from_to(From,To))      --> [From-To].
    far and to which values D2 lets us extend it.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domains_intersection(D1, D2, Intersection) :-
+domains_intersection_ref(D1, D2, Intersection) :-
         domains_intersection_(D1, D2, Intersection),
         Intersection \== empty.
 
@@ -1556,33 +1661,33 @@ narrow(split(S, Left0, Right0), From0, To0, Dom) :-
    Union of 2 domains.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domains_union(D1, D2, Union) :-
-        domain_intervals(D1, Is1),
-        domain_intervals(D2, Is2),
+domains_union_ref(D1, D2, Union) :-
+        domain_intervals_ref(D1, Is1),
+        domain_intervals_ref(D2, Is2),
         append(Is1, Is2, IsU0),
-        merge_intervals(IsU0, IsU1),
-        intervals_to_domain(IsU1, Union).
+        merge_intervals_ref(IsU0, IsU1),
+        intervals_to_domain_ref(IsU1, Union).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Shift the domain by an offset.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_shift(empty, _, empty).
-domain_shift(from_to(From0,To0), O, from_to(From,To)) :-
+domain_shift_ref(empty, _, empty).
+domain_shift_ref(from_to(From0,To0), O, from_to(From,To)) :-
         From cis From0 + n(O), To cis To0 + n(O).
-domain_shift(split(S0, Left0, Right0), O, split(S, Left, Right)) :-
+domain_shift_ref(split(S0, Left0, Right0), O, split(S, Left, Right)) :-
         S is S0 + O,
-        domain_shift(Left0, O, Left),
-        domain_shift(Right0, O, Right).
+        domain_shift_ref(Left0, O, Left),
+        domain_shift_ref(Right0, O, Right).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    The new domain contains all values of the old domain,
    multiplied by a constant multiplier.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_expand(D0, M, D) :-
+domain_expand_ref(D0, M, D) :-
         (   M < 0 ->
-            domain_negate(D0, D1),
+            domain_negate_ref(D0, D1),
             M1 is abs(M),
             domain_expand_(D1, M1, D)
         ;   M =:= 1 -> D = D0
@@ -1605,9 +1710,9 @@ domain_expand_(split(S0, Left0, Right0), M, split(S, Left, Right)) :-
    from interval.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_expand_more(D0, M, D) :-
+domain_expand_more_ref(D0, M, D) :-
         %format("expanding ~w by ~w\n", [D0,M]),
-        (   M < 0 -> domain_negate(D0, D1), M1 is abs(M)
+        (   M < 0 -> domain_negate_ref(D0, D1), M1 is abs(M)
         ;   D1 = D0, M1 = M
         ),
         domain_expand_more_(D1, M1, D).
@@ -1632,9 +1737,9 @@ domain_expand_more_(split(S0, Left0, Right0), M, split(S, Left, Right)) :-
    Scale a domain down by a constant multiplier. Assuming (//)/2.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_contract(D0, M, D) :-
+domain_contract_ref(D0, M, D) :-
         %format("contracting ~w by ~w\n", [D0,M]),
-        (   M < 0 -> domain_negate(D0, D1), M1 is abs(M)
+        (   M < 0 -> domain_negate_ref(D0, D1), M1 is abs(M)
         ;   D1 = D0, M1 = M
         ),
         domain_contract_(D1, M1, D).
@@ -1654,15 +1759,15 @@ domain_contract_(split(_,Left0,Right0), M, D) :-
         %  the original domain.
         domain_contract_(Left0, M, Left),
         domain_contract_(Right0, M, Right),
-        domains_union(Left, Right, D).
+        domains_union_ref(Left, Right, D).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Similar to domain_contract, tailored for division, i.e.,
    {21,23} contracted by 4 is 5. It contracts "less".
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_contract_less(D0, M, D) :-
-        (   M < 0 -> domain_negate(D0, D1), M1 is abs(M)
+domain_contract_less_ref(D0, M, D) :-
+        (   M < 0 -> domain_negate_ref(D0, D1), M1 is abs(M)
         ;   D1 = D0, M1 = M
         ),
         domain_contract_less_(D1, M1, D).
@@ -1675,19 +1780,19 @@ domain_contract_less_(split(_,Left0,Right0), M, D) :-
         %  the original domain.
         domain_contract_less_(Left0, M, Left),
         domain_contract_less_(Right0, M, Right),
-        domains_union(Left, Right, D).
+        domains_union_ref(Left, Right, D).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Negate the domain. Left and Right sub-domains and bounds switch sides.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_negate(empty, empty).
-domain_negate(from_to(From0, To0), from_to(From, To)) :-
+domain_negate_ref(empty, empty).
+domain_negate_ref(from_to(From0, To0), from_to(From, To)) :-
         From cis -To0, To cis -From0.
-domain_negate(split(S0, Left0, Right0), split(S, Left, Right)) :-
+domain_negate_ref(split(S0, Left0, Right0), split(S, Left, Right)) :-
         S is -S0,
-        domain_negate(Left0, Right),
-        domain_negate(Right0, Left).
+        domain_negate_ref(Left0, Right),
+        domain_negate_ref(Right0, Left).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Construct a domain from a list of integers. Try to balance it.
@@ -1705,24 +1810,24 @@ list_to_disjoint_intervals([B|Bs], M, N, Is) :-
             list_to_disjoint_intervals(Bs, B, B, Rest)
         ).
 
-list_to_domain(List0, D) :-
+list_to_domain_ref(List0, D) :-
         (   List0 == [] -> D = empty
         ;   sort(List0, List),
             list_to_disjoint_intervals(List, Is),
-            intervals_to_domain(Is, D)
+            intervals_to_domain_ref(Is, D)
         ).
 
-intervals_to_domain([], empty) :- !.
-intervals_to_domain([M-N], from_to(M,N)) :- !.
-intervals_to_domain(Is, D) :-
+intervals_to_domain_ref([], empty) :- !.
+intervals_to_domain_ref([M-N], from_to(M,N)) :- !.
+intervals_to_domain_ref(Is, D) :-
         length(Is, L),
         FL is L // 2,
         length(Front, FL),
         append(Front, Tail, Is),
         Tail = [n(Start)-_|_],
         Hole is Start - 1,
-        intervals_to_domain(Front, Left),
-        intervals_to_domain(Tail, Right),
+        intervals_to_domain_ref(Front, Left),
+        intervals_to_domain_ref(Tail, Right),
         D = split(Hole, Left, Right).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -3895,7 +4000,7 @@ drep_to_domain(DR, D) :-
         merge_intervals(Is0, Is1),
         intervals_to_domain(Is1, D).
 
-merge_intervals(Is0, Is) :-
+merge_intervals_ref(Is0, Is) :-
         keysort(Is0, Is1),
         merge_overlapping(Is1, Is).
 
@@ -4021,22 +4126,22 @@ insert_queue(Element, Which) -->
           put_atts(Arg, queue(Head,Tail)) }.
 
 
-domain_spread(Dom, Spread) :-
-        domain_smallest_finite(Dom, S),
-        domain_largest_finite(Dom, L),
+domain_spread_ref(Dom, Spread) :-
+        domain_smallest_finite_ref(Dom, S),
+        domain_largest_finite_ref(Dom, L),
         Spread cis L - S.
 
 smallest_finite(inf, Y, Y).
 smallest_finite(n(N), _, n(N)).
 
-domain_smallest_finite(from_to(F,T), S)   :- smallest_finite(F, T, S).
-domain_smallest_finite(split(_, L, _), S) :- domain_smallest_finite(L, S).
+domain_smallest_finite_ref(from_to(F,T), S)   :- smallest_finite(F, T, S).
+domain_smallest_finite_ref(split(_, L, _), S) :- domain_smallest_finite_ref(L, S).
 
 largest_finite(sup, Y, Y).
 largest_finite(n(N), _, n(N)).
 
-domain_largest_finite(from_to(F,T), L)   :- largest_finite(T, F, L).
-domain_largest_finite(split(_, _, R), L) :- domain_largest_finite(R, L).
+domain_largest_finite_ref(from_to(F,T), L)   :- largest_finite(T, F, L).
+domain_largest_finite_ref(split(_, _, R), L) :- domain_largest_finite_ref(R, L).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    All relevant constraints get a propagation opportunity whenever a
@@ -6155,12 +6260,12 @@ difference_arcs(Vars, FreeLeft, FreeRight) :-
         assoc_to_list(NumVar, LsNumVar),
         pairs_values(LsNumVar, FreeRight).
 
-domain_to_list(Domain, List) :- phrase(domain_to_list(Domain), List).
+domain_to_list_ref(Domain, List) :- phrase(domain_to_list_ref(Domain), List).
 
-domain_to_list(split(_, Left, Right)) -->
-        domain_to_list(Left), domain_to_list(Right).
-domain_to_list(empty)                 --> [].
-domain_to_list(from_to(n(F),n(T)))    --> { numlist(F, T, Ns) }, seq(Ns).
+domain_to_list_ref(split(_, Left, Right)) -->
+        domain_to_list_ref(Left), domain_to_list_ref(Right).
+domain_to_list_ref(empty)                 --> [].
+domain_to_list_ref(from_to(n(F),n(T)))    --> { numlist(F, T, Ns) }, seq(Ns).
 
 difference_arcs([], []) --> [].
 difference_arcs([V|Vs], FL0) -->
