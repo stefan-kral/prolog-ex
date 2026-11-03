@@ -50,6 +50,11 @@
        Schranken-Arithmetik (cis_.../2,3): in Elixir ('$clpz_Name');
        Aufrufe über goal_expansion/2 (nach den goal_expansion-Klauseln
        des Originals), die Originale mit der Endung _ref
+     - Ablage und Warteschlange: fd_get/3,5, put_terminating//3 (und
+       fd_put//3), trigger_props//1,2,3, trigger_prop//1, insert_queue//2,
+       queue_goal//1, queue_fast//1, queue_slow//1 in Elixir, ebenso über
+       goal_expansion/2; do_queue//0 als Schleife über '$clpz_queue_next'/2.
+       Die Originale mit der Endung _ref (do_queue_ref//0)
 */
 
 
@@ -1182,6 +1187,35 @@ cis_exp(A,B,C) :- '$clpz_cis_exp'(A,B,C).
 cis_sign(A,B) :- '$clpz_cis_sign'(A,B).
 cis_div(A,B,C) :- '$clpz_cis_div'(A,B,C).
 cis_slash(A,B,C) :- '$clpz_cis_slash'(A,B,C).
+
+% PrologEx: Ablage und Warteschlange in Elixir (fd_get/3,5, put_terminating//3
+% und fd_put//3, trigger_props//1,2,3, trigger_prop//1, insert_queue//2 mit
+% queue_goal//1, queue_fast//1, queue_slow//1); die Originale mit der Endung
+% _ref. Die DCG-Formen tragen den Zustand [Queue|_] als letzte Argumente.
+goal_expansion(fd_get(A,B,C), '$clpz_fd_get'(A,B,C)).
+goal_expansion(fd_get(A,B,C,D,E), '$clpz_fd_get'(A,B,C,D,E)).
+goal_expansion(put_terminating(A,B,C,S0,S), '$clpz_put_terminating'(A,B,C,S0,S)).
+goal_expansion(fd_put(A,B,C,S0,S), '$clpz_put_terminating'(A,B,C,S0,S)).
+goal_expansion(trigger_props(A,B,C,D,S0,S), '$clpz_trigger_props'(A,B,C,D,S0,S)).
+goal_expansion(trigger_props(A,B,S0,S), '$clpz_trigger_props'(A,B,S0,S)).
+goal_expansion(trigger_props(A,S0,S), '$clpz_trigger_props'(A,S0,S)).
+goal_expansion(trigger_prop(A,S0,S), '$clpz_trigger_prop'(A,S0,S)).
+goal_expansion(insert_queue(A,B,S0,S), '$clpz_insert_queue'(A,B,S0,S)).
+goal_expansion(queue_goal(A,S0,S), '$clpz_insert_queue'(A,1,S0,S)).
+goal_expansion(queue_fast(A,S0,S), '$clpz_insert_queue'(A,2,S0,S)).
+goal_expansion(queue_slow(A,S0,S), '$clpz_insert_queue'(A,3,S0,S)).
+
+fd_get(A,B,C) :- '$clpz_fd_get'(A,B,C).
+fd_get(A,B,C,D,E) :- '$clpz_fd_get'(A,B,C,D,E).
+put_terminating(A,B,C,S0,S) :- '$clpz_put_terminating'(A,B,C,S0,S).
+trigger_props(A,B,C,D,S0,S) :- '$clpz_trigger_props'(A,B,C,D,S0,S).
+trigger_props(A,B,S0,S) :- '$clpz_trigger_props'(A,B,S0,S).
+trigger_props(A,S0,S) :- '$clpz_trigger_props'(A,S0,S).
+trigger_prop(A,S0,S) :- '$clpz_trigger_prop'(A,S0,S).
+insert_queue(A,B,S0,S) :- '$clpz_insert_queue'(A,B,S0,S).
+queue_goal(A,S0,S) :- '$clpz_insert_queue'(A,1,S0,S).
+queue_fast(A,S0,S) :- '$clpz_insert_queue'(A,2,S0,S).
+queue_slow(A,S0,S) :- '$clpz_insert_queue'(A,3,S0,S).
 
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4035,13 +4069,13 @@ props_number(fd_props(Gs,Bs,Os), N) :-
         length(Os, N3),
         N is N1 + N2 + N3.
 
-fd_get(X, Dom, Ps) :-
+fd_get_ref(X, Dom, Ps) :-
         (   get_attr(X, clpz, Attr) -> Attr = clpz_attr(_,_,_,Dom,Ps,_)
         ;   var(X) -> default_domain(Dom), Ps = fd_props([],[],[])
         ).
 
-fd_get(X, Dom, Inf, Sup, Ps) :-
-        fd_get(X, Dom, Ps),
+fd_get_ref(X, Dom, Inf, Sup, Ps) :-
+        fd_get_ref(X, Dom, Ps),
         domain_infimum(Dom, Inf),
         domain_supremum(Dom, Sup).
 
@@ -4061,9 +4095,9 @@ fd_put(X, Dom, Ps) :-
 %                { portray_clause(done_terminating) },
                 do_queue), [Q], _).
 
-put_terminating(X, Dom, Ps) -->
+put_terminating_ref(X, Dom, Ps) -->
         Dom \== empty,
-        (   Dom = from_to(F, F) -> queue_goal(F = n(X))
+        (   Dom = from_to(F, F) -> queue_goal_ref(F = n(X))
         ;   (   { get_attr(X, clpz, Attr) } ->
                 { Attr = clpz_attr(Left,Right,Spread,OldDom, _OldPs,Q),
                   put_attr(X, clpz, clpz_attr(Left,Right,Spread,Dom,Ps,Q)) },
@@ -4078,7 +4112,7 @@ put_terminating(X, Dom, Ps) -->
                     ) },
                     (   { Bounded == yes } ->
                         { put_attr(X, clpz, clpz_attr(.,.,.,Dom,Ps,Q)) },
-                        trigger_props(Ps, X, OldDom, Dom)
+                        trigger_props_ref(Ps, X, OldDom, Dom)
                     ;   % infinite domain; consider border and spread changes
                         { domain_infimum(OldDom, OldInf),
                           (   Inf == OldInf -> LeftP = Left
@@ -4098,7 +4132,7 @@ put_terminating(X, Dom, Ps) -->
                         (   { RightP == yes, Right = yes } -> []
                         ;   { LeftP == yes, Left = yes } -> []
                         ;   { SpreadP == yes, Spread = yes } -> []
-                        ;   trigger_props(Ps, X, OldDom, Dom)
+                        ;   trigger_props_ref(Ps, X, OldDom, Dom)
                         )
                     )
                 )
@@ -4111,11 +4145,11 @@ put_terminating(X, Dom, Ps) -->
 
 new_queue(queue(_Goals,_Fast,_Slow,_Aux)).
 
-queue_goal(Goal) --> insert_queue(Goal, 1).
-queue_fast(Prop) --> insert_queue(Prop, 2).
-queue_slow(Prop) --> insert_queue(Prop, 3).
+queue_goal_ref(Goal) --> insert_queue_ref(Goal, 1).
+queue_fast_ref(Prop) --> insert_queue_ref(Prop, 2).
+queue_slow_ref(Prop) --> insert_queue_ref(Prop, 3).
 
-insert_queue(Element, Which) -->
+insert_queue_ref(Element, Which) -->
         state(Queue),
         { arg(Which, Queue, Arg),
           (   get_atts(Arg, queue(Head0,Tail0)) ->
@@ -4189,10 +4223,10 @@ make_propagator(C, propagator(C, _)).
 
 propagator_state(propagator(_,S), S).
 
-trigger_props(fd_props(Gs,Bs,Os), X, D0, D) -->
+trigger_props_ref(fd_props(Gs,Bs,Os), X, D0, D) -->
         (   { ground(X) } ->
-            trigger_props_(Gs),
-            trigger_props_(Bs)
+            trigger_props__ref(Gs),
+            trigger_props__ref(Bs)
         ;   Bs \== [] ->
             { domain_infimum(D0, I0),
               domain_infimum(D, I) },
@@ -4200,33 +4234,33 @@ trigger_props(fd_props(Gs,Bs,Os), X, D0, D) -->
                 { domain_supremum(D0, S0),
                   domain_supremum(D, S) },
                 (   { S == S0 } -> []
-                ;   trigger_props_(Bs)
+                ;   trigger_props__ref(Bs)
                 )
-            ;   trigger_props_(Bs)
+            ;   trigger_props__ref(Bs)
             )
         ;   []
         ),
-        trigger_props_(Os).
+        trigger_props__ref(Os).
 
-trigger_props(fd_props(Gs,Bs,Os), X) -->
-        trigger_props_(Os),
-        trigger_props_(Bs),
+trigger_props_ref(fd_props(Gs,Bs,Os), X) -->
+        trigger_props__ref(Os),
+        trigger_props__ref(Bs),
         (   { ground(X) } ->
-            trigger_props_(Gs)
+            trigger_props__ref(Gs)
         ;   []
         ).
 
-trigger_props(fd_props(Gs,Bs,Os)) -->
-        trigger_props_(Gs),
-        trigger_props_(Bs),
-        trigger_props_(Os).
+trigger_props_ref(fd_props(Gs,Bs,Os)) -->
+        trigger_props__ref(Gs),
+        trigger_props__ref(Bs),
+        trigger_props__ref(Os).
 
-trigger_props_([]) --> [].
-trigger_props_([P|Ps]) --> trigger_prop(P), trigger_props_(Ps).
+trigger_props__ref([]) --> [].
+trigger_props__ref([P|Ps]) --> trigger_prop_ref(P), trigger_props__ref(Ps).
 
 trigger_prop(P) :- trigger_once(P).
 
-trigger_prop(Propagator) -->
+trigger_prop_ref(Propagator) -->
         { propagator_state(Propagator, State) },
         (   { State == dead } -> []
         ;   { get_attr(State, clpz_aux, queued) } -> []
@@ -4235,8 +4269,8 @@ trigger_prop(Propagator) -->
             %{ format("triggering: ~w\n", [Propagator]) },
             { put_attr(State, clpz_aux, queued) },
             (   { arg(1, Propagator, C), functor(C, F, _), global_constraint(F) } ->
-                queue_slow(Propagator)
-            ;   queue_fast(Propagator)
+                queue_slow_ref(Propagator)
+            ;   queue_fast_ref(Propagator)
             )
         ).
 
@@ -4336,15 +4370,24 @@ activate_propagator(propagator(P,State)) -->
         ).
 
 %do_queue --> print_queue, false.
-do_queue -->
+do_queue_ref -->
         (   queue_enabled ->
-            (   queue_get_goal(Goal) -> { call(Goal) }, do_queue
-            ;   queue_get_fast(Fast) -> activate_propagator(Fast), do_queue
-            ;   queue_get_slow(Slow) -> activate_propagator(Slow), do_queue
+            (   queue_get_goal(Goal) -> { call(Goal) }, do_queue_ref
+            ;   queue_get_fast(Fast) -> activate_propagator(Fast), do_queue_ref
+            ;   queue_get_slow(Slow) -> activate_propagator(Slow), do_queue_ref
             ;   true
             )
         ;   true
         ).
+
+% PrologEx: die Schleife über '$clpz_queue_next'/2 (Elixir: Queue
+% eingeschaltet?, dann vorne aus Zielen, schnellen, langsamen Propagatoren);
+% das Original als do_queue_ref//0
+do_queue(S0, S) :- '$clpz_queue_next'(S0, Next), do_queue_(Next, S0, S).
+
+do_queue_(none, S0, S) :- S = S0.
+do_queue_(goal(Goal), S0, S) :- call(Goal), do_queue(S0, S).
+do_queue_(prop(P), S0, S) :- activate_propagator(P, S0, S1), do_queue(S1, S).
 
 :- meta_predicate(ignore(0)).
 

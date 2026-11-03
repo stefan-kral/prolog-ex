@@ -1240,6 +1240,27 @@ Bisher in Elixir:
     −5 bis −9 %, 40 Damen −11 bis −21 %, Sechseck −6 bis −9 %, Planung
     −3 bis −8 %, Sudoku −3 bis −5 %, Fakultät rückwärts −9 bis −22 %;
     kein Beispiel langsamer.
+  * die Verwaltung der Propagation: `fd_get/3,5`, Domäne ablegen
+    (`put_terminating//3`, auch `fd_put//3`: Terminierung über Ränder und
+    Spanne, dann die betroffenen Propagatoren auslösen), `trigger_props//1,2,3`,
+    `trigger_prop//1`, Einreihen (`insert_queue//2`, `queue_goal//1`, …)
+    und Entnehmen (`do_queue//0` als kleine Schleife über
+    `'$clpz_queue_next'/2`: Queue eingeschaltet?, dann Ziele, schnelle,
+    langsame Propagatoren). Der Zustand bleibt der des Originals – das
+    Attribut `clpz_attr/6` an jeder Variablen, die Warteschlange als
+    offene Listen in Attributen ihrer vier Variablen, `clpz_aux(queued)` am
+    Zustand eines eingereihten Propagators –, die Propagatoren selbst
+    rechnen weiter in Prolog. Abwechselnd gemessen (je Bestwert aus 5):
+    alle Lösungen der 8 Damen 1,6–1,8 → 0,6 s, 40 Damen 2,1–2,3 → 0,8–0,9 s,
+    Sechseck 1,7–1,9 → 0,9–1,0 s, magische Quadrate (3×3, alle) 0,4–0,5 →
+    0,2 s, Fakultät rückwärts 0,33 → 0,13 s, Planung 6,8–7,5 → 4,7 s,
+    Springerweg 2,6–2,7 → 1,9–2,2 s, Sudoku 0,65–0,8 → 0,57–0,61 s.
+    Geprüft wie die Domänen gegen die `_ref`-Fassungen, hier über den
+    ganzen Zustand: Zufallsbedingungen bauen einen Zustand auf, dann
+    dieselbe Operation mit beiden Fassungen (Domäne ablegen, auslösen,
+    einreihen, die ganze Propagation bis zum Fixpunkt); alle erreichbaren
+    Attribute samt Warteschlangen müssen Varianten sein
+    (`test/clpz_queue_test.exs`).
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 

@@ -936,4 +936,491 @@ defmodule PrologEx.Builtins.ClpzPrims do
       end
     end)
   end
+
+  # --- Ablage und Warteschlange ---------------------------------------------
+  #
+  # Der Zustand ist der des Originals: das Attribut clpz(clpz_attr(Links,
+  # Rechts, Spanne, Domäne, fd_props(Gs, Bs, Os), Queue)) an jeder
+  # Variablen; die Warteschlange queue(Ziele, Schnell, Langsam, Aux) ist ein
+  # Term aus vier Variablen, deren Attribut queue(Kopf, Ende) eine offene
+  # Liste hält (Aux: disabled/0); ein Propagator propagator(C, Zustand)
+  # merkt sich über clpz_aux(queued) an seinem Zustand, dass er eingereiht
+  # ist. Der DCG-Zustand ([Queue|_]) läuft unverändert durch.
+
+  defp ws(t, s), do: PrologEx.unmark_top(PrologEx.walk(t, s))
+
+  defp cell(t, s) do
+    case ws(t, s) do
+      [h | tl] -> {h, tl}
+      {:glist, [h | tl]} -> {h, {:glist, tl}}
+      _ -> nil
+    end
+  end
+
+  # Argumente des Attributs name/ar von v im Modul clpz, oder nil
+  defp att(v, s, name, ar) do
+    v |> PrologEx.get_attrs(s) |> Map.get("clpz", []) |> att_find(s, name, ar)
+  end
+
+  defp att_find(l, s, name, ar) do
+    case cell(l, s) do
+      nil ->
+        nil
+
+      {h, tl} ->
+        case ws(h, s) do
+          {tag, ^name, args} when tag in [:struct, :gstruct] and length(args) == ar -> args
+          {:atom, ^name} when ar == 0 -> []
+          _ -> att_find(tl, s, name, ar)
+        end
+    end
+  end
+
+  defp put_att(s, v, t), do: PrologEx.Builtins.Atts.put_one(s, v, "clpz", t)
+
+  # Attribut name/ar entfernen (wie put_atts(V, -A))
+  defp del_att(s, v, name, ar) do
+    items = all_items(v |> PrologEx.get_attrs(s) |> Map.get("clpz", []), s)
+
+    kept =
+      Enum.reject(items, fn h ->
+        case ws(h, s) do
+          {tag, ^name, args} when tag in [:struct, :gstruct] -> length(args) == ar
+          {:atom, ^name} -> ar == 0
+          _ -> false
+        end
+      end)
+
+    PrologEx.put_attr(s, v, "clpz", list(kept))
+  end
+
+  defp all_items(l, s) do
+    case cell(l, s) do
+      nil -> []
+      {h, tl} -> [h | all_items(tl, s)]
+    end
+  end
+
+  defp list_items(l, s) do
+    case cell(l, s) do
+      nil -> if ws(l, s) == [], do: [], else: throw(:fallback)
+      {h, tl} -> [h | list_items(tl, s)]
+    end
+  end
+
+  # die Queue aus dem DCG-Zustand [Queue|_]
+  defp state_q(s0, s) do
+    case cell(s0, s) do
+      {q, _} -> q
+      nil -> throw(:fallback)
+    end
+  end
+
+  # S = S0 (der Zustand bleibt) und Ergebnis
+  defp finish(s1, s0, s) do
+    case PrologEx.unify(s1, s0, s) do
+      {:ok, s} -> {:subst, s}
+      :error -> :fail
+    end
+  end
+
+  defp new_queue, do: mk("queue", [fresh_var(), fresh_var(), fresh_var(), fresh_var()])
+
+  # fd_get/3: {Domäne, Propagatoren} von x, :default oder :fail
+  defp fd_get(x, s) do
+    case PrologEx.walk(x, s) do
+      {:var, _} = v ->
+        case att(v, s, "clpz", 1) do
+          [a] ->
+            case ws(a, s) do
+              {tag, "clpz_attr", [_, _, _, d, ps, _]} when tag in [:struct, :gstruct] -> {d, ps}
+              _ -> throw(:fallback)
+            end
+
+          nil ->
+            :default
+        end
+
+      _ ->
+        :fail
+    end
+  end
+
+  defp default_dom, do: mk("from_to", [a("inf"), a("sup")])
+  defp no_props, do: mk("fd_props", [[], [], []])
+
+  defbuiltin "$clpz_fd_get", [x, dom, ps] do
+    run("fd_get", [x, dom, ps], subst(), fn ->
+      case fd_get(x, subst_now()) do
+        {d, p} -> {:unify, [{dom, d}, {ps, p}]}
+        :default -> {:unify, [{dom, default_dom()}, {ps, no_props()}]}
+        :fail -> :fail
+      end
+    end)
+  end
+
+  defbuiltin "$clpz_fd_get", [x, dom, inf, sup, ps] do
+    run("fd_get", [x, dom, inf, sup, ps], subst(), fn ->
+      case fd_get(x, subst_now()) do
+        {d, p} ->
+          {:unify, [{dom, d}, {inf, eb(edge(d, :left))}, {sup, eb(edge(d, :right))}, {ps, p}]}
+
+        :default ->
+          {:unify, [{dom, default_dom()}, {inf, a("inf")}, {sup, a("sup")}, {ps, no_props()}]}
+
+        :fail ->
+          :fail
+      end
+    end)
+  end
+
+  # --- Einreihen ---
+
+  # insert_queue//2: Element ans Ende der Liste Nummer which der Queue q
+  defp insert(elem, which, q, s) do
+    arg =
+      case ws(q, s) do
+        {tag, "queue", [_, _, _, _] = args} when tag in [:struct, :gstruct] ->
+          PrologEx.walk(Enum.at(args, which - 1), s)
+
+        _ ->
+          throw(:fallback)
+      end
+
+    unless match?({:var, _}, arg), do: throw(:fallback)
+    tail = fresh_var()
+
+    case att(arg, s, "queue", 2) do
+      [h0, t0] ->
+        case PrologEx.unify(t0, [elem | tail], s) do
+          {:ok, s} -> put_att(s, arg, mk("queue", [h0, tail]))
+          :error -> :fail
+        end
+
+      nil ->
+        put_att(s, arg, mk("queue", [[elem | tail], tail]))
+    end
+  end
+
+  defbuiltin "$clpz_insert_queue", [e, which, s0, s1] do
+    run("insert_queue", [e, which, s0, s1], subst(), fn ->
+      s = subst_now()
+
+      case int(which) do
+        k when k in 1..3 ->
+          case insert(e, k, state_q(s0, s), s) do
+            :fail -> :fail
+            s -> finish(s1, s0, s)
+          end
+
+        _ ->
+          throw(:fallback)
+      end
+    end)
+  end
+
+  # --- Auslösen ---
+
+  @global ~w(pdistinct pnvalue pgcc pgcc_single pcircuit)
+
+  @doc false
+  def global_constraints, do: @global
+
+  # trigger_prop//1
+  defp trigger(p, q, s) do
+    case ws(p, s) do
+      {tag, "propagator", [c, state]} when tag in [:struct, :gstruct] ->
+        st = PrologEx.walk(state, s)
+
+        cond do
+          st == {:atom, "dead"} ->
+            s
+
+          match?({:var, _}, st) and queued?(st, s) ->
+            s
+
+          current?(st, s) ->
+            s
+
+          match?({:var, _}, st) ->
+            s = put_att(s, st, mk("clpz_aux", [a("queued")]))
+            insert(p, if(global?(c, s), do: 3, else: 2), q, s)
+
+          true ->
+            throw(:fallback)
+        end
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  defp queued?(st, s) do
+    case PrologEx.get_attrs(st, s) |> Map.get("clpz", []) |> att_find(s, "clpz_aux", 1) do
+      [v] -> ws(v, s) == {:atom, "queued"}
+      nil -> false
+    end
+  end
+
+  defp current?(st, s) do
+    case PrologEx.Builtins.Blackboard.b_value("clpz", "$clpz_current_propagator", s) do
+      {:ok, c} -> PrologEx.Order.equal?(c, st, s)
+      _ -> false
+    end
+  end
+
+  defp global?(c, s) do
+    case ws(c, s) do
+      {tag, f, _} when tag in [:struct, :gstruct] -> f in @global
+      {:atom, f} -> f in @global
+      _ -> throw(:fallback)
+    end
+  end
+
+  defp trigger_all(ps, q, s) do
+    Enum.reduce_while(list_items(ps, s), s, fn p, s ->
+      case trigger(p, q, s) do
+        :fail -> {:halt, :fail}
+        s -> {:cont, s}
+      end
+    end)
+  end
+
+  defp then_all(:fail, _ps, _q), do: :fail
+  defp then_all(s, ps, q), do: trigger_all(ps, q, s)
+
+  defp props(ps, s) do
+    case ws(ps, s) do
+      {tag, "fd_props", [gs, bs, os]} when tag in [:struct, :gstruct] -> {gs, bs, os}
+      _ -> throw(:fallback)
+    end
+  end
+
+  defp ground?(x, s), do: PrologEx.Builtins.Order.first_var(x, s) == nil
+
+  # trigger_props//4: nach der Änderung der Domäne von x von d0 zu d
+  defp trigger4(ps, x, d0, d, q, s) do
+    {gs, bs, os} = props(ps, s)
+
+    s =
+      cond do
+        ground?(x, s) ->
+          s |> then_all(gs, q) |> then_all(bs, q)
+
+        ws(bs, s) != [] ->
+          if edge(d0, :left) == edge(d, :left) and edge(d0, :right) == edge(d, :right),
+            do: s,
+            else: then_all(s, bs, q)
+
+        true ->
+          s
+      end
+
+    then_all(s, os, q)
+  end
+
+  defp result(:fail, _s1, _s0), do: :fail
+  defp result(s, s1, s0), do: finish(s1, s0, s)
+
+  defbuiltin "$clpz_trigger_props", [ps, x, d0, d, s0, s1] do
+    run("trigger_props", [ps, x, d0, d, s0, s1], subst(), fn ->
+      s = subst_now()
+      result(trigger4(ps, x, d0, d, state_q(s0, s), s), s1, s0)
+    end)
+  end
+
+  # trigger_props//2: Os, Bs, und Gs, wenn x ground ist
+  defbuiltin "$clpz_trigger_props", [ps, x, s0, s1] do
+    run("trigger_props", [ps, x, s0, s1], subst(), fn ->
+      s = subst_now()
+      q = state_q(s0, s)
+      {gs, bs, os} = props(ps, s)
+      s = s |> then_all(os, q) |> then_all(bs, q)
+      s = if s != :fail and ground?(x, s), do: then_all(s, gs, q), else: s
+      result(s, s1, s0)
+    end)
+  end
+
+  # trigger_props//1: alle
+  defbuiltin "$clpz_trigger_props", [ps, s0, s1] do
+    run("trigger_props", [ps, s0, s1], subst(), fn ->
+      s = subst_now()
+      q = state_q(s0, s)
+      {gs, bs, os} = props(ps, s)
+      result(s |> then_all(gs, q) |> then_all(bs, q) |> then_all(os, q), s1, s0)
+    end)
+  end
+
+  defbuiltin "$clpz_trigger_prop", [p, s0, s1] do
+    run("trigger_prop", [p, s0, s1], subst(), fn ->
+      s = subst_now()
+      result(trigger(p, state_q(s0, s), s), s1, s0)
+    end)
+  end
+
+  # --- Ablegen: put_terminating//3 (fd_put//3) ---
+
+  defp put_clpz(s, v, fields), do: put_att(s, v, mk("clpz", [mk("clpz_attr", fields)]))
+
+  defp yes, do: a("yes")
+
+  defp put_terminating(x, dom, ps, q, s) do
+    case ws(dom, s) do
+      {:atom, "empty"} ->
+        :fail
+
+      {tag, "from_to", [f, t]} = d when tag in [:struct, :gstruct] ->
+        if bound(f) == bound(t),
+          do: insert(mk("=", [f, mk("n", [x])]), 1, q, s),
+          else: put_dom(x, d, dom, ps, q, s)
+
+      _ ->
+        put_dom(x, nil, dom, ps, q, s)
+    end
+  end
+
+  defp put_dom(x, _d, dom, ps, q, s) do
+    case PrologEx.walk(x, s) do
+      {:var, _} = v ->
+        case att(v, s, "clpz", 1) do
+          [attr] ->
+            case ws(attr, s) do
+              {tag, "clpz_attr", [left, right, spread, old_dom, _old_ps, qx]}
+              when tag in [:struct, :gstruct] ->
+                s = put_clpz(s, v, [left, right, spread, dom, ps, qx])
+
+                if PrologEx.Order.equal?(old_dom, dom, s),
+                  do: s,
+                  else: changed(v, left, right, spread, old_dom, dom, ps, qx, q, s)
+
+              _ ->
+                throw(:fallback)
+            end
+
+          nil ->
+            put_clpz(s, v, [a("no"), a("no"), a("no"), dom, ps, new_queue()])
+        end
+
+      _ ->
+        s
+    end
+  end
+
+  # die Domäne hat sich geändert: Terminierung (Ränder und Spanne höchstens
+  # einmal ändern, außer die Domäne ist beschränkt), dann auslösen
+  defp changed(v, left, right, spread, old_dom, dom, ps, qx, q, s) do
+    l = ws(left, s)
+    dot = a(".")
+    inf = if l == dot, do: nil, else: edge(dom, :left)
+    sup = if l == dot, do: nil, else: edge(dom, :right)
+
+    if l == dot or (is_integer(inf) and is_integer(sup)) do
+      s = put_clpz(s, v, [dot, dot, dot, dom, ps, qx])
+      trigger4(ps, v, old_dom, dom, q, s)
+    else
+      leftp = if inf == edge(old_dom, :left), do: left, else: yes()
+      rightp = if sup == edge(old_dom, :right), do: right, else: yes()
+      old_spread = spread_of(old_dom)
+      new_spread = spread_of(dom)
+
+      spreadp =
+        cond do
+          new_spread == old_spread -> spread
+          lt(new_spread, old_spread) -> a("no")
+          true -> yes()
+        end
+
+      s = put_clpz(s, v, [leftp, rightp, spreadp, dom, ps, qx])
+      y = {:atom, "yes"}
+
+      cond do
+        ws(rightp, s) == y and ws(right, s) == y -> s
+        ws(leftp, s) == y and ws(left, s) == y -> s
+        ws(spreadp, s) == y and ws(spread, s) == y -> s
+        true -> trigger4(ps, v, old_dom, dom, q, s)
+      end
+    end
+  end
+
+  # domain_spread/2 (Fehlschlag des Originals: das Original rechnet)
+  defp spread_of(d) do
+    dd = dom(d)
+
+    with s when s != nil <- smallest_finite(dd),
+         l when l != nil <- largest_finite(dd) do
+      minus(l, s)
+    else
+      nil -> throw(:fallback)
+    end
+  end
+
+  defbuiltin "$clpz_put_terminating", [x, dom, ps, s0, s1] do
+    run("put_terminating", [x, dom, ps, s0, s1], subst(), fn ->
+      s = subst_now()
+      result(put_terminating(x, dom, ps, state_q(s0, s), s), s1, s0)
+    end)
+  end
+
+  # --- Entnehmen: der nächste Eintrag für do_queue//0 ---
+
+  # vorne aus Liste which: {Element, s} oder nil
+  defp pop(args, which, s) do
+    arg = PrologEx.walk(Enum.at(args, which - 1), s)
+
+    with {:var, _} <- arg,
+         [h, t] <- att(arg, s, "queue", 2),
+         {e, es} <- cell(h, s) do
+      s =
+        if match?({:var, _}, PrologEx.walk(es, s)),
+          do: del_att(s, arg, "queue", 2),
+          else: put_att(s, arg, mk("queue", [es, t]))
+
+      {e, s}
+    else
+      _ -> nil
+    end
+  end
+
+  # '$clpz_queue_next'(S0, Next): Next = goal(G), prop(P) oder none (die
+  # Queue ist leer oder abgeschaltet), wie queue_enabled//0 und
+  # queue_get_goal//1, queue_get_fast//1, queue_get_slow//1 in do_queue//0
+  defbuiltin "$clpz_queue_next", [s0, next] do
+    run("queue_next", [s0, next], subst(), fn ->
+      s = subst_now()
+
+      args =
+        case ws(state_q(s0, s), s) do
+          {tag, "queue", [_, _, _, _] = args} when tag in [:struct, :gstruct] -> args
+          _ -> throw(:fallback)
+        end
+
+      aux = PrologEx.walk(Enum.at(args, 3), s)
+
+      {t, s} =
+        cond do
+          match?({:var, _}, aux) and att(aux, s, "disabled", 0) != nil ->
+            {a("none"), s}
+
+          r = pop(args, 1, s) ->
+            {e, s} = r
+            {mk("goal", [e]), s}
+
+          r = pop(args, 2, s) ->
+            {e, s} = r
+            {mk("prop", [e]), s}
+
+          r = pop(args, 3, s) ->
+            {e, s} = r
+            {mk("prop", [e]), s}
+
+          true ->
+            {a("none"), s}
+        end
+
+      case PrologEx.unify(next, t, s) do
+        {:ok, s} -> {:subst, s}
+        :error -> :fail
+      end
+    end)
+  end
 end
