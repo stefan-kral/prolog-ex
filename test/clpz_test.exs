@@ -47,6 +47,31 @@ defmodule PrologEx.ClpzTest do
     end
   end
 
+  test "zusammengelegte Warteschlangen behalten ihre Einträge (wie Scryer)", c do
+    # T #= Y*Y verwandelt sich in pexp, der eingereiht wird; das Aufstellen
+    # von Y + Z #\= 4*Z legt die Warteschlangen zusammen
+    # (variables_same_queue/1). Ging die bleibende Queue dabei verloren,
+    # lief pexp nach Y = 2 nie, und T blieb offen.
+    assert {:answers, ["T = 4, Y = 2, " <> _]} = answers(c, "T #= Y*Y, Y + Z #\\= 4*Z, Y = 2")
+
+    # Lösungszahlen wie in Scryer (vorher 1380 und 1012)
+    assert {:answers, ["N = 390"]} =
+             answers(
+               c,
+               "findall(t, (all_distinct([X,Y,W]), Y #= ((Y ^ 2) // min(-1, Z)), " <>
+                 "(Y + Z) #\\= (4 * Z), [X,Y,Z,W] ins -3..3, labeling([ff], [X,Y,Z,W])), _L), " <>
+                 "length(_L, N)"
+             )
+
+    assert {:answers, ["N = 506"]} =
+             answers(
+               c,
+               "findall(t, ((W #> (- (Z ^ 3)) #<==> (Z #> X #/\\ min((Y div X), (W * 5)) #< " <>
+                 "((1 + 0) * -3))), zcompare(O, W, X), W in 0..sup, (- X) #\\= (2 * Y), " <>
+                 "[X,Y,Z,W] ins -3..3, label([X,Y,Z,W])), _L), length(_L, N)"
+             )
+  end
+
   test "Fehler wie in Scryer", c do
     assert {:error, "domain_error(clpz_domain,a..b)"} = answers(c, "X in a..b")
     assert {:error, "domain_error(clpz_expression,a)"} = answers(c, "X #= a")

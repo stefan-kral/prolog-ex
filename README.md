@@ -1292,6 +1292,17 @@ Bisher in Elixir:
     doppelt in der Liste steht, rechnet das Original. Sudoku 0,59–0,68 →
     0,05 s, Springerweg 2,0 → 0,31–0,33 s.
 
+Eine Abweichung von Triskas Code ist eine Korrektur: `variables_same_queue/1`
+legt die Warteschlangen mehrerer Variablen zusammen – sortiert, die erste
+bleibt, die übrigen werden geleert und mit ihr unifiziert (`Q = Qi`). Bei
+zwei attributierten Variablen bindet Scryer (wie die WAM) die jüngere an
+die ältere, PrologEx die linke an die rechte; so wurde die bleibende Queue
+an eine geleerte gebunden, und ihre Einträge gingen verloren. Folge waren
+falsche Lösungen, etwa nach `T #= Y*Y, Y + Z #\= 4*Z, Y = 2` blieb `T`
+offen, und Labeling fand Lösungen, die eine Bedingung verletzen (1380 statt
+390). In `clpz.pl` steht deshalb `Qi = Q`; gefunden beim Vergleich von 1600
+weiteren Zufallsanfragen mit Scryer, die jetzt dieselben Lösungen haben.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
