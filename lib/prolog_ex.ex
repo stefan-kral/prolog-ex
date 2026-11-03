@@ -3620,11 +3620,6 @@ defmodule PrologEx do
   defp counter_ref({:time_fail, ref, _, _}), do: ref
   defp counter_ref(_), do: nil
 
-  defp term_attvs({:var, {:attv, id}}, acc), do: [id | acc]
-  defp term_attvs({:struct, _, args}, acc), do: Enum.reduce(args, acc, &term_attvs/2)
-  defp term_attvs([h | t], acc), do: term_attvs(t, term_attvs(h, acc))
-  defp term_attvs(_, acc), do: acc
-
   # Attribute der Variablen ids (und der in ihren Attributen erreichten)
   # kompaktieren; schon behandelte stehen in out
   defp compact_attrs([], out, {_memo, size, _}, _subst), do: {out, size}
@@ -3634,8 +3629,13 @@ defmodule PrologEx do
 
     case subst do
       %{^key => old} when not is_map_key(out, key) ->
-        {attrs, acc} =
-          Enum.reduce(old, {%{}, acc}, fn {m, t}, {as, acc} ->
+        # die beim Kompaktieren erreichten attributierten Variablen sammelt
+        # compact3/3 im Akkumulator (je Teilterm einmal, auch bei geteilten
+        # Teiltermen); sie sind die nächsten Kandidaten
+        {memo, size, _} = acc
+
+        {attrs, {memo, size, new}} =
+          Enum.reduce(old, {%{}, {memo, size, []}}, fn {m, t}, {as, acc} ->
             # tote Suspensionen (Done gebunden) fallen weg
             t = if m == "$susp", do: live_susps(t, subst), else: t
             {t, acc} = compact(t, subst, acc)
@@ -3643,8 +3643,7 @@ defmodule PrologEx do
           end)
 
         # attributierte Variablen in den (kompaktierten) Attributen selbst
-        new = Enum.flat_map(attrs, fn {_m, t} -> term_attvs(t, []) end)
-        compact_attrs(new ++ ids, Map.put(out, key, attrs), acc, subst)
+        compact_attrs(new ++ ids, Map.put(out, key, attrs), {memo, size, []}, subst)
 
       _ ->
         compact_attrs(ids, out, acc, subst)

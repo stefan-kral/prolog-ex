@@ -107,13 +107,37 @@ defmodule PrologEx.CompactTest do
   test "geteilte Teilterme mit Zahl als erstem Argument (wie BDD-Knoten)", c do
     # Zwischen den beiden Vorkommen von X liegen andere n/4-Strukturen; ohne
     # eigenen Schlüssel je erstem Argument fiele X aus dem Memo, und jede
-    # Kompaktierung (hier durch die 300 000 Bindungen) liefe 2^21 Pfade ab.
+    # Kompaktierung (hier durch die 300 000 Bindungen) liefe 2^24 Pfade ab.
     # Mit Zeitgrenze im eigenen Prozess, damit ein Rückfall nicht den
     # ganzen Testlauf mit Speicherüberlauf abbricht.
     [{:term, g, _}] =
       Reader.read_terms(
         c.reader,
-        "share3(21, g(X), R), X = 1, length(L, 300000), seta(L), R = n(1, _, _, _)."
+        "\\+ \\+ (share3(24, g(X), R), X = 1, length(L, 300000), seta(L), " <>
+          "R = n(1, _, _, _))."
+      )
+
+    db = c.db
+    reader = c.reader
+
+    task =
+      Task.async(fn ->
+        Reader.put_current(reader)
+        db |> PrologEx.query(g) |> Enum.take(1) |> length()
+      end)
+
+    assert {:ok, 1} = Task.yield(task, 10_000) || Task.shutdown(task, :brutal_kill)
+  end
+
+  test "geteilte Teilterme in Attributen (wie BDDs in clpb)", c do
+    # R hängt über freeze/2 an V und ist nicht ground (wie die Knoten eines
+    # BDDs mit ihren Aux-Variablen); die Kompaktierung der Attribute lief
+    # früher zusätzlich ohne Memo über das Ergebnis (2^32 Pfade)
+    [{:term, g, _}] =
+      Reader.read_terms(
+        c.reader,
+        "\\+ \\+ (share(32, g(_), R), freeze(V, R = f(_, _)), " <>
+          "length(L, 300000), seta(L), V = go)."
       )
 
     db = c.db
