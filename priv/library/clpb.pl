@@ -60,6 +60,8 @@
        ('$clpb_labeling_vars'/2, '$clpb_random_bindings'/2,
        '$clpb_weighted'/6); das Binden mit Backtracking bleibt Prolog. Die
        Originale mit der Endung _ref (auch mit ref_mode)
+     - die Schlüssel der Knotentabellen (low_high_key/3) sind Zahlen
+       (Cantor-Paarung der Kinder-Codes) statt node(LID,HID)
      - satisfiable_bdd/1: die Propagation (Klassifikation der Variablen,
        Gleichsetzungen, auch mit allquantifizierten Variablen) rechnet
        '$clpb_propagate'/2 in Elixir (PrologEx.Builtins.ClpbPrims); der
@@ -1008,9 +1010,16 @@ make_node(Var, Low, High, Node) -->
 % The key of a node for hashing is determined by the IDs of its
 % children.
 
-low_high_key(Low, High, node(LID,HID)) :-
-        node_id(Low, LID),
-        node_id(High, HID).
+% PrologEx: der Schlüssel ist eine Zahl statt node(LID,HID) – die Kinder
+% als Codes (0, 1, ID+2) Cantor-gepaart, wie in ClpbPrims (Elixir)
+low_high_key(Low, High, Key) :-
+        key_code(Low, A),
+        key_code(High, B),
+        Key is (A+B)*(A+B+1)//2 + B.
+
+key_code(0, 0).
+key_code(1, 1).
+key_code(node(ID,_,_,_,_), C) :- C is ID + 2.
 
 
 rebuild_hashes(BDD) :-

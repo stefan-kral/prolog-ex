@@ -1110,9 +1110,11 @@ Bisher in Elixir:
     Knoten einzeln einzufügen); die Propagation rechnet auf dem BDD als
     dichte Arrays (Knoten 0…n-1, Besucht-Marken in `:atomics`), und ohne
     `clpb:validation` liest `sat/1` den BDD für Neuaufbau und
-    Propagation nur einmal. 7 Damen aufstellen: 5,6 → 2,0 s; 8 Damen
-    aufstellen 31 → 12 s, dazu `labeling/1` (früher Speicherüberlauf)
-    2,5 s. Scryer braucht schon für das Aufstellen von 6 Damen 20 s;
+    Propagation nur einmal; die Schlüssel der Knotentabellen sind Zahlen
+    (Cantor-Paarung der Kinder-Codes) statt Terme `node(LID, HID)`.
+    7 Damen aufstellen: 5,6 → 1,6 s; 8 Damen aufstellen 31 → 9,6 s, dazu
+    `labeling/1` (früher Speicherüberlauf) 2,3 s. Scryer braucht schon
+    für das Aufstellen von 6 Damen 20 s;
   * von `labeling/1` das Prüfen und Sortieren, von `random_labeling/2` die
     zufälligen Bindungen (mit denselben Zufallszahlen), von
     `weighted_maximum/3` der BDD-Teil (`weighted_maximum/3`: 51 → 3 ms
