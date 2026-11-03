@@ -20,71 +20,101 @@ defmodule PrologEx.Order do
   @doc """
   `:lt`, `:eq` oder `:gt`, direkt auf dem Paar: Klassen, Zahlen, Atome und
   Funktoren in Klauseln statt über Klassennummern; Listen ohne Umweg über
-  `'.'/2`, Markierungen ohne `unmark_top`. Kein `===` vorweg (anders als
-  `equal?/3`): bei den üblichen ungleichen kleinen Termen kostete es rund
-  20 %, und innen wiederholt wäre es quadratisch.
+  `'.'/2`, Markierungen ohne `unmark_top`. Kein `===` vorweg: bei den
+  üblichen ungleichen kleinen Termen kostete es rund 20 %, innen
+  wiederholt wäre es quadratisch, und auf zwei verschiedenen DAGs läuft
+  es (in C) Pfad für Pfad. Physisch derselbe Teilterm ist sofort `:eq`
+  (`PrologEx.Share.same?/2`); Paare geteilter Teilterme werden nur einmal
+  verglichen (Memo nach den ersten Strukturen).
   """
-  def compare(a, b, subst), do: c(walk(a, subst), walk(b, subst), subst)
+  def compare(a, b, subst) do
+    {r, _memo} = c(walk(a, subst), walk(b, subst), subst, %{})
+    r
+  end
+
+  # mit Memo (PrologEx.Share): geteilte Teilterme-Paare (zwei DAGs) nur
+  # einmal vergleichen; physisch derselbe Teilterm ist sofort :eq
+  defp cm(a, b, subst, m), do: c(walk(a, subst), walk(b, subst), subst, m)
 
   @st [:struct, :gstruct]
 
   # Variable < Zahl < Atom < zusammengesetzt
-  defp c({:var, x}, {:var, y}, _), do: var_cmp(x, y)
-  defp c({:var, _}, _, _), do: :lt
-  defp c(_, {:var, _}, _), do: :gt
-  defp c(x, y, _) when is_integer(x) and is_integer(y), do: cmp(x, y)
-  defp c(x, y, _) when is_float(x) and is_float(y), do: cmp(x, y)
+  defp c({:var, x}, {:var, y}, _, m), do: {var_cmp(x, y), m}
+  defp c({:var, _}, _, _, m), do: {:lt, m}
+  defp c(_, {:var, _}, _, m), do: {:gt, m}
+  defp c(x, y, _, m) when is_integer(x) and is_integer(y), do: {cmp(x, y), m}
+  defp c(x, y, _, m) when is_float(x) and is_float(y), do: {cmp(x, y), m}
   # ISO: Float vor Integer, unabhängig vom Wert
-  defp c(x, y, _) when is_float(x) and is_integer(y), do: :lt
-  defp c(x, y, _) when is_integer(x) and is_float(y), do: :gt
-  defp c(x, _, _) when is_number(x), do: :lt
-  defp c(_, y, _) when is_number(y), do: :gt
-  defp c({:atom, x}, {:atom, y}, _), do: cmp(x, y)
-  defp c([], [], _), do: :eq
-  defp c([], {:atom, y}, _), do: cmp("[]", y)
-  defp c({:atom, x}, [], _), do: cmp(x, "[]")
-  defp c({:atom, _}, _, _), do: :lt
-  defp c([], _, _), do: :lt
-  defp c(_, {:atom, _}, _), do: :gt
-  defp c(_, [], _), do: :gt
+  defp c(x, y, _, m) when is_float(x) and is_integer(y), do: {:lt, m}
+  defp c(x, y, _, m) when is_integer(x) and is_float(y), do: {:gt, m}
+  defp c(x, _, _, m) when is_number(x), do: {:lt, m}
+  defp c(_, y, _, m) when is_number(y), do: {:gt, m}
+  defp c({:atom, x}, {:atom, y}, _, m), do: {cmp(x, y), m}
+  defp c([], [], _, m), do: {:eq, m}
+  defp c([], {:atom, y}, _, m), do: {cmp("[]", y), m}
+  defp c({:atom, x}, [], _, m), do: {cmp(x, "[]"), m}
+  defp c({:atom, _}, _, _, m), do: {:lt, m}
+  defp c([], _, _, m), do: {:lt, m}
+  defp c(_, {:atom, _}, _, m), do: {:gt, m}
+  defp c(_, [], _, m), do: {:gt, m}
 
   # zusammengesetzt: Stelligkeit, Name, Argumente; Listen sind '.'/2.
   # Markierungen ({:gstruct, ...}, {:glist, ...}) direkt, ohne unmark_top
-  defp c({:glist, l}, y, subst), do: c(l, y, subst)
-  defp c(x, {:glist, l}, subst), do: c(x, l, subst)
+  defp c(x, y, subst, m) do
+    cond do
+      PrologEx.Share.same?(x, y) ->
+        {:eq, m}
 
-  defp c([x | xs], [y | ys], subst) do
-    case compare(x, y, subst) do
-      :eq -> compare(xs, ys, subst)
+      true ->
+        case PrologEx.Share.get2(m, x, y) do
+          {:ok, r} ->
+            {r, m}
+
+          :error ->
+            {r, m} = c_compound(x, y, subst, m)
+            {r, PrologEx.Share.put2(m, x, y, r)}
+        end
+    end
+  end
+
+  defp c_compound({:glist, l}, y, subst, m), do: c(l, y, subst, m)
+  defp c_compound(x, {:glist, l}, subst, m), do: c(x, l, subst, m)
+
+  defp c_compound([x | xs], [y | ys], subst, m) do
+    case cm(x, y, subst, m) do
+      {:eq, m} -> cm(xs, ys, subst, m)
       other -> other
     end
   end
 
-  defp c({tx, f, xs}, {ty, g, ys}, subst) when tx in @st and ty in @st,
-    do: c_struct(f, xs, g, ys, subst)
+  defp c_compound({tx, f, xs}, {ty, g, ys}, subst, m) when tx in @st and ty in @st,
+    do: c_struct(f, xs, g, ys, subst, m)
 
-  defp c({tx, f, xs}, [y | ys], subst) when tx in @st, do: c_struct(f, xs, ".", [y, ys], subst)
-  defp c([x | xs], {ty, g, ys}, subst) when ty in @st, do: c_struct(".", [x, xs], g, ys, subst)
+  defp c_compound({tx, f, xs}, [y | ys], subst, m) when tx in @st,
+    do: c_struct(f, xs, ".", [y, ys], subst, m)
 
-  defp c_struct(f, xs, g, ys, subst) do
+  defp c_compound([x | xs], {ty, g, ys}, subst, m) when ty in @st,
+    do: c_struct(".", [x, xs], g, ys, subst, m)
+
+  defp c_struct(f, xs, g, ys, subst, m) do
     case cmp(length(xs), length(ys)) do
       :eq ->
         case cmp(f, g) do
-          :eq -> c_args(xs, ys, subst)
-          other -> other
+          :eq -> c_args(xs, ys, subst, m)
+          other -> {other, m}
         end
 
       other ->
-        other
+        {other, m}
     end
   end
 
   # letztes Argument per Tail Call
-  defp c_args([x], [y], subst), do: compare(x, y, subst)
+  defp c_args([x], [y], subst, m), do: cm(x, y, subst, m)
 
-  defp c_args([x | xs], [y | ys], subst) do
-    case compare(x, y, subst) do
-      :eq -> c_args(xs, ys, subst)
+  defp c_args([x | xs], [y | ys], subst, m) do
+    case cm(x, y, subst, m) do
+      {:eq, m} -> c_args(xs, ys, subst, m)
       other -> other
     end
   end
@@ -94,35 +124,84 @@ defmodule PrologEx.Order do
 
   @doc """
   `==/2`: gleich in der Standardordnung, ohne die Ordnung zu bestimmen.
-  Oben einmal `===` (in C; geteilte Terme in O(1)); sonst strukturell mit
-  billigen Blättern, die letzte Stelle (Listenrest) per Tail Call. Innen
-  kein `===` mehr: auf jeder Ebene wiederholt, wäre es bei spät
-  verschiedenen Termen quadratisch. Was sich nicht billig entscheiden lässt
-  – Floats (`-0.0`), `'.'/2` gegen Liste, verschiedene Klassen oder
-  Funktoren – entscheidet `compare/3`.
+  Atomare Terme entscheidet `===`; bei zusammengesetzten ist physisch
+  derselbe Teilterm sofort gleich (`PrologEx.Share.same?/2`, O(1)) –
+  `===` selbst liefe auf zwei verschiedenen DAGs Pfad für Pfad. Sonst
+  strukturell mit billigen Blättern und Memo für Paare geteilter
+  Teilterme. Was sich nicht billig entscheiden lässt – Floats (`-0.0`),
+  `'.'/2` gegen Liste, verschiedene Klassen oder Funktoren – entscheidet
+  `compare/3`.
   """
   def equal?(a, b, subst) do
     a = walk(a, subst)
     b = walk(b, subst)
-    a === b or eq(PrologEx.unmark_top(a), PrologEx.unmark_top(b), subst)
+
+    cond do
+      # atomar: === (strikt: 1 und 1.0 sind verschieden), sonst wie
+      # compare/3 (-0.0 und 0.0 sind gleich)
+      not is_tuple(a) and not is_list(a) -> a === b or elem(eq(a, b, subst, %{}), 0)
+      PrologEx.Share.same?(a, b) -> true
+      true -> a |> eq(b, subst, %{}) |> elem(0)
+    end
   end
 
-  defp same(a, b, subst),
-    do: eq(PrologEx.unmark_top(walk(a, subst)), PrologEx.unmark_top(walk(b, subst)), subst)
+  # Markierungen nicht aufheben (unmark_top baute jedes Mal ein neues Tupel,
+  # und das Memo erkennt Teilterme an ihrer Identität): eq/4 nimmt
+  # {:struct, ...} und {:gstruct, ...} gleich, {:glist, l} wie l
+  defp same(a, b, subst, m) do
+    a = walk(a, subst)
+    b = walk(b, subst)
 
-  defp eq({:struct, f, xs}, {:struct, f, ys}, subst), do: eq_args(xs, ys, subst)
-  defp eq([x | xs], [y | ys], subst), do: same(x, y, subst) and same(xs, ys, subst)
-  defp eq({:var, v}, {:var, w}, _), do: v === w
-  defp eq({:var, _}, _, _), do: false
-  defp eq(_, {:var, _}, _), do: false
-  defp eq({:atom, x}, {:atom, y}, _), do: x === y
-  defp eq(x, y, _) when is_integer(x) and is_integer(y), do: x === y
-  defp eq([], [], _), do: true
-  defp eq(x, y, subst), do: compare(x, y, subst) == :eq
+    if (is_tuple(a) or is_list(a)) and PrologEx.Share.same?(a, b),
+      do: {true, m},
+      else: eq(a, b, subst, m)
+  end
 
-  defp eq_args([x], [y], subst), do: same(x, y, subst)
-  defp eq_args([x | xs], [y | ys], subst), do: same(x, y, subst) and eq_args(xs, ys, subst)
-  defp eq_args(_, _, _), do: false
+  # zusammengesetzte Paare mit Memo (PrologEx.Share); Blätter billig
+  defp eq({:glist, l}, b, subst, m), do: eq(l, b, subst, m)
+  defp eq(a, {:glist, l}, subst, m), do: eq(a, l, subst, m)
+
+  defp eq({ta, f, xs} = a, {tb, f, ys} = b, subst, m) when ta in @st and tb in @st,
+    do: eq_memo(a, b, m, fn m -> eq_args(xs, ys, subst, m) end)
+
+  defp eq([x | xs] = a, [y | ys] = b, subst, m) do
+    eq_memo(a, b, m, fn m ->
+      case same(x, y, subst, m) do
+        {true, m} -> same(xs, ys, subst, m)
+        other -> other
+      end
+    end)
+  end
+
+  defp eq({:var, v}, {:var, w}, _, m), do: {v === w, m}
+  defp eq({:var, _}, _, _, m), do: {false, m}
+  defp eq(_, {:var, _}, _, m), do: {false, m}
+  defp eq({:atom, x}, {:atom, y}, _, m), do: {x === y, m}
+  defp eq(x, y, _, m) when is_integer(x) and is_integer(y), do: {x === y, m}
+  defp eq([], [], _, m), do: {true, m}
+  defp eq(x, y, subst, m), do: {compare(x, y, subst) == :eq, m}
+
+  defp eq_memo(a, b, m, f) do
+    case PrologEx.Share.get2(m, a, b) do
+      {:ok, r} ->
+        {r, m}
+
+      :error ->
+        {r, m} = f.(m)
+        {r, PrologEx.Share.put2(m, a, b, r)}
+    end
+  end
+
+  defp eq_args([x], [y], subst, m), do: same(x, y, subst, m)
+
+  defp eq_args([x | xs], [y | ys], subst, m) do
+    case same(x, y, subst, m) do
+      {true, m} -> eq_args(xs, ys, subst, m)
+      other -> other
+    end
+  end
+
+  defp eq_args(_, _, _, m), do: {false, m}
 
   @doc """
   Sind a und b Varianten (gleich bis auf eine eineindeutige Umbenennung der
@@ -281,14 +360,25 @@ defmodule PrologEx.Order do
   def keysort(pairs, subst) do
     walked = Enum.map(pairs, fn {k, item} -> {walk(k, subst), item} end)
 
-    keyed =
-      case kind(Enum.map(walked, &elem(&1, 0)), :none) do
-        # Schlüssel direkt vergleichbar (List.keysort ist stabil)
-        k when k in [:integers, :atoms] -> walked
-        _ -> Enum.map(walked, fn {k, item} -> {key(k, subst), item} end)
-      end
+    case kind(Enum.map(walked, &elem(&1, 0)), :none) do
+      # Schlüssel direkt vergleichbar (List.keysort ist stabil)
+      k when k in [:integers, :atoms] ->
+        walked |> List.keysort(0) |> Enum.map(&elem(&1, 1))
 
-    keyed |> List.keysort(0) |> Enum.map(&elem(&1, 1))
+      _ ->
+        try do
+          walked
+          |> Enum.map(fn {k, item} -> {sort_key(k, subst), item} end)
+          |> List.keysort(0)
+          |> Enum.map(&elem(&1, 1))
+        catch
+          # geteilte Teilterme: über compare/3 (stabil), siehe do_sort/3
+          :shared ->
+            walked
+            |> Enum.sort(fn {a, _}, {b, _} -> compare(a, b, subst) != :gt end)
+            |> Enum.map(&elem(&1, 1))
+        end
+    end
   end
 
   defp do_sort(list, subst, unique) do
@@ -306,12 +396,105 @@ defmodule PrologEx.Order do
         if unique, do: dedup_numbers(sorted), else: sorted
 
       :mixed ->
-        keyed = Enum.map(values, &{key(&1, subst), &1})
-        sorted = List.keysort(keyed, 0)
-        sorted = if unique, do: dedup_keyed(sorted), else: sorted
-        Enum.map(sorted, &elem(&1, 1))
+        keyed =
+          try do
+            Enum.map(values, &{sort_key(&1, subst), &1})
+          catch
+            :shared -> :shared
+          end
+
+        if keyed == :shared do
+          # Die Schlüssel geteilter Teilterme wären selbst DAGs, und der
+          # native Vergleich zweier verschiedener DAGs läuft Pfad für Pfad –
+          # dann über compare/3 mit Memo (Enum.sort ist stabil)
+          sorted = Enum.sort(values, fn a, b -> compare(a, b, subst) != :gt end)
+          if unique, do: dedup_compare(sorted, subst), else: sorted
+        else
+          sorted = List.keysort(keyed, 0)
+          sorted = if unique, do: dedup_keyed(sorted), else: sorted
+          Enum.map(sorted, &elem(&1, 1))
+        end
     end
   end
+
+  defp shared?(m), do: Map.has_key?(m, :"$shared")
+
+  # Schlüssel eines Elements: erst wie früher ohne Memo, aber höchstens
+  # @key_budget zusammengesetzte Knoten (gezählt in einem :atomics-Zähler,
+  # damit der Schlüsselbau so schlank bleibt wie früher); größere Elemente
+  # noch einmal mit Memo – wird dabei Teilung erkannt, throw(:shared): dann
+  # sortieren die Aufrufer über compare/3
+  @key_budget 256
+  defp sort_key(t, subst) do
+    case walk(t, subst) do
+      # lauter atomare Argumente (etwa X-Y): nichts aufzublähen
+      {tag, f, args} when tag in [:struct, :gstruct] ->
+        if Enum.any?(args, &compound_arg?/1),
+          do: budget_key(t, subst),
+          else: {3, length(args), f, args |> Enum.map(&key_leaf_or(&1, subst)) |> List.to_tuple()}
+
+      _ ->
+        budget_key(t, subst)
+    end
+  end
+
+  defp compound_arg?({:atom, _}), do: false
+  defp compound_arg?({:var, _}), do: false
+  defp compound_arg?(t) when is_tuple(t), do: true
+  defp compound_arg?([_ | _]), do: true
+  defp compound_arg?(_), do: false
+
+  # ein atomares Argument (eine gebundene Variable kann noch auf eine
+  # Struktur zeigen: dann der volle Schlüssel)
+  defp key_leaf_or(a, subst) do
+    case walk(a, subst) do
+      {tag, _, _} when tag in [:struct, :gstruct] -> key(a, subst)
+      [_ | _] -> key(a, subst)
+      {:glist, _} -> key(a, subst)
+      other -> key_leaf(other)
+    end
+  end
+
+  defp budget_key(t, subst) do
+    ref = :atomics.new(1, signed: true)
+    :atomics.put(ref, 1, @key_budget)
+    key_b(t, subst, ref)
+  catch
+    :big ->
+      {k, m} = key(t, subst, %{})
+      if shared?(m), do: throw(:shared), else: k
+  end
+
+  defp key_b(t, subst, ref) do
+    case walk(t, subst) do
+      {tag, f, args} when tag in [:struct, :gstruct] ->
+        if :atomics.sub_get(ref, 1, 1) < 0, do: throw(:big)
+        {3, length(args), f, args |> Enum.map(&key_b(&1, subst, ref)) |> List.to_tuple()}
+
+      l when is_list(l) and l != [] ->
+        key_b_list(l, subst, ref)
+
+      {:glist, _} = l ->
+        key_b_list(l, subst, ref)
+
+      other ->
+        key_leaf(other)
+    end
+  end
+
+  defp key_b_list(l, subst, ref) do
+    if :atomics.sub_get(ref, 1, 1) < 0, do: throw(:big)
+    {:cons, h, t} = uncons(l)
+    {3, 2, ".", {key_b(h, subst, ref), key_b(t, subst, ref)}}
+  end
+
+  defp dedup_compare([x, y | rest], subst) do
+    if compare(x, y, subst) == :eq,
+      do: dedup_compare([x | rest], subst),
+      else: [x | dedup_compare([y | rest], subst)]
+  end
+
+  defp dedup_compare(l, _subst), do: l
 
   # Einheitlichkeit der (dereferenzierten) Elemente feststellen
   defp kind([], k), do: if(k == :none, do: :integers, else: k)
@@ -340,8 +523,57 @@ defmodule PrologEx.Order do
   defp dedup_keyed([]), do: []
 
   @doc "Sortierschlüssel eines Terms (siehe oben)."
-  def key(t, subst) do
+  def key(t, subst), do: t |> key(subst, %{}) |> elem(0)
+
+  # mit Memo (PrologEx.Share): ein geteilter Teilterm bekommt seinen
+  # Schlüssel nur einmal; ein Treffer setzt :"$shared" (dann sortiert
+  # do_sort/3 über compare/3)
+  defp key(t, subst, m) do
     case walk(t, subst) do
+      {tag, f, args} = st when tag in [:struct, :gstruct] ->
+        case PrologEx.Share.get(m, st) do
+          {:ok, k} ->
+            {k, Map.put(m, :"$shared", true)}
+
+          :error ->
+            {ks, m} = Enum.map_reduce(args, m, &key(&1, subst, &2))
+            k = {3, length(args), f, List.to_tuple(ks)}
+            {k, PrologEx.Share.put(m, st, k)}
+        end
+
+      [h | _] = l when is_tuple(h) or is_list(h) ->
+        case PrologEx.Share.get(m, l) do
+          {:ok, k} ->
+            {k, Map.put(m, :"$shared", true)}
+
+          :error ->
+            {:cons, h, t} = uncons(l)
+            {kh, m} = key(h, subst, m)
+            {kt, m} = key(t, subst, m)
+            k = {3, 2, ".", {kh, kt}}
+            {k, PrologEx.Share.put(m, l, k)}
+        end
+
+      l when is_list(l) and l != [] ->
+        list_key(l, subst, m)
+
+      {:glist, _} = l ->
+        list_key(l, subst, m)
+
+      other ->
+        {key_leaf(other), m}
+    end
+  end
+
+  defp list_key(l, subst, m) do
+    {:cons, h, t} = uncons(l)
+    {kh, m} = key(h, subst, m)
+    {kt, m} = key(t, subst, m)
+    {{3, 2, ".", {kh, kt}}, m}
+  end
+
+  defp key_leaf(t) do
+    case t do
       {:var, n} ->
         {0, var_key(n), 0, 0}
 
@@ -356,24 +588,8 @@ defmodule PrologEx.Order do
 
       {:atom, n} ->
         {2, n, 0, 0}
-
-      {:glist, _} = l ->
-        list_key(l, subst)
-
-      [_ | _] = l ->
-        list_key(l, subst)
-
-      {tag, f, args} when tag in [:struct, :gstruct] ->
-        {3, length(args), f, args_key(args, subst)}
     end
   end
-
-  defp list_key(l, subst) do
-    {:cons, h, t} = uncons(l)
-    {3, 2, ".", {key(h, subst), key(t, subst)}}
-  end
-
-  defp args_key(args, subst), do: args |> Enum.map(&key(&1, subst)) |> List.to_tuple()
 
   defp class({:var, _}), do: 0
   defp class(n) when is_number(n), do: 1

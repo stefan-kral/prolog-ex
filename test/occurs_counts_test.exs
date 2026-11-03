@@ -62,13 +62,42 @@ defmodule PrologEx.OccursCountsTest do
   test "tatsächliche Checks und ihre Schritte", c do
     # f(Y): f(...) und Y
     assert delta(c, "unify_with_occurs_check(X, f(Y))") == {1, 2}
-    # Liste mit n Elementen f(Y): 3n + 1 (Zelle, f(...), Y; am Ende [])
+    # Liste mit n verschiedenen Elementen f(Y): 3n + 1 (Zelle, f(...), Y;
+    # am Ende [])
+    assert delta(
+             c,
+             "unify_with_occurs_check(X, L)",
+             "length(N, 100), findall(f(_), member(_, N), L0), L = L0"
+           ) ==
+             {1, 301}
+
+    # n-mal derselbe Term f(g(Y)) (geteilt): Zelle, f, g, Y; nach den
+    # ersten 32 Strukturen merkt sich PrologEx.Share f(g(Y)) (die 33.
+    # wird noch abgelaufen und gemerkt), danach nur Zelle und f –
+    # 4·33 + 2·67 + 1. Strukturen mit lauter atomaren Argumenten wie f(Y)
+    # kommen nicht ins Memo (oben: 3n + 1 auch geteilt)
+    assert delta(
+             c,
+             "unify_with_occurs_check(X, L)",
+             "length(L0, 100), maplist(=(f(g(_))), L0), L = L0"
+           ) ==
+             {1, 267}
+
     assert delta(
              c,
              "unify_with_occurs_check(X, L)",
              "length(L0, 100), maplist(=(f(_)), L0), L = L0"
            ) ==
              {1, 301}
+
+    # auch mit atomaren Argumenten neben Variablen: f(Y, a) nicht ins Memo
+    # (Zelle, f, Y, a: 4n + 1)
+    assert delta(
+             c,
+             "unify_with_occurs_check(X, L)",
+             "length(L0, 100), maplist(=(f(_, a)), L0), L = L0"
+           ) ==
+             {1, 401}
 
     # gefunden: Abbruch beim Fund (f(...), a, X)
     assert delta(c, "unify_with_occurs_check(X, f(a, X, b))") == {1, 3}

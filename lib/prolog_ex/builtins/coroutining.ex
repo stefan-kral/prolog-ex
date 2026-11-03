@@ -571,15 +571,34 @@ defmodule PrologEx.Builtins.Coroutining do
 
   defp put_pair({m, l}, v, t), do: {Map.put(m, v, t), [{v, t} | l]}
 
+  # Paar-Memo (PrologEx.Share) in der Bindungs-Map: geteilte Teilterme
+  # (zwei DAGs) nur einmal abgleichen; kein === auf zusammengesetzten
+  # Termen (liefe auf zwei verschiedenen DAGs Pfad für Pfad)
   defp uni(x, y, s, acc) do
     x = w(x, s, acc)
     y = w(y, s, acc)
 
     cond do
-      x === y -> {:ok, acc}
+      not is_tuple(x) and not is_list(x) and x === y -> {:ok, acc}
+      match?({:var, _}, x) and x === y -> {:ok, acc}
+      match?({:atom, _}, x) and x === y -> {:ok, acc}
       match?({:var, _}, x) -> {:ok, put_pair(acc, x, y)}
       match?({:var, _}, y) -> {:ok, put_pair(acc, y, x)}
-      true -> uni_struct(PrologEx.unmark_top(x), PrologEx.unmark_top(y), s, acc)
+      PrologEx.Share.same?(x, y) -> {:ok, acc}
+      true -> uni_memo(x, y, s, acc)
+    end
+  end
+
+  defp uni_memo(x, y, s, {m, _} = acc) do
+    case PrologEx.Share.get2(m, x, y) do
+      {:ok, _} ->
+        {:ok, acc}
+
+      :error ->
+        case uni_struct(PrologEx.unmark_top(x), PrologEx.unmark_top(y), s, acc) do
+          {:ok, {m, l}} -> {:ok, {PrologEx.Share.put2(m, x, y, true), l}}
+          :error -> :error
+        end
     end
   end
 

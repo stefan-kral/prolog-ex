@@ -103,10 +103,7 @@ defmodule PrologEx.Builtins.Solutions do
     {goal, existential} = strip(g, s, [])
 
     # gebunden: Variablen von T und der V in V^G
-    bound =
-      Enum.reduce([t | existential], MapSet.new(), fn x, seen ->
-        x |> vars(s, [], seen) |> elem(1)
-      end)
+    bound = [t | existential] |> list() |> term_vars(s) |> MapSet.new()
 
     free = goal |> term_vars(s) |> Enum.reject(&MapSet.member?(bound, &1))
     l0 = fresh_var()
@@ -156,28 +153,7 @@ defmodule PrologEx.Builtins.Solutions do
   end
 
   # Variablen eines Terms in Reihenfolge des ersten Auftretens
-  defp term_vars(t, s) do
-    {vs, _} = vars(t, s, [], MapSet.new())
-    Enum.reverse(vs)
-  end
-
-  # {Variablen in umgekehrter Reihenfolge, schon gesehene}
-  defp vars(t, s, acc, seen) do
-    case PrologEx.walk(t, s) do
-      {:var, _} = v ->
-        if MapSet.member?(seen, v), do: {acc, seen}, else: {[v | acc], MapSet.put(seen, v)}
-
-      {tag, _, args} when tag in [:struct, :gstruct] ->
-        Enum.reduce(args, {acc, seen}, fn a, {acc, seen} -> vars(a, s, acc, seen) end)
-
-      [h | tl] ->
-        {acc, seen} = vars(h, s, acc, seen)
-        vars(tl, s, acc, seen)
-
-      _ ->
-        {acc, seen}
-    end
-  end
+  defp term_vars(t, s), do: PrologEx.Builtins.Order.variables(t, s)
 
   # Gruppen aus der nach Zeugen sortierten Liste [{k, t}]: Zeugen, die
   # Varianten sind, haben dieselbe kanonische Form (Variablen nach erstem

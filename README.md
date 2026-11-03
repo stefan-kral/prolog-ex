@@ -10,16 +10,28 @@ Ein Prolog-Kern in Elixir:
   im Kopf, Rumpf wird erst nach passendem Kopf gebaut
 - explizite Ziel- und Choice-Point-Stacks mit Last-Call-Optimierung,
   vorberechneter Index nach dem ersten Argument
-- Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen;
-  geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
-  Knoten eines BDDs) läuft sie nur einmal ab und kopiert sie geteilt –
-  erkannt an der physischen Identität (`:erts_debug.same/2`; fehlt die
-  Funktion, wird wie früher ohne dieses Memo kompaktiert). Auch die
-  attributierten Variablen in den Attributen sammelt sie dabei mit,
-  statt die Attribute danach noch einmal (ohne Memo) abzulaufen. Vorher
-  wuchs der Aufwand mit der Zahl der Pfade: Bei 24 Stufen lief der
-  Speicher über; 8 Damen mit `library(clpb)` und `labeling/1` brach
-  deshalb ab.
+- Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
+- Geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
+  Knoten eines BDDs) bearbeitet jede Operation, die Terme abläuft, nur
+  einmal: Kompaktieren, Auflösen, Kopieren (`copy_term/2,3`, `findall`,
+  `bagof`/`setof`, `throw/catch`), Variablen sammeln (`term_variables`,
+  `numbervars`, Attribute), `ground`, `acyclic_term`, Vergleichen (`==`,
+  `compare/3`, `sort`/`msort`), Unifizieren (auch mit Occurs-Check),
+  `subsumes_term` und `dif`. Kopien bleiben geteilt. Erkannt wird ein
+  geteilter Teilterm an der physischen Identität (`:erts_debug.same/2`,
+  Modul `PrologEx.Share`): ein Memo je Durchlauf, das erst nach den ersten
+  32 Strukturen wirkt (kleine Terme zahlen nur einen Zähler) und nur
+  Strukturen mit einem zusammengesetzten Argument aufnimmt. Ein Treffer
+  verlangt Identität, das Ergebnis ist also immer dasselbe wie ohne Memo;
+  fehlt die Funktion, wird ohne Memo gerechnet. Vorher wuchs der Aufwand
+  mit der Zahl der Pfade (bei 24 Stufen lief der Speicher über; 8 Damen
+  mit `library(clpb)` brach deshalb ab), jetzt mit der Zahl der Knoten:
+  Ketten mit 2^40 Pfaden in Millisekunden (`test/share_test.exs`), wie in
+  Scryer. Ausgenommen ist `assert` (die Klausel wird ausgerollt
+  gespeichert; in Scryer ebenso). Das Memo ist eine Heuristik (je
+  Schlüssel nur die letzten Einträge); in Messungen kostet es auf
+  gewöhnlichen Termen nichts Messbares (Fakten, `findall`, `sort`/`msort`
+  im Rahmen des Rauschens oder schneller).
 
 ## Loslegen
 
@@ -1874,7 +1886,9 @@ braucht 365 ms, der Rahmen von `foldl` kostet also kaum noch etwas.
 
 `==/2` und `\==/2` führt die Maschine selbst aus (ISO, geschützt; sie
 werfen nie) über einen eigenen Gleichheitstest statt `compare/3`: oben
-einmal `===` (in C; geteilte Terme in O(1)), sonst strukturell mit
+atomar einmal `===`, zusammengesetzt erst die physische Identität
+(geteilte Terme in O(1)), sonst strukturell (geteilte Teilterme mit
+Memo) mit
 billigen Blättern, der Listenrest per Tail Call. Innen bewusst kein
 `===`: auf jeder Ebene wiederholt, wäre es bei spät verschiedenen Termen
 quadratisch. Was sich nicht billig entscheiden lässt (Floats wie

@@ -81,14 +81,17 @@ defmodule PrologEx.Builtins.Terms do
 
   @doc false
   # auch für Bibliotheken in Elixir (clpb)
-  def acyclic?(t, s), do: acyclic(t, s, MapSet.new(), MapSet.new()) != :cyclic
+  def acyclic?(t, s), do: acyclic(t, s, MapSet.new(), %{}) != :cyclic
 
+  # done: als azyklisch bekannte Variablen und (PrologEx.Share) Teilterme;
+  # ein vollständig geprüfter Teilterm bleibt azyklisch, über welchen Pfad
+  # man ihn auch erreicht (ein Zyklus über ihn wäre schon gefunden worden)
   defp acyclic({:var, _} = x, s, path, done) do
     cond do
       not Map.has_key?(s, x) ->
         done
 
-      MapSet.member?(done, x) ->
+      Map.has_key?(done, x) ->
         done
 
       MapSet.member?(path, x) ->
@@ -97,12 +100,24 @@ defmodule PrologEx.Builtins.Terms do
       true ->
         case acyclic(Map.fetch!(s, x), s, MapSet.put(path, x), done) do
           :cyclic -> :cyclic
-          done -> MapSet.put(done, x)
+          done -> Map.put(done, x, true)
         end
     end
   end
 
-  defp acyclic({:struct, _, args}, s, path, done), do: acyclic_all(args, s, path, done)
+  defp acyclic({:struct, _, args} = t, s, path, done) do
+    case PrologEx.Share.get(done, t) do
+      {:ok, _} ->
+        done
+
+      :error ->
+        case acyclic_all(args, s, path, done) do
+          :cyclic -> :cyclic
+          done -> PrologEx.Share.put(done, t, true)
+        end
+    end
+  end
+
   defp acyclic([h | t], s, path, done), do: acyclic_all([h, t], s, path, done)
   # ground markierte Terme und Atome/Zahlen sind immer endlich
   defp acyclic(_, _s, _path, done), do: done

@@ -106,30 +106,83 @@ defmodule PrologEx.Builtins.Order do
 
   @doc false
   def variables(t, s) do
-    {acc, _seen} = vars(t, s, {[], MapSet.new()})
+    {acc, _seen} = vars(t, s, {[], %{}})
     Enum.reverse(acc)
   end
 
   @doc "Die erste Variable des Terms (in Reihenfolge des Auftretens) oder nil"
   def first_var(t, s) do
-    case PrologEx.walk(t, s) do
-      {:var, _} = v -> v
-      {:struct, _, args} -> first_var_in(args, s)
-      [h | tl] -> first_var(h, s) || first_var(tl, s)
-      _ -> nil
+    case first_var(t, s, %{}) do
+      {:found, v} -> v
+      _memo -> nil
     end
   end
 
-  defp first_var_in([], _s), do: nil
-  defp first_var_in([a | as], s), do: first_var(a, s) || first_var_in(as, s)
+  # {:found, V} oder das Memo der schon als variablenfrei bekannten
+  # Teilterme (PrologEx.Share)
+  defp first_var(t, s, memo) do
+    case PrologEx.walk(t, s) do
+      {:var, _} = v ->
+        {:found, v}
 
+      {:struct, _, args} = st ->
+        case PrologEx.Share.get(memo, st) do
+          {:ok, _} ->
+            memo
+
+          :error ->
+            case first_var_in(args, s, memo) do
+              {:found, _} = r -> r
+              memo -> PrologEx.Share.put(memo, st, true)
+            end
+        end
+
+      [h | tl] ->
+        case first_var(h, s, memo) do
+          {:found, _} = r -> r
+          memo -> first_var(tl, s, memo)
+        end
+
+      _ ->
+        memo
+    end
+  end
+
+  defp first_var_in([], _s, memo), do: memo
+
+  defp first_var_in([a | as], s, memo) do
+    case first_var(a, s, memo) do
+      {:found, _} = r -> r
+      memo -> first_var_in(as, s, memo)
+    end
+  end
+
+  # seen: gesehene Variablen und (PrologEx.Share) schon abgelaufene
+  # Teilterme – ein geteilter Teilterm bringt beim zweiten Mal nichts Neues
   defp vars(t, s, {acc, seen} = st) do
     case PrologEx.walk(t, s) do
       {:var, _} = v ->
-        if MapSet.member?(seen, v), do: st, else: {[v | acc], MapSet.put(seen, v)}
+        if Map.has_key?(seen, v), do: st, else: {[v | acc], Map.put(seen, v, true)}
 
-      {:struct, _, args} ->
-        Enum.reduce(args, st, &vars(&1, s, &2))
+      {:struct, _, args} = t ->
+        case PrologEx.Share.get(seen, t) do
+          {:ok, _} ->
+            st
+
+          :error ->
+            {acc, seen} = Enum.reduce(args, st, &vars(&1, s, &2))
+            {acc, PrologEx.Share.put(seen, t, true)}
+        end
+
+      [h | tl] = l when is_tuple(h) or is_list(h) ->
+        case PrologEx.Share.get(seen, l) do
+          {:ok, _} ->
+            st
+
+          :error ->
+            {acc, seen} = vars(tl, s, vars(h, s, st))
+            {acc, PrologEx.Share.put(seen, l, true)}
+        end
 
       [h | tl] ->
         vars(tl, s, vars(h, s, st))
@@ -154,8 +207,35 @@ defmodule PrologEx.Builtins.Order do
 
       _ ->
         case sp do
-          {:var, _} -> :error
-          _ -> match_nonvar(g, sp, s, frozen, m)
+          {:var, _} ->
+            :error
+
+          _ ->
+            # Paar-Memo (PrologEx.Share) in der Bindungs-Map: geteilte
+            # Teilterme (zwei DAGs) nur einmal abgleichen
+            compound = (is_tuple(g) and elem(g, 0) != :atom) or (is_list(g) and g != [])
+
+            cond do
+              # derselbe Teilterm gehört zu Specific: seine Variablen sind
+              # eingefroren und passen nur auf sich selbst
+              compound and PrologEx.Share.same?(g, sp) ->
+                m
+
+              compound ->
+                case PrologEx.Share.get2(m, g, sp) do
+                  {:ok, _} ->
+                    m
+
+                  :error ->
+                    case match_nonvar(g, sp, s, frozen, m) do
+                      :error -> :error
+                      m -> PrologEx.Share.put2(m, g, sp, true)
+                    end
+                end
+
+              true ->
+                match_nonvar(g, sp, s, frozen, m)
+            end
         end
     end
   end

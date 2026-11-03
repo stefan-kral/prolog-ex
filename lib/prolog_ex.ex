@@ -247,25 +247,43 @@ defmodule PrologEx do
   über Attribute erreichbaren (wie SWI term_attvars/2).
   """
   def term_attvars(t, subst) do
-    {acc, _} = attvars(t, subst, {[], MapSet.new()})
+    {acc, _} = attvars(t, subst, {[], %{}})
     Enum.reverse(acc)
   end
 
+  # seen: gesehene Variablen und (PrologEx.Share) schon abgelaufene Teilterme
   defp attvars(t, subst, {acc, seen} = st) do
     case walk(t, subst) do
       {:var, {:attv, id}} = v ->
-        if MapSet.member?(seen, v) do
+        if Map.has_key?(seen, v) do
           st
         else
-          st = {[v | acc], MapSet.put(seen, v)}
+          st = {[v | acc], Map.put(seen, v, true)}
 
           subst
           |> Map.get({:attrs, id}, %{})
           |> Enum.reduce(st, fn {_m, a}, st -> attvars(a, subst, st) end)
         end
 
-      {:struct, _, args} ->
-        attvars_args(args, subst, st)
+      {:struct, _, args} = t ->
+        case PrologEx.Share.get(seen, t) do
+          {:ok, _} ->
+            st
+
+          :error ->
+            {acc, seen} = attvars_args(args, subst, st)
+            {acc, PrologEx.Share.put(seen, t, true)}
+        end
+
+      [h | tl] = l when is_tuple(h) or is_list(h) ->
+        case PrologEx.Share.get(seen, l) do
+          {:ok, _} ->
+            st
+
+          :error ->
+            {acc, seen} = attvars(tl, subst, attvars(h, subst, st))
+            {acc, PrologEx.Share.put(seen, l, true)}
+        end
 
       [h | tl] ->
         attvars(tl, subst, attvars(h, subst, st))
@@ -339,14 +357,14 @@ defmodule PrologEx do
   # (+ besuchte Teilterme) – lokal mitgezählt, einmal je Check gebucht
   defp occurs_checked?(var, t, subst) do
     case walk(t, subst) do
-      {:struct, _, _} = c -> count_occurs(occurs_steps(var, c, subst, 0))
-      [_ | _] = c -> count_occurs(occurs_steps(var, c, subst, 0))
+      {:struct, _, _} = c -> count_occurs(occurs_steps(var, c, subst, 0, %{}))
+      [_ | _] = c -> count_occurs(occurs_steps(var, c, subst, 0, %{}))
       ^var -> true
       _ -> false
     end
   end
 
-  defp count_occurs({found, steps}) do
+  defp count_occurs({found, steps, _m}) do
     ref = occurs_counter()
     :counters.add(ref, 1, 1)
     :counters.add(ref, 2, steps)
@@ -354,39 +372,49 @@ defmodule PrologEx do
   end
 
   @doc "Kommt die (ungebundene) Variable var in t vor?"
-  def occurs?(var, t, subst), do: elem(occurs_steps(var, t, subst, 0), 0)
+  def occurs?(var, t, subst), do: elem(occurs_steps(var, t, subst, 0, %{}), 0)
 
-  # {gefunden?, n + besuchte Teilterme}; bricht beim ersten Fund ab.
+  # {gefunden?, n + besuchte Teilterme, Memo}; bricht beim ersten Fund ab.
   # Eigene Rekursion über die Argumente (statt Enum.any? mit Closure):
-  # trägt den Zähler und ist schneller
-  defp occurs_steps(var, t, subst, n) do
+  # trägt den Zähler und ist schneller. Memo (PrologEx.Share): geteilte
+  # Teilterme ohne var nur einmal ablaufen.
+  defp occurs_steps(var, t, subst, n, m) do
     n = n + 1
 
     case walk(t, subst) do
       ^var ->
-        {true, n}
+        {true, n, m}
 
-      {:struct, _, args} ->
-        occurs_args(var, args, subst, n)
+      {:struct, _, args} = st ->
+        case PrologEx.Share.get(m, st) do
+          {:ok, _} ->
+            {false, n, m}
+
+          :error ->
+            case occurs_args(var, args, subst, n, m) do
+              {false, n, m} -> {false, n, PrologEx.Share.put(m, st, true)}
+              found -> found
+            end
+        end
 
       # Listenrest per Tail Call: keine Rekursionstiefe entlang der Liste
       [h | tl] ->
-        case occurs_steps(var, h, subst, n) do
-          {false, n} -> occurs_steps(var, tl, subst, n)
+        case occurs_steps(var, h, subst, n, m) do
+          {false, n, m} -> occurs_steps(var, tl, subst, n, m)
           found -> found
         end
 
       # atomar, andere Variable, markiert (ground: :gstruct/:glist)
       _ ->
-        {false, n}
+        {false, n, m}
     end
   end
 
-  defp occurs_args(_var, [], _subst, n), do: {false, n}
+  defp occurs_args(_var, [], _subst, n, m), do: {false, n, m}
 
-  defp occurs_args(var, [a | as], subst, n) do
-    case occurs_steps(var, a, subst, n) do
-      {false, n} -> occurs_args(var, as, subst, n)
+  defp occurs_args(var, [a | as], subst, n, m) do
+    case occurs_steps(var, a, subst, n, m) do
+      {false, n, m} -> occurs_args(var, as, subst, n, m)
       found -> found
     end
   end
@@ -418,26 +446,9 @@ defmodule PrologEx do
   @doc false
   # mode: siehe bind_checked/4
   def unify(x, y, subst, mode) do
-    x = walk(x, subst)
-    y = walk(y, subst)
-
-    cond do
-      # strikt: 1 und 1.0 sind verschiedene Terme (Elixirs == hält sie für gleich)
-      x === y ->
-        {:ok, subst}
-
-      # normale Variable an attributierte binden, nicht umgekehrt (kein Wecken)
-      match?({:var, {:attv, _}}, x) and match?({:var, _}, y) and not attv?(y) ->
-        bind_checked(y, x, subst, mode)
-
-      match?({:var, _}, x) ->
-        bind_checked(x, y, subst, mode)
-
-      match?({:var, _}, y) ->
-        bind_checked(y, x, subst, mode)
-
-      true ->
-        unify_struct(x, y, subst, mode)
+    case u(x, y, subst, mode, %{}) do
+      {:ok, s, _m} -> {:ok, s}
+      :error -> :error
     end
   end
 
@@ -452,60 +463,150 @@ defmodule PrologEx do
     end
   end
 
-  # Zwei markierte Terme sind nur bei == gleich – und das wurde schon geprüft.
-  defp unify_struct(x, y, _subst, _mode) when is_marked(x) and is_marked(y), do: :error
+  # m: Memo (PrologEx.Share) schon unifizierter Paare zusammengesetzter
+  # Teilterme – bei zwei DAGs wird jedes Paar geteilter Teilterme nur
+  # einmal unifiziert (Unifikation ist idempotent). Kein === auf
+  # zusammengesetzten Termen: auf zwei verschiedenen DAGs liefe es (in C)
+  # Pfad für Pfad; physisch derselbe Term genügt (same?/2, O(1)).
+  defp u(x, y, subst, mode, m) do
+    x = walk(x, subst)
+    y = walk(y, subst)
 
-  defp unify_struct({t1, f, xs}, {t2, f, ys}, subst, mode)
+    cond do
+      # strikt: 1 und 1.0 sind verschiedene Terme (Elixirs == hält sie für gleich)
+      not is_tuple(x) and not is_list(x) and x === y ->
+        {:ok, subst, m}
+
+      match?({:var, _}, x) and x === y ->
+        {:ok, subst, m}
+
+      match?({:atom, _}, x) and x === y ->
+        {:ok, subst, m}
+
+      # normale Variable an attributierte binden, nicht umgekehrt (kein Wecken)
+      match?({:var, {:attv, _}}, x) and match?({:var, _}, y) and not attv?(y) ->
+        with {:ok, s} <- bind_checked(y, x, subst, mode), do: {:ok, s, m}
+
+      match?({:var, _}, x) ->
+        with {:ok, s} <- bind_checked(x, y, subst, mode), do: {:ok, s, m}
+
+      match?({:var, _}, y) ->
+        with {:ok, s} <- bind_checked(y, x, subst, mode), do: {:ok, s, m}
+
+      PrologEx.Share.same?(x, y) ->
+        {:ok, subst, m}
+
+      true ->
+        case PrologEx.Share.get2(m, x, y) do
+          {:ok, _} ->
+            {:ok, subst, m}
+
+          :error ->
+            case unify_struct(x, y, subst, mode, m) do
+              {:ok, s, m} -> {:ok, s, PrologEx.Share.put2(m, x, y, true)}
+              :error -> :error
+            end
+        end
+    end
+  end
+
+  # Zwei markierte (ground) Terme: gleich in der Standardordnung oder nicht
+  defp unify_struct(x, y, subst, _mode, m) when is_marked(x) and is_marked(y) do
+    if PrologEx.Order.equal?(x, y, subst), do: {:ok, subst, m}, else: :error
+  end
+
+  defp unify_struct({t1, f, xs}, {t2, f, ys}, subst, mode, m)
        when t1 in [:struct, :gstruct] and t2 in [:struct, :gstruct] and
               length(xs) == length(ys),
-       do: unify_args(xs, ys, subst, mode)
+       do: unify_args(xs, ys, subst, mode, m)
 
-  defp unify_struct({:glist, [x | xs]}, [y | ys], subst, mode) do
-    case unify(x, y, subst, mode) do
-      {:ok, s} -> unify(glist_tail(xs), ys, s, mode)
+  defp unify_struct({:glist, [x | xs]}, [y | ys], subst, mode, m) do
+    case u(x, y, subst, mode, m) do
+      {:ok, s, m} -> u(glist_tail(xs), ys, s, mode, m)
       :error -> :error
     end
   end
 
-  defp unify_struct([x | xs], {:glist, [y | ys]}, subst, mode) do
-    case unify(x, y, subst, mode) do
-      {:ok, s} -> unify(xs, glist_tail(ys), s, mode)
+  defp unify_struct([x | xs], {:glist, [y | ys]}, subst, mode, m) do
+    case u(x, y, subst, mode, m) do
+      {:ok, s, m} -> u(xs, glist_tail(ys), s, mode, m)
       :error -> :error
     end
   end
 
   # Listen: Kopf unifizieren, dann per Tail Call mit dem Rest weiter –
   # keine Rekursionstiefe entlang der Liste.
-  defp unify_struct([x | xs], [y | ys], subst, mode) do
-    case unify(x, y, subst, mode) do
-      {:ok, s} -> unify(xs, ys, s, mode)
+  defp unify_struct([x | xs], [y | ys], subst, mode, m) do
+    case u(x, y, subst, mode, m) do
+      {:ok, s, m} -> u(xs, ys, s, mode, m)
       :error -> :error
     end
   end
 
-  defp unify_struct(_, _, _, _), do: :error
+  defp unify_struct(_, _, _, _, _), do: :error
 
-  defp unify_args([], [], subst, _mode), do: {:ok, subst}
+  defp unify_args([], [], subst, _mode, m), do: {:ok, subst, m}
 
-  defp unify_args([x | xs], [y | ys], subst, mode) do
-    case unify(x, y, subst, mode) do
-      {:ok, s} -> unify_args(xs, ys, s, mode)
+  defp unify_args([x | xs], [y | ys], subst, mode, m) do
+    case u(x, y, subst, mode, m) do
+      {:ok, s, m} -> unify_args(xs, ys, s, mode, m)
       :error -> :error
     end
   end
 
-  # Vollständig auflösen, ohne Markierungen (für Antworten / Interop)
+  # Vollständig auflösen, ohne Markierungen (für Antworten / Interop).
+  # Geteilte Teilterme werden nur einmal aufgelöst (PrologEx.Share) und
+  # bleiben im Ergebnis geteilt.
   def resolve(t, subst) do
+    {r, _memo} = resolve(t, subst, %{})
+    r
+  end
+
+  defp resolve(t, subst, memo) do
     case walk(t, subst) do
-      {:struct, f, args} -> {:struct, f, resolve_args(args, subst)}
-      [h | t] -> [resolve(h, subst) | resolve(t, subst)]
-      t when is_marked(t) -> unmark(t)
-      other -> other
+      {:struct, f, args} = st ->
+        case PrologEx.Share.get(memo, st) do
+          {:ok, r} ->
+            {r, memo}
+
+          :error ->
+            {args2, memo} = resolve_args(args, subst, memo)
+            r = {:struct, f, args2}
+            {r, PrologEx.Share.put(memo, st, r)}
+        end
+
+      [h | tl] = l when is_tuple(h) or is_list(h) ->
+        # Zelle mit zusammengesetztem Kopf (etwa [X|X]): merken
+        case PrologEx.Share.get(memo, l) do
+          {:ok, r} ->
+            {r, memo}
+
+          :error ->
+            {h2, memo} = resolve(h, subst, memo)
+            {t2, memo} = resolve(tl, subst, memo)
+            r = [h2 | t2]
+            {r, PrologEx.Share.put(memo, l, r)}
+        end
+
+      [h | tl] ->
+        {t2, memo} = resolve(tl, subst, memo)
+        {[h | t2], memo}
+
+      t when is_marked(t) ->
+        {unmark(t), memo}
+
+      other ->
+        {other, memo}
     end
   end
 
-  defp resolve_args([], _subst), do: []
-  defp resolve_args([a | as], subst), do: [resolve(a, subst) | resolve_args(as, subst)]
+  defp resolve_args([], _subst, memo), do: {[], memo}
+
+  defp resolve_args([a | as], subst, memo) do
+    {a, memo} = resolve(a, subst, memo)
+    {as, memo} = resolve_args(as, subst, memo)
+    {[a | as], memo}
+  end
 
   @doc """
   Kopie eines Terms mit frischen Variablen (gleiche Variablen bleiben
@@ -522,25 +623,10 @@ defmodule PrologEx do
   (für `Free+\\Lambda`: globale Variablen werden nicht umbenannt).
   """
   def copy_fresh(t, subst, keep) do
-    map = keep |> keep_vars(subst, []) |> Map.new(&{&1, &1})
+    map = keep |> PrologEx.Builtins.Order.variables(subst) |> Map.new(&{&1, &1})
     {c, _map} = copy(t, subst, map)
     c
   end
-
-  defp keep_vars(t, subst, acc) do
-    case walk(t, subst) do
-      {:var, _} = v -> [v | acc]
-      m when is_marked(m) -> acc
-      {:struct, _, args} -> keep_vars_args(args, subst, acc)
-      [h | tl] -> keep_vars(tl, subst, keep_vars(h, subst, acc))
-      _ -> acc
-    end
-  end
-
-  defp keep_vars_args([], _subst, acc), do: acc
-
-  defp keep_vars_args([a | as], subst, acc),
-    do: keep_vars_args(as, subst, keep_vars(a, subst, acc))
 
   defp copy(t, subst, map) do
     case walk(t, subst) do
@@ -557,9 +643,29 @@ defmodule PrologEx do
       m when is_marked(m) ->
         {m, map}
 
-      {:struct, f, args} ->
-        {args, map} = copy_args(args, subst, map)
-        {mk_struct(f, args), map}
+      {:struct, f, args} = st ->
+        # geteilte Teilterme nur einmal kopieren; die Kopie bleibt geteilt
+        case PrologEx.Share.get(map, st) do
+          {:ok, c} ->
+            {c, map}
+
+          :error ->
+            {args, map} = copy_args(args, subst, map)
+            c = mk_struct(f, args)
+            {c, PrologEx.Share.put(map, st, c)}
+        end
+
+      [h | tl] = l when is_tuple(h) or is_list(h) ->
+        case PrologEx.Share.get(map, l) do
+          {:ok, c} ->
+            {c, map}
+
+          :error ->
+            {h, map} = copy(h, subst, map)
+            {tl, map} = copy(tl, subst, map)
+            c = cons(h, tl)
+            {c, PrologEx.Share.put(map, l, c)}
+        end
 
       [h | tl] ->
         {h, map} = copy(h, subst, map)
@@ -3714,40 +3820,17 @@ defmodule PrologEx do
     end
   end
 
-  @share_bucket 8
-  @share_bucket_nokey 2
-  # :erts_debug.same/2 ist nicht offiziell dokumentiert; fehlt sie, wird
-  # ohne Memo kompaktiert (wie früher – dasselbe Ergebnis, nur bei
-  # geteilten Termen langsamer)
-  @share_same Code.ensure_loaded?(:erts_debug) and function_exported?(:erts_debug, :same, 2)
-
   # Geteilte Teilterme (ein DAG, etwa die Knoten eines BDDs) nur einmal
-  # ablaufen: Memo nach {Funktor, Stelligkeit, erstes Argument falls
-  # atomar}, Treffer nur bei physischer Identität (:erts_debug.same/2).
-  # Ein Treffer liefert, was die Rechnung ergäbe; ohne Treffer wird
-  # gerechnet wie bisher. Je Schlüssel die letzten @share_bucket Einträge,
-  # ohne atomares erstes Argument nur @share_bucket_nokey (alle solchen
-  # Strukturen teilen sich einen Schlüssel; der geteilte Teilterm ist
-  # meist der zuletzt bearbeitete, etwa bei T1 = f(T0, T0)).
-  if @share_same do
-    defp compact3({:struct, f, args} = t, subst, {memo, _, _} = acc) do
-      key = {:"$s", f, length(args), share_key(args)}
-      bucket = Map.get(memo, key, [])
+  # ablaufen (PrologEx.Share): ein Treffer liefert, was die Rechnung ergäbe.
+  defp compact3({:struct, f, args} = t, subst, {memo, _, _} = acc) do
+    case PrologEx.Share.get(memo, t) do
+      {:ok, {t2, changed, ground}} ->
+        {t2, acc, changed, ground}
 
-      case Enum.find(bucket, fn {orig, _} -> :erts_debug.same(orig, t) end) do
-        {_, {t2, changed, ground}} ->
-          {t2, acc, changed, ground}
-
-        nil ->
-          {t2, {memo, size, attvs}, changed, ground} = compact_struct(t, f, args, subst, acc)
-          n = if elem(key, 3) == nil, do: @share_bucket_nokey, else: @share_bucket
-          bucket = Enum.take([{t, {t2, changed, ground}} | Map.get(memo, key, [])], n)
-          {t2, {Map.put(memo, key, bucket), size, attvs}, changed, ground}
-      end
+      :error ->
+        {t2, {memo, size, attvs}, changed, ground} = compact_struct(t, f, args, subst, acc)
+        {t2, {PrologEx.Share.put(memo, t, {t2, changed, ground}), size, attvs}, changed, ground}
     end
-  else
-    defp compact3({:struct, f, args} = t, subst, acc),
-      do: compact_struct(t, f, args, subst, acc)
   end
 
   # Listen: den Rücken iterativ ablaufen (auch über gebundene
@@ -3761,10 +3844,6 @@ defmodule PrologEx do
   end
 
   defp compact3(t, _subst, acc), do: {t, acc, false, true}
-
-  defp share_key([a | _]) when is_integer(a) or is_atom(a), do: a
-  defp share_key([{:atom, _} = a | _]), do: a
-  defp share_key(_), do: nil
 
   defp compact_struct(t, f, args, subst, acc) do
     {args2, {acc, changed, ground}} =
