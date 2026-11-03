@@ -1277,6 +1277,20 @@ Bisher in Elixir:
     Propagatoren (zufällige Argumente aus Variablen mit Domänen, Zahlen,
     Wiederholungen) und mit denen aufgestellter Zustände, je einzeln und
     bis zum Fixpunkt gegen das Original.
+  * `all_distinct/1` und `circuit/1` (`pdistinct`, `pcircuit`): Triskas
+    `distinct//1` rechnet unter `with_local_attributes/3` über
+    Hilfsattribute (Kanten, Fluss, Eltern, Tarjans Indizes) eine Liste
+    `neq_num(V, N)` und wendet sie bei abgeschalteter Queue an. Die Liste
+    rechnet jetzt Elixir: eine maximale Paarung (augmentierende Pfade),
+    dann entfällt eine Kante V–N, die nicht gepaart ist, deren Wert nicht
+    von einem freien Wert aus erreichbar ist und deren Enden in
+    verschiedenen starken Komponenten liegen (Tarjan) – nach Régin genau
+    die Kanten in keiner maximalen Paarung, also dieselbe Menge, welche
+    Paarung man auch findet, in der Reihenfolge des Originals (Variablen
+    wie in der Liste, Werte absteigend). `circuit/1` prüft danach, ob der
+    Graph der möglichen Nachfolger stark zusammenhängt. Eine Variable, die
+    doppelt in der Liste steht, rechnet das Original. Sudoku 0,59–0,68 →
+    0,05 s, Springerweg 2,0 → 0,31–0,33 s.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 

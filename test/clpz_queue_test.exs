@@ -199,7 +199,7 @@ defmodule PrologEx.ClpzQueueTest do
   # ein Argument: Variable (mit oder ohne Domäne) oder Zahl
   defp parg, do: if(:rand.uniform(3) == 1, do: "#{Enum.random(-3..5)}", else: Enum.random(@vars))
 
-  defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3), ",", fn _ -> parg() end) <> "]"
+  defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
     case :rand.uniform(6) do
@@ -319,6 +319,69 @@ defmodule PrologEx.ClpzQueueTest do
       end
 
     assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  # eine Zufallsmenge aus 1..m als Domäne (Vereinigung einzelner Werte)
+  defp subset_dom(m) do
+    case Enum.take_random(1..m, Enum.random(1..m)) do
+      [] -> "1"
+      vs -> vs |> Enum.sort() |> Enum.join("\\/")
+    end
+  end
+
+  defp distinct_case(n, prop) do
+    names = Enum.take(~w(A B C D E F G), n)
+
+    {items, setup} =
+      Enum.map_reduce(names, [], fn v, acc ->
+        case :rand.uniform(12) do
+          1 -> {"#{Enum.random(1..n)}", acc}
+          2 -> {v, ["#{v} in 0..sup" | acc]}
+          3 -> {Enum.random(names), acc}
+          _ -> {v, ["#{v} in #{subset_dom(n + 1)}" | acc]}
+        end
+      end)
+
+    setup = if setup == [], do: "true", else: Enum.join(Enum.reverse(setup), ", ")
+    vs = "[" <> Enum.join(names, ",") <> "]"
+
+    "Vs = #{vs}, (#{setup} -> clpz:new_queue(Q), P = propagator(#{prop}([#{Enum.join(items, ",")}]), S), " <>
+      "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
+      "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q-S), " <>
+      "same(phrase((clpz:activate_propagator_ref(P), clpz:do_queue_ref), [Q], _), " <>
+      "phrase((clpz:activate_propagator(P), clpz:do_queue), [Q], _), Vs-S) ; true)"
+  end
+
+  test "pdistinct (all_distinct/1): Zufallsdomänen, auch gebunden, unendlich, doppelt", c do
+    check(c, 400, fn -> distinct_case(Enum.random(1..6), "pdistinct") end)
+  end
+
+  test "pcircuit (circuit/1): Zufallsdomänen in 1..n+1", c do
+    check(c, 400, fn -> distinct_case(Enum.random(1..6), "pcircuit") end)
+  end
+
+  test "all_distinct/1 und circuit/1 aufgestellt, dann gebunden: wie das Original", c do
+    for q <- [
+          # der Propagator hängt an seinen Variablen: beim Entfernen der
+          # Werte reiht er sich nicht selbst wieder ein (no_reactivation)
+          "Vs = [X,Y,Z], X in 1..3, Y in 1..2, Z in 1..2, " <>
+            "P = propagator(pdistinct(Vs), S), clpz:init_propagator(X, P), clpz:init_propagator(Y, P), clpz:init_propagator(Z, P), " <>
+            "clpz:new_queue(Q), " <>
+            "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
+            "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q-S)",
+          "length(Vs, 5), Vs ins 1..5, all_distinct(Vs), Vs = [1,X|_], " <>
+            "clpz:new_queue(Q), member(V, Vs), clpz:fd_get_ref(V, _, fd_props(G, B, O)), " <>
+            "append([G,B,O], Ps), member(P, Ps), " <>
+            "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
+            "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q), fail ; true",
+          "length(Vs, 5), circuit(Vs), Vs = [2|_], " <>
+            "clpz:new_queue(Q), member(V, Vs), clpz:fd_get_ref(V, _, fd_props(G, B, O)), " <>
+            "append([G,B,O], Ps), member(P, Ps), " <>
+            "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
+            "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q), fail ; true"
+        ] do
+      assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), q
+    end
   end
 
   test "activate_propagator//1: die Propagatoren eines aufgestellten Zustands", c do

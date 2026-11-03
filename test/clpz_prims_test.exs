@@ -76,7 +76,7 @@ defmodule PrologEx.ClpzPrimsTest do
 
         b = fn x -> if is_integer(x), do: "n(#{x})", else: x end
         is = Enum.map_join(ivs, ",", fn {x, y} -> "#{b.(x)}-#{b.(y)}" end)
-        rm = for _ <- 1..Enum.random(0..3), do: int()
+        rm = for _ <- 1..Enum.random(0..3)//1, do: int()
 
         "clpz:intervals_to_domain_ref([#{is}], #{d}0), " <>
           "rm_all([#{Enum.join(rm, ",")}], #{d}0, #{d})"
@@ -188,14 +188,14 @@ defmodule PrologEx.ClpzPrimsTest do
 
   test "Listen: list_to_domain, intervals_to_domain, merge_intervals", c do
     check(c, 200, fn ->
-      l = for _ <- 1..Enum.random(0..7), do: Enum.random(-5..8)
+      l = for _ <- 1..Enum.random(0..7)//1, do: Enum.random(-5..8)
       {r, n} = pair("list_to_domain", ["[#{Enum.join(l, ",")}]"])
       {"true", r, n}
     end)
 
     for name <- ~w(intervals_to_domain merge_intervals) do
       check(c, 200, fn ->
-        is = for _ <- 1..Enum.random(0..5), do: "#{bound()}-#{bound()}"
+        is = for _ <- 1..Enum.random(0..5)//1, do: "#{bound()}-#{bound()}"
         {r, n} = pair(name, ["[#{Enum.join(is, ",")}]"])
         {"true", r, n}
       end)

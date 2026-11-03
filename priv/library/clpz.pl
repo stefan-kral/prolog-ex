@@ -57,8 +57,9 @@
        Die Originale mit der Endung _ref (do_queue_ref//0)
      - activate_propagator//1 in Elixir für pneq, absdiff_neq, pexclude,
        pdifferent, pplus, scalar_product_eq (nur Zweige ohne direkte
-       Bindungen und ohne neue Bedingungen); sonst das Original
-       activate_propagator_ref//1
+       Bindungen und ohne neue Bedingungen), pdistinct und pcircuit
+       (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
+       Original activate_propagator_ref//1
 */
 
 
@@ -1223,8 +1224,9 @@ queue_slow(A,S0,S) :- '$clpz_insert_queue'(A,3,S0,S).
 
 % PrologEx: activate_propagator//1 in Elixir ('$clpz_activate'/3): pneq,
 % absdiff_neq, pexclude, pdifferent, pplus und scalar_product_eq in den
-% Zweigen, die nur Domänen ändern, Propagatoren töten oder prüfen; alle
-% anderen Propagatoren und Zweige über das Original activate_propagator_ref//1
+% Zweigen, die nur Domänen ändern, Propagatoren töten oder prüfen,
+% pdistinct (all_distinct/1, Régin) und pcircuit (circuit/1); alle anderen
+% Propagatoren und Zweige über das Original activate_propagator_ref//1
 goal_expansion(activate_propagator(A,S0,S), '$clpz_activate'(A,S0,S)).
 activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
 

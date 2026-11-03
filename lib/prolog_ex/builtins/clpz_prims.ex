@@ -32,6 +32,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   Verhalten.
   """
   use PrologEx.Builtin
+  alias PrologEx.Builtins.Blackboard
 
   # --- Rahmen ---------------------------------------------------------------
 
@@ -1432,7 +1433,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # andere Propagator: das Original (activate_propagator_ref//1) – vorher
   # ist nichts geändert, Reihenfolge und Wecken bleiben also wie dort.
 
-  @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq)
+  @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -1462,7 +1463,20 @@ defmodule PrologEx.Builtins.ClpzPrims do
             end
 
           s = del_att(s, st, "clpz_aux", 1)
-          result(propagate(name, args, st, q, s), s1, s0)
+
+          # no_reactivation (pdistinct): der laufende Propagator steht in
+          # '$clpz_current_propagator' (trigger_prop//1 reiht ihn nicht ein)
+          if name == "pdistinct" do
+            s = Blackboard.b_put(s, "clpz", "$clpz_current_propagator", st)
+
+            case propagate(name, args, st, q, s) do
+              :fail -> :fail
+              s -> Blackboard.b_put(s, "clpz", "$clpz_current_propagator", [])
+            end
+            |> result(s1, s0)
+          else
+            result(propagate(name, args, st, q, s), s1, s0)
+          end
       end
     end)
   end
@@ -1738,6 +1752,17 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- pdistinct(Vs), pcircuit(Vs): siehe unten (all_distinct/1, circuit/1) ---
+
+  defp propagate("pdistinct", [vs], _st, q, s), do: distinct(vs, q, s)
+
+  defp propagate("pcircuit", [vs], _st, q, s) do
+    case distinct(vs, q, s) do
+      :fail -> :fail
+      s -> if circuit_connected?(vs, s), do: s, else: :fail
+    end
+  end
+
   defp kill_then(s, st), do: kill(st, s)
   defp then_put(s, v, d, ps, q), do: fdput(v, d, ps, q, s)
 
@@ -2002,5 +2027,209 @@ defmodule PrologEx.Builtins.ClpzPrims do
       d = div(-min, c)
       if c < 0, do: remove_gt(xd, d), else: remove_lt(xd, d)
     end)
+  end
+
+  # --- all_distinct/1 (Régin) und circuit/1 ---------------------------------
+  #
+  # distinct//1 des Originals rechnet in with_local_attributes eine Liste
+  # neq_num(V, N) (alle Hilfsattribute werden danach zurückgenommen) und
+  # wendet sie bei abgeschalteter Queue an. Entfernt wird eine Kante V–N,
+  # die in keiner maximalen Paarung liegt: nicht gepaart, N nicht von einem
+  # freien Wert aus erreichbar, V und N in verschiedenen starken
+  # Komponenten (Régin) – eine Menge, die nicht davon abhängt, welche
+  # maximale Paarung man findet. Die Reihenfolge ist die des Originals:
+  # die Variablen in der Reihenfolge der Liste, je Variable die Werte
+  # absteigend (append_edge/3 hängt vorne an).
+
+  defp distinct(vs, q, s) do
+    case distinct_goals(vs, s) do
+      :fail ->
+        :fail
+
+      gs ->
+        s = disable_queue(q, s)
+        s = Enum.reduce(gs, s, fn {v, n}, s -> seq(s, &neq_num(v, n, q, &1)) end)
+        enable_queue(q, s)
+    end
+  end
+
+  # [{Variable, Wert}] in der Reihenfolge des Originals, oder :fail
+  defp distinct_goals(vs, s) do
+    left =
+      for v <- list_items(vs, s),
+          var?(PrologEx.walk(v, s)),
+          v = PrologEx.walk(v, s),
+          {d, _} = fdget(v, s),
+          {:ok, ns} <- [to_list(d, [])],
+          do: {v, ns}
+
+    if length(Enum.uniq_by(left, &elem(&1, 0))) != length(left), do: throw(:fallback)
+
+    n = length(left)
+    doms = left |> Enum.map(&elem(&1, 1)) |> List.to_tuple()
+    values = left |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
+
+    with true <- n <= length(values),
+         {:ok, mv} <- matching(doms, n) do
+      removable(left, doms, mv, values)
+    else
+      _ -> :fail
+    end
+  end
+
+  # maximale Paarung (augmentierende Pfade); {:ok, %{Variable => Wert}}
+  # oder :fail, wenn nicht jede Variable einen Wert bekommt
+  defp matching(doms, n) do
+    Enum.reduce_while(0..(n - 1)//1, {%{}, %{}}, fn i, {mv, mval} ->
+      case augment(i, doms, mv, mval, MapSet.new()) do
+        {:ok, mv, mval, _} -> {:cont, {mv, mval}}
+        {:none, _} -> {:halt, :fail}
+      end
+    end)
+    |> case do
+      :fail -> :fail
+      {mv, _} -> {:ok, mv}
+    end
+  end
+
+  defp augment(i, doms, mv, mval, seen) do
+    Enum.reduce_while(elem(doms, i), {:none, seen}, fn val, {:none, seen} ->
+      if MapSet.member?(seen, val) do
+        {:cont, {:none, seen}}
+      else
+        seen = MapSet.put(seen, val)
+
+        case Map.fetch(mval, val) do
+          :error ->
+            {:halt, {:ok, Map.put(mv, i, val), Map.put(mval, val, i), seen}}
+
+          {:ok, j} ->
+            case augment(j, doms, mv, mval, seen) do
+              {:ok, mv, mval, _seen} ->
+                {:halt, {:ok, Map.put(mv, i, val), Map.put(mval, val, i), seen}}
+
+              {:none, seen} ->
+                {:cont, {:none, seen}}
+            end
+        end
+      end
+    end)
+  end
+
+  defp removable(left, doms, mv, values) do
+    n = length(left)
+    matched = MapSet.new(Map.values(mv))
+    # Variablen je Wert
+    adj =
+      Enum.reduce(0..(n - 1)//1, %{}, fn i, acc ->
+        Enum.reduce(elem(doms, i), acc, fn val, acc -> Map.update(acc, val, [i], &[i | &1]) end)
+      end)
+
+    # gerichteter Graph: gepaart Variable → Wert, sonst Wert → Variable
+    succ = fn
+      {:v, i} -> [{:n, Map.fetch!(mv, i)}]
+      {:n, val} -> for j <- Enum.reverse(Map.get(adj, val, [])), mv[j] != val, do: {:v, j}
+    end
+
+    free = for val <- values, not MapSet.member?(matched, val), do: {:n, val}
+    reach = reach(free, succ, MapSet.new(free))
+    comp = tarjan(Enum.map(0..(n - 1)//1, &{:v, &1}), succ)
+
+    for {{v, ns}, i} <- Enum.with_index(left),
+        val <- Enum.reverse(ns),
+        mv[i] != val,
+        not MapSet.member?(reach, {:n, val}),
+        comp[{:v, i}] != comp[{:n, val}],
+        do: {v, val}
+  end
+
+  defp reach([], _succ, seen), do: seen
+
+  defp reach([x | xs], succ, seen) do
+    new = for y <- succ.(x), not MapSet.member?(seen, y), do: y
+    reach(new ++ xs, succ, Enum.reduce(new, seen, &MapSet.put(&2, &1)))
+  end
+
+  # starke Zusammenhangskomponenten (Tarjan): %{Knoten => Komponente}
+  defp tarjan(roots, succ) do
+    st = %{index: 0, idx: %{}, low: %{}, stack: [], on: MapSet.new(), comp: %{}}
+
+    Enum.reduce(roots, st, fn v, st ->
+      if Map.has_key?(st.idx, v), do: st, else: strong(v, succ, st)
+    end).comp
+  end
+
+  defp strong(v, succ, st) do
+    st = %{
+      st
+      | idx: Map.put(st.idx, v, st.index),
+        low: Map.put(st.low, v, st.index),
+        index: st.index + 1,
+        stack: [v | st.stack],
+        on: MapSet.put(st.on, v)
+    }
+
+    st =
+      Enum.reduce(succ.(v), st, fn w, st ->
+        cond do
+          not Map.has_key?(st.idx, w) ->
+            st = strong(w, succ, st)
+            %{st | low: Map.put(st.low, v, min(st.low[v], st.low[w]))}
+
+          MapSet.member?(st.on, w) ->
+            %{st | low: Map.put(st.low, v, min(st.low[v], st.idx[w]))}
+
+          true ->
+            st
+        end
+      end)
+
+    if st.low[v] == st.idx[v], do: pop_comp(v, st.idx[v], st), else: st
+  end
+
+  defp pop_comp(v, c, %{stack: [w | rest]} = st) do
+    st = %{st | stack: rest, on: MapSet.delete(st.on, w), comp: Map.put(st.comp, w, c)}
+    if w == v, do: st, else: pop_comp(v, c, st)
+  end
+
+  # propagate_circuit/1: der Graph Knoten k → Werte von V_k ist stark
+  # zusammenhängend (gebundene V_k: ihr Wert; ein Wert außerhalb 1..n oder
+  # eine unendliche Domäne: scheitert)
+  defp circuit_connected?(vs, s) do
+    items = list_items(vs, s)
+    n = length(items)
+
+    arcs =
+      Enum.map(items, fn v ->
+        ns =
+          case val(v, s) do
+            {:var, _} = var ->
+              {d, _} = fdget(var, s)
+
+              case to_list(d, []) do
+                {:ok, ns} -> ns
+                :fail -> nil
+              end
+
+            i ->
+              [i]
+          end
+
+        if ns != nil and Enum.all?(ns, &(&1 in 1..n//1)), do: ns, else: nil
+      end)
+
+    cond do
+      Enum.any?(arcs, &is_nil/1) ->
+        false
+
+      n == 0 ->
+        true
+
+      true ->
+        # wie im Original: Tarjan ab Knoten 1, alle in dessen Komponente
+        g = arcs |> Enum.with_index(1) |> Map.new(fn {ns, k} -> {k, ns} end)
+        comp = tarjan(Enum.to_list(1..n), fn k -> Map.fetch!(g, k) end)
+        Enum.all?(1..n, &(comp[&1] == comp[1]))
+    end
   end
 end
