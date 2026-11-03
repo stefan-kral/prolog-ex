@@ -281,6 +281,9 @@ defmodule PrologEx.Builtins do
       ),
     # wie SICStus' library(fastrw) (die Prädikate sind eingebaut, wie in SWI)
     "fastrw" => @home_reexports["fastrw"],
+    # wie Scryers library(terms) und library(freeze) (eingebaut)
+    "terms" => %{{"numbervars", 3} => "system"},
+    "freeze" => %{{"freeze", 2} => "system"},
     # wie SICStus' library(between)
     "between" => %{
       {"between", 3} => "system",

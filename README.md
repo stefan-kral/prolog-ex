@@ -548,6 +548,14 @@ ist jeweils am Dateianfang vermerkt.
   Nach `use_module(library(time))` gilt dieses `time/1`, nach
   `use_module(library(swi))` das SWI-artige. `statistics/2` bleibt das eingebaute, eine Obermenge von
   Scryers vorläufigem.
+* `library(arithmetic)` (BSD-Lizenz, wie Scryer ohne die Prädikate für
+  rationale Zahlen, die PrologEx nicht kennt): `expmod/4`, `lcm/3`,
+  `lsb/2`, `msb/2`, `popcount/2` mit Scryers Fehlern.
+* `library(debug)` (BSD-Lizenz, unverändert): `* G` (Ziel
+  wegverallgemeinern), `$ G` und `$- G` (Aufruf und Ausnahmen mit
+  `portray_clause/1` zeigen).
+* `library(terms)` und `library(freeze)` geben wie in Scryer
+  `numbervars/3` und `freeze/2` weiter (eingebaut).
 * `library(os)` (Markus Triska, gemeinfrei):
   * `getenv/2`, `setenv/2`, `unsetenv/1` mit Namen und Werten als
     Zeichenlisten, Namen wie bei Scryer nur aus `alnum` und
@@ -1149,6 +1157,62 @@ verschiedenen Bedingungen, scheitert sie, etwa
 Variablen findet die Formel ihrer Wurzel nicht mehr, weil der erste sie
 zum Neuaufbau schon abgeräumt hat.
 
+## Bedingungen über ganzen Zahlen: `library(clpz)`
+
+CLP(ℤ) von Markus Triska (BSD-Lizenz), aus Scryer Prolog (b7066b4),
+unverändert: arithmetische Bedingungen (`#=`, `#\=`, `#<`, ... über `+ - *
+^ // div mod rem abs min max` und Bitoperationen), Domänen (`in/2`,
+`ins/2`, `fd_dom/2`, `fd_inf/2`, ...), Reifikation (`#<==>`, `#==>`,
+`#\/`, `#\`, `zcompare/3`), globale Bedingungen (`all_different/1`,
+`all_distinct/1`, `sum/3`, `element/3`, `tuples_in/2`,
+`global_cardinality/2,3`, `lex_chain/1`, `circuit/1`, `cumulative/1,2`,
+...) und `label/1`, `labeling/2`. Die Restziele zeigt der Toplevel wie
+Scryer:
+
+```prolog
+?- X #= Y*Y, Y in -2..2.
+X in 0..4, Y^2#=X, Y in -2..2.
+?- X in 0..5, X #\= 3, fd_dom(X, D).
+D = 0..2\/4..5, X in 0..2\/4..5.
+```
+
+Klauseln, die clpz-Bedingungen enthalten, übersetzt clpz beim Laden über
+`user:goal_expansion/2` in schnellere Ziele (wie Scryer;
+`clpz:goal_expansion(false)` schaltet das ab). Scryer expandiert auch
+`call/1` zur Laufzeit, PrologEx wie SWI nur beim Laden: dieselbe Bedingung
+kann als Aufruf deshalb andere (gleichwertige) Restziele zeigen.
+
+Dafür kamen `library(arithmetic)`, `library(debug)`, `library(terms)`,
+`library(freeze)` dazu (siehe „Bibliotheken aus Scryer Prolog“), die
+Hilfsprädikate vor einer `goal_expansion` (siehe „Expansion“) und die
+Regel für Operatoren und gleichnamige Prädikate von Bibliotheken (siehe
+„Module“).
+
+Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
+
+  * Beispiele der Dokumentation und Fehler;
+  * Triskas Beispielprogramme aus github.com/triska/clpz (Public Domain,
+    `test/fixtures/clpz/`): Damen, SEND+MORE, Sudoku, magische Quadrate,
+    Springerweg, Aufgabenplanung mit `cumulative/2`, Fakultät in beide
+    Richtungen, magisches Sechseck – alle mit denselben Ausgaben wie
+    Scryer;
+  * 400 zufällige Anfragen (Arithmetik, Domänen, Reifikation, globale
+    Bedingungen, Labeling mit Optionen, `fd_*`) mit den Antworten der
+    ursprünglichen Fassung samt Restzielen (`test/fixtures/clpz/
+    gen_golden.exs`). Dieselben und weitere 1200 Anfragen laufen über
+    `test/fixtures/clpz/harness.pl` auch in Scryer und geben dieselben
+    Ergebnisse; verschieden sind nur die Reihenfolge der Variablen in
+    Summen (`C+D` statt `D+C`: die Standardordnung der Variablen ist
+    Sache des Systems) und dass Scryer zwei `freeze/2` auf derselben
+    Variablen zu einem zusammenfasst.
+
+Geschwindigkeit: ohne Start (PrologEx rund 1 s, das Laden von clpz,
+Scryer 0,4 s) gemessen braucht PrologEx für die Beispielprogramme das 9-
+bis 17-Fache (alle 92 Lösungen der 8 Damen 2,4 s statt 0,18 s,
+Aufgabenplanung 9,6 statt 0,6 s). Wie bei clpb soll clpz nach und nach in
+Elixir rechnen; die Golden-Anfragen und der Vergleich mit Scryer sind die
+Referenz dafür.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
@@ -1522,7 +1586,18 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     Kontextmodul qualifiziert. Prädikate von `system` sind geschützt.
   * Dateien werden schrittweise gelesen: Operatoren aus der Exportliste
     eines mit `use_module` geladenen Moduls gelten schon für den Rest der
-    ladenden Datei. Operatoren sind global (nicht modul-lokal).
+    ladenden Datei. Operatoren sind global (nicht modul-lokal). Lädt nur
+    eine Bibliothek des Systems ein solches Modul (clpz lädt
+    `library(debug)` mit `*` und `$` als Präfixoperatoren), gelten dessen
+    Operatoren nur beim Lesen seiner eigenen Datei und werden danach
+    zurückgenommen, auch frühere Definitionen derselben Operatoren – wie in
+    Scryer ist `* a` nach `use_module(library(clpz))` kein Term. Ein
+    eigenes `use_module(library(debug))` setzt sie.
+  * Gleichnamige Prädikate zweier Bibliotheken: der erste Import gilt,
+    mit Warnung. So bei `chain/2`, das `library(lists)` (wie SICStus:
+    `chain(Zs, Relation)`) und `library(clpz)` (`chain(Relation, Zs)`)
+    exportieren – wer clpz' `chain/2` braucht, lädt clpz zuerst oder
+    schreibt `clpz:chain/2`.
   * Relative Pfade in einer Datei gelten ab deren Ordner.
   * `:- multifile(P)`: Klauseln von P aus mehreren Dateien werden
     aneinandergehängt (sonst ersetzt die zuletzt geladene Datei die
@@ -1533,7 +1608,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     Direktiven; `_X` gilt als Absicht, mehrfach verwendet gibt es eine
     eigene Warnung) und nicht zusammenhängende Klauseln ohne
     `discontiguous/1` (einmal je Prädikat; Klauseln, die `term_expansion`
-    aus einem Term macht, dürfen sich abwechseln). Abschalten mit
+    aus einem Term macht, dürfen sich abwechseln; nicht für die
+    Bibliotheken des Systems, wie Scryer). Abschalten mit
     `style_check(-singleton)`, `style_check(-(discontiguous))` – die
     Klammern braucht ISO, weil `discontiguous` ein Präfixoperator ist;
     `style_check(?(X))` fragt ab. Fehler in Direktiven nennen ebenfalls die
@@ -1548,7 +1624,11 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 ## Expansion: `term_expansion/2`, `goal_expansion/2`
 
 Wie SWI/SICStus: Hooks im Quellmodul oder in `user`, ab der Klausel nach
-ihrer Definition wirksam.
+ihrer Definition wirksam. Was ein `goal_expansion`-Hook aufruft, muss
+schon definiert sein, und alles, was in der Datei vor der Klausel steht,
+ist es (vorher kompiliert; nur das Prädikat der Klausel selbst nicht, sonst
+würde es mit jeder Klausel neu übersetzt) – clpz übersetzt so seine
+eigenen Klauseln mit Hilfsprädikaten weiter oben.
 
 ```prolog
 term_expansion(erzeuge(N), [p(N), q(N)]).   % ein Term wird zu zweien

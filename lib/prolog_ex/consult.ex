@@ -242,7 +242,8 @@ defmodule PrologEx.Consult do
 
       MapSet.member?(st.seen, key) and not MapSet.member?(st.warned, key) and
         not PrologEx.has_property?(st.db, key, :discontiguous) and
-          PrologEx.StyleCheck.on?(:discontiguous) ->
+        PrologEx.StyleCheck.on?(:discontiguous) and
+          not PrologEx.Builtins.system_module?(st.module) ->
         pi = if m == st.module, do: indicator(n, ar), else: "#{m}:#{indicator(n, ar)}"
 
         st
@@ -426,6 +427,11 @@ defmodule PrologEx.Consult do
 
   defp add_clause({head, body}, st) do
     {st, hook?} = hook?(st, "goal_expansion")
+    # die Hilfsprädikate des Hooks (weiter oben in der Datei) müssen
+    # aufrufbar sein, wie in Scryer und SWI: vorher kompilieren, was bis
+    # dahin geladen ist – außer dem Prädikat dieser Klausel selbst (sonst
+    # würde es mit jeder Klausel neu übersetzt)
+    st = if hook?, do: flush_except(st, clause_key(head, st)), else: st
 
     {head, body, st} =
       if hook? do
@@ -501,6 +507,31 @@ defmodule PrologEx.Consult do
     %{st | db: db, dirty: MapSet.new()}
   end
 
+  defp flush_except(st, key) do
+    if MapSet.size(st.dirty) == 0 or MapSet.equal?(st.dirty, MapSet.new([key])) do
+      st
+    else
+      # (store_clause/2 vermerkt das Prädikat gleich wieder als geändert)
+      flush(%{st | dirty: MapSet.delete(st.dirty, key)})
+    end
+  end
+
+  # Prädikat einer Klausel (wie store_clause/2; nil, wenn der Kopf nicht
+  # passt – dann wird alles kompiliert)
+  defp clause_key(head, st) do
+    case PrologEx.unmark(head) do
+      {:struct, ":", [{:atom, m}, h]} -> clause_key2(m, h)
+      h -> clause_key2(st.module, h)
+    end
+  end
+
+  defp clause_key2(m, h) do
+    {name, arity} = Compiler.key(h)
+    {m, name, arity}
+  rescue
+    _ -> nil
+  end
+
   # multifile: beim ersten Auftreten in dieser Datei die vorhandenen
   # Klauseln merken (aus anderen Dateien), damit flush sie nicht ersetzt
   defp remember_base(st, key) do
@@ -521,13 +552,29 @@ defmodule PrologEx.Consult do
   defp directive({:struct, "module", [{:atom, m}, exports]}, st) do
     st = flush(st)
 
-    # op(P, T, N) in der Exportliste: für die Sitzung setzen (der Reader hat
-    # sie für den Rest dieser Datei schon)
-    for {:struct, "op", [p, t, n]} <- prolog_list(exports) |> Enum.map(&PrologEx.unmark/1),
-        do: PrologEx.Builtins.Operators.mirror(p, t, n)
+    # op(P, T, N) in der Exportliste: für die Sitzung setzen (ab dem
+    # nächsten Term, auch für den Rest dieser Datei). Wird das Modul mit
+    # use_module nur in eine Bibliothek des Systems importiert, nimmt
+    # use_module sie danach wieder zurück (ops_prev: die Einträge vorher) –
+    # wie in Scryer gelten etwa die Operatoren von library(debug), die clpz
+    # importiert, nicht in user
+    ops =
+      for {:struct, "op", [p, t, n]} <- prolog_list(exports) |> Enum.map(&PrologEx.unmark/1),
+          do: {p, t, n}
+
+    prev = ops_prev(ops)
+    mirror_ops(ops)
 
     keys = export_keys(exports)
-    db = Map.put(st.db, {:module, m}, %{exports: MapSet.new(keys), file: st.file})
+
+    db =
+      Map.put(st.db, {:module, m}, %{
+        exports: MapSet.new(keys),
+        file: st.file,
+        ops: ops,
+        ops_prev: prev
+      })
+
     st = %{st | db: db, module: m, declared: m}
     import_into(st, m, keys, st.into)
   end
@@ -618,6 +665,31 @@ defmodule PrologEx.Consult do
 
   # Exporte von m in das Modul into importieren (lokale Definitionen dort
   # gehen vor: dann eine Warnung, wie SWI)
+  @doc false
+  # Operatoren aus der Exportliste eines Moduls für die Sitzung setzen
+  def mirror_ops(ops), do: for({p, t, n} <- ops, do: PrologEx.Builtins.Operators.mirror(p, t, n))
+
+  # die Einträge der Tabelle, die mirror_ops(ops) überschreibt:
+  # [{name, typ, {prio, typ} | nil}]
+  defp ops_prev(ops) do
+    table = PrologEx.Ops.table()
+
+    for {_p, {:atom, type}, names} <- ops,
+        {:atom, name} <- List.wrap(PrologEx.unmark(names)) |> List.flatten(),
+        do: {name, type, PrologEx.Ops.lookup(table, name, PrologEx.Ops.class(type))}
+  end
+
+  @doc false
+  # die von ops_prev/1 gemerkten Einträge wiederherstellen
+  def restore_ops(prev) do
+    for {name, type, old} <- prev do
+      case old do
+        nil -> PrologEx.Ops.add(0, type, name)
+        {p, t} -> PrologEx.Ops.add(p, t, name)
+      end
+    end
+  end
+
   defp import_into(st, _m, _keys, nil), do: st
   defp import_into(st, m, _keys, m), do: st
 

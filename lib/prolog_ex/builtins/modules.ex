@@ -223,15 +223,24 @@ defmodule PrologEx.Builtins.Modules do
   end
 
   defp use_file(f, keys, ctx) do
-    module =
+    {module, fresh} =
       case Consult.loaded(f) do
-        {:ok, m} -> m
-        :error -> elem(Consult.load_file(f, into: nil), 1)
+        {:ok, m} -> {m, false}
+        :error -> {elem(Consult.load_file(f, into: nil), 1), true}
       end
 
     if module do
-      exports = PrologEx.current_db() |> Map.fetch!({:module, module}) |> Map.fetch!(:exports)
-      import(module, select(exports, keys, module), ctx)
+      info = Map.fetch!(PrologEx.current_db(), {:module, module})
+      import(module, select(info.exports, keys, module), ctx)
+
+      # Operatoren der Exportliste gelten in den Modulen des Benutzers;
+      # beim ersten Laden nur für eine Bibliothek des Systems (clpz lädt
+      # library(debug)) werden sie wieder zurückgenommen (wie Scryer)
+      cond do
+        not PrologEx.Builtins.system_module?(ctx) -> Consult.mirror_ops(Map.get(info, :ops, []))
+        fresh -> Consult.restore_ops(Map.get(info, :ops_prev, []))
+        true -> :ok
+      end
     end
   end
 
