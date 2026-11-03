@@ -150,30 +150,14 @@ defmodule PrologEx.ListMoreTest do
     ])
   end
 
-  test "chain/2", c do
-    check(c, [
-      {"chain([1,2,3], <)", ["true"]},
-      {"chain([1,3,2], <)", []},
-      {"chain([1,1,2], =<)", ["true"]},
-      {"chain([1,1,2], <)", []},
-      {"chain([], foo)", ["true"]},
-      {"chain([a], foo)", ["true"]},
-      {"chain([3,2,1], @>)", ["true"]},
-      {"chain([a,B,c], @<)", []},
-      {"chain([1,X], <)", {:error, "instantiation_error"}}
-    ])
-  end
-
-  test "chain/2 und partition/5 rufen im Modul des Aufrufers", c do
+  test "partition/5 ruft im Modul des Aufrufers", c do
     {db, []} =
       PrologEx.Consult.load(
         c.db,
         Reader.read_terms(c.reader, """
-        :- module(mm, [t/1, p/2]).
+        :- module(mm, [p/2]).
         :- use_module(library(lists)).
-        lt(A, B) :- A < B.
         cmp2(X, R) :- compare(R, X, 2).
-        t(L) :- chain(L, lt).
         p(L, E-G) :- partition(cmp2, L, _, E, G).
         """)
       )
@@ -181,8 +165,6 @@ defmodule PrologEx.ListMoreTest do
     c = %{c | db: db}
 
     check(c, [
-      {"mm:t([1,2,3])", ["true"]},
-      {"mm:t([2,1])", []},
       {"mm:p([3,2,1], X)", ["X = [2]-[3]"]}
     ])
   end

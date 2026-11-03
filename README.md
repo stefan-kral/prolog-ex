@@ -120,7 +120,7 @@ zyklischen Liste eine Zelle im Zyklus – Brents Zykluserkennung, terminiert
 immer; dieselbe Funktion liegt `length/2` und Co. zugrunde), aus SICStus' `library(lists)`: `same_length/3` (negatives N scheitert), `one_longer/2`,
 `shorter_list/2`, `keys_and_values/3`, `transpose/2` (rechteckig, in beide
 Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
-`partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}), `chain/2`,
+`partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}),
 `memberd/2` (Neumerkel: wie `member/2` mit `dif/2` in der Rekursion, also
 ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
@@ -1594,10 +1594,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     Scryer ist `* a` nach `use_module(library(clpz))` kein Term. Ein
     eigenes `use_module(library(debug))` setzt sie.
   * Gleichnamige Prädikate zweier Bibliotheken: der erste Import gilt,
-    mit Warnung. So bei `chain/2`, das `library(lists)` (wie SICStus:
-    `chain(Zs, Relation)`) und `library(clpz)` (`chain(Relation, Zs)`)
-    exportieren – wer clpz' `chain/2` braucht, lädt clpz zuerst oder
-    schreibt `clpz:chain/2`.
+    mit Warnung. (`library(lists)` hat deshalb kein `chain/2` mehr: das
+    aus clpz, `chain(Relation, Zs)`, hat die umgekehrte Argumentfolge.)
   * Relative Pfade in einer Datei gelten ab deren Ordner.
   * `:- multifile(P)`: Klauseln von P aus mehreren Dateien werden
     aneinandergehängt (sonst ersetzt die zuletzt geladene Datei die

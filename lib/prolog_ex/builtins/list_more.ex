@@ -14,9 +14,6 @@ defmodule PrologEx.Builtins.ListMore do
     * `partition(:Pred, +Liste, ?Kleiner, ?Gleich, ?Größer)` – für jedes X
       `call(Pred, X, R)` mit R ∈ {<, =, >}; R ungebunden:
       instantiation_error, sonst domain_error(order, R).
-    * `chain(+Zs, :Relation)` – `call(Relation, Z1, Z2)` für jedes
-      benachbarte Paar (wie Scryers chain/2; leere und einelementige Listen
-      erfüllen jede Relation).
     * `memberd(?X, ?Liste)` – wie `member/2`, aber ohne doppelte Antworten
       (Neumerkel; `dif/2` in der Rekursion). In Elixir; dieselben Antworten
       wie die Prolog-Fassung in `library(memberd_pl)`.
@@ -31,8 +28,7 @@ defmodule PrologEx.Builtins.ListMore do
 
   def meta do
     [
-      {"lists", "partition", [2, "+", "-", "-", "-"]},
-      {"lists", "chain", ["+", 2]}
+      {"lists", "partition", [2, "+", "-", "-", "-"]}
     ]
   end
 
@@ -175,7 +171,7 @@ defmodule PrologEx.Builtins.ListMore do
     [l, s0, x, ks, vs, k, vv, kvs, xss, yss, xr, yr, rows, rest, col, cols, f, fs, r, rs] =
       Enum.map(~w(L S X Ks Vs K V KVs Xss Yss Xr Yr Rows Rest Col Cols F Fs R Rs), &v/1)
 
-    [p, xs, ls, es, gs, zs, z0, z1, w] = Enum.map(~w(P Xs Ls Es Gs Zs Z0 Z1 _), &v/1)
+    [p, xs, ls, es, gs, w] = Enum.map(~w(P Xs Ls Es Gs _), &v/1)
 
     %{
       "lists" => [
@@ -235,16 +231,6 @@ defmodule PrologEx.Builtins.ListMore do
         ]),
         rule(s("$partition5", [a(">"), x, xs, p, ls, es, [x | gs]]), [
           s("$partition5", [xs, p, ls, es, gs])
-        ]),
-
-        # chain/2
-        rule(s("chain", [zs, r]), [s("$chain", [zs, r])]),
-        fact(s("$chain", [[], w])),
-        rule(s("$chain", [[x | xs], r]), [s("$chain", [xs, x, r])]),
-        fact(s("$chain", [[], w, w])),
-        rule(s("$chain", [[z1 | zs], z0, r]), [
-          s("call", [r, z0, z1]),
-          s("$chain", [zs, z1, r])
         ])
       ]
     }

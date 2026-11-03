@@ -94,10 +94,7 @@ defmodule PrologEx.ClpzTest do
 
   defp fixture(_c, name) do
     PrologEx.put_db(%{})
-    # (die Beispiele laden clpz und lists: Warnung zu chain/2 auf stderr)
-    capture_io(:stderr, fn ->
-      capture_io(fn -> PrologEx.Consult.load_file("test/fixtures/clpz/#{name}") end)
-    end)
+    capture_io(fn -> PrologEx.Consult.load_file("test/fixtures/clpz/#{name}") end)
 
     PrologEx.current_db()
   end
@@ -188,15 +185,17 @@ defmodule PrologEx.ClpzTest do
     assert {_db, [], ""} = load_stderr(c, ":- use_module(library(clpz)).\n")
   end
 
-  test "chain/2 aus clpz und lists: verschiedene Argumentfolge, Warnung, der erste gilt", c do
-    # clpz: chain(Relation, Zs); lists (SICStus): chain(Zs, Relation)
-    {db, [], err} =
-      load_stderr(c, ":- use_module(library(clpz)).\n:- use_module(library(lists)).\n")
+  test "clpz und lists zusammen: keine Warnung, chain/2 aus clpz", c do
+    # lists hat kein chain/2 mehr (clpz: chain(Relation, Zs))
+    for text <- [
+          ":- use_module(library(clpz)).\n:- use_module(library(lists)).\n",
+          ":- use_module(library(lists)).\n:- use_module(library(clpz)).\n"
+        ] do
+      {db, [], ""} = load_stderr(c, text)
 
-    assert err =~ "chain/2 ist schon aus clpz in user importiert, lists ignoriert"
-
-    assert {_, {:answers, ["X = 1, Y = 2"]}} =
-             TableCase.run(c.reader, db, "chain(#<, [X,Y]), [X,Y] ins 1..2")
+      assert {_, {:answers, ["X = 1, Y = 2"]}} =
+               TableCase.run(c.reader, db, "chain(#<, [X,Y]), [X,Y] ins 1..2")
+    end
   end
 
   test "library(arithmetic): wie Scryer, ohne rationale Zahlen", c do
