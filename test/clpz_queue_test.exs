@@ -74,6 +74,8 @@ defmodule PrologEx.ClpzQueueTest do
       3 -> "all_different([X,Y,Z])"
       4 -> "all_distinct([Y,Z,W])"
       5 -> "sum([X,Y,W], #{rel}, Z)"
+      7 -> "abs(#{Enum.random(@vars)} - #{Enum.random(@vars)}) #\\= #{Enum.random(0..3)}"
+      8 -> "#{Enum.random(@vars)} + #{Enum.random(@vars)} #= #{Enum.random(@vars)}"
       6 -> "B #<==> (X #> Y)"
       _ -> "#{expr(Enum.random(0..2))} #{rel} #{expr(Enum.random(0..2))}"
     end
@@ -192,6 +194,142 @@ defmodule PrologEx.ClpzQueueTest do
         ] do
       assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), q
     end
+  end
+
+  # ein Argument: Variable (mit oder ohne Domäne) oder Zahl
+  defp parg, do: if(:rand.uniform(3) == 1, do: "#{Enum.random(-3..5)}", else: Enum.random(@vars))
+
+  defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3), ",", fn _ -> parg() end) <> "]"
+
+  defp synth do
+    case :rand.uniform(6) do
+      1 ->
+        "pneq(#{parg()}, #{parg()})"
+
+      2 ->
+        "absdiff_neq(#{parg()}, #{parg()}, #{Enum.random(-1..4)})"
+
+      3 ->
+        "pexclude(#{plist()}, #{plist()}, #{parg()})"
+
+      4 ->
+        "pdifferent(#{plist()}, #{plist()}, #{parg()}, _)"
+
+      5 ->
+        "pplus(#{parg()}, #{parg()}, #{parg()}, _)"
+
+      _ ->
+        n = Enum.random(0..4)
+
+        cs =
+          Enum.map_join(1..max(n, 1), ",", fn _ -> Enum.random([-3, -2, -1, 1, 1, 2, 3, 0]) end)
+
+        vs = Enum.map_join(1..max(n, 1), ",", fn _ -> parg() end)
+        "scalar_product_eq([#{cs}], [#{vs}], #{Enum.random(-4..8)})"
+    end
+  end
+
+  defp doms do
+    for v <- @vars, :rand.uniform(4) > 1 do
+      "#{v} in #{Enum.random(~w(0..5 -3..3 1..2\\/4..9 inf..4 0..sup 2..3 1..1\\/3..3 -2..sup))}"
+    end
+    |> Enum.join(", ")
+    |> case do
+      "" -> "true"
+      d -> d
+    end
+  end
+
+  test "activate_propagator//1: synthetische Propagatoren, allein und bis zum Fixpunkt", c do
+    check(c, 600, fn ->
+      t = synth()
+
+      "Vs = [X,Y,Z,W], (#{doms()} -> clpz:new_queue(Q), P = propagator(#{t}, S), " <>
+        "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
+        "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q-S), " <>
+        "same(phrase((clpz:activate_propagator_ref(P), clpz:do_queue_ref), [Q], _), " <>
+        "phrase((clpz:activate_propagator(P), clpz:do_queue), [Q], _), Vs-S) ; true)"
+    end)
+  end
+
+  # vergleicht einen Propagator mit festen Domänen (allein und bis zum
+  # Fixpunkt)
+  defp prop_case(c, setup, t) do
+    q =
+      "Vs = [X,Y,Z,W], (#{setup} -> clpz:new_queue(Q), P = propagator(#{t}, S), " <>
+        "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
+        "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q-S), " <>
+        "same(phrase((clpz:activate_propagator_ref(P), clpz:do_queue_ref), [Q], _), " <>
+        "phrase((clpz:activate_propagator(P), clpz:do_queue), [Q], _), Vs-S) ; true)"
+
+    r = TableCase.run(c.reader, c.db, q)
+    if match?({_, {:answers, [_]}}, r), do: [], else: [{q, r}]
+  end
+
+  @doms ["0..3", "3..5", "6..9", "2..2", "1..4\\/7..8", "inf..3", "4..sup", "inf..sup", "-5.. -1"]
+
+  test "pneq und pplus: alle Paare/Tripel aus berührenden, getrennten, unendlichen Domänen", c do
+    diffs =
+      for dx <- @doms, dy <- @doms do
+        prop_case(c, "X in #{dx}, Y in #{dy}", "pneq(X, Y)")
+      end ++
+        for dx <- @doms,
+            dy <- @doms,
+            dz <- Enum.take_random(@doms, 4),
+            t <- ["pplus(X, Y, Z, _)", "pplus(X, 2, Z, _)", "pplus(X, Y, 4, _)"] do
+          prop_case(c, "X in #{dx}, Y in #{dy}, Z in #{dz}", t)
+        end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  test "scalar_product_eq: die Sonderfälle der Koeffizienten, P innerhalb und außerhalb", c do
+    css = [
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+      [1, 1, -1],
+      [1, -1, 1],
+      [-1, 1, 1],
+      [2, 3],
+      [1, 2, -1],
+      [-1, -2, 1],
+      [3],
+      [1, 1, 1]
+    ]
+
+    diffs =
+      for cs <- css,
+          p <- [-7, 0, 4, 30],
+          ds <- [
+            ~w(0..3 3..5 2..2),
+            ~w(inf..3 0..5 1..4),
+            ~w(4..sup inf..sup 0..1),
+            ~w(inf..2 inf..0 -1..sup)
+          ] do
+        vs = Enum.take(~w(X Y Z), length(cs))
+        setup = Enum.zip(vs, ds) |> Enum.map_join(", ", fn {v, d} -> "#{v} in #{d}" end)
+
+        prop_case(
+          c,
+          setup,
+          "scalar_product_eq([#{Enum.join(cs, ",")}], [#{Enum.join(vs, ",")}], #{p})"
+        )
+      end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  test "activate_propagator//1: die Propagatoren eines aufgestellten Zustands", c do
+    check(c, 200, fn ->
+      scenario(
+        "(clpz:new_queue(Q), member(V, Vs), clpz:fd_get_ref(V, _, fd_props(Gs, Bs, Os)), " <>
+          "append([Gs, Bs, Os], Props), member(P, Props), " <>
+          "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
+          "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q), fail ; true)"
+      )
+    end)
   end
 
   test "fd_get/3,5 wie das Original", c do

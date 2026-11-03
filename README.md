@@ -1261,6 +1261,22 @@ Bisher in Elixir:
     einreihen, die ganze Propagation bis zum Fixpunkt); alle erreichbaren
     Attribute samt Warteschlangen müssen Varianten sein
     (`test/clpz_queue_test.exs`).
+  * die häufigsten Propagatoren in `activate_propagator//1`: `pneq`
+    (`X #\= Y`), `absdiff_neq` (`abs(X-Y) #\= C`, Damen), `pexclude` und
+    `pdifferent` (`all_different/1`), `pplus` (`X+Y #= Z`) und
+    `scalar_product_eq` (lineare Gleichungen, mit `sum_finite_domains` und
+    dem Kürzen der Schranken) – je in den Zweigen, die nur Domänen ändern,
+    Propagatoren töten oder prüfen. Ein Zweig, der direkt bindet (`Z is
+    X + Y`) oder neue Bedingungen aufstellt, und jeder andere Propagator
+    rechnet das Original (`activate_propagator_ref//1`); vorher ist nichts
+    geändert, Reihenfolge und Wecken bleiben also wie dort. Abwechselnd
+    gemessen: Sechseck 0,91–0,95 → 0,20–0,23 s, magische Quadrate (3×3,
+    alle) 0,22 → 0,08 s, 8 Damen (alle) 0,52 → 0,24–0,26 s, SEND+MORE
+    10–16 → 4 ms, Fakultät rückwärts 0,13 → 0,09–0,10 s; Planung (noch
+    ohne ihre Propagatoren) unverändert. Geprüft mit synthetischen
+    Propagatoren (zufällige Argumente aus Variablen mit Domänen, Zahlen,
+    Wiederholungen) und mit denen aufgestellter Zustände, je einzeln und
+    bis zum Fixpunkt gegen das Original.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 

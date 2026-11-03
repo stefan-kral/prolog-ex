@@ -55,6 +55,10 @@
        queue_goal//1, queue_fast//1, queue_slow//1 in Elixir, ebenso über
        goal_expansion/2; do_queue//0 als Schleife über '$clpz_queue_next'/2.
        Die Originale mit der Endung _ref (do_queue_ref//0)
+     - activate_propagator//1 in Elixir für pneq, absdiff_neq, pexclude,
+       pdifferent, pplus, scalar_product_eq (nur Zweige ohne direkte
+       Bindungen und ohne neue Bedingungen); sonst das Original
+       activate_propagator_ref//1
 */
 
 
@@ -1216,6 +1220,13 @@ insert_queue(A,B,S0,S) :- '$clpz_insert_queue'(A,B,S0,S).
 queue_goal(A,S0,S) :- '$clpz_insert_queue'(A,1,S0,S).
 queue_fast(A,S0,S) :- '$clpz_insert_queue'(A,2,S0,S).
 queue_slow(A,S0,S) :- '$clpz_insert_queue'(A,3,S0,S).
+
+% PrologEx: activate_propagator//1 in Elixir ('$clpz_activate'/3): pneq,
+% absdiff_neq, pexclude, pdifferent, pplus und scalar_product_eq in den
+% Zweigen, die nur Domänen ändern, Propagatoren töten oder prüfen; alle
+% anderen Propagatoren und Zweige über das Original activate_propagator_ref//1
+goal_expansion(activate_propagator(A,S0,S), '$clpz_activate'(A,S0,S)).
+activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
 
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4357,7 +4368,7 @@ no_reactivation(pgcc(_,_,_)).
 no_reactivation(pgcc_single(_,_)).
 %no_reactivation(scalar_product(_,_,_,_)).
 
-activate_propagator(propagator(P,State)) -->
+activate_propagator_ref(propagator(P,State)) -->
         % { portray_clause(running(P)) },
         (   State == dead -> []
         ;   { del_attr(State, clpz_aux) },
@@ -4373,8 +4384,8 @@ activate_propagator(propagator(P,State)) -->
 do_queue_ref -->
         (   queue_enabled ->
             (   queue_get_goal(Goal) -> { call(Goal) }, do_queue_ref
-            ;   queue_get_fast(Fast) -> activate_propagator(Fast), do_queue_ref
-            ;   queue_get_slow(Slow) -> activate_propagator(Slow), do_queue_ref
+            ;   queue_get_fast(Fast) -> activate_propagator_ref(Fast), do_queue_ref
+            ;   queue_get_slow(Slow) -> activate_propagator_ref(Slow), do_queue_ref
             ;   true
             )
         ;   true

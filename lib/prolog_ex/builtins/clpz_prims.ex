@@ -1423,4 +1423,584 @@ defmodule PrologEx.Builtins.ClpzPrims do
       end
     end)
   end
+
+  # --- Propagatoren: activate_propagator//1 ----------------------------------
+  #
+  # In Elixir die Zweige, die nur Domänen ändern (fd_put//3, das Ziele für
+  # Bindungen in die Queue stellt), Propagatoren töten (kill/1) oder prüfen.
+  # Ein Zweig, der direkt bindet oder neue Bedingungen aufstellt, und jeder
+  # andere Propagator: das Original (activate_propagator_ref//1) – vorher
+  # ist nichts geändert, Reihenfolge und Wecken bleiben also wie dort.
+
+  @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq)
+
+  defbuiltin "$clpz_activate", [prop, s0, s1] do
+    run("activate_propagator", [prop, s0, s1], subst(), fn ->
+      s = subst_now()
+      q = state_q(s0, s)
+
+      {p, state} =
+        case ws(prop, s) do
+          {tag, "propagator", [p, st]} when tag in [:struct, :gstruct] -> {p, st}
+          _ -> throw(:fallback)
+        end
+
+      st = PrologEx.walk(state, s)
+
+      cond do
+        st == {:atom, "dead"} ->
+          finish(s1, s0, s)
+
+        not match?({:var, _}, st) ->
+          throw(:fallback)
+
+        true ->
+          {name, args} =
+            case ws(p, s) do
+              {tag, n, args} when tag in [:struct, :gstruct] and n in @ported -> {n, args}
+              _ -> throw(:fallback)
+            end
+
+          s = del_att(s, st, "clpz_aux", 1)
+          result(propagate(name, args, st, q, s), s1, s0)
+      end
+    end)
+  end
+
+  # Werte: ganze Zahl, Variable oder (sonst) das Original
+  defp val(t, s) do
+    case PrologEx.walk(t, s) do
+      i when is_integer(i) -> i
+      {:var, _} = v -> v
+      _ -> throw(:fallback)
+    end
+  end
+
+  defp var?({:var, _}), do: true
+  defp var?(_), do: false
+
+  # kill/1: del_attr(State, clpz_aux), State = dead
+  defp kill(st, s) do
+    st = PrologEx.walk(st, s)
+    s = if var?(st), do: del_att(s, st, "clpz_aux", 1), else: s
+
+    case PrologEx.unify(st, a("dead"), s) do
+      {:ok, s} -> s
+      :error -> :fail
+    end
+  end
+
+  # fd_get/3 einer Variablen: {Domäne (dekodiert), Ps}
+  defp fdget(v, s) do
+    case fd_get(v, s) do
+      {d, ps} -> {dom(d), ps}
+      :default -> {{:ft, :inf, :sup}, no_props()}
+      :fail -> throw(:fallback)
+    end
+  end
+
+  # fd_put//3 mit einer dekodierten Domäne
+  defp fdput(_v, _d, _ps, _q, :fail), do: :fail
+  defp fdput(v, d, ps, q, s), do: put_terminating(v, ed(d), ps, q, s)
+
+  # Schritte nacheinander, :fail bricht ab
+  defp seq(:fail, _f), do: :fail
+  defp seq(s, f), do: f.(s)
+
+  # neq_num//2: x ≠ n
+  defp neq_num(x, n, q, s) do
+    case val(x, s) do
+      {:var, _} = v ->
+        {d, ps} = fdget(v, s)
+        fdput(v, remove(d, n), ps, q, s)
+
+      i ->
+        if i != n, do: s, else: :fail
+    end
+  end
+
+  # domains_intersection/3: nil (leer) = Fehlschlag
+  defp isect(d1, d2) do
+    case intersection_(d1, d2) do
+      :empty -> nil
+      d -> d
+    end
+  end
+
+  defp put_isect(v, d, d2, ps, q, s) do
+    case isect(d, d2) do
+      nil -> :fail
+      r -> fdput(v, r, ps, q, s)
+    end
+  end
+
+  defp aux(q, s) do
+    case ws(q, s) do
+      {tag, "queue", [_, _, _, aux]} when tag in [:struct, :gstruct] ->
+        case PrologEx.walk(aux, s) do
+          {:var, _} = v -> v
+          _ -> throw(:fallback)
+        end
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  defp disable_queue(q, s), do: put_att(s, aux(q, s), a("disabled"))
+  defp enable_queue(_q, :fail), do: :fail
+  defp enable_queue(q, s), do: del_att(s, aux(q, s), "disabled", 0)
+
+  # --- pneq(A, B): A ≠ B ---
+
+  defp propagate("pneq", [a0, b0], st, q, s) do
+    case {val(a0, s), val(b0, s)} do
+      {a, b} when is_integer(a) and is_integer(b) ->
+        if a != b, do: kill(st, s), else: :fail
+
+      {a, {:var, _} = b} when is_integer(a) ->
+        {bd, bps} = fdget(b, s)
+        bd1 = remove(bd, a)
+        s |> kill_then(st) |> then_put(b, bd1, bps, q)
+
+      {{:var, _}, b} when is_integer(b) ->
+        propagate("pneq", [b0, a0], st, q, s)
+
+      {a, b} ->
+        if a == b do
+          :fail
+        else
+          {ad, _} = fdget(a, s)
+          {bd, _} = fdget(b, s)
+
+          cond do
+            lt(sup_d(ad), inf_d(bd)) -> kill(st, s)
+            gt(inf_d(ad), sup_d(bd)) -> kill(st, s)
+            true -> s
+          end
+        end
+    end
+  end
+
+  # --- absdiff_neq(X, Y, C): |X - Y| ≠ C ---
+
+  defp propagate("absdiff_neq", [x0, y0, c0], st, q, s) do
+    c =
+      case val(c0, s) do
+        i when is_integer(i) -> i
+        _ -> throw(:fallback)
+      end
+
+    cond do
+      c < 0 ->
+        kill(st, s)
+
+      is_integer(val(x0, s)) ->
+        x = val(x0, s)
+        s = kill(st, s)
+
+        case val(y0, s) do
+          y when is_integer(y) ->
+            if abs(x - y) != c, do: s, else: :fail
+
+          y ->
+            s |> seq(&neq_num(y, x - c, q, &1)) |> seq(&neq_num(y, c + x, q, &1))
+        end
+
+      is_integer(val(y0, s)) ->
+        y = val(y0, s)
+        x = val(x0, s)
+        s = kill(st, s)
+        s |> seq(&neq_num(x, c + y, q, &1)) |> seq(&neq_num(x, y - c, q, &1))
+
+      true ->
+        s
+    end
+  end
+
+  # --- pexclude(Left, Right, X), pdifferent(Left, Right, X, _) ---
+
+  defp propagate("pdifferent", [l, r, x, _], st, q, s),
+    do: propagate("pexclude", [l, r, x], st, q, s)
+
+  defp propagate("pexclude", [l, r, x0], _st, q, s) do
+    if ground?(x0, s) do
+      x =
+        case val(x0, s) do
+          i when is_integer(i) -> i
+          _ -> throw(:fallback)
+        end
+
+      s = disable_queue(q, s)
+
+      s =
+        Enum.reduce(list_items(l, s) ++ list_items(r, s), s, fn v, s ->
+          seq(s, &neq_num(v, x, q, &1))
+        end)
+
+      enable_queue(q, s)
+    else
+      s
+    end
+  end
+
+  # --- pplus(X, Y, Z, Morph): X + Y = Z ---
+
+  defp propagate("pplus", [x0, y0, z0, m], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) ->
+        cond do
+          # Y = Z: Bindung (das Original)
+          x == 0 -> throw(:fallback)
+          # Y == Z: kill(MState), X =:= 0 – scheitert (X ≠ 0)
+          y == z -> :fail
+          is_integer(y) or is_integer(z) -> throw(:fallback)
+          true -> plus_x(x, y, z, q, s)
+        end
+
+      is_integer(y) ->
+        propagate("pplus", [y0, x0, z0, m], st, q, s)
+
+      is_integer(z) ->
+        if x == y, do: throw(:fallback), else: plus_z(x, y, z, q, s)
+
+      x == y or x == z or y == z ->
+        throw(:fallback)
+
+      true ->
+        plus_bounds(x, y, z, q, s)
+    end
+  end
+
+  # --- scalar_product_eq(Cs, Vs, P): Σ C·V = P ---
+
+  defp propagate("scalar_product_eq", [cs0, vs0, p0], st, q, s) do
+    p0 =
+      case val(p0, s) do
+        i when is_integer(i) -> i
+        _ -> throw(:fallback)
+      end
+
+    {cvs, i} = coeffs_vars(list_items(cs0, s), list_items(vs0, s), s)
+    p = p0 - i
+    cs = Enum.map(cvs, &elem(&1, 0))
+
+    cond do
+      cvs == [] ->
+        s = kill(st, s)
+        if s != :fail and p == 0, do: s, else: :fail
+
+      match?([_], cvs) ->
+        throw(:fallback)
+
+      cs in [[1, 1], [1, -1], [-1, 1], [-1, -1]] ->
+        throw(:fallback)
+
+      p == 0 and cs in [[1, 1, -1], [1, -1, 1], [-1, 1, 1]] ->
+        throw(:fallback)
+
+      true ->
+        if Enum.any?(cs, &(&1 == 0)), do: throw(:fallback)
+        {infs, sups, inf, sup} = sum_finite(cvs, s)
+        d1 = p - inf
+        d2 = sup - p
+        s = disable_queue(q, s)
+
+        s =
+          cond do
+            infs == [] and sups == [] ->
+              if inf <= p and p <= sup, do: remove_dist_ul(cvs, d1, d2, q, s), else: :fail
+
+            sups == [] ->
+              if p <= sup, do: remove_dist_lower(infs, d2, q, s), else: :fail
+
+            infs == [] ->
+              if inf <= p, do: remove_dist_upper(sups, d1, q, s), else: :fail
+
+            match?([_], sups) and match?([_], infs) ->
+              s |> seq(&remove_lower(sups, d2, q, &1)) |> seq(&remove_upper(infs, d1, q, &1))
+
+            match?([_], infs) ->
+              remove_upper(infs, d1, q, s)
+
+            match?([_], sups) ->
+              remove_lower(sups, d2, q, s)
+
+            true ->
+              s
+          end
+
+        enable_queue(q, s)
+    end
+  end
+
+  defp kill_then(s, st), do: kill(st, s)
+  defp then_put(s, v, d, ps, q), do: fdput(v, d, ps, q, s)
+
+  defp inf_d(d), do: inf_dec(d)
+  defp sup_d(d), do: sup_dec(d)
+
+  defp inf_dec({:ft, f, _}), do: f
+  defp inf_dec({:sp, _, l, _}), do: inf_dec(l)
+  defp inf_dec(:empty), do: throw(:fallback)
+
+  defp sup_dec({:ft, _, t}), do: t
+  defp sup_dec({:sp, _, _, r}), do: sup_dec(r)
+  defp sup_dec(:empty), do: throw(:fallback)
+
+  # pplus, X bekannt: Z ∩ (Y + X), dann Y ∩ (ZD1 - X) mit der berechneten
+  # Domäne ZD1 (bei einem einzelnen Wert legt fd_put sie nicht ab)
+  defp plus_x(x, y, z, q, s) do
+    {zd, zps} = fdget(z, s)
+    {yd, _} = fdget(y, s)
+
+    case isect(zd, shift(yd, x)) do
+      nil ->
+        :fail
+
+      zd1 ->
+        s
+        |> seq(&fdput(z, zd1, zps, q, &1))
+        |> seq(fn s ->
+          case val(y, s) do
+            {:var, _} ->
+              {yd1, yps} = fdget(y, s)
+              put_isect(y, yd1, shift(zd1, -x), yps, q, s)
+
+            _ ->
+              s
+          end
+        end)
+    end
+  end
+
+  # pplus, Z bekannt: Y ∩ (Z - X), dann X ∩ (Z - Y)
+  defp plus_z(x, y, z, q, s) do
+    {xd, _} = fdget(x, s)
+    {yd, yps} = fdget(y, s)
+
+    case isect(yd, shift(negate(xd), z)) do
+      nil ->
+        :fail
+
+      yd2 ->
+        s
+        |> seq(&fdput(y, yd2, yps, q, &1))
+        |> seq(fn s ->
+          case val(x, s) do
+            {:var, _} ->
+              {xd1, xps} = fdget(x, s)
+              put_isect(x, xd1, shift(negate(yd2), z), xps, q, s)
+
+            _ ->
+              s
+          end
+        end)
+    end
+  end
+
+  # pplus, alle offen: Schranken
+  defp plus_bounds(x, y, z, q, s) do
+    {xd, xps} = fdget(x, s)
+    {xl, xu} = {inf_dec(xd), sup_dec(xd)}
+    {yd0, _} = fdget(y, s)
+    {yl, yu} = {inf_dec(yd0), sup_dec(yd0)}
+    {zd0, _} = fdget(z, s)
+    {zl, zu} = {inf_dec(zd0), sup_dec(zd0)}
+    nxl = bmax(xl, minus(zl, yu))
+    nxu = bmin(xu, minus(zu, yl))
+    s = update_bounds(x, xd, xps, xl, xu, nxl, nxu, q, s)
+
+    {s, nyl, nyu} =
+      case s do
+        :fail ->
+          {:fail, nil, nil}
+
+        s ->
+          case val(y, s) do
+            {:var, _} ->
+              {yd2, yps2} = fdget(y, s)
+              {yl2, yu2} = {inf_dec(yd2), sup_dec(yd2)}
+              nyl = bmax(yl2, minus(zl, nxu))
+              nyu = bmin(yu2, minus(zu, nxl))
+              {update_bounds(y, yd2, yps2, yl2, yu2, nyl, nyu, q, s), nyl, nyu}
+
+            yi ->
+              {s, yi, yi}
+          end
+      end
+
+    seq(s, fn s ->
+      case val(z, s) do
+        {:var, _} ->
+          {zd2, zps2} = fdget(z, s)
+          {zl2, zu2} = {inf_dec(zd2), sup_dec(zd2)}
+          nzl = bmax(zl2, plus(nxl, nyl))
+          nzu = bmin(zu2, plus(nxu, nyu))
+          update_bounds(z, zd2, zps2, zl2, zu2, nzl, nzu, q, s)
+
+        _ ->
+          s
+      end
+    end)
+  end
+
+  defp update_bounds(_v, _d, _ps, l, u, l, u, _q, s), do: s
+
+  defp update_bounds(v, d, ps, _l, _u, nl, nu, q, s) do
+    put_isect(v, d, {:ft, nl, nu}, ps, q, s)
+  end
+
+  # coeffs_variables_const/6: [{C, V}] der offenen Variablen und Σ C·V der
+  # bekannten
+  defp coeffs_vars([], [], _s), do: {[], 0}
+
+  defp coeffs_vars([c | cs], [v | vs], s) do
+    c =
+      case val(c, s) do
+        i when is_integer(i) -> i
+        _ -> throw(:fallback)
+      end
+
+    {rest, i} = coeffs_vars(cs, vs, s)
+
+    case val(v, s) do
+      {:var, _} = var -> {[{c, var} | rest], i}
+      n -> {rest, i + c * n}
+    end
+  end
+
+  defp coeffs_vars(_, _, _s), do: throw(:fallback)
+
+  # sum_finite_domains/10: {Infs, Sups, Inf, Sup}; Infs/Sups die Glieder
+  # C·V mit unendlicher Schranke, in der Reihenfolge des Originals
+  defp sum_finite(cvs, s) do
+    {infs, sups, inf, sup} =
+      Enum.reduce(cvs, {[], [], 0, 0}, fn {c, v}, {infs, sups, inf0, sup0} ->
+        {d, _} = fdget(v, s)
+        {inf1, sup1} = {inf_dec(d), sup_dec(d)}
+
+        {inf2a, sup2a, infs, sups} =
+          if is_integer(inf1) do
+            if c < 0,
+              do: {nil, sup0 + c * inf1, infs, sups},
+              else: {inf0 + c * inf1, nil, infs, sups}
+          else
+            if c < 0,
+              do: {nil, sup0, infs, [{c, v} | sups]},
+              else: {inf0, nil, [{c, v} | infs], sups}
+          end
+
+        {inf2, sup2, infs, sups} =
+          if is_integer(sup1) do
+            if c < 0,
+              do: {inf0 + c * sup1, sup2a, infs, sups},
+              else: {inf2a, sup0 + c * sup1, infs, sups}
+          else
+            if c < 0,
+              do: {inf0, sup2a, [{c, v} | infs], sups},
+              else: {inf2a, sup0, infs, [{c, v} | sups]}
+          end
+
+        {infs, sups, inf2, sup2}
+      end)
+
+    {Enum.reverse(infs), Enum.reverse(sups), inf, sup}
+  end
+
+  defp each_cv(cvs, q, s, f) do
+    Enum.reduce(cvs, s, fn {c, v}, s ->
+      seq(s, fn s ->
+        case val(v, s) do
+          {:var, _} ->
+            {d, ps} = fdget(v, s)
+
+            case f.(c, d) do
+              nil -> :fail
+              d2 -> fdput(v, d2, ps, q, s)
+            end
+
+          _ ->
+            s
+        end
+      end)
+    end)
+  end
+
+  defp int_bound(b) when is_integer(b), do: b
+  defp int_bound(_), do: nil
+
+  defp remove_dist_ul(cvs, d1, d2, q, s) do
+    each_cv(cvs, q, s, fn c, vd ->
+      if c < 0 do
+        with sup when sup != nil <- int_bound(sup_dec(vd)),
+             vd1 = remove_lt(vd, sup + div(d1, c)),
+             false <- vd1 == :empty,
+             inf when inf != nil <- int_bound(inf_dec(vd1)) do
+          remove_gt(vd1, inf - div(d2, c))
+        else
+          _ -> nil
+        end
+      else
+        with inf when inf != nil <- int_bound(inf_dec(vd)),
+             vd1 = remove_gt(vd, inf + div(d1, c)),
+             false <- vd1 == :empty,
+             sup when sup != nil <- int_bound(sup_dec(vd1)) do
+          remove_lt(vd1, sup - div(d2, c))
+        else
+          _ -> nil
+        end
+      end
+    end)
+  end
+
+  defp remove_dist_upper(cvs, d, q, s) do
+    each_cv(cvs, q, s, fn c, vd ->
+      if c < 0 do
+        case int_bound(sup_dec(vd)) do
+          nil -> vd
+          sup -> remove_lt(vd, sup + div(d, c))
+        end
+      else
+        case int_bound(inf_dec(vd)) do
+          nil -> vd
+          inf -> remove_gt(vd, inf + div(d, c))
+        end
+      end
+    end)
+  end
+
+  defp remove_dist_lower(cvs, d, q, s) do
+    each_cv(cvs, q, s, fn c, vd ->
+      if c < 0 do
+        case int_bound(inf_dec(vd)) do
+          nil -> vd
+          inf -> remove_gt(vd, inf - div(d, c))
+        end
+      else
+        case int_bound(sup_dec(vd)) do
+          nil -> vd
+          sup -> remove_lt(vd, sup - div(d, c))
+        end
+      end
+    end)
+  end
+
+  defp remove_upper(cvs, max, q, s) do
+    each_cv(cvs, q, s, fn c, xd ->
+      d = div(max, c)
+      if c < 0, do: remove_lt(xd, d), else: remove_gt(xd, d)
+    end)
+  end
+
+  defp remove_lower(cvs, min, q, s) do
+    each_cv(cvs, q, s, fn c, xd ->
+      d = div(-min, c)
+      if c < 0, do: remove_gt(xd, d), else: remove_lt(xd, d)
+    end)
+  end
 end
