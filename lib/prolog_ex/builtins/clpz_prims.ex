@@ -1757,7 +1757,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # und Wecken bleiben also wie dort.
 
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
-             reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs)
+             reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs
+             reified_eq reified_neq pexp)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -2276,6 +2277,64 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- reified_eq/reified_neq(DX, X, DY, Y, Ps, B): B ⇔ X = Y bzw. X ≠ Y ---
+  #
+  # B = 1 (eq: zwei Bindungen; neq: X #\= Y aufstellen) und B = 0 bei eq
+  # (X #\= Y aufstellen): das Original; B = 0 bei neq: X = Y als letzte
+  # Aktion
+
+  defp propagate(name, [dx0, x0, dy0, y0, ps, b0], st, _q, s)
+       when name in ["reified_eq", "reified_neq"] do
+    dx = PrologEx.walk(dx0, s)
+    dy = PrologEx.walk(dy0, s)
+    b = PrologEx.walk(b0, s)
+    eq = name == "reified_eq"
+
+    cond do
+      dx == 0 or dy == 0 ->
+        s |> kill2(st, ps) |> bind(b0, 0)
+
+      b == 1 ->
+        throw(:fallback)
+
+      dx == 1 and dy == 1 ->
+        cond do
+          var?(b) -> eq_open(eq, val(x0, s), val(y0, s), st, ps, b0, s)
+          b == 0 and eq -> throw(:fallback)
+          b == 0 -> s |> kill_then(st) |> bind(x0, y0)
+          is_integer(b) -> s
+          true -> throw(:fallback)
+        end
+
+      true ->
+        s
+    end
+  end
+
+  # --- pexp(X, Y, Z, Morph): X^Y = Z ---
+  #
+  # Das Original: X = 0 (Ziel und morph_into_propagator//4), Y == Z (zwei
+  # Schritte: Bindung, dann Ziel) und X^Y = Z mit geradem Y (X in -R \/ R
+  # aufstellen)
+
+  defp propagate("pexp", [x0, y0, z0, _m], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      x == 1 -> s |> kill_then(st) |> bind(z0, 1)
+      x == 0 -> throw(:fallback)
+      y == 0 -> s |> kill_then(st) |> bind(z0, 1)
+      y == 1 -> s |> kill_then(st) |> bind(z0, x0)
+      y == z -> throw(:fallback)
+      is_integer(x) -> exp_x(x, y, z, y0, z0, st, q, s)
+      is_integer(z) -> exp_z(x, y, z, x0, st, q, s)
+      is_integer(y) and y > 0 -> exp_y(x, y, z, q, s)
+      true -> exp_rest(x, y, z, q, s)
+    end
+  end
+
   # --- reified_and(X, Ps1, Y, Ps2, B): B ⇔ X ∧ Y ---
 
   defp propagate("reified_and", [x0, ps1, y0, ps2, b0], st, q, s) do
@@ -2648,6 +2707,325 @@ defmodule PrologEx.Builtins.ClpzPrims do
     case distinct(vs, q, s) do
       :fail -> :fail
       s -> if circuit_connected?(vs, s), do: s, else: :fail
+    end
+  end
+
+  # B offen: t/f sind die Werte von B für "gleich"/"verschieden"
+  defp eq_open(eq, x, y, st, ps, b0, s) do
+    {t, f} = if eq, do: {1, 0}, else: {0, 1}
+
+    cond do
+      is_integer(x) and is_integer(y) ->
+        s |> kill_then(st) |> bind(b0, if(x == y, do: t, else: f))
+
+      is_integer(x) ->
+        {yd, _} = fdget(y, s)
+        if dcontains?(yd, x), do: s, else: s |> kill2(st, ps) |> bind(b0, f)
+
+      is_integer(y) ->
+        eq_open(eq, y, x, st, ps, b0, s)
+
+      x == y ->
+        s |> kill_then(st) |> bind(b0, t)
+
+      true ->
+        {xd, _} = fdget(x, s)
+        {yd, _} = fdget(y, s)
+
+        if gt(inf_dec(xd), sup_dec(yd)) or gt(inf_dec(yd), sup_dec(xd)),
+          do: s |> kill2(st, ps) |> bind(b0, f),
+          else: s
+    end
+  end
+
+  # X bekannt
+  defp exp_x(x, y, z, y0, z0, st, q, s) do
+    cond do
+      is_integer(y) ->
+        if y >= 0 or x == -1,
+          do: s |> kill_then(st) |> bind(z0, ipow(x, y)),
+          else: :fail
+
+      is_integer(z) ->
+        cond do
+          z <= 1 ->
+            s
+
+          abs(x) <= 1 ->
+            :fail
+
+          true ->
+            case integer_log_b(z, x, 1) do
+              nil -> :fail
+              l -> s |> kill_then(st) |> bind(y0, l)
+            end
+        end
+
+      true ->
+        {yd, _} = fdget(y, s)
+        {zd, zps} = fdget(z, s)
+
+        s =
+          if x > 0 and geq(inf_dec(yd), 0) do
+            case isect(zd, {:ft, exp(x, inf_dec(yd)), exp(x, sup_dec(yd))}) do
+              nil -> :fail
+              nzd -> fdput(z, nzd, zps, q, s)
+            end
+          else
+            s
+          end
+
+        seq(s, fn s ->
+          {zd2, _} = fdget(z, s)
+          zmax = sup_dec(zd2)
+
+          if x > 0 and is_integer(zmax) and zmax > 0 do
+            ycl = floor_integer_log_b(zmax, x, 1)
+            goal(s, mk("in", [y, mk("..", [a("inf"), ycl])]), q)
+          else
+            s
+          end
+        end)
+    end
+  end
+
+  # Z bekannt, X offen
+  defp exp_z(x, y, z, x0, st, q, s) do
+    if is_integer(y) do
+      case integer_kth_root(z, y) do
+        nil ->
+          :fail
+
+        r ->
+          # gerades Y: X in -R \/ R aufstellen (das Original)
+          if rem(y, 2) == 0, do: throw(:fallback)
+          s |> kill_then(st) |> bind(x0, r)
+      end
+    else
+      {xd, _} = fdget(x, s)
+      nxl = inf_dec(xd)
+
+      with true <- is_integer(nxl) and nxl > 1 and z > 1,
+           e when e != nil <- first_exp_over(nxl, nxl, z) do
+        {yd, yps} = fdget(y, s)
+
+        case isect(yd, {:ft, 1, e - 1}) do
+          nil ->
+            :fail
+
+          yd1 ->
+            s
+            |> seq(&fdput(y, yd1, yps, q, &1))
+            |> seq(fn s ->
+              case integer_kth_root_leq(z, inf_dec(yd1)) do
+                nil ->
+                  :fail
+
+                ru ->
+                  {xd2, xps} = fdget(x, s)
+                  put_isect(x, xd2, {:ft, nxl, ru}, xps, q, s)
+              end
+            end)
+        end
+      else
+        _ -> s
+      end
+    end
+  end
+
+  # between(NXL, Z, Exp), NXL^Exp > Z: das erste solche Exp
+  defp first_exp_over(b, e, z) do
+    cond do
+      e > z -> nil
+      ipow(b, e) > z -> e
+      true -> first_exp_over(b, e + 1, z)
+    end
+  end
+
+  # Y > 0 bekannt, X und Z offen
+  defp exp_y(x, y, z, q, s) do
+    even = rem(y, 2) == 0
+
+    s =
+      if even do
+        {zd0, zps0} = fdget(z, s)
+        fdput(z, remove_lt(zd0, 0), zps0, q, s)
+      else
+        s
+      end
+
+    seq(s, fn s ->
+      {xd, _} = fdget(x, s)
+      {xl, xu} = {inf_dec(xd), sup_dec(xd)}
+      {zd, zps} = fdget(z, s)
+      {zl, zu} = {inf_dec(zd), sup_dec(zd)}
+      xd1 = if dcontains?(zd, 0), do: xd, else: remove(xd, 0)
+      zd1 = if dcontains?(xd, 0), do: zd, else: remove(zd, 0)
+
+      zd2 =
+        cond do
+          even ->
+            nzl =
+              cond do
+                geq(xl, 0) -> exp(xl, y)
+                leq(xu, 0) -> exp(xu, y)
+                true -> 0
+              end
+
+            isect(zd1, {:ft, nzl, exp(bmax(babs(xl), babs(xu)), y)})
+
+          is_integer(xl) ->
+            isect(zd1, {:ft, exp(xl, y), exp(xu, y)})
+
+          true ->
+            if zd1 == :empty, do: nil, else: zd1
+        end
+
+      nxd =
+        cond do
+          even and is_integer(zu) ->
+            with ru when ru != nil <- integer_kth_root_leq(zu, y) do
+              rl =
+                if geq(xl, 0) and is_integer(zl) and zl >= 0,
+                  do: root_up(zl, y),
+                  else: -ru
+
+              if rl <= ru, do: {:ft, rl, ru}, else: nil
+            end
+
+          not even and geq(zl, 0) and is_integer(zu) ->
+            unless is_integer(zl), do: throw(:fallback)
+            ru = integer_kth_root_leq(zu, y)
+            rl = root_up(zl, y)
+            if rl <= ru, do: {:ft, rl, ru}, else: nil
+
+          true ->
+            xd1
+        end
+
+      cond do
+        zd2 == nil or nxd == nil ->
+          :fail
+
+        true ->
+          s
+          |> seq(&fdput(z, zd2, zps, q, &1))
+          |> seq(fn s ->
+            {xd2, xps} = fdget(x, s)
+
+            with xd3 when xd3 != nil <- isect_e(xd2, xd1),
+                 xd4 when xd4 != nil <- isect_e(xd3, nxd) do
+              fdput(x, xd4, xps, q, s)
+            else
+              _ -> :fail
+            end
+          end)
+      end
+    end)
+  end
+
+  # kleinste R mit R^K >= N (integer_kth_root_leq, dann aufrunden)
+  defp root_up(n, k) do
+    r0 = integer_kth_root_leq(n, k)
+    if ipow(r0, k) < n, do: r0 + 1, else: r0
+  end
+
+  defp isect_e(:empty, _), do: nil
+  defp isect_e(_, :empty), do: nil
+  defp isect_e(a, b), do: isect(a, b)
+
+  # die übrigen Fälle: X, Y > 0 nach unten beschränkt
+  defp exp_rest(x, y, z, q, s) do
+    with true <- var?(x) and var?(y) and var?(z),
+         {xd, _} = fdget(x, s),
+         true <- gt(inf_dec(xd), 0),
+         {yd, _} = fdget(y, s),
+         true <- gt(inf_dec(yd), 0),
+         nzl when is_integer(nzl) <- exp(inf_dec(xd), inf_dec(yd)) do
+      {zd, zps} = fdget(z, s)
+      fdput(z, remove_lt(zd, nzl), zps, q, s)
+    else
+      _ -> s
+    end
+  end
+
+  # X^Y für ganze Zahlen (Y < 0 nur bei X = ±1, wie (^)/2)
+  defp ipow(x, y) when y >= 0, do: Integer.pow(x, y)
+  defp ipow(1, _y), do: 1
+  defp ipow(-1, y), do: if(rem(y, 2) == 0, do: 1, else: -1)
+
+  # integer_log_b/4 (nil: Fehlschlag)
+  defp integer_log_b(n, b, l) do
+    t = ipow(b, l)
+
+    cond do
+      t == n -> l
+      t < n -> integer_log_b(n, b, l + 1)
+      true -> nil
+    end
+  end
+
+  # floor_integer_log_b/4
+  defp floor_integer_log_b(n, b, l) do
+    t = ipow(b, l)
+
+    cond do
+      t > n -> l - 1
+      t == n -> l
+      true -> floor_integer_log_b(n, b, l + 1)
+    end
+  end
+
+  # integer_kth_root/3: R mit R^K = N (nil: keine)
+  defp integer_kth_root(n, k) do
+    cond do
+      rem(k, 2) == 0 and n < 0 -> nil
+      k < 0 and n == 1 -> 1
+      k < 0 and n == -1 -> if rem(k, 2) != 0, do: -1, else: nil
+      k < 0 -> nil
+      n < 0 -> if rem(k, 2) != 0, do: kroot(n, 0, n, k), else: nil
+      true -> kroot(0, n, n, k)
+    end
+  end
+
+  defp kroot(l, u, n, k) do
+    cond do
+      l == u ->
+        if ipow(l, k) == n, do: l, else: nil
+
+      l + 1 == u ->
+        cond do
+          ipow(l, k) == n -> l
+          ipow(u, k) == n -> u
+          true -> nil
+        end
+
+      true ->
+        mid = div(l + u, 2)
+        if ipow(mid, k) > n, do: kroot(l, mid, n, k), else: kroot(mid, u, n, k)
+    end
+  end
+
+  # integer_kth_root_leq/3: größtes R mit R^K =< N (nil: Fehlschlag)
+  defp integer_kth_root_leq(n, k) do
+    cond do
+      rem(k, 2) == 0 and n < 0 -> nil
+      n < 0 -> if rem(k, 2) != 0, do: kroot_leq(n, 0, n, k), else: nil
+      true -> kroot_leq(0, n, n, k)
+    end
+  end
+
+  defp kroot_leq(l, u, n, k) do
+    cond do
+      l == u ->
+        l
+
+      l + 1 == u ->
+        if ipow(u, k) <= n, do: u, else: l
+
+      true ->
+        mid = div(l + u, 2)
+        if ipow(mid, k) > n, do: kroot_leq(l, mid, n, k), else: kroot_leq(mid, u, n, k)
     end
   end
 

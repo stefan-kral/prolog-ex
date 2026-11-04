@@ -428,7 +428,20 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(15) do
+    case :rand.uniform(18) do
+      15 ->
+        b = Enum.random(["B", "0", "1", "B"])
+        dx = Enum.random(["1", "1", "0", "DX"])
+        dy = Enum.random(["1", "1", "0", "DY"])
+
+        "#{Enum.random(~w(reified_eq reified_neq))}(#{dx}, #{parg()}, #{dy}, #{parg()}, #{ents()}, #{b})"
+
+      16 ->
+        "pexp(#{parg()}, #{Enum.random(["Y", "2", "3", "1", "0", "-1", "-2", "Z"])}, #{parg()}, _)"
+
+      17 ->
+        "pexp(#{Enum.random(["X", "2", "-2", "3", "1", "0", "-1"])}, #{parg()}, #{Enum.random(["Z", "8", "9", "-8", "1", "0", "16"])}, _)"
+
       14 ->
         "pabs(#{parg()}, #{parg()})"
 
@@ -561,7 +574,21 @@ defmodule PrologEx.ClpzQueueTest do
             "pabs(X, Y)",
             "pabs(X, 3)",
             "pabs(-2, Y)",
-            "pabs(X, X)"
+            "pabs(X, X)",
+            "reified_eq(1, X, 1, Y, [], B)",
+            "reified_neq(1, X, 1, Y, [], B)",
+            "reified_eq(1, X, 1, 3, [], B)",
+            "reified_neq(1, 2, 1, Y, [], B)",
+            "reified_neq(1, X, 1, Y, [], 0)",
+            "pexp(X, Y, Z, _)",
+            "pexp(X, 2, Z, _)",
+            "pexp(X, 3, Z, _)",
+            "pexp(2, Y, Z, _)",
+            "pexp(-2, Y, Z, _)",
+            "pexp(X, Y, 16, _)",
+            "pexp(X, 3, -8, _)",
+            "pexp(3, Y, 81, _)",
+            "pexp(X, -1, Z, _)"
           ] do
         prop_case(c, "X in #{dx}, Y in #{dy}, Z in #{dz}", t)
       end ++
@@ -570,6 +597,10 @@ defmodule PrologEx.ClpzQueueTest do
               {"X in -3..3", "ptimes(X, X, 4, _)"},
               {"X in 0..5", "ptimes(X, X, 9, _)"},
               {"X in -3..3", "ptimes(X, X, 0, _)"},
+              # X^2 mit X ganz negativ: untere Schranke XU^2
+              {"X in -5.. -2, Z in 0..100", "pexp(X, 2, Z, _)"},
+              {"X in inf.. -3, Z in -10..sup", "pexp(X, 2, Z, _)"},
+              {"X in -5.. -2, Z in -200..200", "pexp(X, 3, Z, _)"},
               # Z negativ, Y um 0, X ohne 0: Schranke L1 (min_factor/5)
               {"X in -20.. -1, Y in -2..2, Z in -10.. -5", "ptimes(X, Y, Z, _)"},
               {"X in 1..20, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"},

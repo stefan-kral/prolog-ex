@@ -1312,6 +1312,13 @@ Bisher in Elixir:
     min(X,Y)`, alle 1628 Lösungen) 1,05 → 0,54–0,64 s; Planung 2,9–3,2 →
     2,9–3,0 s, Reduktionen −3 bis −6 % in Planung, Sechseck, Springerweg
     und magischen Quadraten.
+  * `reified_eq` und `reified_neq` (`#<==>` mit `#=` und `#\=`), wie
+    `reified_geq`; `pexp` (`X^Y #= Z`) mit den ganzzahligen Wurzeln und
+    Logarithmen des Originals (dieselbe Bisektion). Das Original rechnet
+    `X = 0`, `Y == Z`, ein gerades `Y` bei bekanntem `Z` (`X in -R \/ R`)
+    und `B = 1` bzw. `B = 0` mit neuer Bedingung. Pythagoreische Tripel
+    bis 40 (`X^2 + Y^2 #= Z^2`, alle) 640 → 55–81 ms (Scryer 176 ms),
+    magische Folge (7) 77–80 → 42–57 ms (Scryer 39 ms).
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =
