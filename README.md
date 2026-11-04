@@ -1320,6 +1320,12 @@ Bisher in Elixir:
     2,8–3,1 → 2,4–2,7 s, 8 Damen (alle) 250–300 → 190–220 ms, Springerweg
     0,34 → 0,29–0,37 s; Reduktionen −19 % (Planung), −32 % (8 Damen),
     −10 bis −11 % (Springerweg, Sechseck, magische Quadrate).
+  * `variables_same_queue/1`, das Zusammenlegen der Warteschlangen bei jedem
+    Aufstellen eines Propagators: die Queues der Variablen sortiert, die
+    erste bleibt, jede weitere wird wie im Original an die *vorige*
+    angehängt (eine Kette), dann geleert und mit der ersten unifiziert.
+    Planung 2,4–2,6 → 1,6–1,65 s, Springerweg 0,30–0,32 → 0,25–0,26 s,
+    Sechseck 0,20–0,21 → 0,17–0,20 s.
 
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen

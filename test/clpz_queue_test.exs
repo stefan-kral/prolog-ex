@@ -21,6 +21,14 @@ defmodule PrologEx.ClpzQueueTest do
   same(G1, G2, T) :-
       run(G1, T, R1), run(G2, T, R2),
       (   R1 =@= R2 -> true ; throw(verschieden(R1, R2)) ).
+  % Einträge e(N) in die Warteschlangen einiger Variablen (Teil K)
+  fill([], _).
+  fill([V-K|Rest], N) :-
+      (   var(V), clpz:variable_queue(V, Q) ->
+          phrase(clpz:insert_queue_ref(e(N), K), [Q], _)
+      ;   true
+      ),
+      N1 is N + 1, fill(Rest, N1).
   % eine Variable mit Domäne und eine neue, kleinere Domäne für sie
   pick(Vs, X, D, Ps) :-
       member(X, Vs), clpz:fd_get_ref(X, D0, Ps), D0 \\== from_to(inf,sup), !,
@@ -100,6 +108,47 @@ defmodule PrologEx.ClpzQueueTest do
   # als bestanden)
   defp scenario(cmp) do
     "Vs = [X,Y,Z,W,B], ((#{setup_goal()}) -> #{cmp} ; true)"
+  end
+
+  test "variables_same_queue/1: Warteschlangen mit Einträgen zusammenlegen", c do
+    check(c, 400, fn ->
+      vs = ["X", "Y", "Z", "W", "B", "_", "3"]
+
+      fill =
+        Enum.map_join(1..Enum.random(0..6)//1, ",", fn _ ->
+          "#{Enum.random(@vars)}-#{Enum.random(1..3)}"
+        end)
+
+      l = Enum.map_join(1..Enum.random(0..5)//1, ",", fn _ -> Enum.random(vs) end)
+
+      scenario(
+        "(fill([#{fill}], 0), L = [#{l}], " <>
+          "same(clpz:variables_same_queue_ref(L), clpz:variables_same_queue(L), Vs-L))"
+      )
+    end)
+  end
+
+  test "variables_same_queue/1: drei eigene Queues mit Einträgen, abgeschaltete Queue", c do
+    for {fill, extra, l} <- [
+          # drei Queues mit Einträgen im selben Teil: die Kette des Originals
+          {"X-1,Y-1,Z-1,X-2,Z-2", "true", "X,Y,Z"},
+          {"Z-3,Y-3,X-3,Y-3", "true", "Z,X,Y,W"},
+          {"X-1,Y-2,Z-3,W-1", "true", "W,Z,Y,X"},
+          # danach weiter einreihen: wohin der Eintrag kommt
+          {"X-1,Y-1,Z-1",
+           "clpz:variable_queue(X, Q), phrase(clpz:insert_queue_ref(n, 1), [Q], _)", "X,Y,Z"},
+          # eine abgeschaltete Queue
+          {"X-1,Y-1", "clpz:variable_queue(Y, queue(_,_,_,A)), clpz:put_atts(A, disabled)",
+           "X,Y,Z"},
+          {"X-1", "clpz:variable_queue(X, queue(_,_,_,A)), clpz:put_atts(A, disabled)", "Z,Y,X"}
+        ] do
+      q =
+        "Vs = [X,Y,Z,W], X in 0..3, Y in 1..4, Z in 2..5, W in 0..9, fill([#{fill}], 0), " <>
+          "L = [#{l}], same((clpz:variables_same_queue_ref(L), #{extra}), " <>
+          "(clpz:variables_same_queue(L), #{extra}), Vs-L)"
+
+      assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), q
+    end
   end
 
   test "verify_attributes/3: Wert in oder außerhalb der Domäne, ohne clpz-Attribut, Variable",

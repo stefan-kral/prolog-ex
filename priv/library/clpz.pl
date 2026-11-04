@@ -65,6 +65,8 @@
      - verify_attributes/3 in Elixir für einen Wert und für Variablen ohne
        clpz-Attribut (Zustand von Propagatoren, Warteschlangen); zwei
        Variablen mit Domänen: das Original verify_attributes_ref/3
+     - variables_same_queue/1 in Elixir (auch über goal_expansion/2), das
+       Original als variables_same_queue_ref/1
 */
 
 
@@ -1235,6 +1237,7 @@ queue_slow(A,S0,S) :- '$clpz_insert_queue'(A,3,S0,S).
 % Aktion eines Zweigs); alle anderen Propagatoren und Zweige über das
 % Original activate_propagator_ref//1
 goal_expansion(activate_propagator(A,S0,S), '$clpz_activate'(A,S0,S)).
+goal_expansion(variables_same_queue(Vs), '$clpz_variables_same_queue'(Vs)).
 activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
 
 
@@ -2860,7 +2863,11 @@ propagator_init_trigger(Vs, P) -->
           variables_same_queue(Vs),
           trigger_once_(Prop, Q) }.
 
-variables_same_queue(Vs0) :-
+% PrologEx: in Elixir ('$clpz_variables_same_queue'/1), das Original als
+% variables_same_queue_ref/1
+variables_same_queue(Vs) :- '$clpz_variables_same_queue'(Vs).
+
+variables_same_queue_ref(Vs0) :-
         include(var, Vs0, Vs),
         (   Vs == [] -> true
         ;   maplist(variable_queue, Vs, Qs0),

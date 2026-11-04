@@ -1259,6 +1259,109 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # --- variables_same_queue/1: die Warteschlangen der Variablen zusammenlegen ---
+  #
+  # Wie das Original: die Queues der (ungebundenen) Variablen sortiert, die
+  # erste bleibt; append_queues_/3 hängt jede weitere an die vorige an (eine
+  # Kette, nicht alle an die erste), dann werden die übrigen geleert und mit
+  # der ersten unifiziert (die Maschine bindet die jüngeren Variablen an die
+  # älteren). Eine Variable ohne clpz-Attribut: das Original (scheitert)
+
+  defbuiltin "$clpz_variables_same_queue", [vs0] do
+    run("variables_same_queue", [vs0], subst(), fn ->
+      s = subst_now()
+      vs = for v <- list_items(vs0, s), w = PrologEx.walk(v, s), var?(w), do: w
+
+      if vs == [] do
+        {:subst, s}
+      else
+        qs0 =
+          for v <- vs do
+            with [attr] <- att(v, s, "clpz", 1),
+                 {tag, "clpz_attr", [_, _, _, _, _, q]} when tag in [:struct, :gstruct] <-
+                   ws(attr, s) do
+              q
+            else
+              _ -> throw(:fallback)
+            end
+          end
+
+        [q | qs] = PrologEx.Order.sort_unique(qs0, s)
+        args = queue_args(q, s)
+
+        {s, _} =
+          Enum.reduce(qs, {s, args}, fn qi, {s, args0} ->
+            argsi = queue_args(qi, s)
+            [g0, f0, sl0, _] = args0
+            [g, f, sl, _] = argsi
+            s = s |> append_queue(g0, g) |> append_queue(f0, f) |> append_queue(sl0, sl)
+            {s, argsi}
+          end)
+
+        s = Enum.reduce(qs, s, &clear_queue(&2, &1))
+
+        s =
+          Enum.reduce(qs, s, fn qi, s ->
+            seq(s, fn s ->
+              case PrologEx.unify(q, qi, s) do
+                {:ok, s} -> s
+                :error -> :fail
+              end
+            end)
+          end)
+
+        if s == :fail, do: :fail, else: {:subst, s}
+      end
+    end)
+  end
+
+  # die vier Variablen einer Queue queue(Goals, Fast, Slow, Aux)
+  defp queue_args(q, s) do
+    case ws(q, s) do
+      {tag, "queue", args} when tag in [:struct, :gstruct] and length(args) == 4 ->
+        for a <- args do
+          case PrologEx.walk(a, s) do
+            {:var, _} = v -> v
+            _ -> throw(:fallback)
+          end
+        end
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  # append_queue(append, Q0, Q)
+  defp append_queue(:fail, _q0, _q), do: :fail
+
+  defp append_queue(s, q0, q) do
+    case {att(q0, s, "queue", 2), att(q, s, "queue", 2)} do
+      {[ls0, ls], [ms0, ms]} ->
+        case PrologEx.unify(ls, ms0, s) do
+          {:ok, s} -> put_att(s, q0, mk("queue", [ls0, ms]))
+          :error -> :fail
+        end
+
+      {nil, [ms0, ms]} ->
+        put_att(s, q0, mk("queue", [ms0, ms]))
+
+      _ ->
+        s
+    end
+  end
+
+  defp clear_queue(:fail, _q), do: :fail
+
+  defp clear_queue(s, q) do
+    [g, f, sl, aux] = queue_args(q, s)
+
+    s
+    |> del_att(g, "queue", 2)
+    |> del_att(f, "queue", 2)
+    |> del_att(sl, "queue", 2)
+    |> del_att(aux, "disabled", 0)
+  end
+
   # --- verify_attributes/3 (Hook bei der Bindung, Var noch ungebunden) ---
   #
   # Var ohne clpz-Attribut: Gs = []. Var = Zahl: in der Domäne?, alle
