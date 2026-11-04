@@ -1305,7 +1305,9 @@ Bisher in Elixir:
     `findall/3` Hilfsbedingungen aufstellen, und `X*X #= Z` rechnet das
     Original), `pmax` und `pmin` (Ziele wie im Original über
     `queue_goal//1`, nur `X #=< Y` aufstellen nicht), dazu die bindenden
-    Zweige von `pplus` (`Z is X+Y`, `Y = Z` bei `X = 0`, …). Ein Beispiel
+    Zweige von `pplus` (`Z is X+Y`, `Y = Z` bei `X = 0`, …), später auch
+    `pabs` (`abs(X) #= Y`, ohne `X in -Y \/ Y`; Springerweg −5 %
+    Reduktionen). Ein Beispiel
     mit Produkt, Maximum und Minimum (`Z #= X*Y, M #= max(X,Y), N #=
     min(X,Y)`, alle 1628 Lösungen) 1,05 → 0,54–0,64 s; Planung 2,9–3,2 →
     2,9–3,0 s, Reduktionen −3 bis −6 % in Planung, Sechseck, Springerweg

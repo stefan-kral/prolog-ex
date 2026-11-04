@@ -273,7 +273,10 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(14) do
+    case :rand.uniform(15) do
+      14 ->
+        "pabs(#{parg()}, #{parg()})"
+
       11 ->
         "ptimes(#{parg()}, #{parg()}, #{parg()}, _)"
 
@@ -398,7 +401,11 @@ defmodule PrologEx.ClpzQueueTest do
             "pmax(X, Y, Z)",
             "pmax(X, 3, Z)",
             "pmin(X, Y, Z)",
-            "pmin(X, 3, Z)"
+            "pmin(X, 3, Z)",
+            "pabs(X, Y)",
+            "pabs(X, 3)",
+            "pabs(-2, Y)",
+            "pabs(X, X)"
           ] do
         prop_case(c, "X in #{dx}, Y in #{dy}, Z in #{dz}", t)
       end ++

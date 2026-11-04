@@ -706,6 +706,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp maybe_ed(nil), do: nil
   defp maybe_ed(d), do: ed(d)
 
+  # domains_union/3 in Propagatoren (Fehlschlag des Originals: das Original)
+  defp union!(d1, d2) do
+    case union(d1, d2) do
+      nil -> throw(:fallback)
+      d -> d
+    end
+  end
+
   defp union(d1, d2) do
     to_domain(merge_intervals(intervals(d1, []) ++ intervals(d2, [])))
   end
@@ -1599,7 +1607,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # und Wecken bleiben also wie dort.
 
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
-             reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin)
+             reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -2147,6 +2155,44 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       true ->
         times_bounds(x, y, z, st, q, s)
+    end
+  end
+
+  # --- pabs(X, Y): Y = abs(X) ---
+  #
+  # Y bekannt: X in -Y \/ Y aufstellen – das Original
+
+  defp propagate("pabs", [x0, y0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+
+    cond do
+      is_integer(x) ->
+        s |> kill_then(st) |> bind(y0, abs(x))
+
+      is_integer(y) ->
+        if y < 0, do: :fail, else: throw(:fallback)
+
+      x == y ->
+        kill(st, s)
+
+      true ->
+        {xd, xps} = fdget(x, s)
+        {yd, _} = fdget(y, s)
+
+        case isect(xd, union!(yd, negate(yd))) do
+          nil ->
+            :fail
+
+          xd2 ->
+            s
+            |> seq(&fdput(x, xd2, xps, q, &1))
+            |> seq(fn s ->
+              {yd1, yps1} = fdget(y, s)
+              yd3 = remove_lt(union!(xd2, negate(xd2)), 0)
+              put_isect(y, yd1, yd3, yps1, q, s)
+            end)
+        end
     end
   end
 
