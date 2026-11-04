@@ -264,6 +264,23 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  test "verify_attributes/3: zwei Variablen mit Domänen und gefüllten Queues", c do
+    check(c, 400, fn ->
+      [v, o] = Enum.take_random(@vars ++ ["B"], 2)
+
+      fill =
+        Enum.map_join(1..Enum.random(0..5)//1, ",", fn _ ->
+          "#{Enum.random(@vars)}-#{Enum.random(1..3)}"
+        end)
+
+      scenario(
+        "(fill([#{fill}], 0), " <>
+          "same(clpz:verify_attributes_ref(#{v}, #{o}, G), " <>
+          "clpz:verify_attributes(#{v}, #{o}, G), Vs-G))"
+      )
+    end)
+  end
+
   test "put_terminating//3: neue Domäne ablegen und Propagatoren einreihen", c do
     check(c, 250, fn ->
       scenario(
@@ -428,6 +445,7 @@ defmodule PrologEx.ClpzQueueTest do
       Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ ->
         Enum.random([
           "p(propagator(pneq(X,Y),_))",
+          "p(PE)",
           "a(#{Enum.random(@vars)})",
           "a(X,#{Enum.random(@vars)})",
           "a(X,Y,#{Enum.random(@vars)})"
@@ -452,7 +470,7 @@ defmodule PrologEx.ClpzQueueTest do
 
       bdom = Enum.random(["true", "B in 0..1", "B in 0..1, DX in 0..1"])
 
-      "Vs = [X,Y,Z,W,B,DX,DY], (#{doms()}, #{bdom} -> clpz:new_queue(Q), " <>
+      "Vs = [X,Y,Z,W,B,DX,DY,PE], (#{doms()}, #{bdom} -> clpz:new_queue(Q), " <>
         "P = propagator(#{t}, S), " <>
         "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
         "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q-S), " <>

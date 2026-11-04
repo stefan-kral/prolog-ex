@@ -1317,8 +1317,12 @@ Bisher in Elixir:
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =
     []`; bekommt eine Variable mit Domäne eine Zahl, prüft Elixir die Domäne
     und reiht alle ihre Propagatoren ein, `Gs = [phrase(do_queue, [Q], _)]`
-    wie im Original. Zwei Variablen mit Domänen und ein Wert, der keine Zahl
-    ist (Typfehler), rechnet das Original. Abwechselnd gemessen: Planung
+    wie im Original. Ein Wert, der keine Zahl ist (Typfehler), rechnet das
+    Original. Später auch zwei Variablen mit Domänen (Schnitt, Propagatoren
+    zusammen, Queues zusammenlegen, ablegen, auslösen), wenn clpz das
+    einzige Modul mit `verify_attributes/3` ist (das Zusammenlegen bindet
+    Queue-Variablen; deren Wecken kommt hier erst nach dem Hook): Planung
+    −15 % Reduktionen. Abwechselnd gemessen: Planung
     2,8–3,1 → 2,4–2,7 s, 8 Damen (alle) 250–300 → 190–220 ms, Springerweg
     0,34 → 0,29–0,37 s; Reduktionen −19 % (Planung), −32 % (8 Damen),
     −10 bis −11 % (Springerweg, Sechseck, magische Quadrate).
@@ -1346,6 +1350,9 @@ Bisher in Elixir:
     noch ungebunden, rechnet das Original, weil es sie bindet). Dazu in der
     Maschine `put_atts/2` für ein schon vorhandenes Attribut: an seiner
     Stelle ersetzen statt die Liste neu nach der Deklaration zu sortieren.
+    Ebenso `kill_entailed/1` mit einem noch ungebundenen Propagator `p(P)`
+    (wie im Original wird `P = propagator(_, dead)`): in der Planung
+    fielen deshalb fast alle `reified_geq` auf das Original zurück.
     Planung 1,55–1,8 → 1,29–1,46 s, Springerweg 0,25–0,26 → 0,20–0,21 s,
     Sechseck 0,16–0,19 → 0,14–0,16 s, magische Quadrate 56–69 → 46–52 ms.
 

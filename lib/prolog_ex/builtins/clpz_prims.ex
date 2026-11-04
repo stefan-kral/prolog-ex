@@ -1367,49 +1367,54 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defbuiltin "$clpz_variables_same_queue", [vs0] do
     run("variables_same_queue", [vs0], subst(), fn ->
       s = subst_now()
-      vs = for v <- list_items(vs0, s), w = PrologEx.walk(v, s), var?(w), do: w
 
-      if vs == [] do
-        {:subst, s}
-      else
-        qs0 =
-          for v <- vs do
-            with [attr] <- att(v, s, "clpz", 1),
-                 {tag, "clpz_attr", [_, _, _, _, _, q]} when tag in [:struct, :gstruct] <-
-                   ws(attr, s) do
-              q
-            else
-              _ -> throw(:fallback)
-            end
-          end
-
-        [q | qs] = PrologEx.Order.sort_unique(qs0, s)
-        args = queue_args(q, s)
-
-        {s, _} =
-          Enum.reduce(qs, {s, args}, fn qi, {s, args0} ->
-            argsi = queue_args(qi, s)
-            [g0, f0, sl0, _] = args0
-            [g, f, sl, _] = argsi
-            s = s |> append_queue(g0, g) |> append_queue(f0, f) |> append_queue(sl0, sl)
-            {s, argsi}
-          end)
-
-        s = Enum.reduce(qs, s, &clear_queue(&2, &1))
-
-        s =
-          Enum.reduce(qs, s, fn qi, s ->
-            seq(s, fn s ->
-              case PrologEx.unify(q, qi, s) do
-                {:ok, s} -> s
-                :error -> :fail
-              end
-            end)
-          end)
-
-        if s == :fail, do: :fail, else: {:subst, s}
+      case same_queue(list_items(vs0, s), s) do
+        :fail -> :fail
+        s -> {:subst, s}
       end
     end)
+  end
+
+  defp same_queue(items, s) do
+    vs = for v <- items, w = PrologEx.walk(v, s), var?(w), do: w
+
+    if vs == [] do
+      s
+    else
+      qs0 =
+        for v <- vs do
+          with [attr] <- att(v, s, "clpz", 1),
+               {tag, "clpz_attr", [_, _, _, _, _, q]} when tag in [:struct, :gstruct] <-
+                 ws(attr, s) do
+            q
+          else
+            _ -> throw(:fallback)
+          end
+        end
+
+      [q | qs] = PrologEx.Order.sort_unique(qs0, s)
+      args = queue_args(q, s)
+
+      {s, _} =
+        Enum.reduce(qs, {s, args}, fn qi, {s, args0} ->
+          argsi = queue_args(qi, s)
+          [g0, f0, sl0, _] = args0
+          [g, f, sl, _] = argsi
+          s = s |> append_queue(g0, g) |> append_queue(f0, f) |> append_queue(sl0, sl)
+          {s, argsi}
+        end)
+
+      s = Enum.reduce(qs, s, &clear_queue(&2, &1))
+
+      Enum.reduce(qs, s, fn qi, s ->
+        seq(s, fn s ->
+          case PrologEx.unify(q, qi, s) do
+            {:ok, s} -> s
+            :error -> :fail
+          end
+        end)
+      end)
+    end
   end
 
   # die vier Variablen einer Queue queue(Goals, Fast, Slow, Aux)
@@ -1490,6 +1495,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
             end
 
           case PrologEx.walk(other, s) do
+            {:var, _} = o ->
+              verify_vars(v, attr, dom, ps, o, gs, ctx.db, s)
+
             i when is_integer(i) ->
               if contains_t(dom, i) do
                 {pgs, bs, os} = props(ps, s)
@@ -1510,6 +1518,52 @@ defmodule PrologEx.Builtins.ClpzPrims do
           end
       end
     end)
+  end
+
+  # Var = Other, beide ungebunden: Other mit Domäne – Schnitt, Propagatoren
+  # zusammen, Queues zusammenlegen, fd_put//3 und trigger_props//1 mit
+  # einer neuen Queue Q0, Gs = [phrase(do_queue, [Q0], _)]; Other ohne
+  # Domäne bekommt das Attribut von Var. Das Zusammenlegen bindet
+  # Queue-Variablen (Wecken nach dem Hook statt mittendrin): nur wenn clpz
+  # das einzige Modul mit verify_attributes/3 ist, sonst das Original
+  defp verify_vars(v, attr, dom, ps, o, gs, db, s) do
+    unless PrologEx.verify_modules(db) == ["clpz"], do: throw(:fallback)
+
+    case att(o, s, "clpz", 1) do
+      nil ->
+        s |> put_att(o, mk("clpz", [attr])) |> then(&out_gs(gs, [], &1))
+
+      [oattr] ->
+        {od, ops} =
+          case ws(oattr, s) do
+            {tag, "clpz_attr", [_, _, _, od, ops, _]} when tag in [:struct, :gstruct] ->
+              {od, ops}
+
+            _ ->
+              throw(:fallback)
+          end
+
+        case isect(dom(od), dom(dom)) do
+          nil ->
+            :fail
+
+          dom1 ->
+            {g0, b0, o0} = props(ps, s)
+            {g1, b1, o1} = props(ops, s)
+            app = fn x, y -> list(list_items(x, s) ++ list_items(y, s)) end
+            ps1 = mk("fd_props", [app.(g0, g1), app.(b0, b1), app.(o0, o1)])
+            q0 = new_queue()
+
+            s
+            |> then(&same_queue([v, o], &1))
+            |> seq(&put_terminating(o, ed(dom1), ps1, q0, &1))
+            |> seq(fn s ->
+              {pg, pb, po} = props(ps1, s)
+              s |> then_all(pg, q0) |> then_all(pb, q0) |> then_all(po, q0)
+            end)
+            |> seq(&out_gs(gs, [mk("phrase", [a("do_queue"), [q0], fresh_var()])], &1))
+        end
+    end
   end
 
   defp out_gs(gs, l, s) do
@@ -2589,8 +2643,17 @@ defmodule PrologEx.Builtins.ClpzPrims do
     case ws(e, s) do
       {tag, "p", [prop]} when tag in [:struct, :gstruct] ->
         case ws(prop, s) do
-          {t2, "propagator", [_, state]} when t2 in [:struct, :gstruct] -> kill(state, s)
-          _ -> throw(:fallback)
+          {t2, "propagator", [_, state]} when t2 in [:struct, :gstruct] ->
+            kill(state, s)
+
+          # noch kein Propagator (Teilausdruck ohne eigenen): wie
+          # propagator_state/2 und kill/1 – Prop = propagator(_, dead);
+          # eine gewöhnliche Variable, nichts zu wecken
+          {:var, id} = v when not is_tuple(id) or elem(id, 0) != :attv ->
+            bind(s, v, mk("propagator", [fresh_var(), a("dead")]))
+
+          _ ->
+            throw(:fallback)
         end
 
       {tag, "a", [v]} when tag in [:struct, :gstruct] ->
