@@ -202,7 +202,16 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(11) do
+    case :rand.uniform(14) do
+      11 ->
+        "ptimes(#{parg()}, #{parg()}, #{parg()}, _)"
+
+      12 ->
+        "pmax(#{parg()}, #{parg()}, #{parg()})"
+
+      13 ->
+        "pmin(#{parg()}, #{parg()}, #{parg()})"
+
       7 ->
         b = Enum.random(["B", "0", "1", "B"])
         dx = Enum.random(["1", "1", "0", "DX"])
@@ -273,7 +282,7 @@ defmodule PrologEx.ClpzQueueTest do
   end
 
   test "activate_propagator//1: synthetische Propagatoren, allein und bis zum Fixpunkt", c do
-    check(c, 1200, fn ->
+    check(c, 1600, fn ->
       t = synth()
 
       bdom = Enum.random(["true", "B in 0..1", "B in 0..1, DX in 0..1"])
@@ -303,6 +312,41 @@ defmodule PrologEx.ClpzQueueTest do
 
   @doms ["0..3", "3..5", "6..9", "2..2", "1..4\\/7..8", "inf..3", "4..sup", "inf..sup", "-5.. -1"]
 
+  test "ptimes, pmax, pmin: Tripel aus Domänen mit Vorzeichen, Null, unendlich", c do
+    doms = @doms ++ ["-3..3", "-4.. -2\\/2..3", "0..0\\/2..6"]
+
+    diffs =
+      for dx <- doms,
+          dy <- doms,
+          dz <- Enum.take_random(doms, 4),
+          t <- [
+            "ptimes(X, Y, Z, _)",
+            "ptimes(X, -2, Z, _)",
+            "ptimes(X, Y, 6, _)",
+            "ptimes(X, Y, 0, _)",
+            "pmax(X, Y, Z)",
+            "pmax(X, 3, Z)",
+            "pmin(X, Y, Z)",
+            "pmin(X, 3, Z)"
+          ] do
+        prop_case(c, "X in #{dx}, Y in #{dy}, Z in #{dz}", t)
+      end ++
+        for {setup, t} <- [
+              # X·X = Z: X in -R \/ R (das Original)
+              {"X in -3..3", "ptimes(X, X, 4, _)"},
+              {"X in 0..5", "ptimes(X, X, 9, _)"},
+              {"X in -3..3", "ptimes(X, X, 0, _)"},
+              # Z negativ, Y um 0, X ohne 0: Schranke L1 (min_factor/5)
+              {"X in -20.. -1, Y in -2..2, Z in -10.. -5", "ptimes(X, Y, Z, _)"},
+              {"X in 1..20, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"},
+              {"X in -20.. -1, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"}
+            ] do
+          prop_case(c, setup, t)
+        end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
   test "pneq und pplus: alle Paare/Tripel aus berührenden, getrennten, unendlichen Domänen", c do
     diffs =
       for dx <- @doms, dy <- @doms do
@@ -313,6 +357,21 @@ defmodule PrologEx.ClpzQueueTest do
             dz <- Enum.take_random(@doms, 4),
             t <- ["pplus(X, Y, Z, _)", "pplus(X, 2, Z, _)", "pplus(X, Y, 4, _)"] do
           prop_case(c, "X in #{dx}, Y in #{dy}, Z in #{dz}", t)
+        end ++
+        for dx <- @doms,
+            # Zweige mit einer Bindung
+            t <- [
+              "pplus(0, X, Y, _)",
+              "pplus(2, 3, X, _)",
+              "pplus(2, 3, 5, _)",
+              "pplus(2, X, 5, _)",
+              "pplus(X, X, 4, _)",
+              "pplus(X, X, 5, _)",
+              "pplus(X, Y, X, _)",
+              "pplus(X, Y, Y, _)",
+              "pplus(X, X, Y, _)"
+            ] do
+          prop_case(c, "X in #{dx}, Y in #{Enum.random(@doms)}", t)
         end
 
     assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)

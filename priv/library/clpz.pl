@@ -56,10 +56,10 @@
        goal_expansion/2; do_queue//0 als Schleife über '$clpz_queue_next'/2.
        Die Originale mit der Endung _ref (do_queue_ref//0)
      - activate_propagator//1 in Elixir für pneq, absdiff_neq, pexclude,
-       pdifferent, pplus, scalar_product_eq (nur Zweige ohne direkte
-       Bindungen und ohne neue Bedingungen), reified_geq, reified_and,
-       scalar_product_leq und pgeq (eine Bindung höchstens als letzte
-       Aktion eines Zweigs, wie im Original), pdistinct und pcircuit
+       pdifferent, scalar_product_eq (nur Zweige ohne direkte Bindungen
+       und ohne neue Bedingungen), pplus, reified_geq, reified_and,
+       scalar_product_leq, pgeq, ptimes, pmax und pmin (eine Bindung
+       höchstens als letzte Aktion eines Zweigs), pdistinct und pcircuit
        (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
        Original activate_propagator_ref//1
 */

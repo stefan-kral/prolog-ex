@@ -1428,13 +1428,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # --- Propagatoren: activate_propagator//1 ----------------------------------
   #
   # In Elixir die Zweige, die nur Domänen ändern (fd_put//3, das Ziele für
-  # Bindungen in die Queue stellt), Propagatoren töten (kill/1) oder prüfen.
-  # Ein Zweig, der direkt bindet oder neue Bedingungen aufstellt, und jeder
-  # andere Propagator: das Original (activate_propagator_ref//1) – vorher
-  # ist nichts geändert, Reihenfolge und Wecken bleiben also wie dort.
+  # Bindungen in die Queue stellt), Propagatoren töten (kill/1) oder prüfen,
+  # dazu Zweige mit einer Bindung als letzter Aktion (bind/3; die Maschine
+  # weckt danach wie nach dem Original). Ein Zweig mit mehreren Bindungen
+  # oder neuen Bedingungen und jeder andere Propagator: das Original
+  # (activate_propagator_ref//1) – vorher ist nichts geändert, Reihenfolge
+  # und Wecken bleiben also wie dort.
 
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
-             reified_geq reified_and scalar_product_leq pgeq)
+             reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -1669,11 +1671,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
     cond do
       is_integer(x) ->
         cond do
-          # Y = Z: Bindung (das Original)
-          x == 0 -> throw(:fallback)
+          x == 0 -> s |> kill_then(st) |> bind(y0, z0)
           # Y == Z: kill(MState), X =:= 0 – scheitert (X ≠ 0)
           y == z -> :fail
-          is_integer(y) or is_integer(z) -> throw(:fallback)
+          is_integer(y) -> s |> kill_then(st) |> bind(z0, x + y)
+          is_integer(z) -> s |> kill_then(st) |> bind(y0, z - x)
           true -> plus_x(x, y, z, q, s)
         end
 
@@ -1681,10 +1683,22 @@ defmodule PrologEx.Builtins.ClpzPrims do
         propagate("pplus", [y0, x0, z0, m], st, q, s)
 
       is_integer(z) ->
-        if x == y, do: throw(:fallback), else: plus_z(x, y, z, q, s)
+        cond do
+          x != y -> plus_z(x, y, z, q, s)
+          # kill(MState), even(Z), X is Z // 2
+          rem(z, 2) == 0 -> s |> kill_then(st) |> bind(x0, div(z, 2))
+          true -> s |> kill_then(st) |> then_fail()
+        end
 
-      x == y or x == z or y == z ->
+      # morph_into_propagator//4 (ptimes(2, X, Z)): das Original
+      x == y ->
         throw(:fallback)
+
+      x == z ->
+        s |> kill_then(st) |> bind(y0, 0)
+
+      y == z ->
+        s |> kill_then(st) |> bind(x0, 0)
 
       true ->
         plus_bounds(x, y, z, q, s)
@@ -1922,6 +1936,198 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- ptimes(X, Y, Z, Morph): X·Y = Z ---
+  #
+  # Bindungen nur als letzte Aktion eines Zweigs; neue Bedingungen
+  # (X in NR \/ R), morph_into_propagator//4 (X == Y) und die Sonderfälle
+  # von min_max_factor/8 (Hilfsbedingungen unter findall/3): das Original
+
+  defp propagate("ptimes", [x0, y0, z0, m], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) ->
+        cond do
+          is_integer(y) ->
+            s |> kill_then(st) |> bind(z0, x * y)
+
+          x == 0 ->
+            s |> kill_then(st) |> bind(z0, 0)
+
+          x == 1 ->
+            s |> kill_then(st) |> bind(z0, y0)
+
+          is_integer(z) ->
+            s = kill(st, s)
+
+            if s != :fail and rem(z, x) == 0,
+              do: bind(s, y0, div(z, x)),
+              else: :fail
+
+          y == z ->
+            s |> kill_then(st) |> bind(y0, 0)
+
+          true ->
+            times_x(x, y, z, q, s)
+        end
+
+      is_integer(y) ->
+        propagate("ptimes", [y0, x0, z0, m], st, q, s)
+
+      is_integer(z) ->
+        if x == y, do: throw(:fallback), else: times_z(x, y, z, st, q, s)
+
+      x == y ->
+        throw(:fallback)
+
+      true ->
+        times_bounds(x, y, z, st, q, s)
+    end
+  end
+
+  # --- pmax(X, Y, Z): Z = max(X, Y) ---
+  #
+  # Ziele über queue_goal//1 wie im Original (keine Bindung hier)
+
+  defp propagate("pmax", [x0, y0, z0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) ->
+        cond do
+          is_integer(y) ->
+            s |> kill_then(st) |> goal(mk("is", [z0, mk("max", [x0, y0])]), q)
+
+          is_integer(z) ->
+            cond do
+              z == x -> s |> kill_then(st) |> goal(mk("#>=", [x0, y0]), q)
+              z > x -> goal(s, mk("=", [z0, y0]), q)
+              true -> :fail
+            end
+
+          y == z ->
+            s |> kill_then(st) |> goal(mk("#>=", [y0, x0]), q)
+
+          true ->
+            {yd, _} = fdget(y, s)
+
+            cond do
+              gt(inf_dec(yd), x) ->
+                goal(s, mk("=", [z0, y0]), q)
+
+              lt(sup_dec(yd), x) ->
+                goal(s, mk("=", [z0, x0]), q)
+
+              is_integer(sup_dec(yd)) ->
+                {zd, zps} = fdget(z, s)
+                fdput(z, remove_gt(zd, sup_dec(yd)), zps, q, s)
+
+              true ->
+                s
+            end
+        end
+
+      is_integer(y) ->
+        propagate("pmax", [y0, x0, z0], st, q, s)
+
+      is_integer(z) ->
+        s
+
+      true ->
+        {zd, zps} = fdget(z, s)
+        {xd, _} = fdget(x, s)
+        {yd, _} = fdget(y, s)
+
+        cond do
+          gt(inf_dec(yd), sup_dec(xd)) ->
+            s |> kill_then(st) |> goal(mk("=", [z0, y0]), q)
+
+          lt(sup_dec(yd), inf_dec(xd)) ->
+            s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+          is_integer(bmax(sup_dec(xd), sup_dec(yd))) ->
+            fdput(z, remove_gt(zd, bmax(sup_dec(xd), sup_dec(yd))), zps, q, s)
+
+          true ->
+            s
+        end
+    end
+  end
+
+  # --- pmin(X, Y, Z): Z = min(X, Y) ---
+
+  defp propagate("pmin", [x0, y0, z0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) ->
+        cond do
+          is_integer(y) ->
+            s |> kill_then(st) |> bind(z0, min(x, y))
+
+          is_integer(z) ->
+            cond do
+              # X #=< Y aufstellen: das Original
+              z == x -> throw(:fallback)
+              z < x -> bind(s, z0, y0)
+              true -> :fail
+            end
+
+          y == z ->
+            s |> kill_then(st) |> goal(mk("#=<", [y0, x0]), q)
+
+          true ->
+            {yd, _} = fdget(y, s)
+
+            cond do
+              lt(sup_dec(yd), x) ->
+                bind(s, z0, y0)
+
+              gt(inf_dec(yd), x) ->
+                bind(s, z0, x0)
+
+              is_integer(inf_dec(yd)) ->
+                {zd, zps} = fdget(z, s)
+                fdput(z, remove_lt(zd, inf_dec(yd)), zps, q, s)
+
+              true ->
+                s
+            end
+        end
+
+      is_integer(y) ->
+        propagate("pmin", [y0, x0, z0], st, q, s)
+
+      is_integer(z) ->
+        s
+
+      true ->
+        {zd, zps} = fdget(z, s)
+        {xd, _} = fdget(x, s)
+        {yd, _} = fdget(y, s)
+
+        cond do
+          lt(sup_dec(yd), inf_dec(xd)) ->
+            s |> kill_then(st) |> bind(z0, y0)
+
+          gt(inf_dec(yd), sup_dec(xd)) ->
+            s |> kill_then(st) |> bind(z0, x0)
+
+          is_integer(bmin(inf_dec(xd), inf_dec(yd))) ->
+            fdput(z, remove_lt(zd, bmin(inf_dec(xd), inf_dec(yd))), zps, q, s)
+
+          true ->
+            s
+        end
+    end
+  end
+
   # --- pdistinct(Vs), pcircuit(Vs): siehe unten (all_distinct/1, circuit/1) ---
 
   defp propagate("pdistinct", [vs], _st, q, s), do: distinct(vs, q, s)
@@ -1934,6 +2140,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defp kill_then(s, st), do: kill(st, s)
+
+  defp then_fail(_s), do: :fail
 
   # X = T als letzte Aktion (die Maschine weckt danach)
   defp bind(:fail, _x, _t), do: :fail
@@ -2024,6 +2232,213 @@ defmodule PrologEx.Builtins.ClpzPrims do
           lt(sup_dec(xd), inf_dec(yd)) -> s |> kill2(st, ps) |> bind(b0, 0)
           true -> s
         end
+    end
+  end
+
+  # queue_goal//1
+  defp goal(:fail, _g, _q), do: :fail
+  defp goal(s, g, q), do: insert(g, 1, q, s)
+
+  # domain_contains/2 auf einer dekodierten Domäne
+  defp dcontains?(:empty, _), do: false
+  defp dcontains?({:ft, f, t}, i), do: leq(f, i) and leq(i, t)
+
+  defp dcontains?({:sp, sp, l, r}, i),
+    do: (i < sp and dcontains?(l, i)) or (i > sp and dcontains?(r, i))
+
+  # domain_expand/3, domain_contract/3 (X ≠ 0, 1)
+  defp dexpand(d, m) when m < 0, do: expand_(negate(d), -m)
+  defp dexpand(d, m), do: expand_(d, m)
+
+  defp dcontract(d, m) do
+    {dd, mm} = neg_abs(d, m)
+
+    case contract_(dd, mm) do
+      nil -> throw(:fallback)
+      r -> r
+    end
+  end
+
+  # ptimes, X bekannt: Z ∩ X·Y, dann Y ∩ Z/X
+  defp times_x(x, y, z, q, s) do
+    {yd, _} = fdget(y, s)
+    {zd, zps} = fdget(z, s)
+
+    case isect(zd, dexpand(yd, x)) do
+      nil ->
+        :fail
+
+      zd1 ->
+        s
+        |> seq(&fdput(z, zd1, zps, q, &1))
+        |> seq(fn s ->
+          {yd2, yps2} = fdget(y, s)
+          put_isect(y, yd2, dcontract(zd1, x), yps2, q, s)
+        end)
+    end
+  end
+
+  # ptimes, Z bekannt
+  defp times_z(x, y, z, st, q, s) do
+    {xd, xps} = fdget(x, s)
+    {xl, xu} = {inf_dec(xd), sup_dec(xd)}
+    {yd, _} = fdget(y, s)
+    {yl, yu} = {inf_dec(yd), sup_dec(yd)}
+    {nxl, nxu} = min_max_factor(z, z, yl, yu, xl, xu)
+
+    s
+    |> seq(&update_bounds(x, xd, xps, xl, xu, nxl, nxu, q, &1))
+    |> seq(fn s ->
+      {yd2, yps2} = fdget(y, s)
+      {yl2, yu2} = {inf_dec(yd2), sup_dec(yd2)}
+      {nyl, nyu} = min_max_factor(z, z, nxl, nxu, yl2, yu2)
+      update_bounds(y, yd2, yps2, yl2, yu2, nyl, nyu, q, s)
+    end)
+    |> seq(fn s ->
+      cond do
+        z != 0 -> s |> neq_num_then(x, q) |> neq_num_then(y, q)
+        not dcontains?(xd, 0) -> s |> kill_then(st) |> bind(y, 0)
+        not dcontains?(yd, 0) -> s |> kill_then(st) |> bind(x, 0)
+        true -> s
+      end
+    end)
+  end
+
+  defp neq_num_then(:fail, _v, _q), do: :fail
+  defp neq_num_then(s, v, q), do: neq_num(v, 0, q, s)
+
+  # ptimes, alle offen: Schranken
+  defp times_bounds(x, y, z, st, q, s) do
+    {xd, xps} = fdget(x, s)
+    {xl, xu} = {inf_dec(xd), sup_dec(xd)}
+    {yd, _} = fdget(y, s)
+    {yl, yu} = {inf_dec(yd), sup_dec(yd)}
+    {zd, _} = fdget(z, s)
+    {zl, zu} = {inf_dec(zd), sup_dec(zd)}
+
+    cond do
+      y == z and not dcontains?(zd, 0) ->
+        s |> kill_then(st) |> bind(x, 1)
+
+      x == z and not dcontains?(zd, 0) ->
+        s |> kill_then(st) |> bind(y, 1)
+
+      true ->
+        {nxl, nxu} = min_max_factor(zl, zu, yl, yu, xl, xu)
+        s = update_bounds(x, xd, xps, xl, xu, nxl, nxu, q, s)
+
+        {s, nyl, nyu} =
+          case s do
+            :fail ->
+              {:fail, nil, nil}
+
+            s ->
+              {yd2, yps2} = fdget(y, s)
+              {yl2, yu2} = {inf_dec(yd2), sup_dec(yd2)}
+              {nyl, nyu} = min_max_factor(zl, zu, nxl, nxu, yl2, yu2)
+              {update_bounds(y, yd2, yps2, yl2, yu2, nyl, nyu, q, s), nyl, nyu}
+          end
+
+        seq(s, fn s ->
+          {zd2, zps2} = fdget(z, s)
+          {zl2, zu2} = {inf_dec(zd2), sup_dec(zd2)}
+          nzl = min_product(nxl, nxu, nyl, nyu)
+          nzu = max_product(nxl, nxu, nyl, nyu)
+
+          {s, zd3} =
+            if leq(nzl, zl2) and geq(nzu, zu2) do
+              {s, zd2}
+            else
+              case isect(zd2, {:ft, nzl, nzu}) do
+                nil -> {:fail, nil}
+                zd3 -> {fdput(z, zd3, zps2, q, s), zd3}
+              end
+            end
+
+          cond do
+            s == :fail -> :fail
+            dcontains?(zd3, 0) -> s
+            true -> s |> neq_num_then(x, q) |> neq_num_then(y, q)
+          end
+        end)
+    end
+  end
+
+  defp min_product(l1, u1, l2, u2),
+    do: bmin(bmin(times(l1, l2), times(l1, u2)), bmin(times(u1, l2), times(u1, u2)))
+
+  defp max_product(l1, u1, l2, u2),
+    do: bmax(bmax(times(l1, l2), times(l1, u2)), bmax(times(u1, l2), times(u1, u2)))
+
+  # min_max_factor/8: Schranken von X3 mit X1 = X2·X3 (X1 in L1..U1, X2 in
+  # L2..U2, X3 in L3..U3); die beiden Sonderfälle mit Hilfsbedingungen:
+  # das Original
+  defp min_max_factor(l1, u1, l2, u2, l3, u3) do
+    spans2 = lt(l2, 0) and gt(u2, 0) and lt(l3, 0) and gt(u3, 0)
+
+    if spans2 and (lt(u1, 0) or gt(l1, 0)) do
+      throw(:fallback)
+    else
+      {bmax(l3, min_factor(l1, u1, l2, u2)), bmin(u3, max_factor(l1, u1, l2, u2))}
+    end
+  end
+
+  defp min_factor(l1, u1, l2, u2) do
+    cond do
+      geq(l1, 0) and gt(l2, 0) and is_integer(u2) ->
+        bdiv(minus(plus(l1, u2), 1), u2)
+
+      gt(l1, 0) and lt(u2, 0) ->
+        bdiv(u1, u2)
+
+      gt(l1, 0) and geq(l2, 0) ->
+        1
+
+      gt(l1, 0) ->
+        uminus(u1)
+
+      lt(u1, 0) and leq(u2, 0) ->
+        if is_integer(l2), do: bdiv(plus(plus(u1, l2), 1), l2), else: 1
+
+      lt(u1, 0) and geq(l2, 0) ->
+        bdiv(l1, l2)
+
+      lt(u1, 0) ->
+        l1
+
+      leq(l2, 0) and geq(u2, 0) ->
+        :inf
+
+      true ->
+        bmin(bmin(bdiv(l1, l2), bdiv(l1, u2)), bmin(bdiv(u1, l2), bdiv(u1, u2)))
+    end
+  end
+
+  defp max_factor(l1, u1, l2, u2) do
+    cond do
+      geq(l1, 0) and geq(l2, 0) ->
+        bdiv(u1, l2)
+
+      gt(l1, 0) and leq(u2, 0) ->
+        if is_integer(l2), do: bdiv(minus(minus(l1, l2), 1), l2), else: -1
+
+      gt(l1, 0) ->
+        u1
+
+      lt(u1, 0) and lt(u2, 0) ->
+        bdiv(l1, u2)
+
+      lt(u1, 0) and geq(l2, 0) ->
+        if is_integer(u2), do: bdiv(plus(minus(u1, u2), 1), u2), else: -1
+
+      lt(u1, 0) ->
+        uminus(l1)
+
+      leq(l2, 0) and geq(u2, 0) ->
+        :sup
+
+      true ->
+        bmax(bmax(bdiv(l1, l2), bdiv(l1, u2)), bmax(bdiv(u1, l2), bdiv(u1, u2)))
     end
   end
 

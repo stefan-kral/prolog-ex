@@ -1300,6 +1300,16 @@ Bisher in Elixir:
     rechnet das Original; mit dem Ergebnis sterben auch die Propagatoren
     der Teilausdrücke (`kill/2` über die `Ps`-Liste). Planung 4,0–4,1 →
     3,3–3,4 s, die übrigen Beispiele unverändert.
+  * `ptimes` (`X*Y #= Z`, mit `min_max_factor/8`, `min_factor/5`,
+    `max_factor/5` als Schranken-Arithmetik; die zwei Sonderfälle, die unter
+    `findall/3` Hilfsbedingungen aufstellen, und `X*X #= Z` rechnet das
+    Original), `pmax` und `pmin` (Ziele wie im Original über
+    `queue_goal//1`, nur `X #=< Y` aufstellen nicht), dazu die bindenden
+    Zweige von `pplus` (`Z is X+Y`, `Y = Z` bei `X = 0`, …). Ein Beispiel
+    mit Produkt, Maximum und Minimum (`Z #= X*Y, M #= max(X,Y), N #=
+    min(X,Y)`, alle 1628 Lösungen) 1,05 → 0,54–0,64 s; Planung 2,9–3,2 →
+    2,9–3,0 s, Reduktionen −3 bis −6 % in Planung, Sechseck, Springerweg
+    und magischen Quadraten.
 
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen
