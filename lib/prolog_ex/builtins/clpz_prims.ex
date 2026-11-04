@@ -1367,6 +1367,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defbuiltin "$clpz_variables_same_queue", [vs0] do
     run("variables_same_queue", [vs0], subst(), fn ->
       s = subst_now()
+      # das Gleichsetzen bindet Queue-Variablen nacheinander, mit Wecken
+      # dazwischen: mit weiteren Hook-Modulen das Original
+      unless alone?(ctx.db), do: throw(:fallback)
 
       case same_queue(list_items(vs0, s), s) do
         :fail -> :fail
@@ -1393,6 +1396,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
         end
 
       [q | qs] = PrologEx.Order.sort_unique(qs0, s)
+
+      # Queue-Variablen mit fremden Attributen (freeze, …): das Original
+      for qi <- qs, v <- queue_args(qi, s), not only_clpz_attrs?(v, s), do: throw(:fallback)
+
       args = queue_args(q, s)
 
       {s, _} =
@@ -1527,7 +1534,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Queue-Variablen (Wecken nach dem Hook statt mittendrin): nur wenn clpz
   # das einzige Modul mit verify_attributes/3 ist, sonst das Original
   defp verify_vars(v, attr, dom, ps, o, gs, db, s) do
-    unless PrologEx.verify_modules(db) == ["clpz"], do: throw(:fallback)
+    unless alone?(db), do: throw(:fallback)
 
     case att(o, s, "clpz", 1) do
       nil ->
@@ -1756,7 +1763,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
       s = subst_now()
 
-      case activate(prop, state_q(s0, s), s) do
+      case activate(prop, state_q(s0, s), s, alone?(ctx.db)) do
         {:ok, s} -> finish(s1, s0, s)
         :fail -> :fail
         :fallback -> throw(:fallback)
@@ -1764,9 +1771,18 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # clpz das einzige Modul mit verify_attributes/3? (freeze, dif, when sind
+  # eingebaut und zählen nicht)
+  defp alone?(db), do: PrologEx.verify_modules(db) -- ["clpz"] == []
+
   # Ein Propagator in Elixir: {:ok, s}, :fail oder :fallback (das Original
-  # rechnet; s unverändert)
-  defp activate(prop, q, s) do
+  # rechnet; s unverändert). Hat ein weiteres Modul verify_attributes/3,
+  # ruft die Maschine es (wie SICStus) auch für Variablen ohne seine
+  # Attribute, etwa den Zustand eines getöteten Propagators; im Original
+  # läuft dieses Wecken mitten im Propagator, hier erst danach. Dann
+  # rechnet jeder Propagator, der eine attributierte Variable bindet, das
+  # Original
+  defp activate(prop, q, s, alone) do
     Process.put(:clpz_prims_subst, s)
 
     try do
@@ -1792,6 +1808,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
               _ -> throw(:fallback)
             end
 
+          # freeze, dif, when (oder ein anderes Modul) am Zustand: das
+          # Original (es weckt sie mitten im Propagator)
+          unless only_clpz_attrs?(st, s), do: throw(:fallback)
           s = del_att(s, st, "clpz_aux", 1)
 
           # no_reactivation (pdistinct): der laufende Propagator steht in
@@ -1808,7 +1827,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
               propagate(name, args, st, q, s)
             end
 
-          if r == :fail, do: :fail, else: {:ok, r}
+          # (auch ein Fehlschlag: das Original weckt vorher vielleicht noch)
+          cond do
+            not alone and (r == :fail or Map.has_key?(r, :wake)) -> :fallback
+            r == :fail -> :fail
+            true -> {:ok, r}
+          end
       end
     catch
       :fallback -> :fallback
@@ -1836,7 +1860,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           _ -> throw(:fallback)
         end
 
-      only_clpz = PrologEx.verify_modules(ctx.db) == ["clpz"]
+      only_clpz = alone?(ctx.db)
       queue_loop(q, args, only_clpz, next, s)
     end)
   end
@@ -1844,7 +1868,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp queue_loop(q, args, only_clpz, next, s) do
     case next_entry(args, s) do
       {:prop, e, s} ->
-        case activate(e, q, s) do
+        case activate(e, q, s, only_clpz) do
           :fail ->
             :fail
 
@@ -1889,6 +1913,17 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defp inert?(_, _s), do: false
+
+  # nur Attribute im Modul clpz (oder keine)
+  defp only_clpz_attrs?({:var, {:attv, id}}, s) do
+    case Map.get(s, {:attrs, id}, %{}) do
+      m when map_size(m) == 0 -> true
+      %{"clpz" => _} = m when map_size(m) == 1 -> true
+      _ -> false
+    end
+  end
+
+  defp only_clpz_attrs?(_, _s), do: true
 
   defp out_next(next, t, s) do
     case PrologEx.unify(next, t, s) do

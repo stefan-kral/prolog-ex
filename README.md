@@ -1356,6 +1356,23 @@ Bisher in Elixir:
     Planung 1,55–1,8 → 1,29–1,46 s, Springerweg 0,25–0,26 → 0,20–0,21 s,
     Sechseck 0,16–0,19 → 0,14–0,16 s, magische Quadrate 56–69 → 46–52 ms.
 
+**Weitere Hook-Module.** PrologEx ruft wie SICStus `verify_attributes/3`
+in *jedem* Modul mit Attributdeklarationen, auch für Variablen ohne
+Attribute dort (Scryer nur in den Modulen, in denen die Variable Attribute
+hat) – ein solches Modul sieht also auch die internen Variablen von clpz:
+den Zustand getöteter Propagatoren, die Variablen der Warteschlangen. Im
+Original werden sie mitten im Propagator geweckt, in Elixir gesammelt
+danach. Damit das Ergebnis von der Anwesenheit anderer Hooks nicht
+abhängt, rechnet in diesem Fall das Original: jeder Propagator, der eine
+attributierte Variable bindet oder scheitert, das Zusammenlegen von
+Warteschlangen und `verify_attributes/3` von zwei Variablen mit Domänen;
+ebenso, wenn an einem Zustand oder einer Queue-Variablen freeze, dif oder
+when hängt. Ohne weitere Hook-Module (freeze, dif, when sind eingebaut und
+zählen nicht) bleibt alles in Elixir. Geprüft mit einem Modul, das bei
+jedem Wecken etwas ausgibt: 300 Zufallsfälle gegen das Original, und 8
+Damen (alle 92 Lösungen) mit genau so vielen Hook-Aufrufen (9530) wie mit
+dem reinen Prolog-Code.
+
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen
 zusammen – sortiert, die erste (älteste) bleibt, die übrigen werden

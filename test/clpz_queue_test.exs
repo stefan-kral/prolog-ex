@@ -187,14 +187,22 @@ defmodule PrologEx.ClpzQueueTest do
           "P1 = propagator(pneq(X,3), S1), freeze(S1, write(s1)), " <>
             "P2 = propagator(pneq(Y,4), S2), freeze(S2, write(s2)), " <>
             "phrase(clpz:queue_slow(P1), [Q], _), phrase(clpz:queue_fast(P2), [Q], _)",
+          # scheitert nach kill/1: das Original weckt vorher
+          "P = propagator(pneq(X,X), S), freeze(S, write(s)), phrase(clpz:queue_fast(P), [Q], _)",
+          "P = propagator(ptimes(2,X,-1,_), S), freeze(S, write(s)), " <>
+            "phrase(clpz:queue_fast(P), [Q], _)",
           "P1 = propagator(pneq(X,3), S1), P2 = propagator(pneq(Y,X), S2), " <>
             "freeze(S2, write(s2)), phrase(clpz:queue_fast(P1), [Q], _), " <>
             "phrase(clpz:queue_fast(P2), [Q], _), X = 2"
         ] do
       [ref, new] = queue_outputs(c, c.db, setup)
       assert ref == new, setup
-      assert {o, {:answers, [_]}} = new
-      assert o =~ "s", setup
+
+      # (die scheiternden Fälle: nur der Vergleich mit dem Original)
+      unless setup =~ "X,X" or setup =~ "-1,_" do
+        assert {o, {:answers, [_]}} = new
+        assert o =~ "s", setup
+      end
     end
   end
 
@@ -217,6 +225,45 @@ defmodule PrologEx.ClpzQueueTest do
       assert {o, {:answers, [_]}} = new
       assert o =~ "h", setup
     end
+  end
+
+  test "mit einem weiteren Hook-Modul: Ausgabe und Ergebnis wie das Original", c do
+    PrologEx.put_db(c.db)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      {:ok, _} = PrologEx.Consult.load_file("test/fixtures/atts/alle.pl")
+    end)
+
+    db = PrologEx.current_db()
+
+    diffs =
+      for _ <- 1..300,
+          t = synth(),
+          d = doms(),
+          fill =
+            Enum.map_join(1..Enum.random(0..4)//1, ",", fn _ ->
+              "#{Enum.random(@vars)}-#{Enum.random(1..3)}"
+            end),
+          l = Enum.map_join(1..Enum.random(0..4)//1, ",", fn _ -> Enum.random(@vars) end),
+          [ref, new] <-
+            [
+              for {act, dq} <- [
+                    {"activate_propagator_ref", "do_queue_ref"},
+                    {"activate_propagator", "do_queue"}
+                  ] do
+                "Vs = [X,Y,Z,W,B,DX,DY,PE], #{d}, clpz:new_queue(Q), P = propagator(#{t}, S), " <>
+                  "phrase((clpz:#{act}(P), clpz:#{dq}), [Q], _), write(ende)"
+              end,
+              for vsq <- ["variables_same_queue_ref", "variables_same_queue"] do
+                "Vs = [X,Y,Z,W], #{d}, X #\\= Y, fill([#{fill}], 0), clpz:#{vsq}([#{l}]), write(ende)"
+              end
+            ],
+          r1 = TableCase.run(c.reader, db, ref),
+          r2 = TableCase.run(c.reader, db, new),
+          r1 != r2,
+          do: {new, r1, r2}
+
+    assert diffs == [], inspect(Enum.take(diffs, 2), pretty: true)
   end
 
   test "variables_same_queue/1: drei eigene Queues mit Einträgen, abgeschaltete Queue", c do
