@@ -59,7 +59,7 @@
        pdifferent, scalar_product_eq (nur Zweige ohne direkte Bindungen
        und ohne neue Bedingungen), pplus, reified_geq, reified_and,
        scalar_product_leq, pgeq, ptimes, pmax, pmin, pabs, reified_eq,
-       reified_neq und pexp (eine Bindung
+       reified_neq, pexp, ptzdiv, prem und pmod (eine Bindung
        höchstens als letzte Aktion eines Zweigs), pdistinct und pcircuit
        (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
        Original activate_propagator_ref//1

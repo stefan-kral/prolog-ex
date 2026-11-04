@@ -428,7 +428,16 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(18) do
+    case :rand.uniform(21) do
+      18 ->
+        "ptzdiv(#{parg()}, #{Enum.random(["Y", "2", "-3", "1", "-1", "0", "Y"])}, #{parg()}, _)"
+
+      19 ->
+        "prem(#{parg()}, #{Enum.random(["Y", "3", "-2", "1", "0", "Y"])}, #{parg()})"
+
+      20 ->
+        "pmod(#{parg()}, #{Enum.random(["Y", "3", "-2", "1", "0", "Y", "X"])}, #{parg()})"
+
       15 ->
         b = Enum.random(["B", "0", "1", "B"])
         dx = Enum.random(["1", "1", "0", "DX"])
@@ -555,59 +564,123 @@ defmodule PrologEx.ClpzQueueTest do
 
   @doms ["0..3", "3..5", "6..9", "2..2", "1..4\\/7..8", "inf..3", "4..sup", "inf..sup", "-5.. -1"]
 
-  test "ptimes, pmax, pmin: Tripel aus Domänen mit Vorzeichen, Null, unendlich", c do
-    doms = @doms ++ ["-3..3", "-4.. -2\\/2..3", "0..0\\/2..6"]
+  # Tripel aus Domänen mit Vorzeichen, Null, unendlich: je Gruppe ein Test
+  # (laufen parallel)
+  @triple_doms @doms ++ ["-3..3", "-4.. -2\\/2..3", "0..0\\/2..6"]
+  @triples [
+    {"ptimes",
+     ["ptimes(X, Y, Z, _)", "ptimes(X, -2, Z, _)", "ptimes(X, Y, 6, _)", "ptimes(X, Y, 0, _)"]},
+    {"pmax pmin", ["pmax(X, Y, Z)", "pmax(X, 3, Z)", "pmin(X, Y, Z)", "pmin(X, 3, Z)"]},
+    {"pabs", ["pabs(X, Y)", "pabs(X, 3)", "pabs(-2, Y)", "pabs(X, X)"]},
+    {"reified_eq reified_neq",
+     [
+       "reified_eq(1, X, 1, Y, [], B)",
+       "reified_neq(1, X, 1, Y, [], B)",
+       "reified_eq(1, X, 1, 3, [], B)",
+       "reified_neq(1, 2, 1, Y, [], B)",
+       "reified_neq(1, X, 1, Y, [], 0)"
+     ]},
+    {"pexp",
+     [
+       "pexp(X, Y, Z, _)",
+       "pexp(X, 2, Z, _)",
+       "pexp(X, 3, Z, _)",
+       "pexp(2, Y, Z, _)",
+       "pexp(-2, Y, Z, _)",
+       "pexp(X, Y, 16, _)",
+       "pexp(X, 3, -8, _)",
+       "pexp(3, Y, 81, _)",
+       "pexp(X, -1, Z, _)"
+     ]},
+    {"ptzdiv",
+     [
+       "ptzdiv(X, Y, Z, _)",
+       "ptzdiv(X, 3, Z, _)",
+       "ptzdiv(X, -2, Z, _)",
+       "ptzdiv(7, Y, Z, _)",
+       "ptzdiv(-7, Y, Z, _)",
+       "ptzdiv(X, Y, 2, _)",
+       "ptzdiv(9, Y, 2, _)",
+       "ptzdiv(-9, Y, 0, _)",
+       "ptzdiv(X, 3, -2, _)"
+     ]},
+    {"prem",
+     ["prem(X, Y, Z)", "prem(X, 3, Z)", "prem(X, -4, Z)", "prem(X, 3, 1)", "prem(X, -4, -2)"]},
+    {"pmod",
+     [
+       "pmod(X, Y, Z)",
+       "pmod(X, 3, Z)",
+       "pmod(X, -3, Z)",
+       "pmod(X, 3, 2)",
+       "pmod(X, -3, -1)",
+       "pmod(7, Y, Z)",
+       "pmod(-7, Y, Z)",
+       "pmod(7, Y, 3)",
+       "pmod(-7, Y, 1)",
+       "pmod(7, Y, 0)",
+       "pmod(X, Y, 2)",
+       "pmod(X, Y, -2)",
+       "pmod(X, X, Z)"
+     ]}
+  ]
 
-    diffs =
-      for dx <- doms,
-          dy <- doms,
-          dz <- Enum.take_random(doms, 4),
-          t <- [
-            "ptimes(X, Y, Z, _)",
-            "ptimes(X, -2, Z, _)",
-            "ptimes(X, Y, 6, _)",
-            "ptimes(X, Y, 0, _)",
-            "pmax(X, Y, Z)",
-            "pmax(X, 3, Z)",
-            "pmin(X, Y, Z)",
-            "pmin(X, 3, Z)",
-            "pabs(X, Y)",
-            "pabs(X, 3)",
-            "pabs(-2, Y)",
-            "pabs(X, X)",
-            "reified_eq(1, X, 1, Y, [], B)",
-            "reified_neq(1, X, 1, Y, [], B)",
-            "reified_eq(1, X, 1, 3, [], B)",
-            "reified_neq(1, 2, 1, Y, [], B)",
-            "reified_neq(1, X, 1, Y, [], 0)",
-            "pexp(X, Y, Z, _)",
-            "pexp(X, 2, Z, _)",
-            "pexp(X, 3, Z, _)",
-            "pexp(2, Y, Z, _)",
-            "pexp(-2, Y, Z, _)",
-            "pexp(X, Y, 16, _)",
-            "pexp(X, 3, -8, _)",
-            "pexp(3, Y, 81, _)",
-            "pexp(X, -1, Z, _)"
-          ] do
-        prop_case(c, "X in #{dx}, Y in #{dy}, Z in #{dz}", t)
-      end ++
-        for {setup, t} <- [
-              # X·X = Z: X in -R \/ R (das Original)
-              {"X in -3..3", "ptimes(X, X, 4, _)"},
-              {"X in 0..5", "ptimes(X, X, 9, _)"},
-              {"X in -3..3", "ptimes(X, X, 0, _)"},
-              # X^2 mit X ganz negativ: untere Schranke XU^2
-              {"X in -5.. -2, Z in 0..100", "pexp(X, 2, Z, _)"},
-              {"X in inf.. -3, Z in -10..sup", "pexp(X, 2, Z, _)"},
-              {"X in -5.. -2, Z in -200..200", "pexp(X, 3, Z, _)"},
-              # Z negativ, Y um 0, X ohne 0: Schranke L1 (min_factor/5)
-              {"X in -20.. -1, Y in -2..2, Z in -10.. -5", "ptimes(X, Y, Z, _)"},
-              {"X in 1..20, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"},
-              {"X in -20.. -1, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"}
-            ] do
-          prop_case(c, setup, t)
+  for {group, ts} <- @triples do
+    @ts ts
+    test "#{group}: Tripel aus Domänen mit Vorzeichen, Null, unendlich", c do
+      diffs =
+        for dx <- @triple_doms,
+            dy <- @triple_doms,
+            dz <- Enum.take_random(@triple_doms, 4),
+            t <- @ts do
+          prop_case(c, "X in #{dx}, Y in #{dy}, Z in #{dz}", t)
         end
+
+      assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+    end
+  end
+
+  test "ptimes, pexp: Sonderfälle der Schranken", c do
+    diffs =
+      for {setup, t} <- [
+            # X·X = Z: X in -R \/ R (das Original)
+            {"X in -3..3", "ptimes(X, X, 4, _)"},
+            {"X in 0..5", "ptimes(X, X, 9, _)"},
+            {"X in -3..3", "ptimes(X, X, 0, _)"},
+            # X^2 mit X ganz negativ: untere Schranke XU^2
+            {"X in -5.. -2, Z in 0..100", "pexp(X, 2, Z, _)"},
+            {"X in inf.. -3, Z in -10..sup", "pexp(X, 2, Z, _)"},
+            {"X in -5.. -2, Z in -200..200", "pexp(X, 3, Z, _)"},
+            # Z negativ, Y um 0, X ohne 0: Schranke L1 (min_factor/5)
+            {"X in -20.. -1, Y in -2..2, Z in -10.. -5", "ptimes(X, Y, Z, _)"},
+            {"X in 1..20, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"},
+            {"X in -20.. -1, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"}
+          ] do
+        prop_case(c, setup, t)
+      end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  test "prem, pmod: Sonderfälle der Schranken", c do
+    diffs =
+      for {setup, t} <- [
+            # X rem Y: Z-Schranke aus X statt aus Y
+            {"X in -2..10", "prem(X, 5, Z)"},
+            {"X in -10..2", "prem(X, 5, Z)"},
+            # X mod Y = Z mit X, Z bekannt: unmöglich
+            {"Y in -10..10", "pmod(3, Y, 2)"},
+            {"Y in -10..10", "pmod(-3, Y, -2)"},
+            # Y an der Grenze zu X (Y = X gibt 0, nicht X)
+            {"Y in 7..9", "pmod(7, Y, Z)"},
+            {"Y in -9.. -7", "pmod(-7, Y, Z)"},
+            {"X in -5.. -1, Y in -9.. -5", "pmod(X, Y, Z)"},
+            {"X in 1..5, Y in 5..9", "pmod(X, Y, Z)"},
+            # Y halb unendlich
+            {"Y in -3..sup", "pmod(X, Y, Z)"},
+            {"Y in inf..3", "pmod(X, Y, Z)"}
+          ] do
+        prop_case(c, setup, t)
+      end
 
     assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
   end

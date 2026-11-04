@@ -1319,6 +1319,11 @@ Bisher in Elixir:
     und `B = 1` bzw. `B = 0` mit neuer Bedingung. Pythagoreische Tripel
     bis 40 (`X^2 + Y^2 #= Z^2`, alle) 640 → 55–81 ms (Scryer 176 ms),
     magische Folge (7) 77–80 → 42–57 ms (Scryer 39 ms).
+  * `ptzdiv` (`X // Y #= Z`), `prem` (`X rem Y #= Z`) und `pmod` (`X mod
+    Y #= Z`, mit `pmodz` und `pmody`). Das Original rechnet `Y = -1` bei
+    `//`, `X rem Y` mit bekanntem `X` (neue Bedingung `Z in L..U`) und den
+    Fall `Z = X` mitten im Propagator. Teilbarkeitsrätsel 29 → 4–5 ms
+    (Scryer 10 ms).
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

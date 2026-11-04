@@ -1758,7 +1758,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
              reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs
-             reified_eq reified_neq pexp)
+             reified_eq reified_neq pexp ptzdiv prem pmod)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -2309,6 +2309,240 @@ defmodule PrologEx.Builtins.ClpzPrims do
       true ->
         s
     end
+  end
+
+  # --- ptzdiv(X, Y, Z, Morph): X // Y = Z (zur Null gerundet) ---
+  #
+  # Y = -1 (morph_into_propagator//4): das Original
+
+  defp propagate("ptzdiv", [x0, y0, z0, _m], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) and is_integer(y) ->
+        if y == 0, do: :fail, else: s |> kill_then(st) |> bind(z0, div(x, y))
+
+      is_integer(x) ->
+        {yd, yps} = fdget(y, s)
+        {yl, yu} = {inf_dec(yd), sup_dec(yd)}
+
+        cond do
+          z == 0 ->
+            put_isect(
+              y,
+              yd,
+              {:sp, 0, {:ft, :inf, -abs(x) - 1}, {:ft, abs(x) + 1, :sup}},
+              yps,
+              q,
+              s
+            )
+
+          is_integer(z) ->
+            {nyl, nyu} =
+              if sign(x) == sign(z),
+                do: {bmax(div(x, z + sign(z)) + 1, yl), bmin(div(x, z), yu)},
+                else: {bmax(div(x, z), yl), bmin(div(x, z + sign(z)) - 1, yu)}
+
+            update_bounds(y, yd, yps, yl, yu, nyl, nyu, q, s)
+
+          true ->
+            {zd, zps} = fdget(z, s)
+            {zl, zu} = {inf_dec(zd), sup_dec(zd)}
+            away = gt(yl, 0) or lt(yu, 0)
+
+            {nzl, nzu} =
+              cond do
+                x >= 0 and away -> {bmax(slash(x, yu), zl), bmin(slash(x, yl), zu)}
+                x < 0 and away -> {bmax(slash(x, yl), zl), bmin(slash(x, yu), zu)}
+                true -> {bmax(-abs(x), zl), bmin(abs(x), zu)}
+              end
+
+            s
+            |> seq(&update_bounds(z, zd, zps, zl, zu, nzl, nzu, q, &1))
+            |> seq(fn s ->
+              if x >= 0 and gt(nzl, 0) do
+                {yd1, yps1} = fdget(y, s)
+                nyl = plus(slash(x, plus(nzu, 1)), 1)
+                put_isect(y, yd1, {:ft, nyl, slash(x, nzl)}, yps1, q, s)
+              else
+                s
+              end
+            end)
+        end
+
+      is_integer(y) ->
+        cond do
+          y == 0 ->
+            :fail
+
+          y == 1 ->
+            s |> kill_then(st) |> bind(x0, z0)
+
+          y == -1 ->
+            throw(:fallback)
+
+          true ->
+            {xd, xps} = fdget(x, s)
+            {xl, xu} = {inf_dec(xd), sup_dec(xd)}
+
+            if is_integer(z) do
+              {nxl, nxu} =
+                cond do
+                  sign(z) == sign(y) ->
+                    {bmax(z * y, xl), bmin((abs(z) + 1) * abs(y) - 1, xu)}
+
+                  z == 0 ->
+                    {bmax(-abs(y) + 1, xl), bmin(abs(y) - 1, xu)}
+
+                  true ->
+                    {bmax((z + sign(z)) * y + 1, xl), bmin(z * y, xu)}
+                end
+
+              s |> kill_then(st) |> seq(&update_bounds(x, xd, xps, xl, xu, nxl, nxu, q, &1))
+            else
+              {zd, zps} = fdget(z, s)
+              {dd, mm} = neg_abs(xd, y)
+
+              contracted =
+                case contract_less_(dd, mm) do
+                  nil -> throw(:fallback)
+                  c -> c
+                end
+
+              case isect_e(zd, contracted) do
+                nil ->
+                  :fail
+
+                nzd ->
+                  s
+                  |> seq(&fdput(z, nzd, zps, q, &1))
+                  |> seq(fn s ->
+                    {xd2, xps2} = fdget(x, s)
+                    {ed, em} = neg_abs(nzd, y)
+                    put_isect(x, xd2, expand_more_(ed, em), xps2, q, s)
+                  end)
+              end
+            end
+        end
+
+      is_integer(z) ->
+        {xd, xps} = fdget(x, s)
+        {xl, xu} = {inf_dec(xd), sup_dec(xd)}
+        {yd, _} = fdget(y, s)
+        {yl, yu} = {inf_dec(yd), sup_dec(yd)}
+
+        {nxl, nxu} =
+          if geq(yl, 0) and geq(xl, 0),
+            do: {bmax(times(yl, z), xl), bmin(minus(times(yu, z + 1), 1), xu)},
+            else: {xl, xu}
+
+        update_bounds(x, xd, xps, xl, xu, nxl, nxu, q, s)
+
+      x == y ->
+        s |> kill_then(st) |> bind(z0, 1)
+
+      true ->
+        {xd, _} = fdget(x, s)
+        {xl, xu} = {inf_dec(xd), sup_dec(xd)}
+        {yd, _} = fdget(y, s)
+        {zd, zps} = fdget(z, s)
+        nzu = bmax(babs(xl), xu)
+
+        case isect(zd, {:ft, uminus(nzu), nzu}) do
+          nil ->
+            :fail
+
+          nzd0 ->
+            nzd1 = if geq(xl, 0) and geq(inf_dec(yd), 0), do: remove_lt(nzd0, 0), else: nzd0
+            fdput(z, nzd1, zps, q, s)
+        end
+    end
+  end
+
+  # --- prem(X, Y, Z): X rem Y = Z ---
+  #
+  # Das Original: X bekannt, Y offen (Z in L..U aufstellen) und der Zweig,
+  # der Z = X mitten im Propagator bindet
+
+  defp propagate("prem", [x0, y0, z0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) and is_integer(y) ->
+        if y == 0, do: :fail, else: s |> kill_then(st) |> bind(z0, rem(x, y))
+
+      is_integer(x) ->
+        throw(:fallback)
+
+      is_integer(y) and y == 0 ->
+        :fail
+
+      is_integer(y) and abs(y) == 1 ->
+        s |> kill_then(st) |> bind(z0, 0)
+
+      is_integer(y) and not is_integer(z) ->
+        rem_y(x, y, z, q, s)
+
+      is_integer(y) ->
+        rem_yz(x, y, z, q, s)
+
+      x == y ->
+        s |> kill_then(st) |> bind(z0, 0)
+
+      is_integer(z) ->
+        s
+
+      true ->
+        {zd, zps} = fdget(z, s)
+        {yd, _} = fdget(y, s)
+        {xd, _} = fdget(x, s)
+        {yinf, ysup} = {inf_dec(yd), sup_dec(yd)}
+        {xinf, xsup} = {inf_dec(xd), sup_dec(xd)}
+        m = bmax(babs(yinf), ysup)
+        inf0 = if geq(xinf, 0), do: 0, else: xinf
+        sup0 = if leq(xsup, 0), do: 0, else: xsup
+        ninf = bmax(bmax(inf0, plus(uminus(m), 1)), bmin(xinf, uminus(xsup)))
+        nsup = bmin(bmin(sup0, minus(m, 1)), bmax(babs(xinf), xsup))
+        put_isect(z, zd, {:ft, ninf, nsup}, zps, q, s)
+    end
+  end
+
+  # --- pmod(X, Y, Z): X mod Y = Z (mit pmodz und pmody) ---
+
+  defp propagate("pmod", [x0, y0, z0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    s =
+      cond do
+        y == 0 -> :fail
+        y == z -> :fail
+        x == y -> s |> kill_then(st) |> goal(mk("=", [z0, 0]), q)
+        true -> s
+      end
+
+    seq(s, fn s ->
+      cond do
+        is_integer(x) and is_integer(y) ->
+          s |> kill_then(st) |> bind(z0, Integer.mod(x, y))
+
+        is_integer(y) and is_integer(z) ->
+          mod_yz(x, y, z, q, s)
+
+        is_integer(z) and is_integer(x) ->
+          mod_zx(x, y, z, st, q, s)
+
+        true ->
+          s
+          |> seq(&pmodz(x, y, z, x0, z0, st, q, &1))
+          |> seq(&pmody(y, z, q, &1))
+      end
+    end)
   end
 
   # --- pexp(X, Y, Z, Morph): X^Y = Z ---
@@ -3026,6 +3260,336 @@ defmodule PrologEx.Builtins.ClpzPrims do
       true ->
         mid = div(l + u, 2)
         if ipow(mid, k) > n, do: kroot_leq(l, mid, n, k), else: kroot_leq(mid, u, n, k)
+    end
+  end
+
+  # --- Hilfen für prem und pmod ---
+
+  # Domäne der Variablen v mit f ändern und ablegen
+  defp put_with(v, f, q, s) do
+    {d, ps} = fdget(v, s)
+    fdput(v, f.(d), ps, q, s)
+  end
+
+  # endliche Schranken einer Variablen: {L, U} (nil, wenn unendlich)
+  defp ibounds(v, s) do
+    {d, _} = fdget(v, s)
+    {int_or_nil(inf_dec(d)), int_or_nil(sup_dec(d))}
+  end
+
+  defp int_or_nil(i) when is_integer(i), do: i
+  defp int_or_nil(_), do: nil
+
+  # prem, Y bekannt, Z offen
+  defp rem_y(x, y, z, q, s) do
+    yp = abs(y) - 1
+    yn = -yp
+
+    {zl, zu} =
+      case ibounds(x, s) do
+        {xl, xu} when y > 0 and is_integer(xl) and is_integer(xu) ->
+          # Z = X mitten im Propagator: das Original
+          if abs(xl) < y and xu < y, do: throw(:fallback)
+
+          zl =
+            cond do
+              xl < 0 and abs(xl) < y -> xl
+              xl >= 0 -> 0
+              true -> yn
+            end
+
+          zu =
+            cond do
+              xu > 0 and xu < y -> xu
+              xu < 0 -> 0
+              true -> yp
+            end
+
+          {zl, zu}
+
+        _ ->
+          {yn, yp}
+      end
+
+    {zd, zps} = fdget(z, s)
+
+    case isect(zd, {:ft, zl, zu}) do
+      nil ->
+        :fail
+
+      zd1 ->
+        s
+        |> seq(&fdput(z, zd1, zps, q, &1))
+        |> seq(fn s ->
+          case ibounds(x, s) do
+            {min, _} when is_integer(min) ->
+              if dcontains?(zd1, rem(min, y)), do: s, else: neq_num(x, min, q, s)
+
+            _ ->
+              s
+          end
+        end)
+        |> seq(fn s ->
+          case ibounds(x, s) do
+            {_, max} when is_integer(max) ->
+              if dcontains?(zd1, rem(max, y)), do: s, else: neq_num(x, max, q, s)
+
+            _ ->
+              s
+          end
+        end)
+    end
+  end
+
+  # prem, Y und Z bekannt
+  defp rem_yz(x, y, z, q, s) do
+    s
+    |> seq(fn s ->
+      case ibounds(x, s) do
+        {min, _} when is_integer(min) ->
+          cond do
+            rem(min, y) == z ->
+              s
+
+            y > 0 and min > 0 ->
+              nxt = Integer.floor_div(min - z + y - 1, y) * y + z
+              put_with(x, &remove_lt(&1, nxt), q, s)
+
+            true ->
+              neq_num(x, min, q, s)
+          end
+
+        _ ->
+          s
+      end
+    end)
+    |> seq(fn s ->
+      case ibounds(x, s) do
+        {_, max} when is_integer(max) ->
+          cond do
+            rem(max, y) == z ->
+              s
+
+            y > 0 and max > 0 ->
+              prev = Integer.floor_div(max - z, y) * y + z
+              put_with(x, &remove_gt(&1, prev), q, s)
+
+            true ->
+              neq_num(x, max, q, s)
+          end
+
+        _ ->
+          s
+      end
+    end)
+  end
+
+  # pmod, Y und Z bekannt
+  defp mod_yz(x, y, z, q, s) do
+    ok = if y > 0, do: z >= 0 and z < y, else: z <= 0 and z > y
+
+    if not ok do
+      :fail
+    else
+      s
+      |> seq(fn s ->
+        case ibounds(x, s) do
+          {xl, _} when is_integer(xl) ->
+            xmin =
+              if Integer.mod(xl - z, y) != 0,
+                do: z + y * (Integer.floor_div(xl - z, y) + 1),
+                else: xl
+
+            put_with(x, &remove_lt(&1, xmin), q, s)
+
+          _ ->
+            s
+        end
+      end)
+      |> seq(fn s ->
+        case ibounds(x, s) do
+          {_, xu} when is_integer(xu) ->
+            xmax = z + y * Integer.floor_div(xu - z, y)
+            put_with(x, &remove_gt(&1, xmax), q, s)
+
+          _ ->
+            s
+        end
+      end)
+    end
+  end
+
+  # pmod, Z und X bekannt
+  defp mod_zx(x, y, z, st, q, s) do
+    ok =
+      cond do
+        z > 0 -> x < 0 or (x >= z and (x - z <= 0 or x - z > z))
+        z < 0 -> x > 0 or (x <= z and (x - z >= 0 or x - z < z))
+        true -> true
+      end
+
+    if not ok do
+      :fail
+    else
+      {yl, yu} = ibounds(y, s)
+
+      cond do
+        is_integer(yu) and yu < x and x <= 0 ->
+          s = kill(st, s)
+          if s != :fail and z == x, do: s, else: :fail
+
+        is_integer(yl) and yl > x and x >= 0 ->
+          s = kill(st, s)
+          if s != :fail and z == x, do: s, else: :fail
+
+        z > 0 and x < 0 ->
+          put_with(y, &(&1 |> remove_lt(z + 1) |> remove_gt(z - x)), q, s)
+
+        z < 0 and x > 0 ->
+          put_with(y, &(&1 |> remove_gt(z - 1) |> remove_lt(z - x)), q, s)
+
+        z > 0 ->
+          put_with(y, &remove_lt(&1, z + 1), q, s)
+
+        z < 0 ->
+          put_with(y, &remove_gt(&1, z - 1), q, s)
+
+        x == 0 ->
+          kill(st, s)
+
+        true ->
+          put_with(y, &(&1 |> remove_lt(-abs(x)) |> remove_gt(abs(x))), q, s)
+      end
+    end
+  end
+
+  # pmodz//3 (höchstens eine von X, Y, Z bekannt)
+  defp pmodz(x, y, z, x0, z0, st, q, s) do
+    cond do
+      is_integer(z) ->
+        s
+
+      is_integer(x) and x == 0 ->
+        s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+      is_integer(x) ->
+        {yl, yu} = ibounds(y, s)
+
+        s =
+          cond do
+            x > 0 and is_integer(yl) and yl > x ->
+              s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+            x > 0 ->
+              put_with(z, &remove_gt(&1, x), q, s)
+
+            is_integer(yu) and yu < x ->
+              s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+            true ->
+              put_with(z, &remove_lt(&1, x), q, s)
+          end
+
+        seq(s, &z_by_y_sign(y, z, q, &1, false))
+
+      is_integer(y) ->
+        cond do
+          abs(y) == 1 ->
+            s |> kill_then(st) |> goal(mk("=", [z0, 0]), q)
+
+          y < 0 ->
+            case ibounds(x, s) do
+              {xl, xu} when is_integer(xl) and is_integer(xu) and xu <= 0 and y < xl ->
+                s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+              _ ->
+                put_with(z, &(&1 |> remove_gt(0) |> remove_lt(y + 1)), q, s)
+            end
+
+          true ->
+            case ibounds(x, s) do
+              {xl, xu} when is_integer(xl) and is_integer(xu) and xl >= 0 and y > xu ->
+                s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+              _ ->
+                put_with(z, &(&1 |> remove_lt(0) |> remove_gt(y - 1)), q, s)
+            end
+        end
+
+      true ->
+        {xl, xu} = ibounds(x, s)
+        {yl, yu} = ibounds(y, s)
+        xfin = is_integer(xl) and is_integer(xu)
+
+        cond do
+          xfin and xl >= 0 and is_integer(yl) and xu < yl ->
+            s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+          xfin and xu <= 0 and is_integer(yu) and xl > yu ->
+            s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+
+          true ->
+            s =
+              cond do
+                xfin and xl >= 0 -> put_with(z, &remove_gt(&1, xu), q, s)
+                xfin and xu <= 0 -> put_with(z, &remove_lt(&1, xl), q, s)
+                true -> s
+              end
+
+            seq(s, &z_by_y_sign(y, z, q, &1, true))
+        end
+    end
+  end
+
+  # Z nach dem Vorzeichen von Y beschränken (pmodz); more: auch Y um 0 und
+  # halb unendliche Y (der Fall ohne bekannte Variable)
+  defp z_by_y_sign(y, z, q, s, more) do
+    {yl, yu} = ibounds(y, s)
+    fin = is_integer(yl) and is_integer(yu)
+
+    cond do
+      fin and yl > 0 ->
+        put_with(z, &(&1 |> remove_lt(0) |> remove_gt(yu - 1)), q, s)
+
+      fin and yu < 0 ->
+        put_with(z, &(&1 |> remove_gt(0) |> remove_lt(yl + 1)), q, s)
+
+      not more ->
+        s
+
+      fin and yl < 0 and yu > 0 ->
+        put_with(z, &(&1 |> remove_gt(yu - 1) |> remove_lt(yl + 1)), q, s)
+
+      is_integer(yu) and yu > 0 ->
+        put_with(z, &remove_gt(&1, yu - 1), q, s)
+
+      is_integer(yl) and yl < 0 ->
+        put_with(z, &remove_lt(&1, yl + 1), q, s)
+
+      true ->
+        s
+    end
+  end
+
+  # pmody//3
+  defp pmody(y, z, q, s) do
+    cond do
+      is_integer(y) ->
+        s
+
+      is_integer(z) ->
+        cond do
+          z > 0 -> put_with(y, &remove_lt(&1, z + 1), q, s)
+          z < 0 -> put_with(y, &remove_gt(&1, z - 1), q, s)
+          true -> s
+        end
+
+      true ->
+        case ibounds(z, s) do
+          {zl, _} when is_integer(zl) and zl > 0 -> put_with(y, &remove_lt(&1, zl + 1), q, s)
+          {_, zu} when is_integer(zu) and zu < 0 -> put_with(y, &remove_gt(&1, zu - 1), q, s)
+          _ -> s
+        end
     end
   end
 
