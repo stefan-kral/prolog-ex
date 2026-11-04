@@ -62,11 +62,6 @@
        Aktion eines Zweigs, wie im Original), pdistinct und pcircuit
        (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
        Original activate_propagator_ref//1
-     - variables_same_queue/1: die geleerten Warteschlangen werden an die
-       bleibende gebunden (bind_queue/2: Qi = Q statt Q = Qi). PrologEx
-       bindet bei zwei attributierten Variablen die linke an die rechte,
-       Scryer die jüngere an die ältere; mit Q = Qi gingen die Einträge
-       der bleibenden Queue verloren (falsche Lösungen)
 */
 
 
@@ -2870,14 +2865,8 @@ variables_same_queue(Vs0) :-
             Q =.. [_|Args],
             append_queues_(Qs, Args, [append,append,append,ignore]),
             maplist(clear_queue, Qs),
-            maplist(bind_queue(Q), Qs)
+            maplist(=(Q), Qs)
         ).
-
-% PrologEx: die geleerten Warteschlangen an die bleibende binden (Qi = Q):
-% PrologEx bindet bei zwei attributierten Variablen die linke an die
-% rechte; so behält Q seine Einträge wie in Scryer (dort wird die jüngere
-% an die ältere gebunden, und Q ist nach sort/2 die älteste)
-bind_queue(Q, Qi) :- Qi = Q.
 
 append_queues_([], _, _).
 append_queues_([Q|Qs], Args0, Is) :-

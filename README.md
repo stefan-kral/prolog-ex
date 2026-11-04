@@ -1301,16 +1301,18 @@ Bisher in Elixir:
     der Teilausdrücke (`kill/2` über die `Ps`-Liste). Planung 4,0–4,1 →
     3,3–3,4 s, die übrigen Beispiele unverändert.
 
-Eine Abweichung von Triskas Code ist eine Korrektur: `variables_same_queue/1`
-legt die Warteschlangen mehrerer Variablen zusammen – sortiert, die erste
-bleibt, die übrigen werden geleert und mit ihr unifiziert (`Q = Qi`). Bei
-zwei attributierten Variablen bindet Scryer (wie die WAM) die jüngere an
-die ältere, PrologEx die linke an die rechte; so wurde die bleibende Queue
-an eine geleerte gebunden, und ihre Einträge gingen verloren. Folge waren
-falsche Lösungen, etwa nach `T #= Y*Y, Y + Z #\= 4*Z, Y = 2` blieb `T`
-offen, und Labeling fand Lösungen, die eine Bedingung verletzen (1380 statt
-390). In `clpz.pl` steht deshalb `Qi = Q`; gefunden beim Vergleich von 1600
-weiteren Zufallsanfragen mit Scryer, die jetzt dieselben Lösungen haben.
+clpz verlässt sich auf die Bindungsrichtung der WAM:
+`variables_same_queue/1` legt die Warteschlangen mehrerer Variablen
+zusammen – sortiert, die erste (älteste) bleibt, die übrigen werden
+geleert und mit ihr unifiziert (`Q = Qi`). Band PrologEx früher die linke
+an die rechte Variable, ging so die bleibende Queue verloren: falsche
+Lösungen, etwa blieb nach `T #= Y*Y, Y + Z #\= 4*Z, Y = 2` `T` offen, und
+Labeling fand Lösungen, die eine Bedingung verletzen (1380 statt 390;
+gefunden beim Vergleich von 1600 Zufallsanfragen mit Scryer). Seit die
+Maschine wie die WAM die jüngere an die ältere bindet, läuft Triskas Code
+hier unverändert; die 400 Vergleichsanfragen weichen nur noch in 4 Fällen
+von Scryer ab (vorher 7): drei zusammengefasste `freeze`-Ziele und eine
+Reihenfolge in einer Summe.
 
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
@@ -1542,11 +1544,22 @@ Ist die Front ein einziges Paar *Variable = ground Wert*, kommt der Wert in
 die **Ausschlussmenge** der Variablen statt in eine eigene Bedingung:
 `dif(X, a), dif(X, b), …` ist eine Menge „X ∉ {a, b, …}“. Bindet man X an
 einen ground Wert, kostet das ein Nachschlagen statt k Prüfungen; bei
-X = Y geht die Menge an Y über, bei einem Term mit Variablen (X = f(Z))
+X = Y geht die Menge an die ältere der beiden über, bei einem Term mit Variablen (X = f(Z))
 wird jeder Wert wieder ein `dif` (dabei oft eine kleinere Menge, etwa an
 Z). Als Restziele erscheint die Menge wie gewohnt als `dif(X,a), dif(X,b)`
 (jeder Wert einmal). Ausschlussmengen werden beim Wecken vor den übrigen
 Weckzielen geprüft; alle anderen in der Reihenfolge des Anhängens.
+
+**Bindungsrichtung.** Bei zwei ungebundenen Variablen wird wie in der
+WAM (Scryer) die jüngere an die ältere gebunden (größere Kennung, siehe
+`PrologEx.Vars`), eine normale aber immer an eine attributierte (nichts
+zu wecken). Eine attributierte Variable ist so alt wie ihr erstes
+Attribut. Bei `X = Y` mit zwei attributierten wird also die jüngere
+gebunden und ihre Hooks sehen die ältere als Wert – Reihenfolge der
+`freeze`-Ziele, `dif`-Restziele und `verify_attributes/3` wie in Scryer.
+Anders nur `when/2`: Scryers `library(when)` stellt die Bedingungen der
+gebundenen Variablen vor die der anderen; hier teilen sich freeze, when
+und dif eine Liste, angehängt wird hinten.
 
 **Wecken.** Eine Suspension ist ein kleiner Term am Attribut `"$susp"`
 der Variablen: `'$fz'(M:G)` (freeze), `'$wh'(C, M:G)` (when) und
@@ -1559,7 +1572,8 @@ Attribute nie mehr gelesen. Wird eine attributierte Variable gebunden,
 verarbeitet die Maschine die Suspensionen direkt nach der Unifikation in
 Elixir (`wake_builtin`), ohne Weckziele: Ausschlussmengen und
 dif-Fronten werden geprüft, `freeze`-Einträge wandern bei `X = Y` zur
-anderen Variablen, `when`-Bedingungen werden neu gestellt, und nur Ziele,
+anderen Variablen (hinter deren Einträge), `when`-Bedingungen werden neu
+gestellt, und nur Ziele,
 die wirklich laufen, kommen auf den Stapel – mit ihrem Modul, ein
 Schritt je Ziel. Steht so ein Ziel an, wird alles Weitere aus derselben
 Bindung zu Zielen hinter ihm, damit die Reihenfolge des Anhängens auch

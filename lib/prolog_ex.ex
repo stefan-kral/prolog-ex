@@ -483,9 +483,11 @@ defmodule PrologEx do
       match?({:atom, _}, x) and x === y ->
         {:ok, subst, m}
 
-      # normale Variable an attributierte binden, nicht umgekehrt (kein Wecken)
-      match?({:var, {:attv, _}}, x) and match?({:var, _}, y) and not attv?(y) ->
-        with {:ok, s} <- bind_checked(y, x, subst, mode), do: {:ok, s, m}
+      # zwei Variablen: normale an attributierte (kein Wecken), sonst die
+      # jüngere an die ältere wie die WAM (Scryer)
+      match?({:var, _}, x) and match?({:var, _}, y) ->
+        {v, t} = if younger?(x, y), do: {x, y}, else: {y, x}
+        with {:ok, s} <- bind_checked(v, t, subst, mode), do: {:ok, s, m}
 
       match?({:var, _}, x) ->
         with {:ok, s} <- bind_checked(x, y, subst, mode), do: {:ok, s, m}
@@ -509,6 +511,20 @@ defmodule PrologEx do
         end
     end
   end
+
+  # Welche von zwei Variablen wird gebunden? Eine normale vor einer
+  # attributierten, sonst die jüngere (größere Kennung; PrologEx.Vars
+  # vergibt sie aufsteigend). Eine attributierte Variable ist so alt wie
+  # ihr erstes Attribut.
+  defp younger?({:var, {:attv, a}}, {:var, {:attv, b}}), do: a > b
+  defp younger?({:var, {:attv, _}}, _), do: false
+  defp younger?(_, {:var, {:attv, _}}), do: true
+  defp younger?({:var, x}, {:var, y}), do: var_age(x) >= var_age(y)
+
+  defp var_age(n) when is_integer(n), do: n
+  defp var_age({_, n}) when is_integer(n), do: n
+  # nur in Ausgaben (Namen ohne Kennung): wie bisher die linke binden
+  defp var_age(_), do: :infinity
 
   # Zwei markierte (ground) Terme: gleich in der Standardordnung oder nicht
   defp unify_struct(x, y, subst, _mode, m) when is_marked(x) and is_marked(y) do

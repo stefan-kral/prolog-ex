@@ -129,8 +129,9 @@ defmodule PrologEx.CoroutiningTest do
     test "Variable an Variable: das Ziel wandert mit", c do
       assert out(c, "freeze(X, write(x)), X = Y, write(gebunden), Y = 3.") == "gebundenx"
 
+      # Y (jünger) wird an X gebunden, Ys Ziel kommt hinter Xs (wie Scryer)
       assert out(c, "freeze(X, write(x)), freeze(Y, write(y)), X = Y, write(eq), X = 1.") ==
-               "eqyx"
+               "eqxy"
 
       # normale Variable an attributierte: nichts zu wecken
       assert out(c, "freeze(X, write(x)), Y = X, write(eq), Y = 1.") == "eqx"
@@ -350,10 +351,10 @@ defmodule PrologEx.CoroutiningTest do
     end
 
     test "Variable an Variable: die Menge geht über", c do
-      assert ask(c, "dif(X, a), dif(Y, b), X = Y.") == ["X = Y, dif(Y,b), dif(Y,a)"]
+      assert ask(c, "dif(X, a), dif(Y, b), X = Y.") == ["X = Y, dif(Y,a), dif(Y,b)"]
 
       assert ask(c, "dif(X, a), dif(X, b), dif(Y, c), X = Y.") == [
-               "X = Y, dif(Y,c), dif(Y,a), dif(Y,b)"
+               "X = Y, dif(Y,a), dif(Y,b), dif(Y,c)"
              ]
 
       assert ask(c, "dif(X, a), dif(Y, b), X = Y, Y = a.") == []
@@ -403,16 +404,19 @@ defmodule PrologEx.CoroutiningTest do
 
     test "an eine andere Variable gebunden: wartet dort weiter", c do
       assert out(c, "freeze(X, write(a)), freeze(Y, write(b)), X = Y, write(-), Y = 1.") ==
-               "-ba"
+               "-ab"
 
       assert ask(c, "freeze(X, true), freeze(Y, true), X = Y.") ==
                ["X = Y, freeze(Y,true)"]
 
+      # Scryer: "-ba" – library(when) stellt die Bedingungen der gebundenen
+      # Variablen nach vorn, freeze und dif hinten an; hier teilen sich alle
+      # eine Liste, gleich wie freeze
       assert out(
                c,
                "when(nonvar(X), write(a)), when(nonvar(Y), write(b)), X = Y, write(-), Y = 1."
              ) ==
-               "-ba"
+               "-ab"
     end
 
     test "Reihenfolge: ein Weckziel läuft vor den Prüfungen, die nach ihm anstehen", c do
@@ -440,12 +444,13 @@ defmodule PrologEx.CoroutiningTest do
                "when(nonvar(X), (Z = 1, write(a))), when((nonvar(X), nonvar(Z)), write(w)), X = 1."
              ) == "aw"
 
-      # Suspensionen wandern bei X = Y in Reihenfolge hinter die von Y
+      # bei X = Y wird Y (jünger) an X gebunden, seine Suspensionen
+      # wandern in Reihenfolge hinter die von X (wie Scryer)
       assert out(
                c,
                "freeze(X, write(1)), freeze(X, write(2)), freeze(Y, write(3)), X = Y, Y = a."
              ) ==
-               "312"
+               "123"
 
       # tote Einträge (Done gebunden) überstehen die Kompaktierung nicht,
       # aktive schon

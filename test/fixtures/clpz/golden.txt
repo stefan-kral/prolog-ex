@@ -39,7 +39,7 @@ W #\= 0, (((X // -3) #=< max((- -2), min(4, Y)) #==> (- max(X, X)) #\= (max(2, Y
 all_distinct([X,Z]), fd_dom(X, D), fd_size(Y, S)	D = inf..sup, S = sup, all_distinct([X,Z])
 all_different([X,Y,Z]), B #<==> ((1 ^ 3) #< (-1 - -1)), lex_chain([[X,Z],[W,X]]), lex_chain([[W,X],[W,X]])	B = 0, freeze(W,clpz:lex_le([W,X],[W,X])), W#>=X, lex_chain([[W,X],[W,X]]), lex_chain([[X,Z],[W,X]]), freeze(X,clpz:lex_le([X,Z],[W,X])), all_different([X,Y,Z])
 element(X, [1,2,4], X), [X,Y,Z,W] ins -3..3, label([X,Y,Z,W])	W = -3, X = 1, Y = -3, Z = -3 ; W = -2, X = 1, Y = -3, Z = -3 ; W = -1, X = 1, Y = -3, Z = -3 ; W = 0, X = 1, Y = -3, Z = -3
-all_distinct([Z,Y,X]), element(W, [1,-2,3], Z), sum([Z,Y,X], #<, max(Z, X)), all_distinct([Y,W,Z,X])	W in 1..3, all_distinct([Y,W,Z,X]), element(W,[1,-2,3],Z), W#\=3#<==>_A, W#\=2#<==>_B, W#\=1#<==>_C, Z in -2\/1\/3, _D#>=Z, _E#=Y+Z, _D#=max(Z,X), 3#\=Z#<==>_F, -2#\=Z#<==>_G, 1#\=Z#<==>_H, all_distinct([Z,Y,X]), _D#>=X, _I#=X+_E, _I+1#=_J, _D#>=_J, _D in -2..sup, _F in 0..1, _F#==>_A, _A in 0..1, _G in 0..1, _G#==>_B, _B in 0..1, _H in 0..1, _H#==>_C, _C in 0..1
+all_distinct([Z,Y,X]), element(W, [1,-2,3], Z), sum([Z,Y,X], #<, max(Z, X)), all_distinct([Y,W,Z,X])	W in 1..3, all_distinct([Y,W,Z,X]), element(W,[1,-2,3],Z), W#\=3#<==>_A, W#\=2#<==>_B, W#\=1#<==>_C, Z in -2\/1\/3, _D#>=Z, _E#=Z+Y, _D#=max(Z,X), 3#\=Z#<==>_F, -2#\=Z#<==>_G, 1#\=Z#<==>_H, all_distinct([Z,Y,X]), _D#>=X, _I#=X+_E, _I+1#=_J, _D#>=_J, _D in -2..sup, _F in 0..1, _F#==>_A, _A in 0..1, _G in 0..1, _G#==>_B, _B in 0..1, _H in 0..1, _H#==>_C, _C in 0..1
 zcompare(O, Y, W), tuples_in([[Y,X]], [[2,2]]), tuples_in([[X,Y]], [[0,0],[2,3],[2,0]]), [X,Y,Z,W] ins -3..3, labeling([down], [X,Y,Z,W])	false
 ((max(X, W) #> abs((Y * W)) #==> ((X rem X) + (Z + 0)) #=< (abs(Y) mod (- 3))) #==> (W + 2) #=< ((4 - -3) * (X rem W))), W #>= ((4 ^ 0) ^ 2)	W in 1..sup, W+2#=_A, _B#>=W, X rem W#=_C, Y*W#=_D, _B#=max(X,W), _A in 3..sup, _E#>=_A#<==>_F, 7*_C#=_E, _B#>=X, _G#=1#==>X rem X#=_H, X#\=0#==>_G#=1, _B in 1..sup, _B#>=_I#<==>_J, _I in 1..sup, _K+1#=_I, _K in 0..sup, _K#=abs(_D), _L#=abs(Y), _L in 0..sup, _L mod -3#=_M, _M in -2..0, _G#/\_M#>=_N#<==>_O, _H+Z#=_N, _O in 0..1, _P#\/_O#<==>_Q, _P in 0..1, #\_J#<==>_P, _J in 0..1, _Q in 0..1, _Q#==>_F, _F in 0..1
 all_different([X,Y]), tuples_in([[Y,W]], [[3,0]]), sum([X,W,Z], #=<, (Z * Z))	W = 0, Y = 3, X in inf..2\/4..sup, all_different([X,3]), _A#=X+Z, _B#>=_A, _B in 0..sup, Z^2#=_B
@@ -53,7 +53,7 @@ global_cardinality([X,Y], [0-C0,1-C1,2-C2]), [X,Y,Z,W] ins -3..3, labeling([min(
 zcompare(O, Z, X), all_distinct([Y,Z]), lex_chain([[Y,Z],[X,Z]]), ((W div X) mod (- 0)) #< 1, [X,Y,Z,W] ins -3..3, label([X,Y,Z,W])	false
 global_cardinality([Z,Y], [0-C0,1-C1,2-C2]), (max(1, 3) // (3 mod Y)) #=< X, all_different([W,X,Y]), ((4 ^ 0) mod (-1 - 4)) #\= (- Z)	Y = 2, C0 in 0..1, Z in 0..2, Z+_A#=0, global_cardinality([Z,2],[0-C0,1-C1,2-C2]), _A in -2..0, C1 in 0..1, C2 in 1..2, W in inf..1\/3..sup, all_different([W,X,2]), X in 3..sup
 all_distinct([Z,W]), [X,Y,Z,W] ins -3..3, labeling([ffc,bisect], [X,Y,Z,W])	W = -2, X = -3, Y = -3, Z = -3 ; W = -2, X = -3, Y = -2, Z = -3 ; W = -2, X = -3, Y = -1, Z = -3 ; W = -2, X = -3, Y = 0, Z = -3
-element(Y, [-1,2,4], Y), B #<==> (((W + Y) + (X // Y)) #= (Y + (X div X))), sum([X,W,Y,Z], #\=, min(0, 1)), sum([X,Z], #>, (-3 // W)), fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, Y = 2, B in 0..1, _A#/\_B#=_C#<==>B, _D+_E#=_B, W+2#=_D, X//2#=_E, _F#=Z+X, _G#=W+X, _H+_I#=X, clpz:pskeleton(_H,X,_J,[_K,_L,_M]-propagator(ptzdiv(_K,_L,_M,_N),_O),_P,ptzdiv), _Q#=1#==>X mod X#=_I, X#\=0#==>_Q#=1, _R#=_S+Z, _F in -2..sup, _F#>=_T, _T in -2..4, _U+1#=_T, _U in -3..3, -3//W#=_U, W in inf.. -1\/1..sup, 2+_G#=_S, _R in inf.. -1\/1..sup, _Q#/\_J#<==>_A, 2+_P#=_C
+element(Y, [-1,2,4], Y), B #<==> (((W + Y) + (X // Y)) #= (Y + (X div X))), sum([X,W,Y,Z], #\=, min(0, 1)), sum([X,Z], #>, (-3 // W)), fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, Y = 2, B in 0..1, _A#/\_B#=_C#<==>B, _D+_E#=_B, W+2#=_D, X//2#=_E, _F#=X+Z, _G#=W+X, _H+_I#=X, clpz:pskeleton(_H,X,_J,[_K,_L,_M]-propagator(ptzdiv(_K,_L,_M,_N),_O),_P,ptzdiv), _Q#=1#==>X mod X#=_I, X#\=0#==>_Q#=1, _R#=_S+Z, _F in -2..sup, _F#>=_T, _T in -2..4, _U+1#=_T, _U in -3..3, -3//W#=_U, W in inf.. -1\/1..sup, 2+_G#=_S, _R in inf.. -1\/1..sup, _Q#/\_J#<==>_A, 2+_P#=_C
 (X mod -1) #>= X, -2 #= (-3 mod 5), global_cardinality([W,Z], [0-C0,1-C1,2-C2]), (max(X, Z) - -3) #> 0, X = 1	false
 Z in 0..3, tuples_in([[Y,W]], [[2,2],[1,1]]), ((-1 #=< W #\/ (- (5 rem X)) #\= (-2 ^ 1)) #\/ min(max(X, 2), W) #< abs((Z // -2))), (- 1) #> ((4 + 3) // (Y * 2)), fd_inf(X, I), fd_sup(X, U)	false
 tuples_in([[Y,W]], [[0,1],[0,1]])	W = 1, Y = 0
@@ -96,7 +96,7 @@ X #< ((X * -3) + W), ((W - W) * W) #\= (-2 - 4), ((0 rem X) div X) #=< Y, fd_dom
 Y in inf..2, lex_chain([[Z,W],[Z,W]]), 4 #< ((W + X) * (X rem 1)), ((4 #> X #/\ (- -3) #\= 2) #/\ #\ (Y #> X)), [X,Y,Z,W] ins -3..3, labeling([down], [X,Y,Z,W])	false
 (max(Y, Z) mod 4) #\= Y, X = 1	X = 1, _A#\=Y, _B#>=Y, _B#=max(Y,Z), _A in 0..3, _B mod 4#=_A, _B#>=Z
 zcompare(O, X, Z), fd_dom(X, D), fd_size(Y, S)	D = inf..sup, S = sup, freeze(O,clpz:zcompare_(O,X,Z)), zcompare(O,X,Z)
-lex_chain([[X,Y],[W,Z]]), element(X, [-2,-2,2], Z), 5 #>= (- W), zcompare(O, X, Z)	freeze(O,clpz:zcompare_(O,X,Z)), freeze(X,clpz:lex_le([X,_A],[W,Z])), X in 1..3, W#>=X, zcompare(O,X,Z), element(X,[-2,-2,2],Z), X#\=3#<==>_B, X#\=2#<==>_C, X#\=1#<==>_D, W in 1..sup, lex_chain([[X,_A],[W,Z]]), Z in -2\/2, 2#\=Z#<==>_E, -2#\=Z#<==>_F, -2#\=Z#<==>_G, _E in 0..1, _E#==>_B, _B in 0..1, _F in 0..1, _F#==>_C, _C in 0..1, _G in 0..1, _G#==>_D, _D in 0..1
+lex_chain([[X,Y],[W,Z]]), element(X, [-2,-2,2], Z), 5 #>= (- W), zcompare(O, X, Z)	freeze(O,clpz:zcompare_(O,X,Z)), freeze(X,clpz:lex_le([X,Y],[W,Z])), X in 1..3, W#>=X, zcompare(O,X,Z), element(X,[-2,-2,2],Z), X#\=3#<==>_A, X#\=2#<==>_B, X#\=1#<==>_C, W in 1..sup, lex_chain([[X,Y],[W,Z]]), Z in -2\/2, 2#\=Z#<==>_D, -2#\=Z#<==>_E, -2#\=Z#<==>_F, _D in 0..1, _D#==>_A, _A in 0..1, _E in 0..1, _E#==>_B, _B in 0..1, _F in 0..1, _F#==>_C, _C in 0..1
 global_cardinality([Z,W], [0-C0,1-C1,2-C2]), tuples_in([[Y,X]], [[1,0]]), all_different([X,Y]), sum([Y,W,X], #=, (4 rem Z)), [X,Y,Z,W] ins -3..3, labeling([ffc,bisect], [X,Y,Z,W])	false
 element(Y, [-2,0,0], X)	X in -2\/0, 0#\=X#<==>_A, 0#\=X#<==>_B, -2#\=X#<==>_C, _A in 0..1, _A#==>_D, _D in 0..1, Y#\=3#<==>_D, Y in 1..3, element(Y,[-2,0,0],X), Y#\=2#<==>_E, Y#\=1#<==>_F, _E in 0..1, _B#==>_E, _B in 0..1, _F in 0..1, _C#==>_F, _C in 0..1
 W in -2, [X,Y,Z,W] ins -3..3, labeling([min(X+Y)], [X,Y,Z,W])	W = -2, X = -3, Y = -3, Z = -3 ; W = -2, X = -3, Y = -3, Z = -2 ; W = -2, X = -3, Y = -3, Z = -1 ; W = -2, X = -3, Y = -3, Z = 0
@@ -256,7 +256,7 @@ element(Y, [4,3,0], X), [X,Y,Z,W] ins -3..3, labeling([ff], [X,Y,Z,W])	W = -3, X
 zcompare(O, Y, X)	freeze(O,clpz:zcompare_(O,Y,X)), zcompare(O,Y,X)
 B #<==> (0 #=< Z), all_distinct([Y,W,Z,X]), all_distinct([W,X]), ((0 * W) + (Y * -1)) #= (abs(X) // (0 ^ 1)), [X,Y,Z,W] ins -3..3, label([X,Y,Z,W])	false
 X #=< X, [X,Y,Z,W] ins -3..3, label([X,Y,Z,W])	W = -3, X = -3, Y = -3, Z = -3 ; W = -2, X = -3, Y = -3, Z = -3 ; W = -1, X = -3, Y = -3, Z = -3 ; W = 0, X = -3, Y = -3, Z = -3
-lex_chain([[Z,W],[X,Z]]), X = 1	X = 1, freeze(Z,clpz:lex_le([Z,_A],[1,Z])), Z in inf..1, lex_chain([[Z,_A],[1,Z]])
+lex_chain([[Z,W],[X,Z]]), X = 1	X = 1, freeze(Z,clpz:lex_le([Z,W],[1,Z])), Z in inf..1, lex_chain([[Z,W],[1,Z]])
 all_different([X,W,Y,Z]), W #> W, [X,Y,Z,W] ins -3..3, labeling([ffc,bisect], [X,Y,Z,W])	false
 lex_chain([[W,X],[X,Y]]), (W * W) #= max((- 4), abs(W)), [X,Y,Z,W] ins -3..3, labeling([ff], [X,Y,Z,W])	W = -1, X = -1, Y = -1, Z = -3 ; W = -1, X = -1, Y = -1, Z = -2 ; W = -1, X = -1, Y = -1, Z = -1 ; W = -1, X = -1, Y = -1, Z = 0
 2 #\= abs((W * X)), fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, W*X#=_A, _A in inf.. -3\/ -1..1\/3..sup, _B#=abs(_A), _B in 0..1\/3..sup
@@ -278,7 +278,7 @@ tuples_in([[W,Y]], [[3,0],[1,0],[1,3]]), all_distinct([Y,Z,W]), global_cardinali
 all_different([Z,X,Y,W])	all_different([Z,X,Y,W])
 5 #=< min(0, 0), X = 1	false
 tuples_in([[X,Z]], [[0,0],[3,0]]), [X,Y,Z,W] ins -3..3, label([X,Y,Z,W])	W = -3, X = 0, Y = -3, Z = 0 ; W = -2, X = 0, Y = -3, Z = 0 ; W = -1, X = 0, Y = -3, Z = 0 ; W = 0, X = 0, Y = -3, Z = 0
-tuples_in([[X,Z]], [[2,3],[1,2],[1,2],[0,3]]), lex_chain([[X,W],[Y,X]]), X in 0..3	freeze(X,clpz:lex_le([X,_A],[Y,X])), X in 0..2, Y#>=X, lex_chain([[X,_A],[Y,X]]), tuples_in([[X,Z]],[[2,3],[1,2],[1,2],[0,3]]), Y in 0..sup, Z in 2..3
+tuples_in([[X,Z]], [[2,3],[1,2],[1,2],[0,3]]), lex_chain([[X,W],[Y,X]]), X in 0..3	freeze(X,clpz:lex_le([X,W],[Y,X])), X in 0..2, Y#>=X, lex_chain([[X,W],[Y,X]]), tuples_in([[X,Z]],[[2,3],[1,2],[1,2],[0,3]]), Y in 0..sup, Z in 2..3
 abs(X) #=< (-3 mod 2), (1 rem 4) #>= Z, element(Z, [3,-1,0], W), zcompare(O, Z, W)	O = (<), W = 3, Z = 1, X in -1..1, _A#=abs(X), _A in 0..1
 element(X, [1,2,3], Y), element(X, [-1,2,3], Z), [X,Y,Z,W] ins -3..3, label([X,Y,Z,W])	W = -3, X = 1, Y = 1, Z = -1 ; W = -2, X = 1, Y = 1, Z = -1 ; W = -1, X = 1, Y = 1, Z = -1 ; W = 0, X = 1, Y = 1, Z = -1
 all_different([X,Z]), [Z,X,W,Y] ins 0..3, all_different([W,Z]), zcompare(O, W, Z)	freeze(O,clpz:zcompare_(O,W,Z)), W in 0..3, all_different([W,Z]), zcompare(O,W,Z), Z in 0..3, all_different([X,Z]), X in 0..3, Y in 0..3
@@ -307,7 +307,7 @@ X in 1..3\/6..7, ((- Z) - X) #> ((2 ^ 1) - max(4, X)), lex_chain([[X,Z],[Z,Y]]),
 all_distinct([W,X,Z]), zcompare(O, W, Z), fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, freeze(O,clpz:zcompare_(O,W,Z)), zcompare(O,W,Z), all_distinct([W,X,Z])
 B #<==> (((Y - -3) * (W * Z)) #< min((-2 // -3), (X + Z))), global_cardinality([Z,X], [0-C0,1-C1,2-C2]), max((W div Z), -2) #\= Z, [X,Y,Z,W] ins -3..3, labeling([max(X)], [X,Y,Z,W])	B = 0, C0 = 0, C1 = 1, C2 = 1, W = -3, X = 2, Y = -3, Z = 1 ; B = 0, C0 = 0, C1 = 1, C2 = 1, W = -2, X = 2, Y = -3, Z = 1 ; B = 0, C0 = 0, C1 = 1, C2 = 1, W = -1, X = 2, Y = -3, Z = 1 ; B = 0, C0 = 0, C1 = 1, C2 = 1, W = 0, X = 2, Y = -3, Z = 1
 abs(W) #>= W, [X,Y,Z,W] ins -3..3, labeling([max(X)], [X,Y,Z,W])	W = -3, X = 3, Y = -3, Z = -3 ; W = -2, X = 3, Y = -3, Z = -3 ; W = -1, X = 3, Y = -3, Z = -3 ; W = 0, X = 3, Y = -3, Z = -3
-lex_chain([[W,X],[Y,W]]), Z in -2..2	freeze(W,clpz:lex_le([W,_A],[Y,W])), Y#>=W, lex_chain([[W,_A],[Y,W]]), Z in -2..2
+lex_chain([[W,X],[Y,W]]), Z in -2..2	freeze(W,clpz:lex_le([W,X],[Y,W])), Y#>=W, lex_chain([[W,X],[Y,W]]), Z in -2..2
 (-3 div -2) #= max(Y, Y), all_distinct([Z,W,Y]), Z #< W, [X,Y,Z,W] ins -3..3, labeling([ff], [X,Y,Z,W])	W = -2, X = -3, Y = 1, Z = -3 ; W = -2, X = -2, Y = 1, Z = -3 ; W = -2, X = -1, Y = 1, Z = -3 ; W = -2, X = 0, Y = 1, Z = -3
 Z in inf..2, global_cardinality([Y,W], [0-C0,1-C1,2-C2]), X = 1	X = 1, C0 in 0..2, Y in 0..2, global_cardinality([Y,W],[0-C0,1-C1,2-C2]), W in 0..2, C1 in 0..2, C2 in 0..2, Z in inf..2
 all_different([X,W,Y,Z]), fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, all_different([X,W,Y,Z])
@@ -392,7 +392,7 @@ tuples_in([[Z,X]], [[1,3],[0,3],[1,0],[1,2]]), global_cardinality([X,W], [0-C0,1
 abs(2) #\= Y, fd_dom(X, D), fd_size(Y, S)	D = inf..sup, S = sup, Y in inf..1\/3..sup
 all_distinct([Z,Y,W,X]), B #<==> (max(X, Y) #=< (- abs(X))), W #< Y, [Y,Z,X,W] ins inf..2	B in 0..1, _A#>=_B#<==>B, _A in inf..0, _C+_A#=0, _C in 0..sup, _C#=abs(X), X in inf..2, _B#>=X, _B#=max(X,Y), all_distinct([Z,Y,W,X]), W in inf..1, W#=<Y+ -1, Y in inf..2, _B#>=Y, Z in inf..2, _B in inf..2
 W #>= (Z rem Z), B #<==> (3 #=< Z), fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, B in 0..1, Z#>=3#<==>B, Z in inf.. -1\/1..sup, W in 0..sup
-sum([Y,Z,W,X], #>=, (Y * 5)), sum([Y,X,Z,W], #>, (Y // 5)), Z in 1..3\/6..7, fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, _A#=W+_B, 4*Y#=<Z+W+X, _B#=Z+_C, _A#>=_D, _E+1#=_D, Y//5#=_E, _C#=X+Y, Z in 1..3\/6..7
+sum([Y,Z,W,X], #>=, (Y * 5)), sum([Y,X,Z,W], #>, (Y // 5)), Z in 1..3\/6..7, fd_inf(X, I), fd_sup(X, U)	I = inf, U = sup, _A#=W+_B, 4*Y#=<Z+W+X, _B#=Z+_C, _A#>=_D, _E+1#=_D, Y//5#=_E, _C#=Y+X, Z in 1..3\/6..7
 global_cardinality([W,Z], [0-C0,1-C1,2-C2]), all_different([X,Y]), fd_dom(X, D), fd_size(Y, S)	D = inf..sup, S = sup, C0 in 0..2, W in 0..2, global_cardinality([W,Z],[0-C0,1-C1,2-C2]), Z in 0..2, C1 in 0..2, C2 in 0..2, all_different([X,Y])
 all_distinct([Y,X,Z,W]), (W mod Y) #\= Y, zcompare(O, X, Y), (- (Y - -3)) #= 1, [X,Y,Z,W] ins -3..3, labeling([down], [X,Y,Z,W])	false
 all_distinct([W,X,Y]), Y in -1..2, (#\ ((Z // X) #=< (- -2)) #/\ #\ (-3 #< abs((X rem X)))), max(max(W, 4), (- Y)) #=< (Z div Z)	false

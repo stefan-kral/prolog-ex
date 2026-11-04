@@ -89,8 +89,9 @@ defmodule PrologEx.AttsTest do
       assert ask(c, "domain(X, [a, b]), domain(Y, [b, c]), X = Y.") == ["X = b, Y = b"]
       assert ask(c, "domain(X, [a, b]), domain(Y, [c]), X = Y.") == []
 
+      # Y (jünger) wird an X gebunden: Hook für Y, Other = X (wie Scryer)
       assert out(c, "myfreeze(X, write(a)), myfreeze(Y, write(b)), X = Y, write(eq), X = 1.") ==
-               "eqab"
+               "eqba"
     end
 
     test "Hooks aller Attributmodule, auch ohne Attribute dort; freeze danach", c do
