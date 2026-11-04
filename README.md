@@ -1324,6 +1324,9 @@ Bisher in Elixir:
     `//`, `X rem Y` mit bekanntem `X` (neue Bedingung `Z in L..U`) und den
     Fall `Z = X` mitten im Propagator. Teilbarkeitsrätsel 29 → 4–5 ms
     (Scryer 10 ms).
+  * `reified_or`, `reified_not`, `pimpl` (`#\/`, `#\`, `#==>`) und
+    `x_leq_y_plus_c` (`X #=< Y + C`). Das Original rechnet `B = 0` bei
+    `reified_or` (zwei Bindungen). Implikationsrätsel −9 % Reduktionen.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

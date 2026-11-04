@@ -1758,7 +1758,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
              reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs
-             reified_eq reified_neq pexp ptzdiv prem pmod)
+             reified_eq reified_neq pexp ptzdiv prem pmod reified_or reified_not pimpl
+             x_leq_y_plus_c)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -2592,6 +2593,126 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       true ->
         s
+    end
+  end
+
+  # --- reified_or(X, Ps1, Y, Ps2, B): B ⇔ X ∨ Y ---
+
+  defp propagate("reified_or", [x0, ps1, y0, ps2, b0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+
+    cond do
+      is_integer(x) ->
+        s = kill(st, s)
+
+        if x == 1,
+          do: s |> kill_entailed_all(ps2) |> bind(b0, 1),
+          else: bind(s, b0, y0)
+
+      is_integer(y) ->
+        propagate("reified_or", [y0, ps2, x0, ps1, b0], st, q, s)
+
+      # X = 0, Y = 0: zwei Bindungen (das Original)
+      PrologEx.walk(b0, s) == 0 ->
+        throw(:fallback)
+
+      true ->
+        s
+    end
+  end
+
+  # --- reified_not(X, Y): Y ⇔ ¬X ---
+
+  defp propagate("reified_not", [x0, y0], st, _q, s) do
+    case {val(x0, s), val(y0, s)} do
+      {0, _} -> s |> kill_then(st) |> bind(y0, 1)
+      {1, _} -> s |> kill_then(st) |> bind(y0, 0)
+      {_, 0} -> s |> kill_then(st) |> bind(x0, 1)
+      {_, 1} -> s |> kill_then(st) |> bind(x0, 0)
+      _ -> s
+    end
+  end
+
+  # --- pimpl(X, Y, Ps): X ⇒ Y ---
+
+  defp propagate("pimpl", [x0, y0, ps], st, _q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+
+    cond do
+      is_integer(x) ->
+        s = kill(st, s)
+        if x == 1, do: bind(s, y0, 1), else: kill_entailed_all(s, ps)
+
+      is_integer(y) ->
+        s = kill(st, s)
+        if y == 0, do: bind(s, x0, 0), else: kill_entailed_all(s, ps)
+
+      true ->
+        s
+    end
+  end
+
+  # --- x_leq_y_plus_c(X, Y, C): X ≤ Y + C ---
+
+  defp propagate("x_leq_y_plus_c", [x0, y0, c0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+
+    c =
+      case val(c0, s) do
+        i when is_integer(i) -> i
+        _ -> throw(:fallback)
+      end
+
+    cond do
+      is_integer(x) and is_integer(y) ->
+        s = kill(st, s)
+        if s != :fail and x <= y + c, do: s, else: :fail
+
+      is_integer(x) ->
+        s |> kill_then(st) |> seq(&put_with(y, fn d -> remove_lt(d, x - c) end, q, &1))
+
+      is_integer(y) ->
+        s |> kill_then(st) |> seq(&put_with(x, fn d -> remove_gt(d, y + c) end, q, &1))
+
+      x == y ->
+        if c >= 0, do: kill(st, s), else: :fail
+
+      true ->
+        s
+        |> then(fn s ->
+          case ibounds(y, s) do
+            {_, ysup} when is_integer(ysup) -> put_with(x, &remove_gt(&1, ysup + c), q, s)
+            _ -> s
+          end
+        end)
+        |> seq(fn s ->
+          # die Domäne von X nach fd_put (ein einzelner Wert wird nicht
+          # abgelegt, wie im Original)
+          {xd2, _} = fdget(x, s)
+          xinf = inf_dec(xd2)
+
+          if is_integer(xinf) do
+            {yd1, yps1} = fdget(y, s)
+            yd2 = remove_lt(yd1, xinf - c)
+            xsup = sup_dec(xd2)
+
+            s =
+              with true <- yd2 != :empty,
+                   yinf when is_integer(yinf) <- inf_dec(yd2),
+                   true <- is_integer(xsup) and xsup <= yinf + c do
+                kill(st, s)
+              else
+                _ -> s
+              end
+
+            seq(s, &fdput(y, yd2, yps1, q, &1))
+          else
+            s
+          end
+        end)
     end
   end
 

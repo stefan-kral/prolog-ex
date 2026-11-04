@@ -428,7 +428,20 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(21) do
+    case :rand.uniform(25) do
+      21 ->
+        "reified_or(#{Enum.random(["0", "1", "X", "DX"])}, #{ents()}, " <>
+          "#{Enum.random(["0", "1", "Y", "DY", "DX"])}, #{ents()}, #{Enum.random(["B", "0", "1", "W"])})"
+
+      22 ->
+        "reified_not(#{Enum.random(["0", "1", "B", "DX"])}, #{Enum.random(["0", "1", "W", "DY", "B"])})"
+
+      23 ->
+        "pimpl(#{Enum.random(["0", "1", "B", "DX"])}, #{Enum.random(["0", "1", "W", "DY", "B"])}, #{ents()})"
+
+      24 ->
+        "x_leq_y_plus_c(#{parg()}, #{parg()}, #{Enum.random(-3..3)})"
+
       18 ->
         "ptzdiv(#{parg()}, #{Enum.random(["Y", "2", "-3", "1", "-1", "0", "Y"])}, #{parg()}, _)"
 
@@ -604,6 +617,16 @@ defmodule PrologEx.ClpzQueueTest do
        "ptzdiv(-9, Y, 0, _)",
        "ptzdiv(X, 3, -2, _)"
      ]},
+    {"x_leq_y_plus_c",
+     [
+       "x_leq_y_plus_c(X, Y, 0)",
+       "x_leq_y_plus_c(X, Y, 2)",
+       "x_leq_y_plus_c(X, Y, -3)",
+       "x_leq_y_plus_c(X, 3, 1)",
+       "x_leq_y_plus_c(4, Y, -1)",
+       "x_leq_y_plus_c(X, X, 0)",
+       "x_leq_y_plus_c(X, X, -1)"
+     ]},
     {"prem",
      ["prem(X, Y, Z)", "prem(X, 3, Z)", "prem(X, -4, Z)", "prem(X, 3, 1)", "prem(X, -4, -2)"]},
     {"pmod",
@@ -656,6 +679,30 @@ defmodule PrologEx.ClpzQueueTest do
             {"X in -20.. -1, Y in -2..2, Z in 5..10", "ptimes(X, Y, Z, _)"}
           ] do
         prop_case(c, setup, t)
+      end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  test "reified_or, reified_not, pimpl: alle Kombinationen aus 0, 1, offen", c do
+    bs = ["0", "1", "0..1"]
+
+    diffs =
+      for dx <- bs,
+          dy <- bs,
+          dz <- bs,
+          t <- [
+            "reified_or(X, [], Y, [], Z)",
+            "reified_or(X, [p(P1)], Y, [p(P2)], Z)",
+            "reified_not(X, Y)",
+            "pimpl(X, Y, [])",
+            "pimpl(X, Y, [p(P1)])"
+          ] do
+        prop_case(
+          c,
+          "X in #{dx}, Y in #{dy}, Z in #{dz}, P1 = propagator(_, _), W = P1-P2",
+          t
+        )
       end
 
     assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
