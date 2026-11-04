@@ -1612,8 +1612,21 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
       s = subst_now()
-      q = state_q(s0, s)
 
+      case activate(prop, state_q(s0, s), s) do
+        {:ok, s} -> finish(s1, s0, s)
+        :fail -> :fail
+        :fallback -> throw(:fallback)
+      end
+    end)
+  end
+
+  # Ein Propagator in Elixir: {:ok, s}, :fail oder :fallback (das Original
+  # rechnet; s unverändert)
+  defp activate(prop, q, s) do
+    Process.put(:clpz_prims_subst, s)
+
+    try do
       {p, state} =
         case ws(prop, s) do
           {tag, "propagator", [p, st]} when tag in [:struct, :gstruct] -> {p, st}
@@ -1624,10 +1637,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       cond do
         st == {:atom, "dead"} ->
-          finish(s1, s0, s)
+          {:ok, s}
 
         not match?({:var, _}, st) ->
-          throw(:fallback)
+          :fallback
 
         true ->
           {name, args} =
@@ -1640,19 +1653,131 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
           # no_reactivation (pdistinct): der laufende Propagator steht in
           # '$clpz_current_propagator' (trigger_prop//1 reiht ihn nicht ein)
-          if name == "pdistinct" do
-            s = Blackboard.b_put(s, "clpz", "$clpz_current_propagator", st)
+          r =
+            if name == "pdistinct" do
+              s = Blackboard.b_put(s, "clpz", "$clpz_current_propagator", st)
 
-            case propagate(name, args, st, q, s) do
-              :fail -> :fail
-              s -> Blackboard.b_put(s, "clpz", "$clpz_current_propagator", [])
+              case propagate(name, args, st, q, s) do
+                :fail -> :fail
+                s -> Blackboard.b_put(s, "clpz", "$clpz_current_propagator", [])
+              end
+            else
+              propagate(name, args, st, q, s)
             end
-            |> result(s1, s0)
-          else
-            result(propagate(name, args, st, q, s), s1, s0)
-          end
+
+          if r == :fail, do: :fail, else: {:ok, r}
       end
+    catch
+      :fallback -> :fallback
+    end
+  end
+
+  # --- do_queue//0: die Schleife ----------------------------------------------
+  #
+  # '$clpz_queue_run'(S0, Next): Propagatoren aus der Queue nacheinander in
+  # Elixir, bis Next feststeht: none (leer oder abgeschaltet), goal(G) (ein
+  # Ziel: Prolog ruft es), ref(P) (P rechnet das Original) oder again (eine
+  # Bindung: erst wecken, dann weiter). Bindungen, deren Wecken nichts tun
+  # kann – der Zustand eines getöteten Propagators: nur clpz-interne
+  # Attribute, verify_attributes/3 von clpz gibt [] –, gelten als erledigt,
+  # wenn clpz das einzige Modul mit verify_attributes/3 ist.
+
+  defbuiltin "$clpz_queue_run", [s0, next] do
+    run("queue_run", [s0, next], subst(), fn ->
+      s = subst_now()
+      q = state_q(s0, s)
+
+      args =
+        case ws(q, s) do
+          {tag, "queue", [_, _, _, _] = args} when tag in [:struct, :gstruct] -> args
+          _ -> throw(:fallback)
+        end
+
+      only_clpz = PrologEx.verify_modules(ctx.db) == ["clpz"]
+      queue_loop(q, args, only_clpz, next, s)
     end)
+  end
+
+  defp queue_loop(q, args, only_clpz, next, s) do
+    case next_entry(args, s) do
+      {:prop, e, s} ->
+        case activate(e, q, s) do
+          :fail ->
+            :fail
+
+          :fallback ->
+            out_next(next, mk("ref", [e]), s)
+
+          {:ok, s} ->
+            case s do
+              %{wake: ws} ->
+                if only_clpz and Enum.all?(ws, &inert?(&1, s)),
+                  do: queue_loop(q, args, only_clpz, next, Map.delete(s, :wake)),
+                  else: out_next(next, a("again"), s)
+
+              _ ->
+                queue_loop(q, args, only_clpz, next, s)
+            end
+        end
+
+      {:goal, e, s} ->
+        out_next(next, mk("goal", [e]), s)
+
+      {:none, s} ->
+        out_next(next, a("none"), s)
+    end
+  end
+
+  # gebundene attributierte Variable, deren Wecken nichts tut: Attribute
+  # nur im Modul clpz und kein clpz/1 (keine Domäne)
+  defp inert?({:var, {:attv, id}}, s) do
+    case Map.get(s, {:attrs, id}, %{}) do
+      m when map_size(m) == 0 ->
+        true
+
+      %{"clpz" => l} = m when map_size(m) == 1 ->
+        Enum.all?(all_items(l, s), fn t ->
+          not match?({tag, "clpz", [_]} when tag in [:struct, :gstruct], ws(t, s))
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  defp inert?(_, _s), do: false
+
+  defp out_next(next, t, s) do
+    case PrologEx.unify(next, t, s) do
+      {:ok, s} -> {:subst, s}
+      :error -> :fail
+    end
+  end
+
+  # nächster Eintrag wie queue_enabled//0, queue_get_goal//1,
+  # queue_get_fast//1, queue_get_slow//1
+  defp next_entry(args, s) do
+    aux = PrologEx.walk(Enum.at(args, 3), s)
+
+    cond do
+      match?({:var, _}, aux) and att(aux, s, "disabled", 0) != nil ->
+        {:none, s}
+
+      r = pop(args, 1, s) ->
+        {e, s} = r
+        {:goal, e, s}
+
+      r = pop(args, 2, s) ->
+        {e, s} = r
+        {:prop, e, s}
+
+      r = pop(args, 3, s) ->
+        {e, s} = r
+        {:prop, e, s}
+
+      true ->
+        {:none, s}
+    end
   end
 
   # Werte: ganze Zahl, Variable oder (sonst) das Original

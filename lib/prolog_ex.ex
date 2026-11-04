@@ -2566,7 +2566,8 @@ defmodule PrologEx do
   end
 
   # Attributmodule mit verify_attributes/3, in Deklarationsreihenfolge
-  defp verify_modules(db) do
+  @doc false
+  def verify_modules(db) do
     for m <- Map.get(db, :attr_modules, []),
         Map.has_key?(db, {m, "verify_attributes", 3}),
         do: m

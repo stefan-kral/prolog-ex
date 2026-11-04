@@ -128,6 +128,56 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # do_queue//0 gegen do_queue_ref//0: Ausgabe beim Wecken (Zustände der
+  # Propagatoren, Reihenfolge der Teile der Queue)
+  defp queue_outputs(c, db, setup) do
+    for dq <- ["do_queue_ref", "do_queue"] do
+      q =
+        "X in 0..5, Y in 0..5, clpz:new_queue(Q), #{setup}, " <>
+          "phrase(clpz:#{dq}, [Q], _), write(ende)"
+
+      TableCase.run(c.reader, db, q)
+    end
+  end
+
+  test "do_queue//0: Wecken nach kill/1 wie das Original (freeze am Zustand, Reihenfolge)", c do
+    for setup <- [
+          "P = propagator(pneq(X,3), S), freeze(S, write(s)), phrase(clpz:queue_fast(P), [Q], _)",
+          "P1 = propagator(pneq(X,3), S1), freeze(S1, write(s1)), " <>
+            "P2 = propagator(pneq(Y,4), S2), freeze(S2, write(s2)), " <>
+            "phrase(clpz:queue_slow(P1), [Q], _), phrase(clpz:queue_fast(P2), [Q], _)",
+          "P1 = propagator(pneq(X,3), S1), P2 = propagator(pneq(Y,X), S2), " <>
+            "freeze(S2, write(s2)), phrase(clpz:queue_fast(P1), [Q], _), " <>
+            "phrase(clpz:queue_fast(P2), [Q], _), X = 2"
+        ] do
+      [ref, new] = queue_outputs(c, c.db, setup)
+      assert ref == new, setup
+      assert {o, {:answers, [_]}} = new
+      assert o =~ "s", setup
+    end
+  end
+
+  test "do_queue//0: ein weiteres Modul mit verify_attributes/3 sieht jedes Wecken", c do
+    PrologEx.put_db(c.db)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      {:ok, _} = PrologEx.Consult.load_file("test/fixtures/atts/alle.pl")
+    end)
+
+    db = PrologEx.current_db()
+
+    for setup <- [
+          "P = propagator(pneq(X,3), S), phrase(clpz:queue_fast(P), [Q], _)",
+          "P1 = propagator(pneq(X,3), _), P2 = propagator(pneq(Y,4), _), " <>
+            "phrase(clpz:queue_slow(P1), [Q], _), phrase(clpz:queue_fast(P2), [Q], _)"
+        ] do
+      [ref, new] = queue_outputs(c, db, setup)
+      assert ref == new, setup
+      assert {o, {:answers, [_]}} = new
+      assert o =~ "h", setup
+    end
+  end
+
   test "variables_same_queue/1: drei eigene Queues mit Einträgen, abgeschaltete Queue", c do
     for {fill, extra, l} <- [
           # drei Queues mit Einträgen im selben Teil: die Kette des Originals

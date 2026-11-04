@@ -1328,6 +1328,16 @@ Bisher in Elixir:
     angehängt (eine Kette), dann geleert und mit der ersten unifiziert.
     Planung 2,4–2,6 → 1,6–1,65 s, Springerweg 0,30–0,32 → 0,25–0,26 s,
     Sechseck 0,20–0,21 → 0,17–0,20 s.
+  * die Schleife von `do_queue//0`: Elixir arbeitet die Propagatoren der
+    Queue selbst der Reihe nach ab und kehrt nur für ein Ziel aus der Queue,
+    einen Propagator für das Original und nach einer Bindung, nach der die
+    Maschine wecken muss, nach Prolog zurück. Das Binden des Zustands eines
+    getöteten Propagators (`State = dead`, nach fast jeder Aktivierung)
+    gilt als erledigt, wenn sein Wecken nichts tun kann: nur clpz-interne
+    Attribute, und clpz ist das einzige Modul mit `verify_attributes/3`
+    (sonst läuft das Wecken wie bisher; geprüft mit einem Modul, das jedes
+    Wecken ausgibt, und mit `freeze/2` am Zustand). 8 Damen (alle) 190 →
+    125–135 ms, Planung 1,65–1,8 → 1,54–1,6 s.
 
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen

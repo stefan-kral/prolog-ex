@@ -4407,14 +4407,21 @@ do_queue_ref -->
         ;   true
         ).
 
-% PrologEx: die Schleife über '$clpz_queue_next'/2 (Elixir: Queue
-% eingeschaltet?, dann vorne aus Zielen, schnellen, langsamen Propagatoren);
-% das Original als do_queue_ref//0
-do_queue(S0, S) :- '$clpz_queue_next'(S0, Next), do_queue_(Next, S0, S).
+% PrologEx: die Schleife in Elixir ('$clpz_queue_run'/2: Queue
+% eingeschaltet?, dann vorne aus Zielen, schnellen, langsamen Propagatoren;
+% Propagatoren rechnet Elixir der Reihe nach selbst). Zurück nach Prolog
+% kommen ein Ziel, ein Propagator für das Original (ref(P)) und eine
+% Bindung, nach der die Maschine wecken muss (again); das Original als
+% do_queue_ref//0
+do_queue(S0, S) :- '$clpz_queue_run'(S0, Next), do_queue_(Next, S0, S).
 
 do_queue_(none, S0, S) :- S = S0.
 do_queue_(goal(Goal), S0, S) :- call(Goal), do_queue(S0, S).
 do_queue_(prop(P), S0, S) :- activate_propagator(P, S0, S1), do_queue(S1, S).
+do_queue_(ref(P), S0, S) :- activate_propagator_ref(P, S0, S1), do_queue(S1, S).
+do_queue_(again, S0, S) :- do_queue(S0, S).
+
+queue_run_ref(S0, Next) :- '$clpz_queue_next'(S0, Next).
 
 :- meta_predicate(ignore(0)).
 
