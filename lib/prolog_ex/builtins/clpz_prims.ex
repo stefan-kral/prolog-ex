@@ -1759,7 +1759,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
              reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs
              reified_eq reified_neq pexp ptzdiv prem pmod reified_or reified_not pimpl
-             x_leq_y_plus_c)
+             x_leq_y_plus_c pelement)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -2596,6 +2596,50 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- pelement(N, Is, V): das N-te Element von Is ist V ---
+
+  defp propagate("pelement", [n0, is0, v0], st, q, s) do
+    case val(n0, s) do
+      {:var, _} = n ->
+        case val(v0, s) do
+          {:var, _} = v ->
+            {nd, _} = fdget(n, s)
+            {vd, vps} = fdget(v, s)
+
+            # integers_remaining/5: Vereinigung der Domänen der möglichen
+            # Elemente (in einem Schritt zusammengefügt)
+            is =
+              list_items(is0, s)
+              |> Enum.with_index(1)
+              |> Enum.flat_map(fn {e, i} ->
+                if dcontains?(nd, i), do: intervals(element_dom(e, s), []), else: []
+              end)
+
+            vd1 =
+              case to_domain(merge_intervals(is)) do
+                nil -> throw(:fallback)
+                d -> d
+              end
+
+            put_isect(v, vd, vd1, vps, q, s)
+
+          _ ->
+            s
+        end
+
+      n when is_integer(n) ->
+        items = list_items(is0, s)
+
+        case n >= 1 and Enum.at(items, n - 1) do
+          e when e not in [nil, false] -> s |> kill_then(st) |> bind(e, v0)
+          _ -> s |> kill_then(st) |> then_fail()
+        end
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
   # --- reified_or(X, Ps1, Y, Ps2, B): B ⇔ X ∨ Y ---
 
   defp propagate("reified_or", [x0, ps1, y0, ps2, b0], st, q, s) do
@@ -3390,6 +3434,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp put_with(v, f, q, s) do
     {d, ps} = fdget(v, s)
     fdput(v, f.(d), ps, q, s)
+  end
+
+  # element_domain/2: Domäne einer Variablen, sonst der Wert allein
+  defp element_dom(e, s) do
+    case val(e, s) do
+      i when is_integer(i) -> {:ft, i, i}
+      {:var, _} = v -> elem(fdget(v, s), 0)
+      _ -> throw(:fallback)
+    end
   end
 
   # endliche Schranken einer Variablen: {L, U} (nil, wenn unendlich)

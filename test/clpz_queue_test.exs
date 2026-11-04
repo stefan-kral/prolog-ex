@@ -428,7 +428,10 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(25) do
+    case :rand.uniform(26) do
+      25 ->
+        "pelement(#{Enum.random(["X", "W", "1", "2", "4", "0"])}, #{plist()}, #{parg()})"
+
       21 ->
         "reified_or(#{Enum.random(["0", "1", "X", "DX"])}, #{ents()}, " <>
           "#{Enum.random(["0", "1", "Y", "DY", "DX"])}, #{ents()}, #{Enum.random(["B", "0", "1", "W"])})"
@@ -616,6 +619,16 @@ defmodule PrologEx.ClpzQueueTest do
        "ptzdiv(9, Y, 2, _)",
        "ptzdiv(-9, Y, 0, _)",
        "ptzdiv(X, 3, -2, _)"
+     ]},
+    {"pelement",
+     [
+       "pelement(X, [Y, Z, 3], W)",
+       "pelement(X, [Y, 4, Z], Y)",
+       "pelement(X, [1, 2, 3, 7], Y)",
+       "pelement(X, [Z, Z], Y)",
+       "pelement(2, [Y, Z], X)",
+       "pelement(3, [Y, Z], X)",
+       "pelement(X, [Y, Z, 3], 3)"
      ]},
     {"x_leq_y_plus_c",
      [

@@ -1327,6 +1327,9 @@ Bisher in Elixir:
   * `reified_or`, `reified_not`, `pimpl` (`#\/`, `#\`, `#==>`) und
     `x_leq_y_plus_c` (`X #=< Y + C`). Das Original rechnet `B = 0` bei
     `reified_or` (zwei Bindungen). Implikationsrätsel −9 % Reduktionen.
+  * `pelement` (`element/3`): die Vereinigung der Domänen der möglichen
+    Elemente in einem Schritt statt Element für Element. Ein Rätsel mit
+    `element/3` 10 → 7 ms.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =
