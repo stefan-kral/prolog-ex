@@ -29,6 +29,25 @@ defmodule PrologEx.ClpzQueueTest do
       ;   true
       ),
       N1 is N + 1, fill(Rest, N1).
+  % die gcc-Propagatoren an X (pgcc_check, pgcc_check_single)
+  gcc_props(X, Ps) :-
+      clpz:get_atts(X, clpz(clpz_attr(_,_,_,_,fd_props(A,B,C),_))),
+      append([A,B,C], L), include(is_gcc, L, Ps).
+  is_gcc(propagator(F, _)) :- functor(F, N, _), memberchk(N, [pgcc_check, pgcc_check_single]).
+  % X = V bei abgeschalteter Queue von X (der Hook reiht nur ein)
+  quiet_bind(X-V) :-
+      (   var(X), clpz:variable_queue(X, Q), clpz:fd_get_ref(X, D, _),
+          clpz:domain_contains_ref(D, V) ->
+          phrase(clpz:disable_queue, [Q], _), X = V, phrase(clpz:enable_queue, [Q], _)
+      ;   true
+      ).
+  % X ≠ V ohne Propagation (die Einträge in eine neue Queue)
+  quiet_neq(X-V) :-
+      (   var(X), clpz:fd_get_ref(X, D, Ps) ->
+          clpz:domain_remove_ref(D, V, D1),
+          clpz:new_queue(Q), phrase(clpz:fd_put(X, D1, Ps), [Q], _)
+      ;   true
+      ).
   % eine Variable mit Domäne und eine neue, kleinere Domäne für sie
   pick(Vs, X, D, Ps) :-
       member(X, Vs), clpz:fd_get_ref(X, D0, Ps), D0 \\== from_to(inf,sup), !,
@@ -716,6 +735,95 @@ defmodule PrologEx.ClpzQueueTest do
           "X in #{dx}, Y in #{dy}, Z in #{dz}, P1 = propagator(_, _), W = P1-P2",
           t
         )
+      end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  test "pgcc_check, pgcc_check_single: Zufallszustände nach global_cardinality/3", c do
+    diffs =
+      for _ <- 1..400 do
+        doms =
+          Enum.map_join(~w(A B C D E), ", ", fn v ->
+            "#{v} in #{Enum.random(~w(1..3 1..2 2..3 1..1 3..3 1\\/3 0..4))}"
+          end)
+
+        nums =
+          Enum.map_join(~w(N1 N2 N3), ", ", fn v ->
+            "#{v} in #{Enum.random(~w(0..5 1..2 0..1 2..2 3..5 0..0 1..sup))}"
+          end)
+
+        vs = Enum.take_random(~w(A B C D E), Enum.random(2..5)) |> Enum.join(",")
+        k = Enum.random([[1, 2, 3], [1, 2], [2, 3]])
+        pairs = Enum.zip(k, ~w(N1 N2 N3)) |> Enum.map_join(",", fn {k, n} -> "#{k}-#{n}" end)
+
+        mods =
+          Enum.map_join(1..Enum.random(0..4)//1, ", ", fn _ ->
+            x = Enum.random(~w(A B C D E N1 N2 N3))
+            v = Enum.random(0..4)
+            if :rand.uniform(2) == 1, do: "quiet_bind(#{x}-#{v})", else: "quiet_neq(#{x}-#{v})"
+          end)
+
+        mods = if mods == "", do: "true", else: mods
+        pick = Enum.random(["A", "N1", "N2", "B"])
+        qv = Enum.random(["", "N1", "N2", "N3", "A", "C"])
+
+        q =
+          "Vs = [A,B,C,D,E,N1,N2,N3], (#{doms}, #{nums}, " <>
+            "global_cardinality([#{vs}], [#{pairs}], [consistency(value)]), #{mods}, " <>
+            "gcc_props(#{pick}, Ps), member(P, Ps) -> #{gcc_queue(qv)}, " <>
+            "same(phrase((clpz:activate_propagator_ref(P), clpz:do_queue_ref), [Q], _), " <>
+            "phrase((clpz:activate_propagator(P), clpz:do_queue), [Q], _), Vs-Q-P) ; true)"
+
+        r = TableCase.run(c.reader, c.db, q)
+        if match?({_, {:answers, [_]}}, r), do: [], else: [{q, r}]
+      end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  # die Queue für den gcc-Test: neu oder die einer Variablen (dann rechnet
+  # Elixir auch die eine Bindung am Ende). Verglichen wird bis zum Fixpunkt:
+  # die Bindung kommt hier nach enable_queue, der Hook rechnet die Queue
+  # gleich (im Original erst die äußere Schleife)
+  defp gcc_queue(""), do: "clpz:new_queue(Q)"
+  defp gcc_queue(v), do: "(clpz:variable_queue(#{v}, Q) -> true ; clpz:new_queue(Q))"
+
+  test "pgcc_check: Sonderfälle (alle ≠ Key, eine Bindung am Ende, zu viele)", c do
+    diffs =
+      for {setup, vs, pairs, qv, mods} <- [
+            # Num = Occ1: Key aus den übrigen entfernen
+            {"A in 1..3, B in 1..3, C in 1..3", "A,B,C", "1-N1,2-N2,3-N3", "N1",
+             "quiet_bind(N1-0)"},
+            {"A in 1..3, B in 1..3, C in 1..3", "A,B,C", "1-N1,2-N2,3-N3", "",
+             "quiet_bind(N2-0)"},
+            # das letzte Paar: Os = [], Num = Occ1 (eine Bindung)
+            {"A in 1..2, B in 1..2", "A,B", "1-N1,2-N2", "N2",
+             "quiet_bind(N1-1), quiet_bind(A-1), quiet_bind(B-2)"},
+            # Os = [], Num bekannt und größer als Occ1
+            {"A in 1..2, B in 1..2, C in 1..2", "A,B,C", "2-N2,1-N1", "N1",
+             "quiet_bind(N2-2), quiet_bind(A-1), quiet_bind(B-2), quiet_bind(C-1)"},
+            # das letzte Paar: Num bekannt, genau eine Variable bleibt
+            {"A in 1..2, B in 1..2, C in 1..2", "A,B,C", "1-N1,2-N2", "C",
+             "quiet_bind(N1-1), quiet_bind(N2-2), quiet_bind(A-1), quiet_bind(B-2)"},
+            {"A in 1..2, B in 1..2, C in 1..2", "A,B,C", "1-N1,2-N2", "B",
+             "quiet_bind(N1-1), quiet_bind(N2-2), quiet_bind(A-1), quiet_bind(C-2)"},
+            # Num zu groß für die übrigen
+            {"A in 1..2, B in 1..2", "A,B", "1-N1,2-N2", "", "quiet_bind(A-2), quiet_bind(N1-2)"},
+            # Num offen, untere Schranke = Occ1 + L
+            {"A in 1..2, B in 1..2, C in 1..2, N1 in 2..3", "A,B,C", "1-N1,2-N2", "",
+             "quiet_bind(C-2)"}
+          ] do
+        q =
+          "Vs = [A,B,C,D,E,N1,N2,N3], (#{setup}, " <>
+            "global_cardinality([#{vs}], [#{pairs}], [consistency(value)]), #{mods}, " <>
+            "once((member(X0, [A,B,C,N1,N2]), var(X0), gcc_props(X0, [P|_]))) -> " <>
+            "#{gcc_queue(qv)}, " <>
+            "same(phrase((clpz:activate_propagator_ref(P), clpz:do_queue_ref), [Q], _), " <>
+            "phrase((clpz:activate_propagator(P), clpz:do_queue), [Q], _), Vs-Q-P) ; fail)"
+
+        r = TableCase.run(c.reader, c.db, q)
+        if match?({_, {:answers, [_]}}, r), do: [], else: [{q, r}]
       end
 
     assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)

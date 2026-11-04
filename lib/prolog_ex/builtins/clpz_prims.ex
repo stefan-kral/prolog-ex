@@ -1759,7 +1759,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
              reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs
              reified_eq reified_neq pexp ptzdiv prem pmod reified_or reified_not pimpl
-             x_leq_y_plus_c pelement)
+             x_leq_y_plus_c pelement pgcc_check pgcc_check_single)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -2593,6 +2593,60 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       true ->
         s
+    end
+  end
+
+  # --- pgcc_check(Pairs), pgcc_check_single(Pairs): gcc_check//1 ---
+  #
+  # Bei abgeschalteter Queue für jedes Paar Key-Num0 (Num0 mit den
+  # Attributen clpz_gcc_vs, clpz_gcc_num, clpz_gcc_occurred). Das Original
+  # bindet Num oder die übrigen Variablen mitten in der Schleife (der Hook
+  # reiht nur ein, die Queue ist ja abgeschaltet); hier nur eine einzige
+  # Bindung im letzten Paar, und nur, wenn die Variable keine oder die
+  # laufende Queue hat: dann nach enable_queue als letzte Aktion (die
+  # Maschine weckt danach, do_queue rechnet die Queue wie die äußere
+  # Schleife). Sonst das Original.
+
+  defp propagate(name, [pairs0], _st, q, s) when name in ["pgcc_check", "pgcc_check_single"] do
+    pairs =
+      Enum.map(list_items(pairs0, s), fn p ->
+        case ws(p, s) do
+          {tag, "-", [k, n0]} when tag in [:struct, :gstruct] ->
+            case {val(k, s), PrologEx.walk(n0, s)} do
+              {k, {:var, _} = n0} when is_integer(k) -> {k, n0}
+              _ -> throw(:fallback)
+            end
+
+          _ ->
+            throw(:fallback)
+        end
+      end)
+
+    # disable_queue//0 entfällt: hier liest nichts den Schalter (fd_put//3
+    # reiht nur ein), enable_queue//0 am Ende wie im Original
+    n = length(pairs)
+
+    {s, pending} =
+      pairs
+      |> Enum.with_index(1)
+      |> Enum.reduce_while({s, nil}, fn {{key, num0}, i}, {s, nil} ->
+        case gcc_pair(key, num0, q, s) do
+          {:fail, _} -> {:halt, {:fail, nil}}
+          {s, nil} -> {:cont, {s, nil}}
+          {s, b} when i == n -> {:cont, {s, b}}
+          _ -> throw(:fallback)
+        end
+      end)
+
+    s = enable_queue(q, s)
+
+    case pending do
+      nil ->
+        s
+
+      {v, t} ->
+        same_queue_or_none?(v, q, s) || throw(:fallback)
+        bind(s, v, t)
     end
   end
 
@@ -3434,6 +3488,163 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp put_with(v, f, q, s) do
     {d, ps} = fdget(v, s)
     fdput(v, f.(d), ps, q, s)
+  end
+
+  # gcc_check_//1 für ein Paar: {s, nil} oder {s, {V, T}} (die eine
+  # Bindung V = T steht noch aus, gcc_done/1 ist schon gerechnet)
+  defp gcc_pair(key, num0, q, s) do
+    case att(num0, s, "clpz_gcc_vs", 1) do
+      nil ->
+        {s, nil}
+
+      [vs] ->
+        [num] = att(num0, s, "clpz_gcc_num", 1) || throw(:fallback)
+
+        occ0 =
+          case att(num0, s, "clpz_gcc_occurred", 1) do
+            [o] -> val(o, s)
+            _ -> throw(:fallback)
+          end
+
+        is_integer(occ0) || throw(:fallback)
+        {min, os} = vs_key_min_others(list_items(vs, s), key, s)
+        occ1 = occ0 + min
+
+        s =
+          s
+          |> put_att(num0, mk("clpz_gcc_vs", [PrologEx.list(os)]))
+          |> put_att(num0, mk("clpz_gcc_occurred", [occ1]))
+          |> geq_var_int(num, occ1, q)
+
+        if s == :fail, do: {:fail, nil}, else: gcc_pair_rest(key, num0, num, occ1, os, q, s)
+    end
+  end
+
+  defp gcc_pair_rest(key, num0, num, occ1, os, q, s) do
+    numv = val(num, s)
+
+    cond do
+      numv == occ1 ->
+        s = Enum.reduce(os, s, fn o, s -> seq(s, &neq_num(o, key, q, &1)) end)
+        {seq(s, &gcc_done(num0, &1)), nil}
+
+      os == [] ->
+        s = gcc_done(num0, s)
+
+        case numv do
+          {:var, _} = v -> {s, {v, occ1}}
+          _ -> {:fail, nil}
+        end
+
+      true ->
+        l = length(os)
+        s = int_geq_var(occ1 + l, num, q, s)
+
+        if s == :fail do
+          {:fail, nil}
+        else
+          diff =
+            case val(num, s) do
+              i when is_integer(i) ->
+                i - occ1
+
+              {:var, _} = v ->
+                case inf_dec(elem(fdget(v, s), 0)) do
+                  ninf when is_integer(ninf) -> ninf - occ1
+                  _ -> throw(:fallback)
+                end
+            end
+
+          cond do
+            l < diff ->
+              {:fail, nil}
+
+            l == diff ->
+              # Num is Occ1 + Diff (mit bekanntem Num gilt das schon),
+              # maplist(=(Key), Os), gcc_done/1: nur eine Bindung
+              case {val(num, s), os} do
+                {i, [o]} when is_integer(i) -> {gcc_done(num0, s), {o, key}}
+                _ -> throw(:fallback)
+              end
+
+            true ->
+              {s, nil}
+          end
+        end
+    end
+  end
+
+  # vs_key_min_others/5: wie oft Key schon vorkommt, die Variablen, die Key
+  # noch annehmen können
+  defp vs_key_min_others(vs, key, s) do
+    {min, os} =
+      Enum.reduce(vs, {0, []}, fn v, {min, os} ->
+        case val(v, s) do
+          {:var, _} = x ->
+            if dcontains?(elem(fdget(x, s), 0), key), do: {min, [x | os]}, else: {min, os}
+
+          i when is_integer(i) ->
+            if i == key, do: {min + 1, os}, else: {min, os}
+
+          _ ->
+            throw(:fallback)
+        end
+      end)
+
+    {min, Enum.reverse(os)}
+  end
+
+  defp gcc_done(_num0, :fail), do: :fail
+
+  defp gcc_done(num0, s) do
+    s
+    |> del_att(num0, "clpz_gcc_vs", 1)
+    |> del_att(num0, "clpz_gcc_num", 1)
+    |> del_att(num0, "clpz_gcc_occurred", 1)
+  end
+
+  # geq//2 mit Zahl rechts: A ≥ N
+  defp geq_var_int(:fail, _a, _n, _q), do: :fail
+
+  defp geq_var_int(s, a, n, q) do
+    case val(a, s) do
+      {:var, _} = v ->
+        {d, ps} = fdget(v, s)
+        if geq(inf_dec(d), n), do: s, else: fdput(v, remove_lt(d, n), ps, q, s)
+
+      i when is_integer(i) ->
+        if i >= n, do: s, else: :fail
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  # geq//2 mit Zahl links: M ≥ B
+  defp int_geq_var(m, b, q, s) do
+    case val(b, s) do
+      {:var, _} = v -> put_with(v, &remove_gt(&1, m), q, s)
+      i when is_integer(i) -> if m >= i, do: s, else: :fail
+      _ -> throw(:fallback)
+    end
+  end
+
+  # die Variable hat keine Domäne oder dieselbe Queue (abgeschaltet: der Hook
+  # des Originals reiht nur ein)
+  defp same_queue_or_none?(v, q, s) do
+    case att(v, s, "clpz", 1) do
+      nil ->
+        true
+
+      [attr] ->
+        case ws(attr, s) do
+          {tag, "clpz_attr", [_, _, _, _, _, qx]} when tag in [:struct, :gstruct] ->
+            aux(qx, s) == aux(q, s)
+
+          _ ->
+            false
+        end
+    end
   end
 
   # element_domain/2: Domäne einer Variablen, sonst der Wert allein

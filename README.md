@@ -1330,6 +1330,15 @@ Bisher in Elixir:
   * `pelement` (`element/3`): die Vereinigung der Domänen der möglichen
     Elemente in einem Schritt statt Element für Element. Ein Rätsel mit
     `element/3` 10 → 7 ms.
+  * `pgcc_check` und `pgcc_check_single` (`gcc_check//1`, die einfache
+    Prüfung von `global_cardinality/2,3`). Das Original bindet mitten in
+    der Schleife bei abgeschalteter Queue (der Hook reiht dann nur ein);
+    Elixir rechnet eine einzige Bindung im letzten Paar, wenn die Variable
+    die laufende Queue hat, und bindet sie nach `enable_queue//0` als
+    letzte Aktion (der Hook rechnet die Queue dann gleich statt der
+    äußeren Schleife, der Fixpunkt ist derselbe); mehrere Bindungen oder
+    eine früher: das Original. Das gcc-Beispiel 122–134 → 101–115 ms
+    (−8 % Reduktionen); den größten Teil rechnet weiter `gcc_global//2`.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =
