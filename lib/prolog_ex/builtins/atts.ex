@@ -127,19 +127,39 @@ defmodule PrologEx.Builtins.Atts do
 
   @doc false
   # wie put_atts(V, +Att) im Modul mod; v ist eine (attributierte) Variable
+  # Die Liste steht immer in Deklarationsreihenfolge (put_atts/2 und
+  # put_one/4 sortieren, Entfernen behält die Reihenfolge): ein vorhandenes
+  # Attribut wird an seiner Stelle ersetzt, nur ein neues einsortiert
   def put_one(s, v, mod, att) do
     decl = declared!(mod)
     k = PrologEx.Compiler.key(att)
+    items = v |> PrologEx.get_attrs(s) |> Map.get(mod, []) |> top_items()
 
-    v
-    |> PrologEx.get_attrs(s)
-    |> Map.get(mod, [])
-    |> top_items()
-    |> Enum.map(&{PrologEx.Compiler.key(&1), &1})
-    |> List.keystore(k, 0, {k, att})
-    |> Enum.sort_by(fn {k, _} -> Enum.find_index(decl, &(&1 == k)) end)
-    |> Enum.map(&elem(&1, 1))
-    |> then(&PrologEx.put_attr(s, v, mod, list(&1)))
+    case replace_key(items, k, att) do
+      {:ok, items} ->
+        PrologEx.put_attr(s, v, mod, list(items))
+
+      :none ->
+        items
+        |> Enum.map(&{PrologEx.Compiler.key(&1), &1})
+        |> List.keystore(k, 0, {k, att})
+        |> Enum.sort_by(fn {k, _} -> Enum.find_index(decl, &(&1 == k)) end)
+        |> Enum.map(&elem(&1, 1))
+        |> then(&PrologEx.put_attr(s, v, mod, list(&1)))
+    end
+  end
+
+  defp replace_key([], _k, _att), do: :none
+
+  defp replace_key([h | t], k, att) do
+    if PrologEx.Compiler.key(h) == k do
+      {:ok, [att | t]}
+    else
+      case replace_key(t, k, att) do
+        {:ok, t} -> {:ok, [h | t]}
+        :none -> :none
+      end
+    end
   end
 
   @doc false

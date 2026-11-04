@@ -1338,6 +1338,16 @@ Bisher in Elixir:
     (sonst läuft das Wecken wie bisher; geprüft mit einem Modul, das jedes
     Wecken ausgibt, und mit `freeze/2` am Zustand). 8 Damen (alle) 190 →
     125–135 ms, Planung 1,65–1,8 → 1,54–1,6 s.
+  * das Einhängen beim Aufstellen: `init_propagator_//2` und
+    `init_propagator/2` (den Propagator je nach `constraint_wake/2` vorn in
+    die Liste der Ziel-, Schranken- oder übrigen Propagatoren, dann
+    `fd_put//3`) und `reinforce/1` (nach jedem Aufstellen: Ränder und
+    Spanne der Variablen zurücksetzen; eine Variable mit Einzelwert-Domäne,
+    noch ungebunden, rechnet das Original, weil es sie bindet). Dazu in der
+    Maschine `put_atts/2` für ein schon vorhandenes Attribut: an seiner
+    Stelle ersetzen statt die Liste neu nach der Deklaration zu sortieren.
+    Planung 1,55–1,8 → 1,29–1,46 s, Springerweg 0,25–0,26 → 0,20–0,21 s,
+    Sechseck 0,16–0,19 → 0,14–0,16 s, magische Quadrate 56–69 → 46–52 ms.
 
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen

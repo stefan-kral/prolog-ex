@@ -1267,6 +1267,95 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # --- Aufstellen: init_propagator_//2, init_propagator/2, reinforce/1 ---
+
+  # constraint_wake/2 des Originals
+  @wake_ground ~w(pneq x_neq_y_plus_z absdiff_neq pdifferent pexclude scalar_product_neq
+                  x_eq_abs_plus_v)
+  @wake_bounds ~w(x_leq_y_plus_c scalar_product_eq scalar_product_leq pplus pgeq pgcc_single
+                  pgcc_check_single)
+
+  # insert_propagator/3
+  defp insert_propagator(prop, ps, s) do
+    {gs, bs, os} = props(ps, s)
+
+    f =
+      case ws(prop, s) do
+        {tag, "propagator", [c, _]} when tag in [:struct, :gstruct] ->
+          case ws(c, s) do
+            {t2, f, _} when t2 in [:struct, :gstruct] -> f
+            {:atom, f} -> f
+            _ -> throw(:fallback)
+          end
+
+        _ ->
+          throw(:fallback)
+      end
+
+    cond do
+      f in @wake_ground -> mk("fd_props", [[prop | gs], bs, os])
+      f in @wake_bounds -> mk("fd_props", [gs, [prop | bs], os])
+      true -> mk("fd_props", [gs, bs, [prop | os]])
+    end
+  end
+
+  # init_propagator(V, Prop) für eine Variable, mit der Queue q
+  defp init_one(v, prop, q, s) do
+    case fd_get(v, s) do
+      {d, ps} -> put_terminating(v, d, insert_propagator(prop, ps, s), q, s)
+      :default -> put_terminating(v, default_dom(), insert_propagator(prop, no_props(), s), q, s)
+      :fail -> s
+    end
+  end
+
+  defbuiltin "$clpz_init_propagator_", [vs, prop, s0, s1] do
+    run("init_propagator_", [vs, prop, s0, s1], subst(), fn ->
+      s = subst_now()
+      q = state_q(s0, s)
+
+      list_items(vs, s)
+      |> Enum.reduce(s, fn v, s -> seq(s, &init_one(v, prop, q, &1)) end)
+      |> result(s1, s0)
+    end)
+  end
+
+  # reinforce/1: put_full/3 mit derselben Domäne – nur die Ränder und die
+  # Spanne zurücksetzen (no); ein Einzelwert (F = n(X), Bindung): das
+  # Original
+  defbuiltin "$clpz_reinforce", [x] do
+    run("reinforce", [x], subst(), fn ->
+      s = subst_now()
+
+      PrologEx.Builtins.Order.variables(x, s)
+      |> Enum.reduce(s, fn v, s ->
+        case att(v, s, "clpz", 1) do
+          [attr] ->
+            case ws(attr, s) do
+              {tag, "clpz_attr", [_, _, _, d, ps, q]} when tag in [:struct, :gstruct] ->
+                case ws(d, s) do
+                  {:atom, "empty"} ->
+                    throw(:fallback)
+
+                  {t2, "from_to", [f, t]} when t2 in [:struct, :gstruct] ->
+                    if bound(f) == bound(t), do: throw(:fallback)
+                    put_clpz(s, v, [a("no"), a("no"), a("no"), d, ps, q])
+
+                  _ ->
+                    put_clpz(s, v, [a("no"), a("no"), a("no"), d, ps, q])
+                end
+
+              _ ->
+                throw(:fallback)
+            end
+
+          nil ->
+            s
+        end
+      end)
+      |> then(&{:subst, &1})
+    end)
+  end
+
   # --- variables_same_queue/1: die Warteschlangen der Variablen zusammenlegen ---
   #
   # Wie das Original: die Queues der (ungebundenen) Variablen sortiert, die

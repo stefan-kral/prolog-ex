@@ -110,6 +110,47 @@ defmodule PrologEx.ClpzQueueTest do
     "Vs = [X,Y,Z,W,B], ((#{setup_goal()}) -> #{cmp} ; true)"
   end
 
+  test "init_propagator_//2, init_propagator/2, reinforce/1 wie das Original", c do
+    check(c, 400, fn ->
+      vs = ["X", "Y", "Z", "W", "B", "_", "3", "N"]
+      l = Enum.map_join(1..Enum.random(0..4)//1, ",", fn _ -> Enum.random(vs) end)
+      t = synth()
+
+      cmp =
+        case :rand.uniform(3) do
+          1 ->
+            "clpz:new_queue(Q), P = propagator(#{t}, S), " <>
+              "same(phrase(clpz:init_propagator__ref([#{l}], P), [Q], _), " <>
+              "phrase(clpz:init_propagator_([#{l}], P), [Q], _), Vs-Q-P)"
+
+          2 ->
+            "P = propagator(#{t}, S), V = #{Enum.random(vs)}, " <>
+              "same(clpz:init_propagator_ref(V, P), clpz:init_propagator(V, P), Vs-P)"
+
+          _ ->
+            "T = f(a, [#{l}]), same(clpz:reinforce_ref(T), clpz:reinforce(T), Vs-T)"
+        end
+
+      scenario("(#{cmp})")
+    end)
+  end
+
+  test "init_propagator_//2, reinforce/1: Variable mit Einzelwert-Domäne, noch ungebunden", c do
+    single =
+      "X in 0..5, Y in 0..5, X #\\= Y, clpz:get_atts(X, clpz(clpz_attr(L,R,Sp,_,Ps,Q0))), " <>
+        "clpz:put_atts(X, clpz(clpz_attr(L,R,Sp,from_to(n(2),n(2)),Ps,Q0)))"
+
+    for cmp <- [
+          "clpz:new_queue(Q), P = propagator(pneq(X,Y), _), " <>
+            "same(phrase(clpz:init_propagator__ref([X,Y], P), [Q], _), " <>
+            "phrase(clpz:init_propagator_([X,Y], P), [Q], _), [X,Y]-Q-P)",
+          "same(clpz:reinforce_ref(f(X,Y)), clpz:reinforce(f(X,Y)), [X,Y])"
+        ] do
+      q = "#{single}, #{cmp}"
+      assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), q
+    end
+  end
+
   test "variables_same_queue/1: Warteschlangen mit Einträgen zusammenlegen", c do
     check(c, 400, fn ->
       vs = ["X", "Y", "Z", "W", "B", "_", "3"]

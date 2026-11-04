@@ -67,6 +67,8 @@
        Variablen mit Domänen: das Original verify_attributes_ref/3
      - variables_same_queue/1 in Elixir (auch über goal_expansion/2), das
        Original als variables_same_queue_ref/1
+     - init_propagator_//2, init_propagator/2 und reinforce/1 in Elixir,
+       die Originale mit der Endung _ref
 */
 
 
@@ -1238,6 +1240,8 @@ queue_slow(A,S0,S) :- '$clpz_insert_queue'(A,3,S0,S).
 % Original activate_propagator_ref//1
 goal_expansion(activate_propagator(A,S0,S), '$clpz_activate'(A,S0,S)).
 goal_expansion(variables_same_queue(Vs), '$clpz_variables_same_queue'(Vs)).
+goal_expansion(init_propagator_(Vs,P,S0,S), '$clpz_init_propagator_'(Vs,P,S0,S)).
+goal_expansion(reinforce(X), '$clpz_reinforce'(X)).
 activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
 
 
@@ -4209,7 +4213,9 @@ domain_largest_finite_ref(split(_, _, R), L) :- domain_largest_finite_ref(R, L).
    new constraint is posted.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-reinforce(X) :-
+reinforce(X) :- '$clpz_reinforce'(X).
+
+reinforce_ref(X) :-
         term_variables(X, Vs),
         maplist(reinforce_, Vs).
 
@@ -4458,16 +4464,27 @@ enable_queue --> state(queue(_,_,_,Aux)), { put_atts(Aux, -disabled) }.
 
 portray_propagator(propagator(P,_), F) :- functor(P, F, _).
 
-init_propagator_([], _) --> [].
-init_propagator_([V|Vs], Prop) -->
+% PrologEx: init_propagator_//2, init_propagator/2 und reinforce/1 in
+% Elixir ('$clpz_init_propagator_'/4, '$clpz_reinforce'/1), die Originale
+% mit der Endung _ref
+init_propagator_(Vs, Prop, S0, S) :- '$clpz_init_propagator_'(Vs, Prop, S0, S).
+
+% (wie fd_put/3 ohne DCG: danach do_queue)
+init_propagator(Var, Prop) :-
+        new_queue(Q),
+        '$clpz_init_propagator_'([Var], Prop, [Q], S),
+        do_queue(S, _).
+
+init_propagator__ref([], _) --> [].
+init_propagator__ref([V|Vs], Prop) -->
         (   { fd_get(V, Dom, Ps0) } ->
             { insert_propagator(Prop, Ps0, Ps) },
             fd_put(V, Dom, Ps)
         ;   []
         ),
-        init_propagator_(Vs, Prop).
+        init_propagator__ref(Vs, Prop).
 
-init_propagator(Var, Prop) :-
+init_propagator_ref(Var, Prop) :-
         (   fd_get(Var, Dom, Ps0) ->
             insert_propagator(Prop, Ps0, Ps),
             fd_put(Var, Dom, Ps)
