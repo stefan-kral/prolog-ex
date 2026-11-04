@@ -1310,6 +1310,16 @@ Bisher in Elixir:
     min(X,Y)`, alle 1628 Lösungen) 1,05 → 0,54–0,64 s; Planung 2,9–3,2 →
     2,9–3,0 s, Reduktionen −3 bis −6 % in Planung, Sechseck, Springerweg
     und magischen Quadraten.
+  * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
+    clpz-Attribut (der Zustand eines getöteten Propagators, eine
+    zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =
+    []`; bekommt eine Variable mit Domäne eine Zahl, prüft Elixir die Domäne
+    und reiht alle ihre Propagatoren ein, `Gs = [phrase(do_queue, [Q], _)]`
+    wie im Original. Zwei Variablen mit Domänen und ein Wert, der keine Zahl
+    ist (Typfehler), rechnet das Original. Abwechselnd gemessen: Planung
+    2,8–3,1 → 2,4–2,7 s, 8 Damen (alle) 250–300 → 190–220 ms, Springerweg
+    0,34 → 0,29–0,37 s; Reduktionen −19 % (Planung), −32 % (8 Damen),
+    −10 bis −11 % (Springerweg, Sechseck, magische Quadrate).
 
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen

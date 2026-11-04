@@ -62,6 +62,9 @@
        höchstens als letzte Aktion eines Zweigs), pdistinct und pcircuit
        (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
        Original activate_propagator_ref//1
+     - verify_attributes/3 in Elixir für einen Wert und für Variablen ohne
+       clpz-Attribut (Zustand von Propagatoren, Warteschlangen); zwei
+       Variablen mit Domänen: das Original verify_attributes_ref/3
 */
 
 
@@ -7970,7 +7973,11 @@ goals_entail(Goals, E) :-
    Unification hook and constraint projection
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-verify_attributes(Var, Other, Gs) :-
+% PrologEx: in Elixir ('$clpz_verify_attributes'/3), das Original als
+% verify_attributes_ref/3
+verify_attributes(Var, Other, Gs) :- '$clpz_verify_attributes'(Var, Other, Gs).
+
+verify_attributes_ref(Var, Other, Gs) :-
         % portray_clause(Var = Other),
         (   get_atts(Var, clpz(CLPZ)) ->
             CLPZ = clpz_attr(_,_,_,Dom,Ps,Q),

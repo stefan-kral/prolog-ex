@@ -1259,6 +1259,66 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # --- verify_attributes/3 (Hook bei der Bindung, Var noch ungebunden) ---
+  #
+  # Var ohne clpz-Attribut: Gs = []. Var = Zahl: in der Domäne?, alle
+  # Propagatoren in die Queue der Variablen, Gs = [phrase(do_queue, [Q], _)].
+  # Var = Variable mit Domäne, ein anderer Wert (type_error): das Original
+
+  defbuiltin "$clpz_verify_attributes", [var, other, gs] do
+    run("verify_attributes", [var, other, gs], subst(), fn ->
+      s = subst_now()
+
+      v =
+        case PrologEx.walk(var, s) do
+          {:var, _} = v -> v
+          _ -> throw(:fallback)
+        end
+
+      case att(v, s, "clpz", 1) do
+        nil ->
+          out_gs(gs, [], s)
+
+        [attr] ->
+          {dom, ps, q} =
+            case ws(attr, s) do
+              {tag, "clpz_attr", [_, _, _, dom, ps, q]} when tag in [:struct, :gstruct] ->
+                {dom, ps, q}
+
+              _ ->
+                throw(:fallback)
+            end
+
+          case PrologEx.walk(other, s) do
+            i when is_integer(i) ->
+              if contains_t(dom, i) do
+                {pgs, bs, os} = props(ps, s)
+
+                case s |> then_all(pgs, q) |> then_all(bs, q) |> then_all(os, q) do
+                  :fail ->
+                    :fail
+
+                  s ->
+                    out_gs(gs, [mk("phrase", [a("do_queue"), [q], fresh_var()])], s)
+                end
+              else
+                :fail
+              end
+
+            _ ->
+              throw(:fallback)
+          end
+      end
+    end)
+  end
+
+  defp out_gs(gs, l, s) do
+    case PrologEx.unify(gs, l, s) do
+      {:ok, s} -> {:subst, s}
+      :error -> :fail
+    end
+  end
+
   # --- Ablegen: put_terminating//3 (fd_put//3) ---
 
   defp put_clpz(s, v, fields), do: put_att(s, v, mk("clpz", [mk("clpz_attr", fields)]))

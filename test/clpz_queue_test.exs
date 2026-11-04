@@ -102,6 +102,28 @@ defmodule PrologEx.ClpzQueueTest do
     "Vs = [X,Y,Z,W,B], ((#{setup_goal()}) -> #{cmp} ; true)"
   end
 
+  test "verify_attributes/3: Wert in oder außerhalb der Domäne, ohne clpz-Attribut, Variable",
+       c do
+    check(c, 400, fn ->
+      other =
+        case :rand.uniform(12) do
+          1 -> "a"
+          2 -> "f(_)"
+          3 -> "_"
+          4 -> Enum.random(@vars)
+          _ -> "#{Enum.random(-5..7)}"
+        end
+
+      v = Enum.random(@vars ++ ["B", "S"])
+
+      scenario(
+        "(clpz:put_atts(S, clpz_aux(queued)), Vs1 = [S|Vs], O = #{other}, " <>
+          "same(clpz:verify_attributes_ref(#{v}, O, G), " <>
+          "clpz:verify_attributes(#{v}, O, G), Vs1-O-G))"
+      )
+    end)
+  end
+
   test "put_terminating//3: neue Domäne ablegen und Propagatoren einreihen", c do
     check(c, 250, fn ->
       scenario(
