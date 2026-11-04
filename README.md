@@ -1291,6 +1291,15 @@ Bisher in Elixir:
     Graph der möglichen Nachfolger stark zusammenhängt. Eine Variable, die
     doppelt in der Liste steht, rechnet das Original. Sudoku 0,59–0,68 →
     0,05 s, Springerweg 2,0 → 0,31–0,33 s.
+  * die Propagatoren der Planung: `reified_geq` (`X #>= Y #<==> B`),
+    `reified_and` (`#/\` reifiziert), `scalar_product_leq` (`Σ C·V #=< P`)
+    und `pgeq` (`A #>= B`). Hier binden viele Zweige (`B = 1`, `A = B`);
+    das darf Elixir, wenn die Bindung die letzte Aktion des Zweigs ist –
+    die Maschine weckt danach wie nach dem Original. Zweige mit zwei
+    Bindungen oder mit neuen Bedingungen (`B = 0` stellt `X #< Y` auf)
+    rechnet das Original; mit dem Ergebnis sterben auch die Propagatoren
+    der Teilausdrücke (`kill/2` über die `Ps`-Liste). Planung 4,0–4,1 →
+    3,3–3,4 s, die übrigen Beispiele unverändert.
 
 Eine Abweichung von Triskas Code ist eine Korrektur: `variables_same_queue/1`
 legt die Warteschlangen mehrerer Variablen zusammen – sortiert, die erste

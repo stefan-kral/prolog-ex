@@ -1433,7 +1433,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # andere Propagator: das Original (activate_propagator_ref//1) – vorher
   # ist nichts geändert, Reihenfolge und Wecken bleiben also wie dort.
 
-  @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit)
+  @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
+             reified_geq reified_and scalar_product_leq pgeq)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -1752,6 +1753,175 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- reified_geq(DX, X, DY, Y, Ps, B): B ⇔ X ≥ Y (DX, DY: definiert) ---
+  #
+  # Bindungen: nur als letzte Aktion eines Zweigs (bind/3 unten), wie im
+  # Original; dort weckt die Maschine danach, vor dem nächsten Ziel. Zweige
+  # mit mehreren Bindungen oder neuen Bedingungen: das Original.
+
+  defp propagate("reified_geq", [dx0, x0, dy0, y0, ps, b0], st, _q, s) do
+    dx = PrologEx.walk(dx0, s)
+    dy = PrologEx.walk(dy0, s)
+    b = PrologEx.walk(b0, s)
+
+    cond do
+      dx == 0 or dy == 0 ->
+        s |> kill2(st, ps) |> bind(b0, 0)
+
+      b == 1 ->
+        throw(:fallback)
+
+      dx == 1 and dy == 1 ->
+        if var?(b) do
+          reified_geq_open(val(x0, s), val(y0, s), st, ps, b0, s)
+        else
+          # B = 0: X #< Y aufstellen (das Original); sonst nichts
+          case b do
+            0 -> throw(:fallback)
+            i when is_integer(i) -> s
+            _ -> throw(:fallback)
+          end
+        end
+
+      true ->
+        s
+    end
+  end
+
+  # --- reified_and(X, Ps1, Y, Ps2, B): B ⇔ X ∧ Y ---
+
+  defp propagate("reified_and", [x0, ps1, y0, ps2, b0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+
+    cond do
+      is_integer(x) ->
+        s = kill(st, s)
+
+        if x == 0,
+          do: s |> kill_entailed_all(ps2) |> bind(b0, 0),
+          else: bind(s, b0, y0)
+
+      is_integer(y) ->
+        propagate("reified_and", [y0, ps2, x0, ps1, b0], st, q, s)
+
+      # X = 1, Y = 1: zwei Bindungen (das Original)
+      PrologEx.walk(b0, s) == 1 ->
+        throw(:fallback)
+
+      true ->
+        s
+    end
+  end
+
+  # --- scalar_product_leq(Cs, Vs, P): Σ C·V ≤ P ---
+
+  defp propagate("scalar_product_leq", [cs0, vs0, p0], st, q, s) do
+    p0 =
+      case val(p0, s) do
+        i when is_integer(i) -> i
+        _ -> throw(:fallback)
+      end
+
+    {cvs, i} = coeffs_vars(list_items(cs0, s), list_items(vs0, s), s)
+    p = p0 - i
+
+    if cvs == [] do
+      s = kill(st, s)
+      if s != :fail and p >= 0, do: s, else: :fail
+    else
+      if Enum.any?(cvs, &(elem(&1, 0) == 0)), do: throw(:fallback)
+      {infs, sups, inf, sup} = sum_finite(cvs, s)
+      d1 = p - inf
+      s = disable_queue(q, s)
+
+      s =
+        cond do
+          infs == [] and sups == [] ->
+            cond do
+              inf > p -> :fail
+              sup <= p -> kill(st, s)
+              true -> remove_dist_upper_leq(cvs, d1, q, s)
+            end
+
+          infs == [] ->
+            if inf <= p, do: remove_dist_upper(sups, d1, q, s), else: :fail
+
+          match?([_], infs) ->
+            remove_upper(infs, d1, q, s)
+
+          true ->
+            s
+        end
+
+      enable_queue(q, s)
+    end
+  end
+
+  # --- pgeq(A, B): A ≥ B ---
+
+  defp propagate("pgeq", [a0, b0], st, q, s) do
+    a = val(a0, s)
+    b = val(b0, s)
+
+    cond do
+      a == b ->
+        kill(st, s)
+
+      is_integer(a) and is_integer(b) ->
+        s = kill(st, s)
+        if s != :fail and a >= b, do: s, else: :fail
+
+      is_integer(a) ->
+        {bd, bps} = fdget(b, s)
+        bd1 = remove_gt(bd, a)
+        s |> kill_then(st) |> then_put(b, bd1, bps, q)
+
+      is_integer(b) ->
+        {ad, aps} = fdget(a, s)
+        ad1 = remove_lt(ad, b)
+        s |> kill_then(st) |> then_put(a, ad1, aps, q)
+
+      true ->
+        {ad, aps} = fdget(a, s)
+        {al, au} = {inf_dec(ad), sup_dec(ad)}
+        {bd, _} = fdget(b, s)
+        {bl, bu} = {inf_dec(bd), sup_dec(bd)}
+
+        cond do
+          not geq(au, bl) ->
+            :fail
+
+          geq(al, bu) ->
+            kill(st, s)
+
+          # A = B: eine Bindung am Ende
+          au == bl ->
+            s |> kill_then(st) |> bind(a0, b0)
+
+          true ->
+            case isect(ad, {:ft, bmax(al, bl), au}) do
+              nil ->
+                :fail
+
+              nad ->
+                s
+                |> seq(&fdput(a, nad, aps, q, &1))
+                |> seq(fn s ->
+                  case val(b, s) do
+                    {:var, _} ->
+                      {bd2, bps2} = fdget(b, s)
+                      put_isect(b, bd2, {:ft, inf_dec(bd2), bmin(sup_dec(bd2), au)}, bps2, q, s)
+
+                    _ ->
+                      s
+                  end
+                end)
+            end
+        end
+    end
+  end
+
   # --- pdistinct(Vs), pcircuit(Vs): siehe unten (all_distinct/1, circuit/1) ---
 
   defp propagate("pdistinct", [vs], _st, q, s), do: distinct(vs, q, s)
@@ -1764,6 +1934,117 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defp kill_then(s, st), do: kill(st, s)
+
+  # X = T als letzte Aktion (die Maschine weckt danach)
+  defp bind(:fail, _x, _t), do: :fail
+
+  defp bind(s, x, t) do
+    case PrologEx.unify(x, t, s) do
+      {:ok, s} -> s
+      :error -> :fail
+    end
+  end
+
+  # kill(State, Ps): kill(State), dann kill_entailed/1 für jedes Element
+  defp kill2(s, st, ps), do: s |> kill_then(st) |> kill_entailed_all(ps)
+
+  defp kill_entailed_all(:fail, _ps), do: :fail
+
+  defp kill_entailed_all(s, ps) do
+    Enum.reduce(list_items(ps, s), s, fn e, s -> seq(s, &kill_entailed(e, &1)) end)
+  end
+
+  defp kill_entailed(e, s) do
+    case ws(e, s) do
+      {tag, "p", [prop]} when tag in [:struct, :gstruct] ->
+        case ws(prop, s) do
+          {t2, "propagator", [_, state]} when t2 in [:struct, :gstruct] -> kill(state, s)
+          _ -> throw(:fallback)
+        end
+
+      {tag, "a", [v]} when tag in [:struct, :gstruct] ->
+        del_clpz(v, s)
+
+      {tag, "a", [x, b]} when tag in [:struct, :gstruct] ->
+        if PrologEx.walk(x, s) == PrologEx.walk(b, s), do: s, else: del_clpz(b, s)
+
+      {tag, "a", [x, y, b]} when tag in [:struct, :gstruct] ->
+        bw = PrologEx.walk(b, s)
+
+        if PrologEx.walk(x, s) == bw or PrologEx.walk(y, s) == bw,
+          do: s,
+          else: del_clpz(b, s)
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  # del_attr(V, clpz): nur für eine Variable
+  defp del_clpz(v, s) do
+    case PrologEx.walk(v, s) do
+      {:var, _} = var -> del_att(s, var, "clpz", 1)
+      _ -> s
+    end
+  end
+
+  # reified_geq mit DX = DY = 1 und offenem B
+  defp reified_geq_open(x, y, st, ps, b0, s) do
+    cond do
+      is_integer(x) and is_integer(y) ->
+        s |> kill_then(st) |> bind(b0, if(x >= y, do: 1, else: 0))
+
+      is_integer(x) ->
+        {yd, _} = fdget(y, s)
+
+        cond do
+          geq(x, sup_dec(yd)) -> s |> kill2(st, ps) |> bind(b0, 1)
+          lt(x, inf_dec(yd)) -> s |> kill2(st, ps) |> bind(b0, 0)
+          true -> s
+        end
+
+      is_integer(y) ->
+        {xd, _} = fdget(x, s)
+
+        cond do
+          geq(inf_dec(xd), y) -> s |> kill2(st, ps) |> bind(b0, 1)
+          lt(sup_dec(xd), y) -> s |> kill2(st, ps) |> bind(b0, 0)
+          true -> s
+        end
+
+      x == y ->
+        s |> kill2(st, ps) |> bind(b0, 1)
+
+      true ->
+        {xd, _} = fdget(x, s)
+        {yd, _} = fdget(y, s)
+
+        cond do
+          geq(inf_dec(xd), sup_dec(yd)) -> s |> kill2(st, ps) |> bind(b0, 1)
+          lt(sup_dec(xd), inf_dec(yd)) -> s |> kill2(st, ps) |> bind(b0, 0)
+          true -> s
+        end
+    end
+  end
+
+  # remove_dist_upper_leq//3: je Variable die Schranke über D1 kürzen
+  # (eine unendliche Schranke: das Original scheitert)
+  defp remove_dist_upper_leq(cvs, d1, q, s) do
+    each_cv(cvs, q, s, fn c, vd ->
+      if c < 0 do
+        case int_bound(sup_dec(vd)) do
+          nil -> nil
+          sup -> remove_lt(vd, sup + div(d1, c))
+        end
+      else
+        case int_bound(inf_dec(vd)) do
+          nil -> nil
+          inf -> remove_gt(vd, inf + div(d1, c))
+        end
+      end
+    end)
+  end
+
   defp then_put(s, v, d, ps, q), do: fdput(v, d, ps, q, s)
 
   defp inf_d(d), do: inf_dec(d)

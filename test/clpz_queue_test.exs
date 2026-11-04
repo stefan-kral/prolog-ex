@@ -202,7 +202,26 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(6) do
+    case :rand.uniform(11) do
+      7 ->
+        b = Enum.random(["B", "0", "1", "B"])
+        dx = Enum.random(["1", "1", "0", "DX"])
+        dy = Enum.random(["1", "1", "0", "DY"])
+        "reified_geq(#{dx}, #{parg()}, #{dy}, #{parg()}, #{ents()}, #{b})"
+
+      8 ->
+        "reified_and(#{Enum.random(["0", "1", "X", "Y"])}, #{ents()}, " <>
+          "#{Enum.random(["0", "1", "Y", "Z"])}, #{ents()}, #{Enum.random(["B", "0", "1", "W"])})"
+
+      9 ->
+        n = Enum.random(0..4)
+        cs = Enum.map_join(1..max(n, 1), ",", fn _ -> Enum.random([-3, -2, -1, 1, 1, 2, 3]) end)
+        vs = Enum.map_join(1..max(n, 1), ",", fn _ -> parg() end)
+        "scalar_product_leq([#{cs}], [#{vs}], #{Enum.random(-4..12)})"
+
+      10 ->
+        "pgeq(#{parg()}, #{parg()})"
+
       1 ->
         "pneq(#{parg()}, #{parg()})"
 
@@ -229,6 +248,19 @@ defmodule PrologEx.ClpzQueueTest do
     end
   end
 
+  # Liste für kill_entailed/1: p(Propagator), a(V), a(X,B), a(X,Y,B)
+  defp ents do
+    "[" <>
+      Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ ->
+        Enum.random([
+          "p(propagator(pneq(X,Y),_))",
+          "a(#{Enum.random(@vars)})",
+          "a(X,#{Enum.random(@vars)})",
+          "a(X,Y,#{Enum.random(@vars)})"
+        ])
+      end) <> "]"
+  end
+
   defp doms do
     for v <- @vars, :rand.uniform(4) > 1 do
       "#{v} in #{Enum.random(~w(0..5 -3..3 1..2\\/4..9 inf..4 0..sup 2..3 1..1\\/3..3 -2..sup))}"
@@ -241,10 +273,13 @@ defmodule PrologEx.ClpzQueueTest do
   end
 
   test "activate_propagator//1: synthetische Propagatoren, allein und bis zum Fixpunkt", c do
-    check(c, 600, fn ->
+    check(c, 1200, fn ->
       t = synth()
 
-      "Vs = [X,Y,Z,W], (#{doms()} -> clpz:new_queue(Q), P = propagator(#{t}, S), " <>
+      bdom = Enum.random(["true", "B in 0..1", "B in 0..1, DX in 0..1"])
+
+      "Vs = [X,Y,Z,W,B,DX,DY], (#{doms()}, #{bdom} -> clpz:new_queue(Q), " <>
+        "P = propagator(#{t}, S), " <>
         "same(phrase(clpz:activate_propagator_ref(P), [Q], _), " <>
         "phrase(clpz:activate_propagator(P), [Q], _), Vs-Q-S), " <>
         "same(phrase((clpz:activate_propagator_ref(P), clpz:do_queue_ref), [Q], _), " <>

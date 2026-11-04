@@ -72,6 +72,30 @@ defmodule PrologEx.ClpzTest do
              )
   end
 
+  test "reifiziertes #>=: Grenzfälle der Schranken wie in Scryer", c do
+    for {q, expect} <- [
+          {"X in 0..3, B #<==> (3 #>= X)", "B = 1, X in 0..3"},
+          {"X in 0..3, B #<==> (0 #>= X)", "B in 0..1, 0#>=X#<==>B, X in 0..3"},
+          {"X in 0..3, B #<==> (-1 #>= X)", "B = 0, X in 0..3"},
+          {"X in 0..3, B #<==> (X #>= 3)", "B in 0..1, X#>=3#<==>B, X in 0..3"},
+          {"X in 0..3, B #<==> (X #>= 4)", "B = 0, X in 0..3"},
+          {"X in 0..3, Y in 3..5, B #<==> (X #>= Y)",
+           "B in 0..1, X#>=Y#<==>B, X in 0..3, Y in 3..5"},
+          {"X in 3..5, Y in 0..3, B #<==> (X #>= Y)", "B = 1, X in 3..5, Y in 0..3"},
+          {"X in 0..2, Y in 3..5, B #<==> (X #>= Y)", "B = 0, X in 0..2, Y in 3..5"},
+          {"X in 0..3, B #<==> (X #>= Y), Y in 3..5, X = 3",
+           "X = 3, B in 0..1, 3#>=Y#<==>B, Y in 3..5"},
+          # entschieden: die Hilfspropagatoren der Teilausdrücke sterben mit
+          {"X in 5..9, Y in 0..2, Z in 0..2, B #<==> (X #>= Y+Z)",
+           "B = 1, X in 5..9, Y in 0..2, Z in 0..2"},
+          {"B #<==> (X #>= Y*Z), X in 5..9, Y in 0..2, Z in 0..2",
+           "B = 1, X in 5..9, Y in 0..2, Z in 0..2"},
+          {"B #<==> (X #>= abs(Y)), Y in -2..2, X = 4", "B = 1, X = 4, Y in -2..2"}
+        ] do
+      assert answers(c, q) == {:answers, [expect]}, q
+    end
+  end
+
   test "Fehler wie in Scryer", c do
     assert {:error, "domain_error(clpz_domain,a..b)"} = answers(c, "X in a..b")
     assert {:error, "domain_error(clpz_expression,a)"} = answers(c, "X #= a")
