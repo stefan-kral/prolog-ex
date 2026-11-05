@@ -1358,8 +1358,15 @@ Bisher in Elixir:
     `fd_put/3` mit dem Attribut als Argument) – jetzt nur Steuerkonstrukte
     und Listengerüste (ein Fehler: wie bisher über den ganz aufgelösten
     Rumpf). `fd_get` + `fd_put` an einer Variable mit 120 Propagatoren:
-    170 → 15 µs. Aufstellen von 30 Damen 270–290 → 180–260 ms, 60 Damen
+    170 → 25 µs. Aufstellen von 30 Damen 270–290 → 180–260 ms, 60 Damen
     1,64 → 1,1 s.
+  * `x_neq_y_plus_z` (`X #\= Y + Z`), `scalar_product_neq` (nur die Zweige
+    ohne neue Bedingungen: keine Variable mehr, sonst nichts zu tun),
+    `reified_in` (`B #<==> X in D` bei offenem B), `reified_fd`, `pxor` und
+    `psign`; `neq/2` aus einem Zweig, `domain/2` bei bekanntem B und die
+    Zweige von `scalar_product_neq` mit neuen Bedingungen rechnet das
+    Original. Im Korpus kommen sie nicht vor (dort läuft in Prolog kein
+    Propagator mehr außer Rückfällen).
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

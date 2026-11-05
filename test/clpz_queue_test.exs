@@ -451,7 +451,38 @@ defmodule PrologEx.ClpzQueueTest do
   defp plist, do: "[" <> Enum.map_join(1..Enum.random(0..3)//1, ",", fn _ -> parg() end) <> "]"
 
   defp synth do
-    case :rand.uniform(26) do
+    case :rand.uniform(32) do
+      27 ->
+        "x_neq_y_plus_z(#{parg()}, #{parg()}, #{parg()})"
+
+      28 ->
+        n = Enum.random(0..4)
+        cs = Enum.map_join(1..max(n, 1), ",", fn _ -> Enum.random([-1, 1, 1, -1, 2, 0]) end)
+        vs = Enum.map_join(1..max(n, 1), ",", fn _ -> parg() end)
+        "scalar_product_neq([#{cs}], [#{vs}], #{Enum.random([0, 0, -2, 1, 3, 4])})"
+
+      29 ->
+        d =
+          Enum.random([
+            "from_to(n(1),n(3))",
+            "from_to(inf,n(2))",
+            "from_to(n(0),sup)",
+            "split(2, from_to(n(0),n(1)), from_to(n(4),sup))",
+            "from_to(n(0),n(0))",
+            "from_to(inf,sup)"
+          ])
+
+        "reified_in(#{parg()}, #{d}, #{Enum.random(["B", "B", "0", "1", "W"])})"
+
+      30 ->
+        "reified_fd(#{parg()}, #{Enum.random(["B", "B", "0", "1"])})"
+
+      31 ->
+        "pxor(#{parg()}, #{parg()}, #{parg()})"
+
+      32 ->
+        "psign(#{parg()}, #{Enum.random(["Y", "-1", "0", "1", "2", "W"])})"
+
       25 ->
         "pelement(#{Enum.random(["X", "W", "1", "2", "4", "0"])}, #{plist()}, #{parg()})"
 
@@ -662,6 +693,33 @@ defmodule PrologEx.ClpzQueueTest do
        "x_leq_y_plus_c(4, Y, -1)",
        "x_leq_y_plus_c(X, X, 0)",
        "x_leq_y_plus_c(X, X, -1)"
+     ]},
+    {"x_neq_y_plus_z scalar_product_neq",
+     [
+       "x_neq_y_plus_z(X, Y, Z)",
+       "x_neq_y_plus_z(3, Y, Z)",
+       "x_neq_y_plus_z(X, 2, Z)",
+       "x_neq_y_plus_z(X, Y, 1)",
+       "x_neq_y_plus_z(5, 2, Z)",
+       "x_neq_y_plus_z(X, 2, 3)",
+       "x_neq_y_plus_z(4, Y, 1)",
+       "scalar_product_neq([1,2,1], [X,Y,Z], 4)",
+       "scalar_product_neq([1,1,-1], [X,Y,Z], 1)",
+       "scalar_product_neq([1,-1,1], [X,Y,Z], 0)",
+       "scalar_product_neq([1,1,-1,2], [X,Y,Z,2], 4)"
+     ]},
+    {"pxor psign reified_in reified_fd",
+     [
+       "pxor(X, Y, Z)",
+       "pxor(X, X, Z)",
+       "pxor(X, 0, Z)",
+       "pxor(X, Y, 0)",
+       "psign(X, Y)",
+       "psign(X, -1)",
+       "psign(X, 2)",
+       "reified_fd(X, Y)",
+       "reified_in(X, from_to(n(0),n(3)), Y)",
+       "reified_in(X, split(3, from_to(n(-2),n(1)), from_to(n(5),sup)), Y)"
      ]},
     {"prem",
      ["prem(X, Y, Z)", "prem(X, 3, Z)", "prem(X, -4, Z)", "prem(X, 3, 1)", "prem(X, -4, -2)"]},

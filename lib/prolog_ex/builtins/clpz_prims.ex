@@ -1831,7 +1831,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   @ported ~w(pneq absdiff_neq pexclude pdifferent pplus scalar_product_eq pdistinct pcircuit
              reified_geq reified_and scalar_product_leq pgeq ptimes pmax pmin pabs
              reified_eq reified_neq pexp ptzdiv prem pmod reified_or reified_not pimpl
-             x_leq_y_plus_c pelement pgcc_check pgcc_check_single)
+             x_leq_y_plus_c pelement pgcc_check pgcc_check_single x_neq_y_plus_z
+             scalar_product_neq reified_in reified_fd pxor psign)
 
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
@@ -2883,6 +2884,164 @@ defmodule PrologEx.Builtins.ClpzPrims do
             s
           end
         end)
+    end
+  end
+
+  # --- x_neq_y_plus_z(X, Y, Z): X ≠ Y + Z ---
+  #
+  # neq(X, Z) bzw. neq(X, Y) (neue Bedingung): das Original
+
+  defp propagate("x_neq_y_plus_z", [x0, y0, z0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) and is_integer(y) and is_integer(z) ->
+        s = kill(st, s)
+        if s != :fail and x != y + z, do: s, else: :fail
+
+      is_integer(x) and is_integer(y) ->
+        s |> kill_then(st) |> seq(&neq_num(z0, x - y, q, &1))
+
+      is_integer(x) and is_integer(z) ->
+        s |> kill_then(st) |> seq(&neq_num(y0, x - z, q, &1))
+
+      is_integer(x) ->
+        s
+
+      is_integer(y) and is_integer(z) ->
+        s |> kill_then(st) |> seq(&neq_num(x0, y + z, q, &1))
+
+      y == 0 or z == 0 ->
+        throw(:fallback)
+
+      true ->
+        s
+    end
+  end
+
+  # --- scalar_product_neq(Cs, Vs, P): Σ C·V ≠ P ---
+  #
+  # Die Zweige, die neue Bedingungen aufstellen (eine Variable, zwei oder
+  # drei mit Koeffizienten ±1): das Original
+
+  defp propagate("scalar_product_neq", [cs0, vs0, p0], st, _q, s) do
+    p0 =
+      case val(p0, s) do
+        i when is_integer(i) -> i
+        _ -> throw(:fallback)
+      end
+
+    {cvs, i} = coeffs_vars(list_items(cs0, s), list_items(vs0, s), s)
+    p = p0 - i
+    cs = Enum.map(cvs, &elem(&1, 0))
+
+    cond do
+      cvs == [] ->
+        s = kill(st, s)
+        if s != :fail and p != 0, do: s, else: :fail
+
+      match?([_], cvs) or cs in [[1, -1], [-1, 1]] ->
+        throw(:fallback)
+
+      p == 0 and cs in [[1, 1, -1], [1, -1, 1], [-1, 1, 1]] ->
+        throw(:fallback)
+
+      true ->
+        s
+    end
+  end
+
+  # --- reified_in(V, Dom, B): B ⇔ V in Dom ---
+  #
+  # B schon 0 oder 1 bei offenem V (domain/2, eine neue Ablage mit eigener
+  # Queue): das Original
+
+  defp propagate("reified_in", [v0, dom0, b0], st, _q, s) do
+    dom = dom(dom0)
+
+    case val(v0, s) do
+      v when is_integer(v) ->
+        s |> kill_then(st) |> bind(b0, if(dcontains?(dom, v), do: 1, else: 0))
+
+      v ->
+        b = val(b0, s)
+        if b == 0 or b == 1, do: throw(:fallback)
+        {vd, _} = fdget(v, s)
+
+        case isect(vd, dom) do
+          nil -> s |> kill_then(st) |> bind(b0, 0)
+          ^vd -> s |> kill_then(st) |> bind(b0, 1)
+          _ -> s
+        end
+    end
+  end
+
+  # --- reified_fd(V, B): B = 1, sobald V endlich ist ---
+
+  defp propagate("reified_fd", [v0, b0], st, _q, s) do
+    case val(v0, s) do
+      v when is_integer(v) ->
+        s |> kill_then(st) |> bind(b0, 1)
+
+      v ->
+        case ibounds(v, s) do
+          {inf, sup} when is_integer(inf) and is_integer(sup) ->
+            s |> kill_then(st) |> bind(b0, 1)
+
+          _ ->
+            s
+        end
+    end
+  end
+
+  # --- pxor(X, Y, Z): Z = X xor Y ---
+
+  defp propagate("pxor", [x0, y0, z0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+    z = val(z0, s)
+
+    cond do
+      is_integer(x) and is_integer(y) -> s |> kill_then(st) |> bind(z0, Bitwise.bxor(x, y))
+      is_integer(y) and is_integer(z) -> s |> kill_then(st) |> bind(x0, Bitwise.bxor(y, z))
+      is_integer(z) and is_integer(x) -> s |> kill_then(st) |> bind(y0, Bitwise.bxor(z, x))
+      x == y -> s |> kill_then(st) |> goal(mk("=", [z0, 0]), q)
+      y == z -> s |> kill_then(st) |> goal(mk("=", [x0, 0]), q)
+      z == x -> s |> kill_then(st) |> goal(mk("=", [y0, 0]), q)
+      x == 0 -> s |> kill_then(st) |> goal(mk("=", [y0, z0]), q)
+      y == 0 -> s |> kill_then(st) |> goal(mk("=", [z0, x0]), q)
+      z == 0 -> s |> kill_then(st) |> goal(mk("=", [x0, y0]), q)
+      true -> s
+    end
+  end
+
+  # --- psign(X, Y): Y = sign(X) ---
+
+  defp propagate("psign", [x0, y0], st, q, s) do
+    x = val(x0, s)
+    y = val(y0, s)
+
+    cond do
+      is_integer(x) ->
+        s |> kill_then(st) |> goal(mk("is", [y0, mk("sign", [x0])]), q)
+
+      y == -1 ->
+        s |> kill_then(st) |> goal(mk("#<", [x0, 0]), q)
+
+      y == 0 ->
+        s |> kill_then(st) |> goal(mk("=", [x0, 0]), q)
+
+      y == 1 ->
+        s |> kill_then(st) |> goal(mk("#>", [x0, 0]), q)
+
+      true ->
+        case ibounds(x, s) do
+          {l, _} when is_integer(l) and l > 0 -> s |> kill_then(st) |> goal(mk("=", [y0, 1]), q)
+          {_, u} when is_integer(u) and u < 0 -> s |> kill_then(st) |> goal(mk("=", [y0, -1]), q)
+          _ -> s
+        end
     end
   end
 
