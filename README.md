@@ -1385,6 +1385,11 @@ Bisher in Elixir:
     `do_queue//0` hätte genau diese Queue geleert. Planung 1,63–1,85 →
     1,34–1,49 s (−5 % Reduktionen), Springerweg und Sechseck etwas
     schneller.
+  * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
+    übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
+    clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige
+    Hook-Modul, weckt die Maschine sie nicht mehr: beim Aufstellen der
+    Planung 10435 → 4570 Hook-Aufrufe, −5 % Reduktionen.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

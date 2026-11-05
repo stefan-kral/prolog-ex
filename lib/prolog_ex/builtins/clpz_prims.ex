@@ -1459,7 +1459,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       case same_queue(list_items(vs0, s), s) do
         :fail -> :fail
-        s -> {:subst, s}
+        s -> {:subst, drop_inert_wake(s)}
       end
     end)
   end
@@ -1509,6 +1509,34 @@ defmodule PrologEx.Builtins.ClpzPrims do
       end)
     end
   end
+
+  # Gebundene Queue-Variablen (und andere ohne Domäne, nur mit Attributen
+  # von clpz): ihr Wecken tut nichts – verify_attributes/3 von clpz gibt
+  # Gs = [], und es gibt keine freeze/dif/when-Suspensionen. Ist clpz das
+  # einzige Modul mit verify_attributes/3 (vom Aufrufer geprüft), braucht
+  # die Maschine sie also nicht zu wecken
+  defp drop_inert_wake(%{wake: ws} = s) do
+    if Enum.all?(ws, &inert?(&1, s)), do: Map.delete(s, :wake), else: s
+  end
+
+  defp drop_inert_wake(s), do: s
+
+  defp inert?({:var, {:attv, id}}, s) do
+    case Map.get(s, {:attrs, id}, %{}) do
+      m when map_size(m) == 0 ->
+        true
+
+      %{"clpz" => l} = m when map_size(m) == 1 ->
+        Enum.all?(all_items(l, s), fn t ->
+          not match?({tag, "clpz", [_]} when tag in [:struct, :gstruct], ws(t, s))
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  defp inert?(_, _s), do: false
 
   # die vier Variablen einer Queue queue(Goals, Fast, Slow, Aux)
   defp queue_args(q, s) do
