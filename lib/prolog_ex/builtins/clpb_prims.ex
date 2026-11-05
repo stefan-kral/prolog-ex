@@ -57,6 +57,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   """
   use PrologEx.Builtin
   alias PrologEx.Builtins.{Assoc, Atts, Blackboard}
+  alias PrologEx.Store
 
   defbuiltin "$clpb_propagate", [bdd, p] do
     try do
@@ -1065,7 +1066,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
           # del_bdd/1 und maplist(=(Root), Roots): die übrigen Wurzeln
           # an die erste binden – ihre Attribute sind damit unerreichbar,
           # und das Wecken bliebe ohne Wirkung (sie haben keinen Index)
-          s = Enum.reduce(rest, s, &Map.put(&2, &1, root))
+          s = Enum.reduce(rest, s, &Store.put_binding(&2, &1, root))
           Atts.put_one(s, root, "clpb", mk("clpb_bdd", [mk("-", [formula, bdd])]))
       end
 
@@ -1264,10 +1265,13 @@ defmodule PrologEx.Builtins.ClpbPrims do
         :single -> [sat]
       end
 
+    # eine Probe: alle Änderungen (Knoten, Indizes) werden verworfen
     try do
       Enum.all?(items, &tautology?(&1, s))
     catch
       :clpb_fail -> false
+    after
+      Store.restore(s)
     end
   end
 
@@ -1354,7 +1358,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
             conj = Enum.reduce(fs, f, &mk("*", [&2, &1]))
             s = Enum.reduce(roots, s, &Atts.del_one(&2, &1, "clpb", "clpb_bdd"))
             [root | rest] = roots
-            s = Enum.reduce(rest, s, &Map.put(&2, &1, root))
+            s = Enum.reduce(rest, s, &Store.put_binding(&2, &1, root))
             {[mk("root_rebuild_bdd", [root, conj])], s}
         end
     end
@@ -1405,6 +1409,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
     try do
       count = sat_count(sat0, PrologEx.Store.walk(mono, s) == a("true"), s)
+      Store.restore(s)
 
       case PrologEx.unify(n, count, s) do
         {:ok, s} -> {:subst, s}

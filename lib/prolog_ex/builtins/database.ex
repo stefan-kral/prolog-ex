@@ -279,14 +279,7 @@ defmodule PrologEx.Builtins.Database do
     unify_all([{h, ch2}], s)
   end
 
-  defp unify_all([], _s), do: true
-
-  defp unify_all([{x, y} | more], s) do
-    case PrologEx.unify(x, y, s) do
-      {:ok, s} -> unify_all(more, s)
-      :error -> false
-    end
-  end
+  defp unify_all(pairs, s), do: PrologEx.unifiable_all?(pairs, s)
 
   # Steuerkonstrukte und geschützte Builtins sind tabu; nicht geschützte
   # Builtins (append/3, ...) darf man wie beim consult durch eigene

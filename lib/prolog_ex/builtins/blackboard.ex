@@ -72,8 +72,8 @@ defmodule PrologEx.Builtins.Blackboard do
   def get(key, t, mod, s) do
     k = key!(key, mod, s)
 
-    case s do
-      %{@b_key => %{^k => v}} -> {:unify, [{t, v}]}
+    case Store.get(s, @b_key, %{}) do
+      %{^k => v} -> {:unify, [{t, v}]}
       _ -> get_global(k, t, s)
     end
   end
@@ -152,8 +152,8 @@ defmodule PrologEx.Builtins.Blackboard do
   def b_value(mod, name, s) do
     k = {mod, {:atom, name}}
 
-    case s do
-      %{@b_key => %{^k => v}} -> {:ok, v}
+    case Store.get(s, @b_key, %{}) do
+      %{^k => v} -> {:ok, v}
       _ -> with {:ok, v} <- fetch(k), do: {:ok, value_copy(v, %{})}
     end
   end

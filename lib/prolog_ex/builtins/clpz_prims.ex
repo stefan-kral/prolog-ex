@@ -46,7 +46,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
     try do
       f.()
     catch
-      :fallback -> {:call, mk(":", [a("clpz"), mk(name <> "_ref", args)])}
+      :fallback ->
+        # das Original rechnet von der Eingangssubstitution aus
+        Store.restore(s)
+        {:call, mk(":", [a("clpz"), mk(name <> "_ref", args)])}
     end
   end
 
@@ -2061,7 +2064,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
           end
       end
     catch
-      :fallback -> :fallback
+      :fallback ->
+        Store.restore(s)
+        :fallback
     end
   end
 
@@ -2154,16 +2159,18 @@ defmodule PrologEx.Builtins.ClpzPrims do
             {:next, mk("ref", [e]), s}
 
           {:ok, s} ->
+            # (zurück nach Prolog mit dem Weck-Vermerk: restore/1 holt ihn
+            # zurück)
             case Store.take_wake(s) do
               {ws, s0} ->
                 if only_clpz do
                   case absorb_wake(ws, q, s0) do
                     {:ok, s} -> queue_loop(q, args, only_clpz, s)
                     :fail -> :fail
-                    :no -> {:next, a("again"), s}
+                    :no -> {:next, a("again"), Store.restore(s)}
                   end
                 else
-                  {:next, a("again"), s}
+                  {:next, a("again"), Store.restore(s)}
                 end
 
               _ ->

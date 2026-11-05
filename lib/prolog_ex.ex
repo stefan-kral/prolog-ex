@@ -439,8 +439,41 @@ defmodule PrologEx do
   # mode: siehe bind_checked/4
   def unify(x, y, subst, mode) do
     case u(x, y, subst, mode, %{}) do
-      {:ok, s, _m} -> {:ok, s}
-      :error -> :error
+      {:ok, s, _m} ->
+        {:ok, s}
+
+      :error ->
+        # Teilbindungen der gescheiterten Unifikation zurücknehmen
+        Store.restore(subst)
+        :error
+    end
+  end
+
+  @doc """
+  Probe: sind x und y unifizierbar? Die Bindungen der Probe werden
+  zurückgenommen – die Substitution bleibt, wie sie war.
+  """
+  def unifiable?(x, y, subst) do
+    case unify(x, y, subst) do
+      {:ok, _} ->
+        Store.restore(subst)
+        true
+
+      :error ->
+        false
+    end
+  end
+
+  @doc "Probe für mehrere Paare (siehe unifiable?/3)"
+  def unifiable_all?(pairs, subst) do
+    case unify_pairs(pairs, subst, Process.get(@occurs_key)) do
+      {:ok, _} ->
+        Store.restore(subst)
+        true
+
+      :error ->
+        Store.restore(subst)
+        false
     end
   end
 
@@ -1254,7 +1287,12 @@ defmodule PrologEx do
   @time_ball {:atom, "time_limit_exceeded"}
 
   defstruct goals: [],
-            subst: Store.new(),
+            # Marke des Bindungsspeichers (PrologEx.Store); floor: Marke beim
+            # Start dieser Maschine (nur jüngere Einträge gehören ihr),
+            # swept: Marke des letzten Aufräumens
+            subst: 0,
+            floor: 0,
+            swept: 0,
             cps: [],
             height: 0,
             db: %{},
@@ -1624,10 +1662,18 @@ defmodule PrologEx do
   # Negation: eigener Lauf mit leerem Choice-Point-Stack (Cut darin ist lokal)
   defp step({:struct, "\\+", [g]}, _cutb, mod, rest, st) do
     case guarded(fn ->
-           run(%{st | goals: [{body!(g, st.subst), 0, mod}], cps: [], height: 0, answer: []})
+           run(
+             sub_floor(%{
+               st
+               | goals: [{body!(g, st.subst), 0, mod}],
+                 cps: [],
+                 height: 0,
+                 answer: []
+             })
+           )
          end) do
-      {:ok, {:sol, sub}} -> discard(sub, resync(st), &backtrack/1)
-      {:ok, :done} -> run(%{resync(st) | goals: rest})
+      {:ok, {:sol, sub}} -> discard(sub, st, &backtrack(after_sub(&1)))
+      {:ok, :done} -> run(%{after_sub(st) | goals: rest})
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end
@@ -1644,8 +1690,10 @@ defmodule PrologEx do
            collect(run(sub_machine(t, body!(g, st.subst), mod, st)), :infinity, [])
          end) do
       {:ok, {items, :done}} ->
+        st = after_sub(st)
+
         case unify(l, list(items, tail), st.subst) do
-          {:ok, s} -> cont(resync(st), s, rest)
+          {:ok, s} -> cont(st, s, rest)
           :error -> backtrack(st)
         end
 
@@ -1674,13 +1722,15 @@ defmodule PrologEx do
 
     case folded do
       {:ok, {:ok, v}} ->
+        st = after_sub(st)
+
         case unify(r, v, st.subst) do
-          {:ok, s} -> cont(resync(st), s, rest)
+          {:ok, s} -> cont(st, s, rest)
           :error -> backtrack(st)
         end
 
       {:ok, :fail} ->
-        backtrack(st)
+        backtrack(after_sub(st))
 
       {:thrown, ball} ->
         throw_ball(ball, st)
@@ -2196,7 +2246,7 @@ defmodule PrologEx do
       end)
 
     case chunk do
-      {:ok, {k, collected}} -> findnsols_chunk(collected, k, l, tail, rest, resync(st))
+      {:ok, {k, collected}} -> findnsols_chunk(collected, k, l, tail, rest, st)
       {:thrown, ball} -> throw_ball(ball, st)
     end
   end
@@ -2214,8 +2264,10 @@ defmodule PrologEx do
 
     case counted do
       {:ok, k} ->
+        st = after_sub(st)
+
         case unify(n, k, st.subst) do
-          {:ok, s} -> cont(resync(st), s, rest)
+          {:ok, s} -> cont(st, s, rest)
           :error -> backtrack(st)
         end
 
@@ -2828,7 +2880,7 @@ defmodule PrologEx do
     Enum.flat_map(cps, fn
       {:scc, _id, _c, mod, _s, _a, c} -> [cleanup_goal(c, mod, h)]
       # eine aufbewahrte Unter-Maschine (findnsols) mit eigenen Rahmen
-      {:findnsols, %{scc: true, cps: sub}, _, _, _, _, _, _} -> cleanups(sub, h)
+      {:findnsols, {%{scc: true, cps: sub}, _log}, _, _, _, _, _, _} -> cleanups(sub, h)
       _ -> []
     end)
   end
@@ -3299,8 +3351,19 @@ defmodule PrologEx do
   # Unter-Maschine für findall & Co.: eigener Ziel- und Choice-Point-Stack;
   # das Template steht in der Antwortliste, damit die Kompaktierung seine
   # Bindungen mitführt. Cut im Ziel ist lokal (Barriere 0).
+  # eine Unter-Maschine beginnt bei der aktuellen Marke: nur jüngere
+  # Einträge gehören ihr (sweep), aufgeräumt wird ab hier
+  defp sub_floor(st), do: %{st | floor: st.subst, swept: st.subst}
+
+  # Zurück in die äußere Maschine: alles, was die Unter-Maschine gebunden
+  # hat, wird zurückgenommen (ihre Ergebnisse sind Kopien); dazu resync/1
+  defp after_sub(st) do
+    Store.restore(st.subst)
+    resync(st)
+  end
+
   defp sub_machine(t, g, mod, st) do
-    %{st | goals: [{g, 0, mod}], cps: [], height: 0, answer: [{"$template", t}]}
+    %{st | goals: [{g, 0, mod}], cps: [], height: 0, answer: [{"$template", t}]} |> sub_floor()
   end
 
   # Lösungen einsammeln: höchstens n (oder :infinity). Ergebnis
@@ -3338,10 +3401,19 @@ defmodule PrologEx do
         # dann müssen auch Cuts hier hinsehen (cut_to/3)
         {:more, sub} ->
           st = if sub.scc, do: %{st | scc: true}, else: st
-          push(st, {:findnsols, sub, k, l, tail, rest, Store.snapshot(st.subst), st.answer})
+          # die Bindungen der aufbewahrten Unter-Maschine kommen aus dem
+          # Speicher heraus (die äußere rechnet ohne sie weiter) und beim
+          # Fortsetzen wieder hinein
+          log = Store.detach(st.subst)
+          st = resync(st)
+
+          push(
+            st,
+            {:findnsols, {sub, log}, k, l, tail, rest, Store.snapshot(st.subst), st.answer}
+          )
 
         :done ->
-          st
+          after_sub(st)
       end
 
     case unify(l, list(items, tail), st.subst) do
@@ -3413,6 +3485,7 @@ defmodule PrologEx do
   defp clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st) do
     case matched do
       :error ->
+        Store.restore(st.subst)
         try_clauses(goal, args, more, rest, mod, st)
 
       {:ok, env, s1, nv} ->
@@ -3475,11 +3548,12 @@ defmodule PrologEx do
           {:thrown, ball} -> throw_ball(ball, st)
         end
 
-      {:findnsols, sub, k, l, tail, rest, subst, answer} ->
+      {:findnsols, {sub, log}, k, l, tail, rest, subst, answer} ->
         st = %{st | subst: Store.restore(subst), answer: answer}
+        Store.reattach(log)
 
         case guarded(fn -> collect(backtrack(sub), k, []) end) do
-          {:ok, collected} -> findnsols_chunk(collected, k, l, tail, rest, resync(st))
+          {:ok, collected} -> findnsols_chunk(collected, k, l, tail, rest, st)
           {:thrown, ball} -> throw_ball(ball, st)
         end
 
@@ -3651,29 +3725,30 @@ defmodule PrologEx do
   defp unwind(ball, [_ | below], h, st), do: unwind(ball, below, h - 1, st)
 
   # ---------------------------------------------------------------------
-  # Kompaktierung der Substitution
+  # Aufräumen des Bindungsspeichers (Kompaktierung)
   #
-  # Lebendig sind nur Variablen, die im Ziel-Stack oder in den
-  # Anfragevariablen vorkommen (Choice Points haben eigene Schnappschüsse).
-  # Wir setzen die Bindungen dort ein und starten mit leerer Map.
-  # Das Memo pro Variable erhält geteilte Teilterme (sonst droht
-  # exponentielles Aufblähen bei DAG-artigen Termen).
-  # Dabei werden Terme, die durch das Einsetzen ground geworden sind, als
-  # gstruct/glist markiert; markierte Terme werden nie wieder durchlaufen.
+  # Der Speicher (PrologEx.Store) wächst mit jeder Bindung; was keine
+  # Wurzel mehr erreicht, löscht sweep_all/1 wieder. Wurzeln sind der
+  # Ziel-Stack und die Antwortvariablen (sie werden dabei aufgelöst: die
+  # Bindungen stehen danach in den Termen, ground gewordene Teilterme
+  # werden als gstruct/glist markiert und nie wieder durchlaufen), die
+  # Inhalte der Choice Points (nur markiert, nicht aufgelöst – sie sehen
+  # beim Zurücksetzen ältere Bindungen), Attribute erreichbarer
+  # attributierter Variablen, der Weck-Vermerk, die Ebene von
+  # call_with_depth_limit/3 und das backtrackbare Blackboard. Gelöscht
+  # wird nur, was diese Maschine selbst angelegt hat (ab st.floor);
+  # Choice Points mit undurchsichtigem Inhalt (Closures lazy aufgezählter
+  # Lösungen) schützen alles, was älter ist als sie.
   # Die nächste Schwelle ist das Doppelte des Größeren von: Anzahl der
-  # NICHT-ground Knoten in den lebenden Termen (die Kosten der
-  # Kompaktierung) und Einträge der kompaktierten Substitution (etwa
-  # Attribute vieler lebender attributierter Variablen mit kleinen
-  # Suspensionen). So kommen bis zur nächsten Kompaktierung mindestens so
-  # viele Einträge dazu, wie sie kostet -> amortisiert O(1), unabhängig von
-  # großen ground Daten.
+  # besuchten Knoten (die Kosten des Aufräumens) und verbliebene Einträge
+  # -> amortisiert O(1), unabhängig von großen ground Daten.
   # ---------------------------------------------------------------------
 
   defp maybe_compact(st) do
-    if Store.size(st.subst) < st.threshold, do: st, else: compact_all(st)
+    if st.subst - st.swept < st.threshold, do: st, else: sweep_all(st)
   end
 
-  defp compact_all(st) do
+  defp sweep_all(st) do
     # acc = {Memo, Größe, erreichte attributierte Variablen (Kennungen)}
     {goals, acc} =
       Enum.map_reduce(st.goals, {%{}, 0, []}, fn {g, cutb, mod}, acc ->
@@ -3703,118 +3778,246 @@ defmodule PrologEx do
         {st.cps, acc}
       end
 
-    # Werte von bb_b_put/2 (backtrackbar, in der Substitution): Wurzeln
-    bb_key = PrologEx.Builtins.Blackboard.b_key()
+    {_memo, size, root_attvs} = acc
 
-    {bb_b, acc} =
-      case Store.fetch(st.subst, bb_key) do
-        {:ok, m} ->
-          {kvs, acc} =
-            Enum.map_reduce(m, acc, fn {k, v}, acc ->
-              {v, acc} = compact(v, st.subst, acc)
-              {{k, v}, acc}
-            end)
+    # Markieren: m = {lebende Schlüssel, Memo, besuchte Knoten}. Eigenes
+    # Memo: compact/3 löst Bindungen auf und merkt sich Teilterme als
+    # erledigt – die Choice Points sehen dieselben (physischen) Teilterme
+    # unaufgelöst und brauchen die Bindungen darin
+    m = {%{}, %{}, size}
 
-          {Map.new(kvs), acc}
+    # Ziele der Maschine selbst ({:"$wake", vars}, {:"$attv_redo", ...}, …)
+    # löst compact/3 nicht auf: ihre Variablen leben
+    m =
+      Enum.reduce(goals, m, fn
+        {{tag, _, _}, _, _}, m when tag in [:struct, :gstruct] -> m
+        {{:var, _}, _, _}, m -> m
+        {g, _, _}, m when is_tuple(g) -> mark(g, m)
+        _, m -> m
+      end)
 
-        _ ->
-          {nil, acc}
-      end
+    # Choice Points: ihre Terme (nicht aufgelöst); undurchsichtige schützen
+    # alles Ältere
+    {m, opaque, marks} =
+      Enum.reduce(cps, {m, 0, []}, fn cp, {m, op, marks} ->
+        case cp_roots(cp) do
+          {:roots, roots, mark} -> {mark_list(roots, m), op, add_mark(marks, mark)}
+          {:opaque, mark} -> {m, max(op, mark), add_mark(marks, mark)}
+        end
+      end)
 
-    {_memo, _size, root_attvs} = acc
+    marks = marks |> Enum.uniq() |> Enum.sort()
 
-    # Attribute der noch lebenden attributierten Variablen mitnehmen (sie
-    # können selbst wieder solche enthalten)
-    # während call_residue_vars/2: auch unerreichbare attributierte
-    # Variablen behalten, die seit der ältesten offenen Marke entstanden
-    # sind (sie sind genau das, was es finden soll)
+    # Attribute der erreichten attributierten Variablen (sie können selbst
+    # wieder solche enthalten); während call_residue_vars/2 auch
+    # unerreichbare, die seit der ältesten offenen Marke entstanden sind
+    # (sie sind genau das, was es finden soll)
     keep =
       case Process.get(:prolog_ex_crv_marks) do
         [_ | _] = marks ->
-          m = Enum.min(marks)
-          for id <- Store.attv_ids(st.subst), id > m, do: id
+          mn = Enum.min(marks)
+          for id <- Store.attv_ids(st.subst), id > mn, do: id
 
         _ ->
           []
       end
 
-    {attrs, size} = compact_attrs(root_attvs ++ keep, Store.new(), acc, st.subst)
+    m = Enum.reduce(root_attvs ++ keep, m, &mark_attv(&1, &2))
 
-    # Ebene von call_with_depth_limit/3 mitnehmen
-    attrs =
-      case Store.fetch(st.subst, @depth_key) do
-        {:ok, level} -> Store.put(attrs, @depth_key, level)
-        :error -> attrs
-      end
+    # Weck-Vermerk, Ebene, Blackboard: die Schlüssel leben immer (sie
+    # werden beim Namen gelesen, auch nach einem Zurücksetzen), ihre
+    # Werte sind Wurzeln
+    bb_key = PrologEx.Builtins.Blackboard.b_key()
 
-    attrs = if bb_b, do: Store.put(attrs, bb_key, bb_b), else: attrs
+    m =
+      Enum.reduce([:wake, @depth_key, bb_key], m, fn key, {live, memo, size} ->
+        m = {Map.put(live, key, true), memo, size}
+
+        case Store.fetch(st.subst, key) do
+          {:ok, v} when key == bb_key -> mark_list(Map.values(v), m)
+          {:ok, v} -> mark(v, m)
+          :error -> m
+        end
+      end)
+
+    {live, _memo, size} = m
+    kept = Store.sweep(st.floor, live, opaque, marks)
 
     # Zähler von call_nth/2 und Uhren von time/1, deren Choice Point (z. B.
     # durch einen Cut) verschwunden ist, werden nie mehr gebraucht
-    live = for cp <- st.cps, ref = counter_ref(cp), ref != nil, do: ref
-    counters = Map.take(st.counters, live)
+    refs = for cp <- st.cps, ref = counter_ref(cp), ref != nil, do: ref
+    counters = Map.take(st.counters, refs)
 
     %{
       st
       | goals: goals,
         answer: answer,
         cps: cps,
-        subst: attrs,
+        swept: st.subst,
         counters: counters,
-        threshold: max(st.min_threshold, 2 * max(size, Store.size(attrs)))
+        threshold: max(st.min_threshold, 2 * max(size, kept))
     }
+  end
+
+  # Die Terme eines Choice Points (Wurzeln) und seine Marke, oder
+  # {:opaque, marke}, wenn er Closures enthält (lazy aufgezählte Lösungen)
+  defp cp_roots(cp) do
+    case cp do
+      {:alt, {g, _, _}, rest, mark, answer} ->
+        {:roots, [g, rest, answer], mark}
+
+      {:clauses, goal, args, _more, rest, _mod, mark, answer} ->
+        {:roots, [goal, args, rest, answer], mark}
+
+      {:solutions_list, more, _mod, rest, mark, answer} ->
+        if results_roots?(more),
+          do: {:roots, [more, rest, answer], mark},
+          else: {:opaque, mark}
+
+      {:solutions, _cont, _mod, _rest, mark, _answer} ->
+        {:opaque, mark}
+
+      {:findnsols, {sub, log}, _k, l, tail, rest, mark, answer} ->
+        case sub_roots(sub) do
+          {:roots, roots} -> {:roots, [l, tail, rest, answer, log | roots], mark}
+          :opaque -> {:opaque, mark}
+        end
+
+      {:nth_cleanup, _ref, mark, answer} ->
+        {:roots, [answer], mark}
+
+      {:time_fail, _ref, mark, answer} ->
+        {:roots, [answer], mark}
+
+      {:catch, _id, c, r, rest, _mod, mark, answer} ->
+        {:roots, [c, r, rest, answer], mark}
+
+      {:scc, _id, c, _mod, mark, answer, cur} ->
+        {:roots, [c, cur, answer], mark}
+
+      {:dlimit, _frame, r, rest, _mod, mark, answer} ->
+        {:roots, [r, rest, answer], mark}
+
+      {:ilimit, _id, r, rest, _mod, mark, answer} ->
+        {:roots, [r, rest, answer], mark}
+
+      {:tlimit, _id, on, rest, _mod, mark, answer} ->
+        {:roots, [on, rest, answer], mark}
+
+      {:dlimit_reenter, _} ->
+        {:roots, [], nil}
+
+      {:ilimit_reenter, _, _} ->
+        {:roots, [], nil}
+
+      {:tlimit_reenter, _, _} ->
+        {:roots, [], nil}
+
+      # unbekannt: alles Ältere schützen (die Marke steht in keinem festen Feld)
+      _ ->
+        {:opaque, Store.top()}
+    end
+  end
+
+  defp add_mark(marks, nil), do: marks
+  defp add_mark(marks, mark), do: [mark | marks]
+
+  # Ergebnisformen eines Builtins ohne Closure (eine lazy Liste [r | fn]
+  # hat eine am Ende)
+  defp results_roots?([r | more]), do: result_roots?(r) and results_roots?(more)
+  defp results_roots?([]), do: true
+  defp results_roots?(_), do: false
+
+  defp result_roots?({:unify, _}), do: true
+  defp result_roots?({:call, _}), do: true
+  defp result_roots?({:call, _, _}), do: true
+  defp result_roots?({:subst, _}), do: true
+  defp result_roots?(r), do: r in [:ok, true, :fail, false]
+
+  # eine aufbewahrte Unter-Maschine (findnsols): Ziele, Antwort, Choice Points
+  defp sub_roots(sub) do
+    Enum.reduce_while(sub.cps, {:roots, [sub.goals, sub.answer]}, fn cp, {:roots, acc} ->
+      case cp_roots(cp) do
+        {:roots, roots, _} -> {:cont, {:roots, roots ++ acc}}
+        {:opaque, _} -> {:halt, :opaque}
+      end
+    end)
+  end
+
+  # --- Markieren: erreichbare Schlüssel des Speichers ------------------
+
+  defp mark_list(l, m), do: Enum.reduce(l, m, &mark/2)
+
+  defp mark(t, {live, memo, size} = m) do
+    case t do
+      {:var, _} = var ->
+        if is_map_key(live, var) do
+          m
+        else
+          # erreichbar heißt lebendig – auch ungebunden: der Trail kann für
+          # sie Einträge haben (vorübergehend entbunden, siehe $wake), und
+          # eine gebundene attributierte Variable kann nach dem Zurücksetzen
+          # wieder frei sein: ihre Attribute bleiben
+          m = {Map.put(live, var, true), memo, size + 1}
+
+          m =
+            case var do
+              {:var, {:attv, id}} -> mark_attv(id, m)
+              _ -> m
+            end
+
+          case Store.binding(nil, var) do
+            {:ok, bound} -> mark(bound, m)
+            :error -> m
+          end
+        end
+
+      _ when is_known_ground(t) ->
+        m
+
+      {:struct, _, args} ->
+        case PrologEx.Share.get(memo, t) do
+          {:ok, _} ->
+            m
+
+          :error ->
+            {live, memo, size} = mark_list(args, {live, memo, size + 1})
+            {live, PrologEx.Share.put(memo, t, :seen), size}
+        end
+
+      [h | rest] ->
+        mark(rest, mark(h, {live, memo, size + 1}))
+
+      _ when is_tuple(t) ->
+        mark_list(Tuple.to_list(t), m)
+
+      _ ->
+        m
+    end
+  end
+
+  # Attribute einer attributierten Variablen: Schlüssel lebt, Inhalte sind Wurzeln
+  defp mark_attv(id, {live, memo, size} = m) do
+    key = {:attrs, id}
+
+    if is_map_key(live, key) do
+      m
+    else
+      case Store.fetch_attrs(nil, id) do
+        {:ok, attrs} -> mark_list(Map.values(attrs), {Map.put(live, key, true), memo, size + 1})
+        :error -> m
+      end
+    end
   end
 
   defp counter_ref({:nth_cleanup, ref, _, _}), do: ref
   defp counter_ref({:time_fail, ref, _, _}), do: ref
   defp counter_ref(_), do: nil
 
-  # Attribute der Variablen ids (und der in ihren Attributen erreichten)
-  # kompaktieren; schon behandelte stehen in out
-  defp compact_attrs([], out, {_memo, size, _}, _subst), do: {out, size}
-
-  defp compact_attrs([id | ids], out, acc, subst) do
-    case not Store.has_attrs?(out, id) and Store.fetch_attrs(subst, id) do
-      {:ok, old} ->
-        # die beim Kompaktieren erreichten attributierten Variablen sammelt
-        # compact3/3 im Akkumulator (je Teilterm einmal, auch bei geteilten
-        # Teiltermen); sie sind die nächsten Kandidaten
-        {memo, size, _} = acc
-
-        {attrs, {memo, size, new}} =
-          Enum.reduce(old, {%{}, {memo, size, []}}, fn {m, t}, {as, acc} ->
-            # tote Suspensionen (Done gebunden) fallen weg
-            t = if m == "$susp", do: live_susps(t, subst), else: t
-            {t, acc} = compact(t, subst, acc)
-            {Map.put(as, m, t), acc}
-          end)
-
-        # attributierte Variablen in den (kompaktierten) Attributen selbst
-        compact_attrs(new ++ ids, Store.put_attrs(out, id, attrs), {memo, size, []}, subst)
-
-      _ ->
-        compact_attrs(ids, out, acc, subst)
-    end
-  end
-
   defp compact(t, subst, acc) do
     {t2, acc, _changed, _ground} = compact3(t, subst, acc)
     {t2, acc}
   end
-
-  # Eine als ground markierte Liste (oder ein markierter Rest) enthält keine
-  # Done-Variablen: alles aktiv, nichts zu tun (und nicht zu durchlaufen)
-  defp live_susps({:glist, _} = l, _subst), do: l
-
-  defp live_susps([susp | more], subst) do
-    rest = live_susps(more, subst)
-
-    if PrologEx.Builtins.Coroutining.active?(susp, subst),
-      do: cons(susp, rest),
-      else: rest
-  end
-
-  defp live_susps(l, _subst), do: l
 
   # Ergebnis: {Term, {memo, nicht_ground_größe}, verändert?, ground?}
   # Unveränderte Teilterme werden nicht kopiert, sondern geteilt.
@@ -3980,26 +4183,48 @@ defmodule PrologEx do
 
     # set_timer/1: der Timer gilt bis zum Ende der Anfrage
     qref = start.qref
+    floor = start.floor
 
-    Stream.unfold({:start, start}, fn
-      :halt ->
+    # Am Ende (auch bei Abbruch durch den Abnehmer) kommen die Bindungen
+    # der Anfrage aus dem Speicher: er gehört dem Prozess, die nächste
+    # Anfrage baut auf ihm auf
+    Stream.resource(
+      fn -> {:start, start} end,
+      fn
+        :halt ->
+          {:halt, :halt}
+
+        {:start, st} ->
+          put_db(st.db)
+          st |> run() |> emit() |> query_next()
+
+        {:retry, st} ->
+          # eine andere Anfrage hat inzwischen gebunden und läuft noch?
+          if Store.top() != st.subst,
+            do: raise("PrologEx: verschachtelte Anfragen im selben Prozess")
+
+          st |> backtrack() |> emit() |> query_next()
+      end,
+      fn _ ->
+        Store.restore(floor)
         drop_timer(qref)
-        nil
-
-      {:start, st} ->
-        put_db(st.db)
-        st |> run() |> emit() |> query_done(qref)
-
-      {:retry, st} ->
-        st |> backtrack() |> emit() |> query_done(qref)
-    end)
+      end
+    )
   end
+
+  defp query_next(nil), do: {:halt, :halt}
+  defp query_next({ans, next}), do: {[ans], next}
 
   defp new_state(db, goals, answer, opts) do
     min = Keyword.get(opts, :compact_threshold, @min_threshold)
 
+    s = Store.new()
+
     %__MODULE__{
       goals: goals,
+      subst: s,
+      floor: s,
+      swept: s,
       db: db,
       answer: answer,
       threshold: min,
@@ -4008,13 +4233,6 @@ defmodule PrologEx do
       qref: make_ref()
     }
   end
-
-  defp query_done(nil, qref) do
-    drop_timer(qref)
-    nil
-  end
-
-  defp query_done(next, _qref), do: next
 
   defp emit(:done), do: nil
 
@@ -4057,22 +4275,27 @@ defmodule PrologEx do
             mk("$residuals", [list(vars), r])
           ])
 
-        sub = %{st | goals: [{goal, 0, "system"}], cps: [], height: 0, answer: [{"$r", r}]}
+        sub =
+          sub_floor(%{st | goals: [{goal, 0, "system"}], cps: [], height: 0, answer: [{"$r", r}]})
 
-        case guarded(fn -> run(sub) end) do
-          {:ok, {:sol, s2}} ->
-            [{_, l}] = s2.answer
-            db = current_db()
+        result =
+          case guarded(fn -> run(sub) end) do
+            {:ok, {:sol, s2}} ->
+              [{_, l}] = s2.answer
+              db = current_db()
 
-            l
-            |> resolve(s2.subst)
-            |> prolog_items()
-            |> Enum.uniq()
-            |> Enum.map(&unqualify(&1, db))
+              l
+              |> resolve(s2.subst)
+              |> prolog_items()
+              |> Enum.uniq()
+              |> Enum.map(&unqualify(&1, db))
 
-          _ ->
-            []
-        end
+            _ ->
+              []
+          end
+
+        Store.restore(st.subst)
+        result
     end
   end
 
@@ -4135,19 +4358,25 @@ defmodule PrologEx do
   def first_with_stats(db, goal, opts \\ []) do
     put_db(db)
 
-    case run(new_state(db, [{goal, 0, "user"}], [], opts)) do
-      {:sol, st} ->
-        {:ok,
-         %{
-           bindings: Store.size(st.subst),
-           choicepoints: st.height,
-           # Kennungen nie über den Block hinaus vergeben
-           vars_in_block: st.next_var <= st.var_end
-         }}
+    start = new_state(db, [{goal, 0, "user"}], [], opts)
 
-      :done ->
-        false
-    end
+    result =
+      case run(start) do
+        {:sol, st} ->
+          {:ok,
+           %{
+             bindings: Store.count_since(st.floor),
+             choicepoints: st.height,
+             # Kennungen nie über den Block hinaus vergeben
+             vars_in_block: st.next_var <= st.var_end
+           }}
+
+        :done ->
+          false
+      end
+
+    Store.restore(start.floor)
+    result
   end
 
   @doc "Namen der benannten Anfragevariablen in Reihenfolge ihres Auftretens"

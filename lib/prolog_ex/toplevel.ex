@@ -140,6 +140,10 @@ defmodule PrologEx.Toplevel do
     for {k, _} = e <- Process.get(), prolog_key?(k), do: e
   end
 
+  # (der Bindungsspeicher samt Trail gehört zur laufenden Anfrage, nicht
+  # zum Zustand des Interpreters)
+  defp prolog_key?(:prolog_ex_trail), do: false
+
   defp prolog_key?(k) when is_atom(k), do: String.starts_with?(Atom.to_string(k), "prolog_ex_")
   defp prolog_key?(k) when is_tuple(k) and tuple_size(k) > 0, do: prolog_key?(elem(k, 0))
   defp prolog_key?(_), do: false
@@ -345,11 +349,14 @@ defmodule PrologEx.Toplevel do
   # bleiben im anderen Prozess).
   defp lookahead(cont) do
     state = state_snapshot()
+    # die Bindungen der Anfrage: der andere Prozess rechnet auf einer Kopie
+    store = PrologEx.Store.dump()
     parent = self()
 
     {pid, ref} =
       spawn_monitor(fn ->
         Enum.each(state, fn {k, v} -> Process.put(k, v) end)
+        PrologEx.Store.load(store)
         # äußere Wirkungen (Prozesse, Shell, Umgebung) brechen ab, bevor sie
         # passieren (PrologEx.Effects)
         PrologEx.Effects.speculative!()
