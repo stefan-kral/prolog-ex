@@ -1112,10 +1112,11 @@ goal_expansion(A cis B, Expansion) :-
         list_goal(Goals, Expansion).
 goal_expansion(A cis_lt B, B cis_gt A).
 goal_expansion(A cis_leq B, B cis_geq A).
-goal_expansion(A cis_geq B, cis_leq_numeric(B, N)) :- nonvar(A), A = n(N).
-goal_expansion(A cis_geq B, cis_geq_numeric(A, N)) :- nonvar(B), B = n(N).
-goal_expansion(A cis_gt B, cis_lt_numeric(B, N))   :- nonvar(A), A = n(N).
-goal_expansion(A cis_gt B, cis_gt_numeric(A, N))   :- nonvar(B), B = n(N).
+goal_expansion(A cis_geq B, cis_leq_numeric(B, A)) :- integer(A).
+goal_expansion(A cis_geq B, cis_geq_numeric(A, B)) :- integer(B).
+goal_expansion(A cis_gt B, cis_lt_numeric(B, A))   :- integer(A).
+goal_expansion(A cis_gt B, cis_gt_numeric(A, B))   :- integer(B).
+
 
 % PrologEx: Domänen und Schranken in Elixir (PrologEx.Builtins.ClpzPrims):
 % Aufrufe in den folgenden Klauseln gehen direkt an die Builtins
@@ -1252,19 +1253,26 @@ goal_expansion(reinforce(X), '$clpz_reinforce'(X)).
 activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
 
 
+
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    A bound is either:
 
-   n(N):    integer N
+   N:       integer N
    inf:     infimum of Z (= negative infinity)
    sup:     supremum of Z (= positive infinity)
+
+   PrologEx: the original wraps integers as n(N) so that clauses can be
+   selected by first-argument indexing. Here the cases are told apart by
+   type tests; the atoms inf and sup never clash with integers. Note that
+   the standard order of terms puts both atoms *after* all integers, so
+   bounds must never be compared or sorted with (@<)/2 or keysort/2.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-is_bound(n(N)) :- integer(N).
+is_bound(N) :- integer(N).
 is_bound(inf).
 is_bound(sup).
 
-defaulty_to_bound(D, P) :- ( integer(D) -> P = n(D) ; P = D ).
+defaulty_to_bound(D, D).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Compactified is/2 and predicates for several arithmetic expressions
@@ -1273,93 +1281,94 @@ defaulty_to_bound(D, P) :- ( integer(D) -> P = n(D) ; P = D ).
 
 % cis_gt only works for terms of depth 0 on both sides
 cis_gt_ref(sup, B0) :- B0 \== sup.
-cis_gt_ref(n(N), B) :- cis_lt_numeric_ref(B, N).
+cis_gt_ref(N, B) :- integer(N), cis_lt_numeric_ref(B, N).
 
 cis_lt_numeric_ref(inf, _).
-cis_lt_numeric_ref(n(B), A) :- B < A.
+cis_lt_numeric_ref(B, A) :- integer(B), B < A.
 
 cis_gt_numeric_ref(sup, _).
-cis_gt_numeric_ref(n(B), A) :- B > A.
+cis_gt_numeric_ref(B, A) :- integer(B), B > A.
 
 cis_geq_ref(inf, inf).
 cis_geq_ref(sup, _).
-cis_geq_ref(n(N), B) :- cis_leq_numeric_ref(B, N).
+cis_geq_ref(N, B) :- integer(N), cis_leq_numeric_ref(B, N).
 
 cis_leq_numeric_ref(inf, _).
-cis_leq_numeric_ref(n(B), A) :- B =< A.
+cis_leq_numeric_ref(B, A) :- integer(B), B =< A.
 
 cis_geq_numeric_ref(sup, _).
-cis_geq_numeric_ref(n(B), A) :- B >= A.
+cis_geq_numeric_ref(B, A) :- integer(B), B >= A.
 
 cis_min_ref(inf, _, inf).
 cis_min_ref(sup, B, B).
-cis_min_ref(n(N), B, Min) :- cis_min_(B, N, Min).
+cis_min_ref(N, B, Min) :- integer(N), cis_min_(B, N, Min).
 
 cis_min_(inf, _, inf).
-cis_min_(sup, N, n(N)).
-cis_min_(n(B), A, n(M)) :- M is min(A,B).
+cis_min_(sup, N, N).
+cis_min_(B, A, M) :- integer(B), M is min(A,B).
 
 cis_max_ref(sup, _, sup).
 cis_max_ref(inf, B, B).
-cis_max_ref(n(N), B, Max) :- cis_max_(B, N, Max).
+cis_max_ref(N, B, Max) :- integer(N), cis_max_(B, N, Max).
 
-cis_max_(inf, N, n(N)).
+cis_max_(inf, N, N).
 cis_max_(sup, _, sup).
-cis_max_(n(B), A, n(M)) :- M is max(A,B).
+cis_max_(B, A, M) :- integer(B), M is max(A,B).
 
 cis_plus_ref(inf, _, inf).
 cis_plus_ref(sup, _, sup).
-cis_plus_ref(n(A), B, Plus) :- cis_plus_(B, A, Plus).
+cis_plus_ref(A, B, Plus) :- integer(A), cis_plus_(B, A, Plus).
 
 cis_plus_(sup, _, sup).
 cis_plus_(inf, _, inf).
-cis_plus_(n(B), A, n(S)) :- S is A + B.
+cis_plus_(B, A, S) :- integer(B), S is A + B.
 
 cis_minus_ref(inf, _, inf).
 cis_minus_ref(sup, _, sup).
-cis_minus_ref(n(A), B, M) :- cis_minus_(B, A, M).
+cis_minus_ref(A, B, M) :- integer(A), cis_minus_(B, A, M).
 
 cis_minus_(inf, _, sup).
 cis_minus_(sup, _, inf).
-cis_minus_(n(B), A, n(M)) :- M is A - B.
+cis_minus_(B, A, M) :- integer(B), M is A - B.
 
 cis_uminus_ref(inf, sup).
 cis_uminus_ref(sup, inf).
-cis_uminus_ref(n(A), n(B)) :- B is -A.
+cis_uminus_ref(A, B) :- integer(A), B is -A.
 
 cis_abs_ref(inf, sup).
 cis_abs_ref(sup, sup).
-cis_abs_ref(n(A), n(B)) :- B is abs(A).
+cis_abs_ref(A, B) :- integer(A), B is abs(A).
 
 cis_times_ref(inf, B, P) :-
-        (   B cis_lt n(0) -> P = sup
-        ;   B cis_gt n(0) -> P = inf
-        ;   P = n(0)
+        (   B cis_lt 0 -> P = sup
+        ;   B cis_gt 0 -> P = inf
+        ;   P = 0
         ).
 cis_times_ref(sup, B, P) :-
-        (   B cis_gt n(0) -> P = sup
-        ;   B cis_lt n(0) -> P = inf
-        ;   P = n(0)
+        (   B cis_gt 0 -> P = sup
+        ;   B cis_lt 0 -> P = inf
+        ;   P = 0
         ).
-cis_times_ref(n(N), B, P) :- cis_times_(B, N, P).
+cis_times_ref(N, B, P) :- integer(N), cis_times_(B, N, P).
 
-cis_times_(inf, A, P)     :- cis_times_ref(inf, n(A), P).
-cis_times_(sup, A, P)     :- cis_times_ref(sup, n(A), P).
-cis_times_(n(B), A, n(P)) :- P is A * B.
+cis_times_(inf, A, P) :- cis_times_ref(inf, A, P).
+cis_times_(sup, A, P) :- cis_times_ref(sup, A, P).
+cis_times_(B, A, P)   :- integer(B), P is A * B.
 
-cis_exp_ref(inf, n(Y), R) :-
+cis_exp_ref(inf, Y, R) :-
+        integer(Y),
         (   even(Y) -> R = sup
         ;   R = inf
         ).
 cis_exp_ref(sup, _, sup).
-cis_exp_ref(n(N), Y, R) :- cis_exp_(Y, N, R).
+cis_exp_ref(N, Y, R) :- integer(N), cis_exp_(Y, N, R).
 
-cis_exp_(n(Y), N, n(R)) :- R is N^Y.
+cis_exp_(Y, N, R) :- integer(Y), R is N^Y.
 cis_exp_(sup, _, sup).
 cis_exp_(inf, _, inf).
 
 cis_goals(V, V)          --> { var(V) }, !.
-cis_goals(n(N), n(N))    --> [].
+cis_goals(N, N)          --> { integer(N) }, !.
 cis_goals(inf, inf)      --> [].
 cis_goals(sup, sup)      --> [].
 cis_goals(sign(A0), R)   --> cis_goals(A0, A), [cis_sign(A, R)].
@@ -1403,28 +1412,29 @@ list_goal([G|Gs], Goal) :- foldl(list_goal_, Gs, G, Goal).
 
 list_goal_(G, G0, (G0,G)).
 
-cis_sign_ref(sup, n(1)).
-cis_sign_ref(inf, n(-1)).
-cis_sign_ref(n(N), n(S)) :- S is sign(N).
+cis_sign_ref(sup, 1).
+cis_sign_ref(inf, -1).
+cis_sign_ref(N, S) :- integer(N), S is sign(N).
 
-cis_div_ref(sup, Y, Z)  :- ( Y cis_geq n(0) -> Z = sup ; Z = inf ).
-cis_div_ref(inf, Y, Z)  :- ( Y cis_geq n(0) -> Z = inf ; Z = sup ).
-cis_div_ref(n(X), Y, Z) :- cis_div_(Y, X, Z).
+cis_div_ref(sup, Y, Z)  :- ( Y cis_geq 0 -> Z = sup ; Z = inf ).
+cis_div_ref(inf, Y, Z)  :- ( Y cis_geq 0 -> Z = inf ; Z = sup ).
+cis_div_ref(X, Y, Z) :- integer(X), cis_div_(Y, X, Z).
 
-cis_div_(sup, _, n(0)).
-cis_div_(inf, _, n(0)).
-cis_div_(n(Y), X, Z) :-
+cis_div_(sup, _, 0).
+cis_div_(inf, _, 0).
+cis_div_(Y, X, Z) :-
+        integer(Y),
         (   Y =:= 0 -> (  X >= 0 -> Z = sup ; Z = inf )
-        ;   Z0 is X // Y, Z = n(Z0)
+        ;   Z is X // Y
         ).
 
 cis_slash_ref(sup, _, sup).
 cis_slash_ref(inf, _, inf).
-cis_slash_ref(n(N), B, S) :- cis_slash_(B, N, S).
+cis_slash_ref(N, B, S) :- integer(N), cis_slash_(B, N, S).
 
-cis_slash_(sup, _, n(0)).
-cis_slash_(inf, _, n(0)).
-cis_slash_(n(B), A, n(S)) :- S is A // B.
+cis_slash_(sup, _, 0).
+cis_slash_(inf, _, 0).
+cis_slash_(B, A, S) :- integer(B), S is A // B.
 
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1466,7 +1476,7 @@ is_domain(split(S, Left, Right)) :-
 
 all_less_than(empty, _).
 all_less_than(from_to(From,To), S) :-
-        From cis_lt n(S), To cis_lt n(S).
+        From cis_lt S, To cis_lt S.
 all_less_than(split(S0,Left,Right), S) :-
         S0 < S,
         all_less_than(Left, S),
@@ -1474,7 +1484,7 @@ all_less_than(split(S0,Left,Right), S) :-
 
 all_greater_than(empty, _).
 all_greater_than(from_to(From,To), S) :-
-        From cis_gt n(S), To cis_gt n(S).
+        From cis_gt S, To cis_gt S.
 all_greater_than(split(S0,Left,Right), S) :-
         S0 > S,
         all_greater_than(Left, S),
@@ -1488,14 +1498,15 @@ domain_infimum_ref(split(_, Left, _), I) :- domain_infimum_ref(Left, I).
 domain_supremum_ref(from_to(_, S), S).
 domain_supremum_ref(split(_, _, Right), S) :- domain_supremum_ref(Right, S).
 
-domain_num_elements_ref(empty, n(0)).
-domain_num_elements_ref(from_to(From,To), Num) :- Num cis To - From + n(1).
+domain_num_elements_ref(empty, 0).
+domain_num_elements_ref(from_to(From,To), Num) :- Num cis To - From + 1.
 domain_num_elements_ref(split(_, Left, Right), Num) :-
         domain_num_elements_ref(Left, NL),
         domain_num_elements_ref(Right, NR),
         Num cis NL + NR.
 
-domain_direction_element(from_to(n(From), n(To)), Dir, E) :-
+domain_direction_element(from_to(From, To), Dir, E) :-
+        integer(From), integer(To),
         (   Dir == up -> between(From, To, E)
         ;   between(From, To, E0),
             E is To - (E0 - From)
@@ -1514,7 +1525,7 @@ domain_direction_element(split(_, D1, D2), Dir, E) :-
    Test whether domain contains a given integer.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_contains_ref(from_to(From,To), I) :- From cis_leq n(I), n(I) cis_leq To.
+domain_contains_ref(from_to(From,To), I) :- From cis_leq I, I cis_leq To.
 domain_contains_ref(split(S, Left, Right), I) :-
         (   I < S -> domain_contains_ref(Left, I)
         ;   I > S -> domain_contains_ref(Right, I)
@@ -1533,8 +1544,8 @@ domain_subdomain_ref(split(_, _, _), Dom, Sub) :-
 
 domain_subdomain_split(empty, _, _).
 domain_subdomain_split(from_to(From,To), split(S,Left0,Right0), Sub) :-
-        (   To cis_lt n(S) -> domain_subdomain_ref(Left0, Left0, Sub)
-        ;   From cis_gt n(S) -> domain_subdomain_ref(Right0, Right0, Sub)
+        (   To cis_lt S -> domain_subdomain_ref(Left0, Left0, Sub)
+        ;   From cis_gt S -> domain_subdomain_ref(Right0, Right0, Sub)
         ).
 domain_subdomain_split(split(_,Left,Right), Dom, _) :-
         domain_subdomain_ref(Dom, Dom, Left),
@@ -1568,30 +1579,31 @@ domain_remove_ref(split(S, Left0, Right0), X, D) :-
             )
         ).
 
-%?- domain_remove_ref(from_to(n(0),n(5)), 3, D).
+%?- domain_remove_ref(from_to(0,5), 3, D).
 
 domain_remove_(inf, U0, X, D) :-
-        (   U0 == n(X) -> U1 is X - 1, D = from_to(inf, n(U1))
-        ;   U0 cis_lt n(X) -> D = from_to(inf,U0)
+        (   U0 == X -> U1 is X - 1, D = from_to(inf, U1)
+        ;   U0 cis_lt X -> D = from_to(inf,U0)
         ;   L1 is X + 1, U1 is X - 1,
-            D = split(X, from_to(inf, n(U1)), from_to(n(L1),U0))
+            D = split(X, from_to(inf, U1), from_to(L1,U0))
         ).
-domain_remove_(n(N), U0, X, D) :- domain_remove_upper(U0, N, X, D).
+domain_remove_(N, U0, X, D) :- integer(N), domain_remove_upper(U0, N, X, D).
 
 domain_remove_upper(sup, L0, X, D) :-
-        (   L0 =:= X -> L1 is X + 1, D = from_to(n(L1),sup)
-        ;   L0 > X -> D = from_to(n(L0),sup)
+        (   L0 =:= X -> L1 is X + 1, D = from_to(L1,sup)
+        ;   L0 > X -> D = from_to(L0,sup)
         ;   L1 is X + 1, U1 is X - 1,
-            D = split(X, from_to(n(L0),n(U1)), from_to(n(L1),sup))
+            D = split(X, from_to(L0,U1), from_to(L1,sup))
         ).
-domain_remove_upper(n(U0), L0, X, D) :-
+domain_remove_upper(U0, L0, X, D) :-
+        integer(U0),
         (   L0 =:= U0, X =:= L0 -> D = empty
-        ;   L0 =:= X -> L1 is X + 1, D = from_to(n(L1), n(U0))
-        ;   U0 =:= X -> U1 is X - 1, D = from_to(n(L0), n(U1))
+        ;   L0 =:= X -> L1 is X + 1, D = from_to(L1, U0)
+        ;   U0 =:= X -> U1 is X - 1, D = from_to(L0, U1)
         ;   between(L0, U0, X) ->
             U1 is X - 1, L1 is X + 1,
-            D = split(X, from_to(n(L0), n(U1)), from_to(n(L1), n(U0)))
-        ;   D = from_to(n(L0),n(U0))
+            D = split(X, from_to(L0, U1), from_to(L1, U0))
+        ;   D = from_to(L0,U0)
         ).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1600,8 +1612,8 @@ domain_remove_upper(n(U0), L0, X, D) :-
 
 domain_remove_greater_than_ref(empty, _, empty).
 domain_remove_greater_than_ref(from_to(From0,To0), G, D) :-
-        (   From0 cis_gt n(G) -> D = empty
-        ;   To cis min(To0,n(G)), D = from_to(From0,To)
+        (   From0 cis_gt G -> D = empty
+        ;   To cis min(To0,G), D = from_to(From0,To)
         ).
 domain_remove_greater_than_ref(split(S,Left0,Right0), G, D) :-
         (   S =< G ->
@@ -1614,8 +1626,8 @@ domain_remove_greater_than_ref(split(S,Left0,Right0), G, D) :-
 
 domain_remove_smaller_than_ref(empty, _, empty).
 domain_remove_smaller_than_ref(from_to(From0,To0), V, D) :-
-        (   To0 cis_lt n(V) -> D = empty
-        ;   From cis max(From0,n(V)), D = from_to(From,To0)
+        (   To0 cis_lt V -> D = empty
+        ;   From cis max(From0,V), D = from_to(From,To0)
         ).
 domain_remove_smaller_than_ref(split(S,Left0,Right0), V, D) :-
         (   S >= V ->
@@ -1637,25 +1649,25 @@ domain_subtract_ref(empty, _, _, empty).
 domain_subtract_ref(from_to(From0,To0), Dom, Sub, D) :-
         (   Sub == empty -> D = Dom
         ;   Sub = from_to(From,To) ->
-            (   From == To -> From = n(X), domain_remove_ref(Dom, X, D)
+            (   From == To -> integer(From), domain_remove_ref(Dom, From, D)
             ;   From cis_gt To0 -> D = Dom
             ;   To cis_lt From0 -> D = Dom
             ;   From cis_leq From0 ->
                 (   To cis_geq To0 -> D = empty
-                ;   From1 cis To + n(1),
+                ;   From1 cis To + 1,
                     D = from_to(From1, To0)
                 )
-            ;   To1 cis From - n(1),
+            ;   To1 cis From - 1,
                 (   To cis_lt To0 ->
-                    From = n(S),
-                    From2 cis To + n(1),
+                    integer(From), S = From,
+                    From2 cis To + 1,
                     D = split(S,from_to(From0,To1),from_to(From2,To0))
                 ;   D = from_to(From0,To1)
                 )
             )
         ;   Sub = split(S, Left, Right) ->
-            (   n(S) cis_gt To0 -> domain_subtract_ref(Dom, Dom, Left, D)
-            ;   n(S) cis_lt From0 -> domain_subtract_ref(Dom, Dom, Right, D)
+            (   S cis_gt To0 -> domain_subtract_ref(Dom, Dom, Left, D)
+            ;   S cis_lt From0 -> domain_subtract_ref(Dom, Dom, Right, D)
             ;   domain_subtract_ref(Dom, Dom, Left, D1),
                 domain_subtract_ref(D1, D1, Right, D)
             )
@@ -1715,8 +1727,8 @@ narrow(from_to(L0,U0), From0, To0, Dom) :-
         ;   Dom = from_to(From1,To1)
         ).
 narrow(split(S, Left0, Right0), From0, To0, Dom) :-
-        (   To0 cis_lt n(S) -> narrow(Left0, From0, To0, Dom)
-        ;   From0 cis_gt n(S) -> narrow(Right0, From0, To0, Dom)
+        (   To0 cis_lt S -> narrow(Left0, From0, To0, Dom)
+        ;   From0 cis_gt S -> narrow(Right0, From0, To0, Dom)
         ;   narrow(Left0, From0, To0, Left1),
             narrow(Right0, From0, To0, Right1),
             (   Left1 == empty -> Dom = Right1
@@ -1742,7 +1754,7 @@ domains_union_ref(D1, D2, Union) :-
 
 domain_shift_ref(empty, _, empty).
 domain_shift_ref(from_to(From0,To0), O, from_to(From,To)) :-
-        From cis From0 + n(O), To cis To0 + n(O).
+        From cis From0 + O, To cis To0 + O.
 domain_shift_ref(split(S0, Left0, Right0), O, split(S, Left, Right)) :-
         S is S0 + O,
         domain_shift_ref(Left0, O, Left),
@@ -1764,8 +1776,8 @@ domain_expand_ref(D0, M, D) :-
 
 domain_expand_(empty, _, empty).
 domain_expand_(from_to(From0, To0), M, from_to(From,To)) :-
-        From cis From0*n(M),
-        To cis To0*n(M).
+        From cis From0*M,
+        To cis To0*M.
 domain_expand_(split(S0, Left0, Right0), M, split(S, Left, Right)) :-
         S is M*S0,
         domain_expand_(Left0, M, Left),
@@ -1788,13 +1800,13 @@ domain_expand_more_ref(D0, M, D) :-
 
 domain_expand_more_(empty, _, empty).
 domain_expand_more_(from_to(From0, To0), M, from_to(From,To)) :-
-        (   From0 cis_leq n(0) ->
-            From cis (From0-n(1))*n(M) + n(1)
-        ;   From cis From0*n(M)
+        (   From0 cis_leq 0 ->
+            From cis (From0-1)*M + 1
+        ;   From cis From0*M
         ),
-        (   To0 cis_lt n(0) ->
-            To cis To0*n(M)
-        ;   To cis (To0+n(1))*n(M) - n(1)
+        (   To0 cis_lt 0 ->
+            To cis To0*M
+        ;   To cis (To0+1)*M - 1
         ).
 domain_expand_more_(split(S0, Left0, Right0), M, split(S, Left, Right)) :-
         S is M*S0,
@@ -1814,13 +1826,13 @@ domain_contract_ref(D0, M, D) :-
 
 domain_contract_(empty, _, empty).
 domain_contract_(from_to(From0, To0), M, from_to(From,To)) :-
-        (   From0 cis_geq n(0) ->
-            From cis (From0 + n(M) - n(1)) // n(M)
-        ;   From cis From0 // n(M)
+        (   From0 cis_geq 0 ->
+            From cis (From0 + M - 1) // M
+        ;   From cis From0 // M
         ),
-        (   To0 cis_geq n(0) ->
-            To cis To0 // n(M)
-        ;   To cis (To0 - n(M) + n(1)) // n(M)
+        (   To0 cis_geq 0 ->
+            To cis To0 // M
+        ;   To cis (To0 - M + 1) // M
         ).
 domain_contract_(split(_,Left0,Right0), M, D) :-
         %  Scaled down domains do not necessarily retain any holes of
@@ -1842,7 +1854,7 @@ domain_contract_less_ref(D0, M, D) :-
 
 domain_contract_less_(empty, _, empty).
 domain_contract_less_(from_to(From0, To0), M, from_to(From,To)) :-
-        From cis From0 // n(M), To cis To0 // n(M).
+        From cis From0 // M, To cis To0 // M.
 domain_contract_less_(split(_,Left0,Right0), M, D) :-
         %  Scaled down domains do not necessarily retain any holes of
         %  the original domain.
@@ -1870,11 +1882,11 @@ list_to_disjoint_intervals([], []).
 list_to_disjoint_intervals([N|Ns], Is) :-
         list_to_disjoint_intervals(Ns, N, N, Is).
 
-list_to_disjoint_intervals([], M, N, [n(M)-n(N)]).
+list_to_disjoint_intervals([], M, N, [M-N]).
 list_to_disjoint_intervals([B|Bs], M, N, Is) :-
         (   B =:= N + 1 ->
             list_to_disjoint_intervals(Bs, M, B, Is)
-        ;   Is = [n(M)-n(N)|Rest],
+        ;   Is = [M-N|Rest],
             list_to_disjoint_intervals(Bs, B, B, Rest)
         ).
 
@@ -1892,7 +1904,8 @@ intervals_to_domain_ref(Is, D) :-
         FL is L // 2,
         length(Front, FL),
         append(Front, Tail, Is),
-        Tail = [n(Start)-_|_],
+        Tail = [Start-_|_],
+        integer(Start),
         Hole is Start - 1,
         intervals_to_domain_ref(Front, Left),
         intervals_to_domain_ref(Tail, Right),
@@ -1956,8 +1969,8 @@ fd_must_be_list(Ls, Where) :-
 
 indomain(Var) :- label([Var]).
 
-order_dom_next(up, Dom, Next)   :- domain_infimum(Dom, n(Next)).
-order_dom_next(down, Dom, Next) :- domain_supremum(Dom, n(Next)).
+order_dom_next(up, Dom, Next)   :- domain_infimum(Dom, Next), integer(Next).
+order_dom_next(down, Dom, Next) :- domain_supremum(Dom, Next), integer(Next).
 
 
 %% label(+Vars)
@@ -2060,7 +2073,7 @@ labeling(Options, Vars) :-
 
 finite_domain(Goal, Arg, Var) :-
         (   fd_get(Var, Dom, _) ->
-            (   domain_infimum(Dom, n(_)), domain_supremum(Dom, n(_)) -> true
+            (   domain_infimum(Dom, I), integer(I), domain_supremum(Dom, S), integer(S) -> true
             ;   instantiation_error(Dom)
             )
         ;   integer(Var) -> true
@@ -2147,8 +2160,8 @@ choice_order_variable(enum, Order, Var, Vars, _, Selection, Consistency) :-
         label(Vars, Selection, Order, enum, Consistency).
 choice_order_variable(bisect, Order, Var, _, Vars0, Selection, Consistency) :-
         fd_get(Var, Dom, _),
-        domain_infimum(Dom, n(I)),
-        domain_supremum(Dom, n(S)),
+        domain_infimum(Dom, I), integer(I),
+        domain_supremum(Dom, S), integer(S),
         Mid0 is (I + S) // 2,
         (   Mid0 =:= S -> Mid is Mid0 - 1 ; Mid = Mid0 ),
         (   Order == up -> ( Var #=< Mid ; Var #> Mid )
@@ -2196,7 +2209,7 @@ select_var(max, [V|Vs], Var, RVars) :-
         find_max(Vs, V, Var),
         delete_eq([V|Vs], Var, RVars).
 select_var(ff, [V|Vs], Var, RVars) :-
-        fd_size_(V, n(S)),
+        fd_size_(V, S), integer(S),
         find_ff(Vs, V, S, Var),
         delete_eq([V|Vs], Var, RVars).
 select_var(ffc, [V|Vs], Var, RVars) :-
@@ -2220,7 +2233,7 @@ find_max([V|Vs], CM, Max) :-
 find_ff([], Var, _, Var).
 find_ff([V|Vs], CM, S0, FF) :-
         (   nonvar(V) -> find_ff(Vs, CM, S0, FF)
-        ;   (   fd_size_(V, n(S1)), S1 < S0 ->
+        ;   (   fd_size_(V, S1), integer(S1), S1 < S0 ->
                 find_ff(Vs, V, S1, FF)
             ;   find_ff(Vs, CM, S0, FF)
             )
@@ -2236,11 +2249,11 @@ find_ffc([V|Vs], Prev, FFC) :-
 
 ffc_lt(X, Y) :-
         (   fd_get(X, XD, XPs) ->
-            domain_num_elements(XD, n(NXD))
+            domain_num_elements(XD, NXD), integer(NXD)
         ;   NXD = 1, XPs = []
         ),
         (   fd_get(Y, YD, YPs) ->
-            domain_num_elements(YD, n(NYD))
+            domain_num_elements(YD, NYD), integer(NYD)
         ;   NYD = 1, YPs = []
         ),
         (   NXD < NYD -> true
@@ -2256,8 +2269,8 @@ max_gt(X,Y) :- bounds(X,_,UX), bounds(Y,_,UY), UX > UY.
 
 bounds(X, L, U) :-
         (   fd_get(X, Dom, _) ->
-            domain_infimum(Dom, n(L)),
-            domain_supremum(Dom, n(U))
+            domain_infimum(Dom, L), integer(L),
+            domain_supremum(Dom, U), integer(U)
         ;   L = X, U = L
         ).
 
@@ -2307,13 +2320,13 @@ contracting([V|Vs], Repeat, Vars) :-
 fds_sespsize(Vs, S) :-
         must_be(list, Vs),
         maplist(fd_variable, Vs),
-        fds_sespsize(Vs, n(1), S1),
+        fds_sespsize(Vs, 1, S1),
         bound_portray(S1, S).
 
 fd_size_(V, S) :-
         (   fd_get(V, D, _) ->
             domain_num_elements(D, S)
-        ;   S = n(1)
+        ;   S = 1
         ).
 
 fds_sespsize([], S, S).
@@ -2346,7 +2359,7 @@ optimise(Vars, Options, Whats) :-
                   false)
         ;   once(extremum(Val0)),
             retract_until_mark,
-            Val0 = n(Val),
+            integer(Val0), Val = Val0,
             arg(1, What, Expr),
             append(WhatsRest, Options, Options1),
             (   Expr #= Val,
@@ -2378,11 +2391,11 @@ optimise(Direction, Options, Vars, Expr0, Expr) :-
 
 update_extremum(Expr) :-
         (   once(extremum(Prev)),
-            Prev = n(_) ->
+            integer(Prev) ->
             once(retract(extremum(_)))
         ;   true
         ),
-        asserta(extremum(n(Expr))).
+        asserta(extremum(Expr)).
 
 tighten(min, E, V) :- E #< V.
 tighten(max, E, V) :- E #> V.
@@ -2565,7 +2578,7 @@ coeffs_variables_const([C|Cs], [V|Vs], Cs1, Vs1, I0, I) :-
 sum_finite_domains([], [], Inf, Sup, Inf, Sup) ++> [].
 sum_finite_domains([C|Cs], [V|Vs], Inf0, Sup0, Inf, Sup) ++>
         { fd_get(V, _, Inf1, Sup1, _) },
-        (   Inf1 = n(NInf) ->
+        (   { integer(Inf1) } -> NInf = Inf1,
             (   C < 0 ->
                 Sup2 is Sup0 + C*NInf
             ;   Inf2 is Inf0 + C*NInf
@@ -2577,7 +2590,7 @@ sum_finite_domains([C|Cs], [V|Vs], Inf0, Sup0, Inf, Sup) ++>
                 [C*V]+[]
             )
         ),
-        (   Sup1 = n(NSup) ->
+        (   { integer(Sup1) } -> NSup = Sup1,
             (   C < 0 ->
                 Inf2 is Inf0 + C*NSup
             ;   Sup2 is Sup0 + C*NSup
@@ -2595,16 +2608,16 @@ remove_dist_upper_lower([], _, _, _) --> [].
 remove_dist_upper_lower([C|Cs], [V|Vs], D1, D2) -->
         (   { fd_get(V, VD, VPs) } ->
             (   C < 0 ->
-                { domain_supremum(VD, n(Sup)),
+                { domain_supremum(VD, Sup), integer(Sup),
                   L is Sup + D1//C,
                   domain_remove_smaller_than(VD, L, VD1),
-                  domain_infimum(VD1, n(Inf)),
+                  domain_infimum(VD1, Inf), integer(Inf),
                   G is Inf - D2//C,
                   domain_remove_greater_than(VD1, G, VD2) }
-            ;   { domain_infimum(VD, n(Inf)),
+            ;   { domain_infimum(VD, Inf), integer(Inf),
                   G is Inf + D1//C,
                   domain_remove_greater_than(VD, G, VD1),
-                  domain_supremum(VD1, n(Sup)),
+                  domain_supremum(VD1, Sup), integer(Sup),
                   L is Sup - D2//C,
                   domain_remove_smaller_than(VD1, L, VD2) }
             ),
@@ -2618,10 +2631,10 @@ remove_dist_upper_leq([], _, _) --> [].
 remove_dist_upper_leq([C|Cs], [V|Vs], D1) -->
         (   { fd_get(V, VD, VPs) } ->
             (   C < 0 ->
-                { domain_supremum(VD, n(Sup)),
+                { domain_supremum(VD, Sup), integer(Sup),
                   L is Sup + D1//C,
                   domain_remove_smaller_than(VD, L, VD1) }
-            ;   { domain_infimum(VD, n(Inf)),
+            ;   { domain_infimum(VD, Inf), integer(Inf),
                   G is Inf + D1//C,
                   domain_remove_greater_than(VD, G, VD1) }
             ),
@@ -2635,12 +2648,12 @@ remove_dist_upper([], _) --> [].
 remove_dist_upper([C*V|CVs], D) -->
         (   { fd_get(V, VD, VPs) } ->
             (   C < 0 ->
-                (   { domain_supremum(VD, n(Sup)) } ->
+                (   { domain_supremum(VD, Sup), integer(Sup) } ->
                     { L is Sup + D//C,
                       domain_remove_smaller_than(VD, L, VD1) }
                 ;   VD1 = VD
                 )
-            ;   (   { domain_infimum(VD, n(Inf)) } ->
+            ;   (   { domain_infimum(VD, Inf), integer(Inf) } ->
                     { G is Inf + D//C,
                       domain_remove_greater_than(VD, G, VD1) }
                 ;   VD1 = VD
@@ -2655,12 +2668,12 @@ remove_dist_lower([], _) --> [].
 remove_dist_lower([C*V|CVs], D) -->
         (   { fd_get(V, VD, VPs) } ->
             (   C < 0 ->
-                (   { domain_infimum(VD, n(Inf)) } ->
+                (   { domain_infimum(VD, Inf), integer(Inf) } ->
                     { G is Inf - D//C,
                       domain_remove_greater_than(VD, G, VD1) }
                 ;   VD1 = VD
                 )
-            ;   (   { domain_supremum(VD, n(Sup)) } ->
+            ;   (   { domain_supremum(VD, Sup), integer(Sup) } ->
                     { L is Sup - D//C,
                       domain_remove_smaller_than(VD, L, VD1) }
                 ;   VD1 = VD
@@ -2954,7 +2967,7 @@ geq(A, B) -->
                 (   { AI cis_geq BS } -> true
                 ;   { propagator_init_trigger(pgeq(A,B)) }
                 )
-            ;   (   { AI cis_geq n(B) } -> true
+            ;   (   { AI cis_geq B } -> true
                 ;   { domain_remove_smaller_than(AD, B, AD1) },
                     fd_put(A, AD1, APs)
                 )
@@ -4097,7 +4110,7 @@ drep_bound(I)   :- integer(I).
 drep_bound(sup).
 drep_bound(inf).
 
-drep_to_intervals(I)        --> { integer(I) }, [n(I)-n(I)].
+drep_to_intervals(I)        --> { integer(I) }, [I-I].
 drep_to_intervals(N..M)     -->
         (   { defaulty_to_bound(N, N1), defaulty_to_bound(M, M1),
               N1 cis_leq M1} -> [N1-M1]
@@ -4113,7 +4126,7 @@ drep_to_intervals(\D0) -->
 drep_to_intervals({AI}) -->
         and_integers_(AI).
 
-and_integers_(I)     --> { integer(I) }, [n(I)-n(I)].
+and_integers_(I)     --> { integer(I) }, [I-I].
 and_integers_((A,B)) --> and_integers_(A), and_integers_(B).
 
 drep_to_domain(DR, D) :-
@@ -4126,9 +4139,18 @@ drep_to_domain(DR, D) :-
         intervals_to_domain(Is1, D).
 
 merge_intervals_ref(Is0, Is) :-
-        keysort(Is0, Is1),
+        maplist(interval_key, Is0, Ks0),
+        keysort(Ks0, Ks),
+        maplist(interval_key, Is1, Ks),
         merge_overlapping(Is1, Is).
 
+
+% (dieselbe Reihenfolge wie keysort/2 auf n(N): inf, sup, dann die Zahlen)
+interval_key(L-U, K-(L-U)) :-
+        (   L == inf -> K = k(0, 0)
+        ;   L == sup -> K = k(0, 1)
+        ;   K = k(1, L)
+        ).
 merge_overlapping([], []).
 merge_overlapping([A-B0|ABs0], [A-B|ABs]) :-
         merge_remaining(ABs0, B0, B, Rest),
@@ -4136,7 +4158,7 @@ merge_overlapping([A-B0|ABs0], [A-B|ABs]) :-
 
 merge_remaining([], B, B, []).
 merge_remaining([N-M|NMs], B0, B, Rest) :-
-        Next cis B0 + n(1),
+        Next cis B0 + 1,
         (   N cis_gt Next -> B = B0, Rest = [N-M|NMs]
         ;   B1 cis max(B0,M),
             merge_remaining(NMs, B1, B, Rest)
@@ -4190,7 +4212,9 @@ fd_put_ref(X, Dom, Ps) :-
 
 put_terminating_ref(X, Dom, Ps) -->
         Dom \== empty,
-        (   Dom = from_to(F, F) -> queue_goal_ref(F = n(X))
+        (   Dom = from_to(F, F) ->
+            % (F = inf oder sup: das Ziel scheitert, wie F = n(X) im Original)
+            (   integer(F) -> queue_goal_ref(X = F) ; queue_goal_ref(false) )
         ;   (   { get_attr(X, clpz, Attr) } ->
                 { Attr = clpz_attr(Left,Right,Spread,OldDom, _OldPs,Q),
                   put_attr(X, clpz, clpz_attr(Left,Right,Spread,Dom,Ps,Q)) },
@@ -4198,7 +4222,7 @@ put_terminating_ref(X, Dom, Ps) -->
                 ;   { (   Left == (.) -> Bounded = yes
                       ;   domain_infimum(Dom, Inf),
                           domain_supremum(Dom, Sup),
-                          (   Inf = n(_), Sup = n(_) ->
+                          (   integer(Inf), integer(Sup) ->
                               Bounded = yes
                           ;   Bounded = no
                           )
@@ -4259,13 +4283,13 @@ domain_spread_ref(Dom, Spread) :-
         Spread cis L - S.
 
 smallest_finite(inf, Y, Y).
-smallest_finite(n(N), _, n(N)).
+smallest_finite(N, _, N) :- integer(N).
 
 domain_smallest_finite_ref(from_to(F,T), S)   :- smallest_finite(F, T, S).
 domain_smallest_finite_ref(split(_, L, _), S) :- domain_smallest_finite_ref(L, S).
 
 largest_finite(sup, Y, Y).
-largest_finite(n(N), _, n(N)).
+largest_finite(N, _, N) :- integer(N).
 
 domain_largest_finite_ref(from_to(F,T), L)   :- largest_finite(T, F, L).
 domain_largest_finite_ref(split(_, _, R), L) :- domain_largest_finite_ref(R, L).
@@ -4289,7 +4313,7 @@ reinforce_(X) :-
 
 put_full(X, Dom, Ps) :-
         Dom \== empty,
-        (   Dom = from_to(F, F) -> F = n(X)
+        (   Dom = from_to(F, F) -> integer(F), X = F
         ;   (   get_attr(X, clpz, Attr) ->
                 Attr = clpz_attr(_,_,_,OldDom, _OldPs,Q),
                 put_attr(X, clpz, clpz_attr(no,no,no,Dom,Ps,Q)),
@@ -4974,19 +4998,19 @@ run_propagator(x_leq_y_plus_c(X,Y,C), MState) -->
             fd_put(X, XD1, XPs)
         ;   (   X == Y -> C >= 0, kill(MState)
             ;   { fd_get(Y, YD, _) },
-                (   { domain_supremum(YD, n(YSup)) } ->
+                (   { domain_supremum(YD, YSup), integer(YSup) } ->
                     YS1 is YSup + C,
                     { fd_get(X, XD, XPs),
                       domain_remove_greater_than(XD, YS1, XD1) },
                     fd_put(X, XD1, XPs)
                 ;   []
                 ),
-                (   { fd_get(X, XD2, _), domain_infimum(XD2, n(XInf)) } ->
+                (   { fd_get(X, XD2, _), domain_infimum(XD2, XInf), integer(XInf) } ->
                     XI1 is XInf - C,
                     (   { fd_get(Y, YD1, YPs1) } ->
                         { domain_remove_smaller_than(YD1, XI1, YD2),
-                          (   domain_infimum(YD2, n(YInf)),
-                              domain_supremum(XD2, n(XSup)),
+                          (   domain_infimum(YD2, YInf), integer(YInf),
+                              domain_supremum(XD2, XSup), integer(XSup),
                               XSup =< YInf + C ->
                               kill(MState)
                           ;   true
@@ -5121,7 +5145,7 @@ run_propagator(pplus(X,Y,Z,Morph), MState) -->
                     { NYL cis max(YL2, ZL-NXU),
                       NYU cis min(YU2, ZU-NXL) },
                     update_bounds(Y, YD2, YPs2, YL2, YU2, NYL, NYU)
-                ;   NYL = n(Y), NYU = n(Y)
+                ;   NYL = Y, NYU = Y
                 ),
                 (   { fd_get(Z, ZD2, ZL2, ZU2, ZPs2) } ->
                     { NZL cis max(ZL2,NXL+NYL),
@@ -5163,10 +5187,10 @@ run_propagator(ptimes(X,Y,Z,Morph), MState) -->
                   X in NR \/ R }
             ;   { fd_get(X, XD, XL, XU, XPs),
                   fd_get(Y, YD, YL, YU, _),
-                  min_max_factor(n(Z), n(Z), YL, YU, XL, XU, NXL, NXU) },
+                  min_max_factor(Z, Z, YL, YU, XL, XU, NXL, NXU) },
                 update_bounds(X, XD, XPs, XL, XU, NXL, NXU),
                 (   { fd_get(Y, YD2, YL2, YU2, YPs2) } ->
-                    { min_max_factor(n(Z), n(Z), NXL, NXU, YL2, YU2, NYL, NYU) },
+                    { min_max_factor(Z, Z, NXL, NXU, YL2, YU2, NYL, NYU) },
                     update_bounds(Y, YD2, YPs2, YL2, YU2, NYL, NYU)
                 ;   (   Y =\= 0 -> 0 =:= Z mod Y, kill(MState), X is Z // Y
                     ;   kill(MState), Z = 0
@@ -5192,7 +5216,7 @@ run_propagator(ptimes(X,Y,Z,Morph), MState) -->
                     (   { fd_get(Y, YD2, YL2, YU2, YPs2) } ->
                         { min_max_factor(ZL, ZU, NXL, NXU, YL2, YU2, NYL, NYU) },
                         update_bounds(Y, YD2, YPs2, YL2, YU2, NYL, NYU)
-                    ;   NYL = n(Y), NYU = n(Y)
+                    ;   NYL = Y, NYU = Y
                     ),
                     (   { fd_get(Z, ZD2, ZL2, ZU2, ZPs2) } ->
                         { min_product(NXL, NXU, NYL, NYU, NZL),
@@ -5221,33 +5245,33 @@ run_propagator(ptzdiv(X,Y,Z,Morph), MState) -->
                     (   Z =:= 0 ->
                         NYL is -abs(X) - 1,
                         NYU is abs(X) + 1,
-                        { domains_intersection(YD, split(0, from_to(inf,n(NYL)),
-                                                       from_to(n(NYU), sup)),
+                        { domains_intersection(YD, split(0, from_to(inf,NYL),
+                                                       from_to(NYU, sup)),
                                              NYD) },
                         fd_put(Y, NYD, YPs)
                     ;   (   sign(X) =:= sign(Z) ->
-                            { NYL cis max(n(X) // (n(Z)+sign(n(Z))) + n(1), YL),
-                              NYU cis min(n(X) // n(Z), YU) }
-                        ;   { NYL cis max(n(X) // n(Z), YL),
-                              NYU cis min(n(X) // (n(Z)+sign(n(Z))) - n(1), YU) }
+                            { NYL cis max(X // (Z+sign(Z)) + 1, YL),
+                              NYU cis min(X // Z, YU) }
+                        ;   { NYL cis max(X // Z, YL),
+                              NYU cis min(X // (Z+sign(Z)) - 1, YU) }
                         ),
                         update_bounds(Y, YD, YPs, YL, YU, NYL, NYU)
                     )
                 ;   { fd_get(Z, ZD, ZL, ZU, ZPs),
-                      (   X >= 0, ( YL cis_gt n(0) ; YU cis_lt n(0) )->
-                          NZL cis max(n(X)//YU, ZL),
-                          NZU cis min(n(X)//YL, ZU)
-                      ;   X < 0, ( YL cis_gt n(0) ; YU cis_lt n(0) ) ->
-                          NZL cis max(n(X)//YL, ZL),
-                          NZU cis min(n(X)//YU, ZU)
+                      (   X >= 0, ( YL cis_gt 0 ; YU cis_lt 0 )->
+                          NZL cis max(X//YU, ZL),
+                          NZU cis min(X//YL, ZU)
+                      ;   X < 0, ( YL cis_gt 0 ; YU cis_lt 0 ) ->
+                          NZL cis max(X//YL, ZL),
+                          NZU cis min(X//YU, ZU)
                       ;   % TODO: more stringent bounds, cover Y
-                          NZL cis max(-abs(n(X)), ZL),
-                          NZU cis min(abs(n(X)), ZU)
+                          NZL cis max(-abs(X), ZL),
+                          NZU cis min(abs(X), ZU)
                       ) },
                     update_bounds(Z, ZD, ZPs, ZL, ZU, NZL, NZU),
-                    (   { X >= 0, NZL cis_gt n(0), fd_get(Y, YD1, YPs1) } ->
-                        { NYL cis n(X) // (NZU + n(1)) + n(1),
-                          NYU cis n(X) // NZL,
+                    (   { X >= 0, NZL cis_gt 0, fd_get(Y, YD1, YPs1) } ->
+                        { NYL cis X // (NZU + 1) + 1,
+                          NYU cis X // NZL,
                           domains_intersection(YD1, from_to(NYL, NYU), NYD1) },
                         fd_put(Y, NYD1, YPs1)
                     ;   true
@@ -5263,13 +5287,13 @@ run_propagator(ptzdiv(X,Y,Z,Morph), MState) -->
                 (   nonvar(Z) ->
                     kill(MState),
                     (   sign(Z) =:= sign(Y) ->
-                        { NXL cis max(n(Z)*n(Y), XL),
-                          NXU cis min((abs(n(Z))+n(1))*abs(n(Y))-n(1), XU) }
+                        { NXL cis max(Z*Y, XL),
+                          NXU cis min((abs(Z)+1)*abs(Y)-1, XU) }
                     ;   Z =:= 0 ->
-                        { NXL cis max(-abs(n(Y)) + n(1), XL),
-                          NXU cis min(abs(n(Y)) - n(1), XU) }
-                    ;   { NXL cis max((n(Z)+sign(n(Z)))*n(Y)+n(1), XL),
-                          NXU cis min(n(Z)*n(Y), XU) }
+                        { NXL cis max(-abs(Y) + 1, XL),
+                          NXU cis min(abs(Y) - 1, XU) }
+                    ;   { NXL cis max((Z+sign(Z))*Y+1, XL),
+                          NXU cis min(Z*Y, XU) }
                     ),
                     update_bounds(X, XD, XPs, XL, XU, NXL, NXU)
                 ;   { fd_get(Z, ZD, ZPs),
@@ -5287,9 +5311,9 @@ run_propagator(ptzdiv(X,Y,Z,Morph), MState) -->
         ;   nonvar(Z) ->
             { fd_get(X, XD, XL, XU, XPs),
               fd_get(Y, _, YL, YU, _),
-              (   YL cis_geq n(0), XL cis_geq n(0) ->
-                  NXL cis max(YL*n(Z), XL),
-                  NXU cis min(YU*(n(Z)+n(1))-n(1), XU)
+              (   YL cis_geq 0, XL cis_geq 0 ->
+                  NXL cis max(YL*Z, XL),
+                  NXU cis min(YU*(Z+1)-1, XU)
               ;   %TODO: cover more cases
                   NXL = XL, NXU = XU
               ) },
@@ -5301,7 +5325,7 @@ run_propagator(ptzdiv(X,Y,Z,Morph), MState) -->
                   NZU cis max(abs(XL), XU),
                   NZL cis -NZU,
                   domains_intersection(ZD, from_to(NZL,NZU), NZD0),
-                  (   XL cis_geq n(0), YL cis_geq n(0) ->
+                  (   XL cis_geq 0, YL cis_geq 0 ->
                       domain_remove_smaller_than(NZD0, 0, NZD1)
                   ;   % TODO: cover more cases
                       NZD1 = NZD0
@@ -5327,7 +5351,7 @@ run_propagator(pmod(X,Y,Z), MState) -->
             (   Y > 0 -> Z >= 0, Z < Y
             ;   Z =< 0, Z > Y    % Y < 0
             ),
-            (   { fd_get(X, _, n(XL), _, _) } ->
+            (   { fd_get(X, _, XL, _, _), integer(XL) } ->
                 (   (XL - Z) mod Y =\= 0 ->
                     XMin is Z + Y * ((XL - Z) div Y + 1)
                 ;   XMin is XL
@@ -5338,7 +5362,7 @@ run_propagator(pmod(X,Y,Z), MState) -->
                 % queue_goal(X #>= XMin)
             ;   true
             ),
-            (   { fd_get(X, _, _, n(XU), _) } ->
+            (   { fd_get(X, _, _, XU, _), integer(XU) } ->
                 XMax is Z + Y * ((XU - Z) div Y),
                 { fd_get(X, XD1, XPs),
                   domain_remove_greater_than(XD1, XMax, XD3) },
@@ -5367,9 +5391,9 @@ run_propagator(pmod(X,Y,Z), MState) -->
                 )
             ;   Z =:= 0 % Multiple solutions so do nothing special.
             ),
-            (   { fd_get(Y, _, _, n(YU), _),
+            (   { fd_get(Y, _, _, YU, _), integer(YU),
                   YU < X, X =< 0 } -> kill(MState), Z =:= X
-            ;   { fd_get(Y, _, n(YL), _, _),
+            ;   { fd_get(Y, _, YL, _, _), integer(YL),
                   YL > X, X >= 0 } -> kill(MState), Z =:= X
             ;   (   Z > 0, X < 0 ->
                     { fd_get(Y, YD, YPs),
@@ -5421,7 +5445,7 @@ run_propagator(pmodz(X,Y,Z), MState) -->
         ;   nonvar(X) ->
             (   X =:= 0 -> kill(MState), queue_goal(Z = X)
             ;   (   X > 0 ->
-                    (   { fd_get(Y, _, n(YL), _, _), YL > X } ->
+                    (   { fd_get(Y, _, YL, _, _), integer(YL), YL > X } ->
                         kill(MState),
                         queue_goal(Z = X)
                     ;   { fd_get(Z, ZD0, ZPs),
@@ -5430,7 +5454,7 @@ run_propagator(pmodz(X,Y,Z), MState) -->
                         % queue_goal(Z #=< X)
                     )
                 ;   X < 0,
-                    (   { fd_get(Y, _, _, n(YU), _), YU < X } ->
+                    (   { fd_get(Y, _, _, YU, _), integer(YU), YU < X } ->
                         kill(MState),
                         queue_goal(Z = X)
                     ;   { fd_get(Z, ZD0, ZPs),
@@ -5439,14 +5463,14 @@ run_propagator(pmodz(X,Y,Z), MState) -->
                         % queue_goal(Z #>= X)
                     )
                 ),
-                (   { fd_get(Y, _, n(YL), n(YU), _), YL > 0 } ->
+                (   { fd_get(Y, _, YL, YU, _), integer(YL), integer(YU), YL > 0 } ->
                     ZMax is YU - 1,
                     { fd_get(Z, ZD1, ZPs),
                       domain_remove_smaller_than(ZD1, 0, ZD3),
                       domain_remove_greater_than(ZD3, ZMax, ZD5) },
                     fd_put(Z, ZD5, ZPs)
                     % queue_goal(Z in 0..ZMax)
-                ;   { fd_get(Y, _, n(YL), n(YU), _), YU < 0 } ->
+                ;   { fd_get(Y, _, YL, YU, _), integer(YL), integer(YU), YU < 0 } ->
                     ZMin is YL + 1,
                     { fd_get(Z, ZD1, ZPs),
                       domain_remove_greater_than(ZD1, 0, ZD3),
@@ -5459,7 +5483,7 @@ run_propagator(pmodz(X,Y,Z), MState) -->
         ;   nonvar(Y) ->
             (   abs(Y) =:= 1 -> kill(MState), queue_goal(Z = 0)
             ;   Y < 0 ->
-                (   { fd_get(X, _, n(XL), n(XU), _), XU =< 0, Y < XL } ->
+                (   { fd_get(X, _, XL, XU, _), integer(XL), integer(XU), XU =< 0, Y < XL } ->
                     kill(MState),
                     queue_goal(Z = X)
                 ;   ZMin is Y + 1,
@@ -5470,7 +5494,7 @@ run_propagator(pmodz(X,Y,Z), MState) -->
                     % queue_goal(Z in ZMin..0)
                 )
             ;   Y > 0,
-                (   { fd_get(X, _, n(XL), n(XU), _), XL >= 0, Y > XU } ->
+                (   { fd_get(X, _, XL, XU, _), integer(XL), integer(XU), XL >= 0, Y > XU } ->
                     kill(MState),
                     queue_goal(Z = X)
                 ;   ZMax is Y - 1,
@@ -5481,41 +5505,41 @@ run_propagator(pmodz(X,Y,Z), MState) -->
                     % queue_goal(Z in 0..ZMax)
                 )
             )
-        ;   (   { fd_get(X, _, n(XL), n(XU), _), XL >= 0,
-                  fd_get(Y, _, n(YL), _, _), XU < YL } ->
+        ;   (   { fd_get(X, _, XL, XU, _), integer(XL), integer(XU), XL >= 0,
+                  fd_get(Y, _, YL, _, _), integer(YL), XU < YL } ->
                 kill(MState),
                 queue_goal(Z = X)
-            ;   { fd_get(X, _, n(XL), n(XU), _), XU =< 0,
-                  fd_get(Y, _, _, n(YU), _), XL > YU } ->
+            ;   { fd_get(X, _, XL, XU, _), integer(XL), integer(XU), XU =< 0,
+                  fd_get(Y, _, _, YU, _), integer(YU), XL > YU } ->
                 kill(MState),
                 queue_goal(Z = X)
-            ;   (   { fd_get(X, _, n(XL), n(XU), _), XL >= 0 } ->
+            ;   (   { fd_get(X, _, XL, XU, _), integer(XL), integer(XU), XL >= 0 } ->
                     { fd_get(Z, ZD0, ZPs),
                       domain_remove_greater_than(ZD0, XU, ZD2) },
                     fd_put(Z, ZD2, ZPs)
                     % queue_goal(Z #=< XU)
-                ;   { fd_get(X, _, n(XL), n(XU), _), XU =< 0 } ->
+                ;   { fd_get(X, _, XL, XU, _), integer(XL), integer(XU), XU =< 0 } ->
                     { fd_get(Z, ZD0, ZPs),
                       domain_remove_smaller_than(ZD0, XL, ZD2) },
                     fd_put(Z, ZD2, ZPs)
                     % queue_goal(Z #>= XL)
                 ;   true
                 ),
-                (   { fd_get(Y, _, n(YL), n(YU), _), YL > 0 } ->
+                (   { fd_get(Y, _, YL, YU, _), integer(YL), integer(YU), YL > 0 } ->
                     ZMax is YU - 1,
                     { fd_get(Z, ZD1, ZPs),
                       domain_remove_smaller_than(ZD1, 0, ZD3),
                       domain_remove_greater_than(ZD3, ZMax, ZD5) },
                     fd_put(Z, ZD5, ZPs)
                     % queue_goal(Z in 0..ZMax)
-                ;   { fd_get(Y, _, n(YL), n(YU), _), YU < 0 } ->
+                ;   { fd_get(Y, _, YL, YU, _), integer(YL), integer(YU), YU < 0 } ->
                     ZMin is YL + 1,
                     { fd_get(Z, ZD1, ZPs),
                       domain_remove_greater_than(ZD1, 0, ZD3),
                       domain_remove_smaller_than(ZD3, ZMin, ZD5) },
                     fd_put(Z, ZD5, ZPs)
                     % queue_goal(Z in ZMin..0)
-                ;   { fd_get(Y, _, n(YL), n(YU), _), YL < 0, YU > 0 } ->
+                ;   { fd_get(Y, _, YL, YU, _), integer(YL), integer(YU), YL < 0, YU > 0 } ->
                     ZMin is YL + 1,
                     ZMax is YU - 1,
                     { fd_get(Z, ZD1, ZPs),
@@ -5523,13 +5547,13 @@ run_propagator(pmodz(X,Y,Z), MState) -->
                       domain_remove_smaller_than(ZD3, ZMin, ZD5) },
                     fd_put(Z, ZD5, ZPs)
                     % queue_goal(Z in ZMin..ZMax)
-                ;   { fd_get(Y, _, _, n(YU), _), YU > 0 } ->
+                ;   { fd_get(Y, _, _, YU, _), integer(YU), YU > 0 } ->
                     { fd_get(Z, ZD1, ZPs),
                       ZMax is YU - 1,
                       domain_remove_greater_than(ZD1, ZMax, ZD3) },
                     fd_put(Z, ZD3, ZPs)
                     % queue_goal(Z #< YU)
-                ;   { fd_get(Y, _, n(YL), _, _), YL < 0 } ->
+                ;   { fd_get(Y, _, YL, _, _), integer(YL), YL < 0 } ->
                     { fd_get(Z, ZD1, ZPs),
                       ZMin is YL + 1,
                       domain_remove_smaller_than(ZD1, ZMin, ZD3) },
@@ -5558,13 +5582,13 @@ run_propagator(pmody(_X,Y,Z), _MState) -->
                 % queue_goal(Y #< Z)
             ;   Z =:= 0 % Multiple solutions so do nothing special.
             )
-        ;   (   { fd_get(Z, _, n(ZL), _, _), ZL > 0 } ->
+        ;   (   { fd_get(Z, _, ZL, _, _), integer(ZL), ZL > 0 } ->
                 { fd_get(Y, YD, YPs),
                   YMin is ZL + 1,
                   domain_remove_smaller_than(YD, YMin, YD1) },
                 fd_put(Y, YD1, YPs)
                 % queue_goal(Y #> ZL)
-            ;   { fd_get(Z, _, _, n(ZU), _), ZU < 0 } ->
+            ;   { fd_get(Z, _, _, ZU, _), integer(ZU), ZU < 0 } ->
                 { fd_get(Y, YD, YPs),
                   YMax is ZU - 1,
                   domain_remove_greater_than(YD, YMax, YD1) },
@@ -5583,7 +5607,7 @@ run_propagator(prem(X,Y,Z), MState) -->
             (   nonvar(Y) -> kill(MState), Y =\= 0, Z is X rem Y
             ;   U is abs(X),
                 { fd_get(Y, YD, _) },
-                (   X >=0, { domain_infimum(YD, n(Min)), Min >= 0 } -> L = 0
+                (   X >=0, { domain_infimum(YD, Min), integer(Min), Min >= 0 } -> L = 0
                 ;   L is -U
                 ),
                 { Z in L..U }
@@ -5594,7 +5618,7 @@ run_propagator(prem(X,Y,Z), MState) -->
             ;   var(Z) ->
                 YP is abs(Y) - 1,
                 YN is -YP,
-                (   Y > 0, { fd_get(X, _, n(XL), n(XU), _) } ->
+                (   Y > 0, { fd_get(X, _, XL, XU, _), integer(XL), integer(XU) } ->
                     (   abs(XL) < Y, XU < Y -> kill(MState), Z = X, ZL = XL
                     ;   XL < 0, abs(XL) < Y -> ZL = XL
                     ;   XL >= 0 -> ZL = 0
@@ -5607,18 +5631,18 @@ run_propagator(prem(X,Y,Z), MState) -->
                 ;   ZL = YN, ZU = YP
                 ),
                 (   { fd_get(Z, ZD, ZPs) } ->
-                    { domains_intersection(ZD, from_to(n(ZL), n(ZU)), ZD1) },
+                    { domains_intersection(ZD, from_to(ZL, ZU), ZD1) },
                     fd_put(Z, ZD1, ZPs)
-                ;   ZD1 = from_to(n(Z), n(Z))
+                ;   ZD1 = from_to(Z, Z)
                 ),
-                (   { fd_get(X, XD, _), domain_infimum(XD, n(Min)) } ->
+                (   { fd_get(X, XD, _), domain_infimum(XD, Min), integer(Min) } ->
                     Z1 is Min rem Y,
                     (   { domain_contains(ZD1, Z1) } -> true
                     ;   neq_num(X, Min)
                     )
                 ;   true
                 ),
-                (   { fd_get(X, XD1, _), domain_supremum(XD1, n(Max)) } ->
+                (   { fd_get(X, XD1, _), domain_supremum(XD1, Max), integer(Max) } ->
                     Z2 is Max rem Y,
                     (   { domain_contains(ZD1, Z2) } -> true
                     ;   neq_num(X, Max)
@@ -5627,7 +5651,7 @@ run_propagator(prem(X,Y,Z), MState) -->
                 )
             ;   { fd_get(X, XD1, XPs1) },
                 % if possible, propagate at the boundaries
-                (   { domain_infimum(XD1, n(Min)) } ->
+                (   { domain_infimum(XD1, Min), integer(Min) } ->
                     (   Min rem Y =:= Z -> true
                     ;   Y > 0, Min > 0 ->
                         Next is ((Min - Z + Y - 1) div Y)*Y + Z,
@@ -5639,7 +5663,7 @@ run_propagator(prem(X,Y,Z), MState) -->
                 ;   true
                 ),
                 (   { fd_get(X, XD3, XPs3) } ->
-                    (   { domain_supremum(XD3, n(Max)) } ->
+                    (   { domain_supremum(XD3, Max), integer(Max) } ->
                         (   Max rem Y =:= Z -> true
                         ;   Y > 0, Max > 0  ->
                             Prev is ((Max - Z) div Y)*Y + Z,
@@ -5658,14 +5682,14 @@ run_propagator(prem(X,Y,Z), MState) -->
             { fd_get(Y, _, YInf, YSup, _),
               fd_get(X, _, XInf, XSup, _),
               M cis max(abs(YInf),YSup),
-              (   XInf cis_geq n(0) -> Inf0 = n(0)
+              (   XInf cis_geq 0 -> Inf0 = 0
               ;   Inf0 = XInf
               ),
-              (   XSup cis_leq n(0) -> Sup0 = n(0)
+              (   XSup cis_leq 0 -> Sup0 = 0
               ;   Sup0 = XSup
               ),
-              NInf cis max(max(Inf0, -M + n(1)), min(XInf,-XSup)),
-              NSup cis min(min(Sup0, M - n(1)), max(abs(XInf),XSup)),
+              NInf cis max(max(Inf0, -M + 1), min(XInf,-XSup)),
+              NSup cis min(min(Sup0, M - 1), max(abs(XInf),XSup)),
               domains_intersection(ZD, from_to(NInf,NSup), ZD1) },
             fd_put(Z, ZD1, ZPs)
         ;   true % TODO: propagate more
@@ -5684,9 +5708,9 @@ run_propagator(pmax(X,Y,Z), MState) -->
                 )
             ;   Y == Z -> kill(MState), queue_goal(Y #>= X)
             ;   { fd_get(Y, _, YInf, YSup, _) },
-                (   { YInf cis_gt n(X) } -> queue_goal(Z = Y)
-                ;   { YSup cis_lt n(X) } -> queue_goal(Z = X)
-                ;   YSup = n(M) ->
+                (   { YInf cis_gt X } -> queue_goal(Z = Y)
+                ;   { YSup cis_lt X } -> queue_goal(Z = X)
+                ;   { integer(YSup) } -> M = YSup,
                     { fd_get(Z, ZD, ZPs),
                       domain_remove_greater_than(ZD, M, ZD1) },
                     fd_put(Z, ZD1, ZPs)
@@ -5699,7 +5723,7 @@ run_propagator(pmax(X,Y,Z), MState) -->
               fd_get(Y, _, YInf, YSup, _) },
             (   { YInf cis_gt XSup } -> kill(MState), queue_goal(Z = Y)
             ;   { YSup cis_lt XInf } -> kill(MState), queue_goal(Z = X)
-            ;   { n(M) cis max(XSup, YSup) } ->
+            ;   { M cis max(XSup, YSup), integer(M) } ->
                 { domain_remove_greater_than(ZD, M, ZD1) },
                 fd_put(Z, ZD1, ZPs)
             ;   []
@@ -5720,9 +5744,9 @@ run_propagator(pmin(X,Y,Z), MState) -->
                 )
             ;   Y == Z -> kill(MState), queue_goal(Y #=< X)
             ;   { fd_get(Y, _, YInf, YSup, _) },
-                (   { YSup cis_lt n(X) } -> Z = Y
-                ;   { YInf cis_gt n(X) } -> Z = X
-                ;   YInf = n(M) ->
+                (   { YSup cis_lt X } -> Z = Y
+                ;   { YInf cis_gt X } -> Z = X
+                ;   { integer(YInf) } -> M = YInf,
                     { fd_get(Z, ZD, ZPs),
                       domain_remove_smaller_than(ZD, M, ZD1) },
                     fd_put(Z, ZD1, ZPs)
@@ -5735,7 +5759,7 @@ run_propagator(pmin(X,Y,Z), MState) -->
               fd_get(Y, _, YInf, YSup, _) },
             (   { YSup cis_lt XInf } -> kill(MState), Z = Y
             ;   { YInf cis_gt XSup } -> kill(MState), Z = X
-            ;   { n(M) cis min(XInf, YInf) } ->
+            ;   { M cis min(XInf, YInf), integer(M) } ->
                 { domain_remove_smaller_than(ZD, M, ZD1) },
                 fd_put(Z, ZD1, ZPs)
             ;   []
@@ -5767,15 +5791,15 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                 )
             ;   { fd_get(Y, _, YL, YU, _),
                   fd_get(Z, ZD, ZPs) },
-                (   { X > 0, YL cis_geq n(0) } ->
-                    { NZL cis n(X)^YL,
-                      NZU cis n(X)^YU,
+                (   { X > 0, YL cis_geq 0 } ->
+                    { NZL cis X^YL,
+                      NZU cis X^YU,
                       domains_intersection(ZD, from_to(NZL,NZU), NZD) },
                     fd_put(Z, NZD, ZPs)
                 ;   true
                 ),
                 (   { X > 0,
-                      fd_get(Z, _, _, n(ZMax), _),
+                      fd_get(Z, _, _, ZMax, _), integer(ZMax),
                       ZMax > 0 } ->
                     { floor_integer_log_b(ZMax, X, 1, YCeil) },
                     queue_goal(Y in inf..YCeil)
@@ -5791,16 +5815,16 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                     { X in N \/ R }
                 ;   X = R
                 )
-            ;   { fd_get(X, _, n(NXL), _, _), NXL > 1 } ->
+            ;   { fd_get(X, _, NXL, _, _), integer(NXL), NXL > 1 } ->
                 (   { Z > 1, between(NXL, Z, Exp), NXL^Exp > Z } ->
                     Exp1 is Exp - 1,
                     { fd_get(Y, YD, YPs),
-                      domains_intersection(YD, from_to(n(1),n(Exp1)), YD1) },
+                      domains_intersection(YD, from_to(1,Exp1), YD1) },
                     fd_put(Y, YD1, YPs),
                     (   { fd_get(X, XD, XPs) } ->
-                        { domain_infimum(YD1, n(YL)),
+                        { domain_infimum(YD1, YL), integer(YL),
                           integer_kth_root_leq(Z, YL, RU),
-                          domains_intersection(XD, from_to(n(NXL),n(RU)), XD1) },
+                          domains_intersection(XD, from_to(NXL,RU), XD1) },
                         fd_put(X, XD1, XPs)
                     ;   true
                     )
@@ -5823,25 +5847,25 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                 ;   { domain_remove(ZD, 0, ZD1) }
                 ),
                 (   { even(Y) } ->
-                    (   { XL cis_geq n(0) } ->
-                        { NZL cis XL^n(Y) }
-                    ;   { XU cis_leq n(0) } ->
-                        { NZL cis XU^n(Y) }
-                    ;   NZL = n(0)
+                    (   { XL cis_geq 0 } ->
+                        { NZL cis XL^Y }
+                    ;   { XU cis_leq 0 } ->
+                        { NZL cis XU^Y }
+                    ;   NZL = 0
                     ),
-                    { NZU cis max(abs(XL),abs(XU))^n(Y),
+                    { NZU cis max(abs(XL),abs(XU))^Y,
                       domains_intersection(ZD1, from_to(NZL,NZU), ZD2) }
                 ;   (   { finite(XL) } ->
-                        { NZL cis XL^n(Y),
-                          NZU cis XU^n(Y) },
+                        { NZL cis XL^Y,
+                          NZU cis XU^Y },
                         { domains_intersection(ZD1, from_to(NZL,NZU), ZD2) }
                     ;   ZD2 = ZD1
                     )
                 ),
                 fd_put(Z, ZD2, ZPs),
-                { (   even(Y), ZU = n(Num) ->
+                { (   even(Y), integer(ZU) -> Num = ZU,
                     integer_kth_root_leq(Num, Y, RU),
-                    (   XL cis_geq n(0), ZL = n(Num1), Num1 >= 0 ->
+                    (   XL cis_geq 0, integer(ZL), Num1 = ZL, Num1 >= 0 ->
                         integer_kth_root_leq(Num1, Y, RL0),
                         (   RL0^Y < Num1 -> RL is RL0 + 1
                         ;   RL = RL0
@@ -5849,16 +5873,16 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                     ;   RL is -RU
                     ),
                     RL =< RU,
-                    NXD = from_to(n(RL),n(RU))
-                ;   odd(Y), ZL cis_geq n(0), ZU = n(Num) ->
+                    NXD = from_to(RL,RU)
+                ;   odd(Y), ZL cis_geq 0, integer(ZU) -> Num = ZU,
                     integer_kth_root_leq(Num, Y, RU),
-                    ZL = n(Num1),
+                    integer(ZL), Num1 = ZL,
                     integer_kth_root_leq(Num1, Y, RL0),
                     (   RL0^Y < Num1 -> RL is RL0 + 1
                     ;   RL = RL0
                     ),
                     RL =< RU,
-                    NXD = from_to(n(RL),n(RU))
+                    NXD = from_to(RL,RU)
                 ;   NXD = XD1   % TODO: propagate more
                 ) },
                 (   { fd_get(X, XD2, XPs) } ->
@@ -5870,11 +5894,11 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
             ;   true
             )
         ;   { fd_get(X, _, XL, _, _),
-              XL cis_gt n(0),
+              XL cis_gt 0,
               fd_get(Y, _, YL, _, _),
-              YL cis_gt n(0),
+              YL cis_gt 0,
               fd_get(Z, ZD, ZPs) } ->
-            { n(NZL) cis XL^YL,
+            { NZL cis XL^YL, integer(NZL),
               domain_remove_smaller_than(ZD, NZL, ZD1) },
             fd_put(Z, ZD1, ZPs)
         ;   true
@@ -5889,8 +5913,8 @@ run_propagator(psign(X,Y), MState) -->
         ;   Y == 0 -> kill(MState), queue_goal(X = 0)
         ;   Y == 1 -> kill(MState), queue_goal(X #> 0)
         ;   { fd_get(X, _, XL, XU, _) },
-            (   { XL = n(L), L > 0 } -> kill(MState), queue_goal(Y = 1)
-            ;   { XU = n(U), U < 0 } -> kill(MState), queue_goal(Y = -1)
+            (   { integer(XL), L = XL, L > 0 } -> kill(MState), queue_goal(Y = 1)
+            ;   { integer(XU), U = XU, U < 0 } -> kill(MState), queue_goal(Y = -1)
             ;   true
             )
         ).
@@ -5950,15 +5974,15 @@ run_propagator(pzcompare(Order, A, B), MState) -->
                     ;   Order = (<)
                     )
                 ;   { fd_get(B, _, BL, BU, _) },
-                    (   { BL cis_gt n(A) } -> kill(MState), Order = (<)
-                    ;   { BU cis_lt n(A) } -> kill(MState), Order = (>)
+                    (   { BL cis_gt A } -> kill(MState), Order = (<)
+                    ;   { BU cis_lt A } -> kill(MState), Order = (>)
                     ;   []
                     )
                 )
             ;   nonvar(B) ->
                 { fd_get(A, _, AL, AU, _) },
-                (   { AL cis_gt n(B) } -> kill(MState), Order = (>)
-                ;   { AU cis_lt n(B) } -> kill(MState), Order = (<)
+                (   { AL cis_gt B } -> kill(MState), Order = (>)
+                ;   { AU cis_lt B } -> kill(MState), Order = (<)
                 ;   []
                 )
             ;   { fd_get(A, _, AL, AU, _),
@@ -6085,15 +6109,15 @@ run_propagator(reified_geq(DX,X,DY,Y,Ps,B), MState) -->
                         kill(MState),
                         (   X >= Y -> B = 1 ; B = 0 )
                     ;   { fd_get(Y, _, YL, YU, _) },
-                        (   { n(X) cis_geq YU } -> kill(MState, Ps), B = 1
-                        ;   { n(X) cis_lt YL } -> kill(MState, Ps), B = 0
+                        (   { X cis_geq YU } -> kill(MState, Ps), B = 1
+                        ;   { X cis_lt YL } -> kill(MState, Ps), B = 0
                         ;   []
                         )
                     )
                 ;   nonvar(Y) ->
                     { fd_get(X, _, XL, XU, _) },
-                    (   { XL cis_geq n(Y) } -> kill(MState, Ps), B = 1
-                    ;   { XU cis_lt n(Y) } -> kill(MState, Ps), B = 0
+                    (   { XL cis_geq Y } -> kill(MState, Ps), B = 1
+                    ;   { XU cis_lt Y } -> kill(MState, Ps), B = 0
                     ;   []
                     )
                 ;   X == Y -> kill(MState, Ps), B = 1
@@ -6287,7 +6311,7 @@ min_product(L1, U1, L2, U2, Min) :-
 max_product(L1, U1, L2, U2, Max) :-
         Max cis max(max(L1*L2,L1*U2),max(U1*L2,U1*U2)).
 
-finite(n(_)).
+finite(N) :- integer(N).
 
 in_(L, U, X) :-
         fd_get(X, XD, XPs),
@@ -6300,43 +6324,43 @@ min_max_factor(L1, U1, L2, U2, L3, U3, Min, Max) :-
         findall(Min-Max, min_max_factor_(L1, U1, L2, U2, L3, U3, Min, Max), [Min-Max]).
 
 min_max_factor_(L1, U1, L2, U2, L3, U3, Min, Max) :-
-        (   U1 cis_lt n(0),
-            L2 cis_lt n(0), U2 cis_gt n(0),
-            L3 cis_lt n(0), U3 cis_gt n(0) ->
+        (   U1 cis_lt 0,
+            L2 cis_lt 0, U2 cis_gt 0,
+            L3 cis_lt 0, U3 cis_gt 0 ->
             maplist(in_(L1,U1), [Z1,Z2]),
-            in_(L2, n(-1), X1), in_(n(1), U3, Y1),
+            in_(L2, -1, X1), in_(1, U3, Y1),
             (   X1*Y1 #= Z1 ->
                 (   fd_get(Y1, _, Inf1, Sup1, _) -> true
-                ;   Inf1 = n(Y1), Sup1 = n(Y1)
+                ;   Inf1 = Y1, Sup1 = Y1
                 )
-            ;   Inf1 = inf, Sup1 = n(-1)
+            ;   Inf1 = inf, Sup1 = -1
             ),
-            in_(n(1), U2, X2), in_(L3, n(-1), Y2),
+            in_(1, U2, X2), in_(L3, -1, Y2),
             (   X2*Y2 #= Z2 ->
                 (   fd_get(Y2, _, Inf2, Sup2, _) -> true
-                ;   Inf2 = n(Y2), Sup2 = n(Y2)
+                ;   Inf2 = Y2, Sup2 = Y2
                 )
-            ;   Inf2 = n(1), Sup2 = sup
+            ;   Inf2 = 1, Sup2 = sup
             ),
             Min cis max(min(Inf1,Inf2), L3),
             Max cis min(max(Sup1,Sup2), U3)
-        ;   L1 cis_gt n(0),
-            L2 cis_lt n(0), U2 cis_gt n(0),
-            L3 cis_lt n(0), U3 cis_gt n(0) ->
+        ;   L1 cis_gt 0,
+            L2 cis_lt 0, U2 cis_gt 0,
+            L3 cis_lt 0, U3 cis_gt 0 ->
             maplist(in_(L1,U1), [Z1,Z2]),
-            in_(L2, n(-1), X1), in_(L3, n(-1), Y1),
+            in_(L2, -1, X1), in_(L3, -1, Y1),
             (   X1*Y1 #= Z1 ->
                 (   fd_get(Y1, _, Inf1, Sup1, _) -> true
-                ;   Inf1 = n(Y1), Sup1 = n(Y1)
+                ;   Inf1 = Y1, Sup1 = Y1
                 )
-            ;   Inf1 = n(1), Sup1 = sup
+            ;   Inf1 = 1, Sup1 = sup
             ),
-            in_(n(1), U2, X2), in_(n(1), U3, Y2),
+            in_(1, U2, X2), in_(1, U3, Y2),
             (   X2*Y2 #= Z2 ->
                 (   fd_get(Y2, _, Inf2, Sup2, _) -> true
-                ;   Inf2 = n(Y2), Sup2 = n(Y2)
+                ;   Inf2 = Y2, Sup2 = Y2
                 )
-            ;   Inf2 = inf, Sup2 = n(-1)
+            ;   Inf2 = inf, Sup2 = -1
             ),
             Min cis max(min(Inf1,Inf2), L3),
             Max cis min(max(Sup1,Sup2), U3)
@@ -6347,34 +6371,34 @@ min_max_factor_(L1, U1, L2, U2, L3, U3, Min, Max) :-
         ).
 
 min_factor(L1, U1, L2, U2, Min) :-
-        (   L1 cis_geq n(0), L2 cis_gt n(0), finite(U2) ->
-            Min cis div(L1+U2-n(1),U2)
-        ;   L1 cis_gt n(0), U2 cis_lt n(0) -> Min cis div(U1,U2)
-        ;   L1 cis_gt n(0), L2 cis_geq n(0) -> Min = n(1)
-        ;   L1 cis_gt n(0) -> Min cis -U1
-        ;   U1 cis_lt n(0), U2 cis_leq n(0) ->
-            (   finite(L2) -> Min cis div(U1+L2+n(1),L2)
-            ;   Min = n(1)
+        (   L1 cis_geq 0, L2 cis_gt 0, finite(U2) ->
+            Min cis div(L1+U2-1,U2)
+        ;   L1 cis_gt 0, U2 cis_lt 0 -> Min cis div(U1,U2)
+        ;   L1 cis_gt 0, L2 cis_geq 0 -> Min = 1
+        ;   L1 cis_gt 0 -> Min cis -U1
+        ;   U1 cis_lt 0, U2 cis_leq 0 ->
+            (   finite(L2) -> Min cis div(U1+L2+1,L2)
+            ;   Min = 1
             )
-        ;   U1 cis_lt n(0), L2 cis_geq n(0) -> Min cis div(L1,L2)
-        ;   U1 cis_lt n(0) -> Min = L1
-        ;   L2 cis_leq n(0), U2 cis_geq n(0) -> Min = inf
+        ;   U1 cis_lt 0, L2 cis_geq 0 -> Min cis div(L1,L2)
+        ;   U1 cis_lt 0 -> Min = L1
+        ;   L2 cis_leq 0, U2 cis_geq 0 -> Min = inf
         ;   Min cis min(min(div(L1,L2),div(L1,U2)),min(div(U1,L2),div(U1,U2)))
         ).
 max_factor(L1, U1, L2, U2, Max) :-
-        (   L1 cis_geq n(0), L2 cis_geq n(0) -> Max cis div(U1,L2)
-        ;   L1 cis_gt n(0), U2 cis_leq n(0) ->
-            (   finite(L2) -> Max cis div(L1-L2-n(1),L2)
-            ;   Max = n(-1)
+        (   L1 cis_geq 0, L2 cis_geq 0 -> Max cis div(U1,L2)
+        ;   L1 cis_gt 0, U2 cis_leq 0 ->
+            (   finite(L2) -> Max cis div(L1-L2-1,L2)
+            ;   Max = -1
             )
-        ;   L1 cis_gt n(0) -> Max = U1
-        ;   U1 cis_lt n(0), U2 cis_lt n(0) -> Max cis div(L1,U2)
-        ;   U1 cis_lt n(0), L2 cis_geq n(0) ->
-            (   finite(U2) -> Max cis div(U1-U2+n(1),U2)
-            ;   Max = n(-1)
+        ;   L1 cis_gt 0 -> Max = U1
+        ;   U1 cis_lt 0, U2 cis_lt 0 -> Max cis div(L1,U2)
+        ;   U1 cis_lt 0, L2 cis_geq 0 ->
+            (   finite(U2) -> Max cis div(U1-U2+1,U2)
+            ;   Max = -1
             )
-        ;   U1 cis_lt n(0) -> Max cis -L1
-        ;   L2 cis_leq n(0), U2 cis_geq n(0) -> Max = sup
+        ;   U1 cis_lt 0 -> Max cis -L1
+        ;   L2 cis_leq 0, U2 cis_geq 0 -> Max = sup
         ;   Max cis max(max(div(L1,L2),div(L1,U2)),max(div(U1,L2),div(U1,U2)))
         ).
 
@@ -6421,7 +6445,7 @@ domain_to_list_ref(Domain, List) :- phrase(domain_to_list_ref(Domain), List).
 domain_to_list_ref(split(_, Left, Right)) -->
         domain_to_list_ref(Left), domain_to_list_ref(Right).
 domain_to_list_ref(empty)                 --> [].
-domain_to_list_ref(from_to(n(F),n(T)))    --> { numlist(F, T, Ns) }, seq(Ns).
+domain_to_list_ref(from_to(F,T))    --> { integer(F), integer(T), numlist(F, T, Ns) }, seq(Ns).
 
 difference_arcs([], []) --> [].
 difference_arcs([V|Vs], FL0) -->
@@ -6763,8 +6787,8 @@ vars_num_infinite(Vars, Num) :-
 num_infinite(Var, N0, N) :-
         (   integer(Var) -> N = N0
         ;   fd_get(Var, Dom, _),
-            (   domain_infimum(Dom, n(_)),
-                domain_supremum(Dom, n(_)) -> N = N0
+            (   domain_infimum(Dom, Inf_), integer(Inf_),
+                domain_supremum(Dom, Sup_), integer(Sup_) -> N = N0
             ;   N #= N0 + 1
             )
         ).
@@ -6831,8 +6855,8 @@ outof_reducer(Left, Right, Var) :-
             append(Left, Right, Others),
             domain_num_elements(Dom, N),
             num_subsets(Others, Dom, 0, Num, NonSubs),
-            (   n(Num) cis_geq N -> false
-            ;   n(Num) cis N - n(1) ->
+            (   Num cis_geq N -> false
+            ;   Num cis N - 1 ->
                 reduce_from_others(NonSubs, Dom)
             ;   true
             )
@@ -6910,13 +6934,13 @@ serialize([S-D|Rest], S0, D0, Orig) :-
 earliest_start_time(Start, EST) :-
         (   fd_get(Start, D, _) ->
             domain_infimum(D, EST)
-        ;   EST = n(Start)
+        ;   EST = Start
         ).
 
 latest_start_time(Start, LST) :-
         (   fd_get(Start, D, _) ->
             domain_supremum(D, LST)
-        ;   LST = n(Start)
+        ;   LST = Start
         ).
 
 serialize_lower_upper(S_I, D_I, S_J, D_J, MState) -->
@@ -6931,10 +6955,10 @@ serialize_lower_upper(S_I, D_I, S_J, D_J, MState) -->
 
 serialize_lower_bound(I, D_I, J, D_J, MState) -->
         { fd_get(I, DomI, Ps) },
-        (   { domain_infimum(DomI, n(EST_I)),
-              latest_start_time(J, n(LST_J)),
+        (   { domain_infimum(DomI, EST_I), integer(EST_I),
+              latest_start_time(J, LST_J), integer(LST_J),
               EST_I + D_I > LST_J,
-              earliest_start_time(J, n(EST_J)) } ->
+              earliest_start_time(J, EST_J), integer(EST_J) } ->
             (   nonvar(J) -> kill(MState)
             ;   []
             ),
@@ -6946,10 +6970,10 @@ serialize_lower_bound(I, D_I, J, D_J, MState) -->
 
 serialize_upper_bound(I, D_I, J, D_J, MState) -->
         { fd_get(I, DomI, Ps) },
-        (   { domain_supremum(DomI, n(LST_I)),
-              earliest_start_time(J, n(EST_J)),
+        (   { domain_supremum(DomI, LST_I), integer(LST_I),
+              earliest_start_time(J, EST_J), integer(EST_J),
               EST_J + D_J > LST_I,
-              latest_start_time(J, n(LST_J)) } ->
+              latest_start_time(J, LST_J), integer(LST_J) } ->
             (   nonvar(J) -> kill(MState)
             ;   []
             ),
@@ -6975,7 +6999,7 @@ element(N, Is, V) :-
 
 element_domain(V, VD) :-
         (   fd_get(V, VD, _) -> true
-        ;   VD = from_to(n(V), n(V))
+        ;   VD = from_to(V, V)
         ).
 
 element_([], _, _, _).
@@ -7269,7 +7293,7 @@ gcc_arcs([Key-Num0|KNs], S, Vals) :-
             get_attr(Num0, clpz_gcc_num, Num),
             get_attr(Num0, clpz_gcc_occurred, Occ),
             (   nonvar(Num) -> U is Num - Occ, U = L
-            ;   fd_get(Num, _, n(L0), n(U0), _),
+            ;   fd_get(Num, _, L0, U0, _), integer(L0), integer(U0),
                 L is L0 - Occ, U is U0 - Occ
             ),
             put_attr(Val, value, Key),
@@ -7370,7 +7394,7 @@ gcc_check_([Key-Num0|KNs]) -->
                 geq(Max, Num),
                 (   { nonvar(Num) } -> Diff is Num - Occ1
                 ;   { fd_get(Num, ND, _),
-                      domain_infimum(ND, n(NInf)) },
+                      domain_infimum(ND, NInf), integer(NInf) },
                     Diff is NInf - Occ1
                 ),
                 L >= Diff,
@@ -8108,7 +8132,7 @@ append_propagators(fd_props(Gs0,Bs0,Os0), fd_props(Gs1,Bs1,Os1), fd_props(Gs,Bs,
 
 bound_portray(inf, inf).
 bound_portray(sup, sup).
-bound_portray(n(N), N).
+bound_portray(N, N) :- integer(N).
 
 list_to_drep(List, Drep) :-
         list_to_domain(List, Dom),

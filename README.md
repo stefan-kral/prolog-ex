@@ -1228,6 +1228,24 @@ und Springerweg der größte Teil in `all_distinct/1` und `circuit/1`
 (Paarungen und starke Zusammenhangskomponenten über Attribute); Domänen
 und Schranken 2–19 %, die arithmetischen Propagatoren um 10 %.
 
+**Schranken ohne `n/1`.** Das Original hüllt ganze Schranken in `n(N)`,
+damit seine Klauseln die Fälle Zahl/`inf`/`sup` über das erste Argument
+auswählen können (`from_to(n(1),n(5))`). PrologEx speichert die Zahl
+selbst (`from_to(1,5)`); die Fälle unterscheiden Typtests (`integer/1`).
+Das spart je Schranke eine Struktur und je Zugriff ein Auspacken, auf
+beiden Seiten: in Elixir rechnen die Domänenbuiltins ohnehin mit
+`:inf | :sup | Zahl`, in Prolog fallen `n(X)`-Muster und `X = n(V)` weg.
+Zwei Stellen sind nicht rein mechanisch: In der Standardordnung sortieren
+`inf` und `sup` als Atome *hinter* allen Zahlen, also bekommt `keysort/2`
+über Intervallen einen eigenen Schlüssel (`merge_intervals_ref/2`); und
+wo das Original mit `X = n(V)` zugleich prüfte, dass eine Schranke
+endlich ist (`domain_infimum(D, n(I))`, `from_to(F,F) -> F = n(X)`),
+steht jetzt ein ausdrücklicher `integer/1`-Test, damit `inf`/`sup` wie
+bisher scheitern statt gebunden zu werden. Ein Test sucht nach vielen
+Constraints aller Art die Attribute nach `n(_)` ab. Reduktionen im
+Korpus −2 bis −14 % (8 Damen −10 %, Tripel −14 %, Sechseck −10 %), die
+Attribute der Planung 5 % kleiner; Laufzeit im Rauschen.
+
 Bisher in Elixir:
 
   * die Domänen (`domain_remove/3`, Schnitt, Vereinigung, Differenz,

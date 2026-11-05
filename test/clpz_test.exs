@@ -47,6 +47,39 @@ defmodule PrologEx.ClpzTest do
     end
   end
 
+  test "Schranken ohne n/1: kein n(_) in den Attributen nach vielen Constraints", c do
+    # Schranken sind ganze Zahlen, inf oder sup (das Original hüllt sie in
+    # n/1); hier alle Arten von Constraints, danach alle Attribute absuchen
+    prog = """
+    :- use_module(library(swi), [term_attvars/2]).
+    :- use_module(library(lists)).
+    no_n(T) :- ( var(T) -> true ; T = n(_) -> throw(n_gefunden(T)) ; T =.. [_|As], maplist(no_n, As) ).
+    attrs_ok(Vs) :- term_attvars(Vs, AVs), maplist(attr_ok, AVs).
+    attr_ok(V) :- clpz:get_atts(V, As), no_n(As).
+    """
+
+    goals = [
+      "X in 0..9, Y in inf..5, Z in 3..sup, X #= Y + Z, X #\\= 4, abs(X-Y) #\\= 1",
+      "[X,Y,Z] ins -5..5, X #= Y * Z, Z #= X // Y, W #= X mod 2, V #= Y rem 3, U #= X ^ 2",
+      "[X,Y,Z] ins -5..5, X #= max(Y,Z), W #= min(X,Y), V #= abs(Z), U #= -X",
+      "[X,Y,Z] ins 0..3, all_different([X,Y,Z]), all_distinct([X,Y]), sum([X,Y,Z], #=<, 5)",
+      "[X,Y] ins 0..3, (X #> Y) #<==> B, (X #= 1 #\\/ Y #= 2) #==> C, #\\ (X #< Y) #<==> D",
+      "[X,Y,Z] ins 1..3, global_cardinality([X,Y,Z], [1-A,2-B,3-C]), tuples_in([[X,Y]], [[1,2],[2,3]])",
+      "[X,Y,Z] ins 1..3, circuit([X,Y,Z]), element(X, [Y,Z,2], W), zcompare(O, X, Y)",
+      "[S1,S2] ins 0..10, cumulative([task(S1,2,_,1,a), task(S2,3,_,1,b)], [limit(1)])",
+      "X in 0..100, X #= 2^Y, Y in 0..6, lex_chain([[Y],[X]]), X #=< Y + 50",
+      "length(L, 3), L ins 0..2, label(L), X in 0..3, labeling([max(X)], [X])"
+    ]
+
+    {db, _} = PrologEx.Consult.load(c.db, Reader.read_terms(c.reader, prog))
+
+    for g <- goals do
+      q = "#{g}, term_variables((#{g}), Vs), attrs_ok(Vs)"
+      r = TableCase.run(c.reader, db, "catch((#{q}, true), E, (write(E), fail))")
+      assert match?({_, {:answers, [_ | _]}}, r), inspect({g, r})
+    end
+  end
+
   test "freeze und dif an einer Variablen, die ein Propagator bindet", c do
     # die Bindung im Propagator weckt auch die Suspensionen (das Wecken
     # bleibt dann bei der Maschine, nicht in der Schleife der Queue)

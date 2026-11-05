@@ -2,7 +2,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   @moduledoc """
   Teile von `library(clpz)` (`priv/library/clpz.pl`) in Elixir.
 
-  Domänen und Schranken. Eine Schranke ist `n(N)` (ganze Zahl N), `inf`
+  Domänen und Schranken. Eine Schranke ist eine ganze Zahl, `inf`
   oder `sup`; eine Domäne ist `empty`, `from_to(Von, Bis)` (ein Intervall
   zwischen zwei Schranken) oder `split(Loch, Links, Rechts)` (alle Elemente
   von Links sind kleiner als das Loch, alle von Rechts größer).
@@ -58,7 +58,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     case w(t) do
       {:atom, "inf"} -> :inf
       {:atom, "sup"} -> :sup
-      {tag, "n", [x]} when tag in [:struct, :gstruct] -> int(x)
+      i when is_integer(i) -> i
       _ -> throw(:fallback)
     end
   end
@@ -82,7 +82,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   defp eb(:inf), do: a("inf")
   defp eb(:sup), do: a("sup")
-  defp eb(i) when is_integer(i), do: mk("n", [i])
+  defp eb(i) when is_integer(i), do: i
 
   defp ed(:empty), do: a("empty")
   defp ed({:ft, f, t}), do: mk("from_to", [eb(f), eb(t)])
@@ -801,7 +801,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  # from_to(n(_), inf): keine Klausel im Original
+  # from_to(N, inf): keine Klausel im Original
   defp remove_upper(:inf, _l0, _x), do: throw(:fallback)
 
   # auf dem Term entlang des Pfads; unberührte Teilbäume bleiben, wie sie
@@ -1038,8 +1038,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
-  # merge_intervals/2: keysort (Standardordnung der Schlüssel: inf, sup,
-  # dann n(N) nach N; stabil), dann Überlappendes zusammenfassen
+  # merge_intervals/2: keysort wie im Original mit n(N)-Schlüsseln (inf,
+  # sup, dann die Zahlen; stabil), dann Überlappendes zusammenfassen
   defp key_rank(:inf), do: {0, 0}
   defp key_rank(:sup), do: {1, 0}
   defp key_rank(i), do: {2, i}
@@ -2069,9 +2069,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
         :fail
 
       {tag, "from_to", [f, t]} = d when tag in [:struct, :gstruct] ->
-        if bound(f) == bound(t),
-          do: insert(mk("=", [f, mk("n", [x])]), 1, q, s),
-          else: put_dom(x, d, dom, ps, q, s)
+        case {bound(f), bound(t)} do
+          # queue_goal(X = F) (from_to(inf,inf) oder (sup,sup) scheitert dort)
+          {b, b} when is_integer(b) -> insert(mk("=", [x, b]), 1, q, s)
+          {b, b} -> insert(a("fail"), 1, q, s)
+          _ -> put_dom(x, d, dom, ps, q, s)
+        end
 
       _ ->
         put_dom(x, nil, dom, ps, q, s)

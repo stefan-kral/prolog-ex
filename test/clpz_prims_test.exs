@@ -50,8 +50,8 @@ defmodule PrologEx.ClpzPrimsTest do
     case :rand.uniform(8) do
       1 -> "inf"
       2 -> "sup"
-      3 -> "n(#{Enum.random([-1000, 10 ** 20, 7])})"
-      _ -> "n(#{int()})"
+      3 -> "#{Enum.random([-1000, 10 ** 20, 7])}"
+      _ -> "#{int()}"
     end
   end
 
@@ -74,7 +74,8 @@ defmodule PrologEx.ClpzPrimsTest do
             do: List.replace_at(ivs, -1, {elem(List.last(ivs), 0), "sup"}),
             else: ivs
 
-        b = fn x -> if is_integer(x), do: "n(#{x})", else: x end
+        # (negative Zahlen in Klammern: -3- -1 liest sich sonst nicht)
+        b = fn x -> if is_integer(x) and x < 0, do: "(#{x})", else: x end
         is = Enum.map_join(ivs, ",", fn {x, y} -> "#{b.(x)}-#{b.(y)}" end)
         rm = for _ <- 1..Enum.random(0..3)//1, do: int()
 
@@ -127,7 +128,7 @@ defmodule PrologEx.ClpzPrimsTest do
           if name == "cis_exp",
             do: [
               hd(args),
-              Enum.random(["inf", "sup", "n(0)", "n(1)", "n(2)", "n(3)", "n(-1)", "n(-2)"])
+              Enum.random(["inf", "sup", "0", "1", "2", "3", "-1", "-2"])
             ],
             else: args
 
@@ -195,7 +196,7 @@ defmodule PrologEx.ClpzPrimsTest do
 
     for name <- ~w(intervals_to_domain merge_intervals) do
       check(c, 200, fn ->
-        is = for _ <- 1..Enum.random(0..5)//1, do: "#{bound()}-#{bound()}"
+        is = for _ <- 1..Enum.random(0..5)//1, do: "(#{bound()})-(#{bound()})"
         {r, n} = pair(name, ["[#{Enum.join(is, ",")}]"])
         {"true", r, n}
       end)
@@ -203,7 +204,7 @@ defmodule PrologEx.ClpzPrimsTest do
   end
 
   test "Schranken: alle Paare aus inf, sup, -2..2", c do
-    bs = ~w(inf sup) ++ for(i <- -2..2, do: "n(#{i})")
+    bs = ~w(inf sup) ++ for(i <- -2..2, do: "#{i}")
 
     ops =
       for(
@@ -228,22 +229,22 @@ defmodule PrologEx.ClpzPrimsTest do
           {"true", "clpz:domain_remove_ref(D, 3, _)", "clpz:domain_remove(D, 3, _)"},
           {"true", "clpz:domain_remove_ref(foo, 3, _)", "clpz:domain_remove(foo, 3, _)"},
           {"true", "clpz:domain_infimum_ref(empty, _)", "clpz:domain_infimum(empty, _)"},
-          {"true", "clpz:domain_contract_ref(from_to(n(1),n(5)), 0, _)",
-           "clpz:domain_contract(from_to(n(1),n(5)), 0, _)"},
-          {"true", "clpz:cis_exp_ref(n(2), n(-1), _)", "clpz:cis_exp(n(2), n(-1), _)"},
-          {"true", "clpz:cis_exp_ref(n(1), n(-3), _)", "clpz:cis_exp(n(1), n(-3), _)"},
-          {"true", "clpz:cis_slash_ref(n(4), n(0), _)", "clpz:cis_slash(n(4), n(0), _)"},
-          {"true", "clpz:cis_max_ref(n(1), B, M)", "clpz:cis_max(n(1), B, M)"},
+          {"true", "clpz:domain_contract_ref(from_to(1,5), 0, _)",
+           "clpz:domain_contract(from_to(1,5), 0, _)"},
+          {"true", "clpz:cis_exp_ref(2, -1, _)", "clpz:cis_exp(2, -1, _)"},
+          {"true", "clpz:cis_exp_ref(1, -3, _)", "clpz:cis_exp(1, -3, _)"},
+          {"true", "clpz:cis_slash_ref(4, 0, _)", "clpz:cis_slash(4, 0, _)"},
+          {"true", "clpz:cis_max_ref(1, B, M)", "clpz:cis_max(1, B, M)"},
           {"true", "clpz:list_to_domain_ref([a], _)", "clpz:list_to_domain([a], _)"},
-          {"true", "clpz:domain_to_list_ref(from_to(inf,n(3)), _)",
-           "clpz:domain_to_list(from_to(inf,n(3)), _)"},
+          {"true", "clpz:domain_to_list_ref(from_to(inf,3), _)",
+           "clpz:domain_to_list(from_to(inf,3), _)"},
           # keine gewöhnlichen Domänen, aber eindeutig im Original
-          {"true", "clpz:domain_to_list_ref(from_to(n(3),n(1)), _)",
-           "clpz:domain_to_list(from_to(n(3),n(1)), _)"},
-          {"true", "clpz:domain_subtract_ref(from_to(n(1),n(5)), from_to(sup,sup), _)",
-           "clpz:domain_subtract(from_to(n(1),n(5)), from_to(sup,sup), _)"},
-          {"true", "clpz:domain_subtract_ref(from_to(n(1),n(5)), from_to(n(3),sup), _)",
-           "clpz:domain_subtract(from_to(n(1),n(5)), from_to(n(3),sup), _)"}
+          {"true", "clpz:domain_to_list_ref(from_to(3,1), _)",
+           "clpz:domain_to_list(from_to(3,1), _)"},
+          {"true", "clpz:domain_subtract_ref(from_to(1,5), from_to(sup,sup), _)",
+           "clpz:domain_subtract(from_to(1,5), from_to(sup,sup), _)"},
+          {"true", "clpz:domain_subtract_ref(from_to(1,5), from_to(3,sup), _)",
+           "clpz:domain_subtract(from_to(1,5), from_to(3,sup), _)"}
         ] do
       assert TableCase.run(c.reader, c.db, "#{setup}, cmp(#{ref}, #{new})") ==
                {"", {:answers, ["true"]}},
