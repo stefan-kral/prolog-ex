@@ -47,6 +47,19 @@ defmodule PrologEx.ClpzTest do
     end
   end
 
+  test "freeze und dif an einer Variablen, die ein Propagator bindet", c do
+    # die Bindung im Propagator weckt auch die Suspensionen (das Wecken
+    # bleibt dann bei der Maschine, nicht in der Schleife der Queue)
+    assert {:answers, [a]} = answers(c, "freeze(X, W = 1), X in 0..9, X #= Y + Z, Y = 2, Z = 3")
+    assert a =~ "W = 1"
+    assert answers(c, "dif(X, 5), X in 0..9, X #= Y + Z, Y = 2, Z = 3") == {:answers, []}
+
+    assert {:answers, [b]} =
+             answers(c, "freeze(X, W = 1), X in 0..9, Y in 0..9, X #= Y + 1, Y #> 7")
+
+    assert b =~ "W = 1"
+  end
+
   test "zusammengelegte Warteschlangen behalten ihre Einträge (wie Scryer)", c do
     # T #= Y*Y verwandelt sich in pexp, der eingereiht wird; das Aufstellen
     # von Y + Z #\= 4*Z legt die Warteschlangen zusammen

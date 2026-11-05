@@ -1374,6 +1374,17 @@ Bisher in Elixir:
     `fd_put/3` und die vom Matcher erzeugten Klauseln rufen die DCG-Regeln
     direkt statt über `phrase/3`. Ein `X #\= Y` 160 → 70–100 µs, 30 Damen
     aufstellen 150–205 → 125–135 ms (Scryer 51 ms).
+  * Queue: bindet ein Propagator in der Schleife von `do_queue//0` eine
+    Variable mit Domäne, ging es bisher zurück nach Prolog (die Maschine
+    weckt `verify_attributes/3`, das reiht die Propagatoren der Variablen
+    ein und ruft `do_queue//0` geschachtelt). Ist clpz das einzige Modul
+    mit `verify_attributes/3`, hat die Variable nur clpz-Attribute (kein
+    `freeze`/`dif`) und ist ihre Queue die laufende, rechnet die Schleife
+    das Wecken selbst wie die Maschine (Bindungen zurück, Hook je
+    Variable, Bindungen wieder) und läuft weiter – das geschachtelte
+    `do_queue//0` hätte genau diese Queue geleert. Planung 1,63–1,85 →
+    1,34–1,49 s (−5 % Reduktionen), Springerweg und Sechseck etwas
+    schneller.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

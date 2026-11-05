@@ -1967,9 +1967,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
           {:ok, s} ->
             case s do
               %{wake: ws} ->
-                if only_clpz and Enum.all?(ws, &inert?(&1, s)),
-                  do: queue_loop(q, args, only_clpz, next, Map.delete(s, :wake)),
-                  else: out_next(next, a("again"), s)
+                if only_clpz do
+                  case absorb_wake(ws, q, s) do
+                    {:ok, s} -> queue_loop(q, args, only_clpz, next, s)
+                    :fail -> :fail
+                    :no -> out_next(next, a("again"), s)
+                  end
+                else
+                  out_next(next, a("again"), s)
+                end
 
               _ ->
                 queue_loop(q, args, only_clpz, next, s)
@@ -1984,24 +1990,80 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  # gebundene attributierte Variable, deren Wecken nichts tut: Attribute
-  # nur im Modul clpz und kein clpz/1 (keine Domäne)
-  defp inert?({:var, {:attv, id}}, s) do
-    case Map.get(s, {:attrs, id}, %{}) do
-      m when map_size(m) == 0 ->
-        true
+  # Das Wecken nach einer Bindung im Propagator gleich hier, wie es die
+  # Maschine täte (clpz ist das einzige Modul mit verify_attributes/3): die
+  # Bindungen zurücknehmen, für jede Variable der Hook (eine Zahl in der
+  # Domäne: alle ihre Propagatoren in ihre Queue, Gs = [phrase(do_queue,
+  # [Q], _)]; ohne Domäne Gs = []), die Bindungen wiederherstellen. Sind
+  # alle Q die laufende Queue, leert das geschachtelte do_queue//0 genau
+  # diese Queue, und die äußere Schleife fände sie danach leer – dasselbe,
+  # wie hier weiterzumachen. Sonst (andere Queue, andere Attribute als
+  # clpz, kein ganzzahliger Wert): :no, zurück nach Prolog (again)
+  defp absorb_wake(ws, q, s) do
+    vs = Enum.reverse(ws)
 
-      %{"clpz" => l} = m when map_size(m) == 1 ->
-        Enum.all?(all_items(l, s), fn t ->
-          not match?({tag, "clpz", [_]} when tag in [:struct, :gstruct], ws(t, s))
-        end)
+    if Enum.all?(vs, &match?({:var, {:attv, _}}, &1)) and
+         Enum.all?(vs, &only_clpz_attrs?(&1, s)) do
+      pairs = for v <- vs, do: {v, Map.fetch!(s, v)}
+      s0 = Enum.reduce(vs, Map.delete(s, :wake), &Map.delete(&2, &1))
+      Process.put(:clpz_prims_subst, s0)
 
-      _ ->
-        false
+      try do
+        case Enum.reduce_while(pairs, {s0, []}, &absorb_hook(&1, &2)) do
+          :fail ->
+            :fail
+
+          {s1, qs} ->
+            if Enum.all?(qs, &PrologEx.Order.equal?(&1, q, s1)) do
+              {:ok, Enum.reduce(pairs, s1, fn {v, val}, acc -> Map.put(acc, v, val) end)}
+            else
+              :no
+            end
+        end
+      catch
+        :fallback -> :no
+      after
+        Process.put(:clpz_prims_subst, s)
+      end
+    else
+      :no
     end
   end
 
-  defp inert?(_, _s), do: false
+  # verify_attributes/3 von clpz für V = Val (Val eine Zahl)
+  defp absorb_hook({v, val}, {s, qs}) do
+    case att(v, s, "clpz", 1) do
+      nil ->
+        {:cont, {s, qs}}
+
+      [attr] ->
+        {dom, ps, qv} =
+          case ws(attr, s) do
+            {tag, "clpz_attr", [_, _, _, dom, ps, qv]} when tag in [:struct, :gstruct] ->
+              {dom, ps, qv}
+
+            _ ->
+              throw(:fallback)
+          end
+
+        i =
+          case PrologEx.walk(val, s) do
+            i when is_integer(i) -> i
+            _ -> throw(:fallback)
+          end
+
+        if contains_t(dom, i) do
+          {pgs, bs, os} = props(ps, s)
+
+          case s |> then_all(pgs, qv) |> then_all(bs, qv) |> then_all(os, qv) do
+            :fail -> {:halt, :fail}
+            s -> {:cont, {s, qs ++ [qv]}}
+          end
+        else
+          {:halt, :fail}
+        end
+    end
+  end
 
   # nur Attribute im Modul clpz (oder keine)
   defp only_clpz_attrs?({:var, {:attv, id}}, s) do
