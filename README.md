@@ -1367,6 +1367,13 @@ Bisher in Elixir:
     Zweige von `scalar_product_neq` mit neuen Bedingungen rechnet das
     Original. Im Korpus kommen sie nicht vor (dort läuft in Prolog kein
     Propagator mehr außer Rückfällen).
+  * Aufstellen: `v_or_i/1` (jede Klausel des Matchers von `#=`, `#\=`,
+    `#>=` prüft damit ihre Argumente) als Builtin – eine Zahl oder eine
+    Variable mit clpz-Attribut, eine Variable ohne (`non_monotonic/1`,
+    Fehler bei `clpz:monotonic`): das Original; `trigger_once_/2`,
+    `fd_put/3` und die vom Matcher erzeugten Klauseln rufen die DCG-Regeln
+    direkt statt über `phrase/3`. Ein `X #\= Y` 160 → 70–100 µs, 30 Damen
+    aufstellen 150–205 → 125–135 ms (Scryer 51 ms).
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

@@ -406,6 +406,30 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  test "v_or_i/1: Zahl, Variable mit und ohne Domäne, anderes, monotonic", c do
+    for t <- [
+          "true",
+          "X in 1..3",
+          "X = 5",
+          "X = -7",
+          "X = a",
+          "X = f(Y)",
+          "X = 2^100, true",
+          "X = 1.0",
+          "X #= Y + 1"
+        ] do
+      for mono <- [false, true] do
+        q =
+          "#{t}, (#{if mono, do: "assertz(clpz:monotonic)", else: "true"}), " <>
+            "catch(same(clpz:v_or_i_ref(X), clpz:v_or_i(X), X), E, true), " <>
+            "retractall(clpz:monotonic), var(E)"
+
+        r = TableCase.run(c.reader, c.db, q)
+        assert match?({_, {:answers, [_]}}, r), inspect({q, r})
+      end
+    end
+  end
+
   test "do_queue//0: abgeschaltete Queue, Ziele vor Propagatoren", c do
     for q <- [
           "clpz:new_queue(Q), Q = queue(_,_,_,A), clpz:put_atts(A, disabled), " <>

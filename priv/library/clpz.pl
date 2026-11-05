@@ -2815,7 +2815,7 @@ parse_goal(p(Prop0)) -->
           morphing_propagator(Prop0, Prop, _) },
         [make_propagator(Prop, P),
          new_queue(Q0),
-         phrase(init_propagator_(Vs, P), [Q0], [Q]),
+         init_propagator_(Vs, P, [Q0], [Q]),
          variables_same_queue(Vs),
          trigger_once_(P, Q)].
 
@@ -2856,7 +2856,8 @@ trigger_once(Prop) :-
         trigger_once_(Prop, Q).
 
 trigger_once_(Prop, Q) :-
-        phrase((trigger_prop(Prop),do_queue), [Q], _).
+        trigger_prop(Prop, [Q], S),
+        do_queue(S, _).
 
 neq(A, B) :- propagator_init_trigger(pneq(A, B)).
 
@@ -2868,7 +2869,7 @@ propagator_init_trigger(Vs, P) -->
         [p(Prop)],
         { make_propagator(P, Prop),
           new_queue(Q0),
-          phrase(init_propagator_(Vs, Prop), [Q0], [Q]),
+          init_propagator_(Vs, Prop, [Q0], [Q]),
           variables_same_queue(Vs),
           trigger_once_(Prop, Q) }.
 
@@ -3115,7 +3116,7 @@ match_goal(p(Prop0), _) -->
           morphing_propagator(Prop0, Prop, _) },
         [make_propagator(Prop, P),
          new_queue(Q0),
-         phrase(init_propagator_(Vs, P), [Q0], [Q]),
+         init_propagator_(Vs, P, [Q0], [Q]),
          variables_same_queue(Vs),
          trigger_once_(P, Q)].
 
@@ -3354,8 +3355,10 @@ mulsum(A, M, S0, S) -->
 lin_mul([], _)             --> [].
 lin_mul([vn(X,N0)|VNs], M) --> { N is N0*M }, [vn(X,N)], lin_mul(VNs, M).
 
-v_or_i(V) :- var(V), !, non_monotonic(V).
-v_or_i(I) :- integer(I).
+v_or_i(V) :- '$clpz_v_or_i'(V).
+
+v_or_i_ref(V) :- var(V), !, non_monotonic(V).
+v_or_i_ref(I) :- integer(I).
 
 must_be_fd_integer(X) :-
         (   var(X) -> constrain_to_integer(X)
@@ -4127,9 +4130,8 @@ fd_put(X, Dom, Ps) --> put_terminating(X, Dom, Ps).
 
 fd_put(X, Dom, Ps) :-
         new_queue(Q),
-        phrase((put_terminating(X, Dom, Ps),
-%                { portray_clause(done_terminating) },
-                do_queue), [Q], _).
+        put_terminating(X, Dom, Ps, [Q], S),
+        do_queue(S, _).
 
 put_terminating_ref(X, Dom, Ps) -->
         Dom \== empty,

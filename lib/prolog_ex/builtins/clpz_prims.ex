@@ -335,6 +335,20 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # v_or_i/1: eine Zahl oder eine Variable mit clpz-Attribut (fd_var/1);
+  # eine Variable ohne: das Original (non_monotonic/1)
+  defbuiltin "$clpz_v_or_i", [v] do
+    run("v_or_i", [v], subst(), fn ->
+      s = subst_now()
+
+      case PrologEx.walk(v, s) do
+        i when is_integer(i) -> :ok
+        {:var, _} = x -> if att(x, s, "clpz", 1), do: :ok, else: throw(:fallback)
+        _ -> :fail
+      end
+    end)
+  end
+
   defbuiltin "$clpz_domain_contains", [d, i] do
     run("domain_contains", [d, i], subst(), fn ->
       x = int(i)
