@@ -204,8 +204,8 @@ defmodule PrologEx.ClpzPrimsTest do
           # keine Domäne: Fehler (das Original hatte dafür zufällige Klauseln)
           {"clpz:domain_remove(D, 3, _)", {:error, "instantiation_error"}},
           {"clpz:domain_remove(foo, 3, _)", {:error, "type_error(clpz_domain,foo)"}},
-          {"clpz:domain_remove([1..3,4..6], 3, _)",
-           {:error, "type_error(clpz_domain,[1..3,4..6])"}},
+          # (die Ordnung prüft nur is_domain/1; die Operationen vertrauen ihr)
+          {"clpz:domain_remove([1..3,4..6], 3, D)", ["D = [1..2,4..6]"]},
           {"clpz:domain_remove(empty, 3, _)", {:error, "type_error(clpz_domain,empty)"}},
           {"clpz:domain_remove(from_to(1,5), 3, _)",
            {:error, "type_error(clpz_domain,from_to(1,5))"}}

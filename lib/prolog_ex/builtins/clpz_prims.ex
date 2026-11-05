@@ -72,26 +72,58 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # Domäne dekodieren: die kanonische Intervallliste von PrologEx.Builtins.ClpzDom
-  # aus dem Prolog-Term [inf..3, 5, 9..13, 16..sup]. Kein solcher Term: ein
-  # Fehler – die Domänenoperationen haben kein Original mehr, auf das sie
+  # aus dem Prolog-Term [inf..3, 5, 9..13, 16..sup]. Geprüft wird nur die
+  # Form der Elemente, nicht die Ordnung: die Terme stammen aus ClpzDom
+  # selbst (is_domain/1 prüft vollständig). Kein solcher Term: ein Fehler –
+  # die Domänenoperationen haben kein Original mehr, auf das sie
   # zurückfallen könnten, und clpz ruft sie nur mit Domänen (eine
   # ungebundene Domäne: instantiation_error wie bei jedem Builtin)
   defp dom(t) do
+    case dom_pairs(w(t), []) do
+      {:ok, d} -> d
+      :error -> no_domain(t)
+    end
+  end
+
+  defp no_domain(t) do
     case w(t) do
       {:var, _} -> PrologEx.Error.instantiation!()
-      _ -> :ok
-    end
-
-    with {:ok, items} <- dom_items(t, []),
-         {:ok, d} <- ClpzDom.from_term(items) do
-      d
-    else
       _ -> PrologEx.Error.type!("clpz_domain", PrologEx.resolve(t, subst_now()))
     end
   end
 
-  # die Elemente der Liste, dereferenziert und ohne Markierung (Punkte als
-  # Zahl, Intervalle als {:struct, "..", [L, U]} mit Schranken)
+  defp dom_pairs([], acc), do: {:ok, Enum.reverse(acc)}
+
+  defp dom_pairs([h | tl], acc) do
+    case w(h) do
+      i when is_integer(i) ->
+        dom_pairs(w(tl), [{i, i} | acc])
+
+      {tag, "..", [l, u]} when tag in [:struct, :gstruct] ->
+        with lb when lb != nil <- tbound(l),
+             ub when ub != nil <- tbound(u) do
+          dom_pairs(w(tl), [{lb, ub} | acc])
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp dom_pairs(_, _), do: :error
+
+  defp tbound(t) do
+    case w(t) do
+      i when is_integer(i) -> i
+      {:atom, "inf"} -> :inf
+      {:atom, "sup"} -> :sup
+      _ -> nil
+    end
+  end
+
+  # die Elemente als Terme für is_domain/1 (ClpzDom.from_term/1 prüft alles)
   defp dom_items(t, acc) do
     case w(t) do
       [] ->
@@ -119,11 +151,34 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # das Intervall l..u als Domäne (leer, wenn l > u)
   defp iv(l, u), do: ClpzDom.interval(l, u)
 
-  # Infimum/Supremum (empty: das Original, es scheitert dort)
+  # Infimum/Supremum auf dem Term, ohne die Domäne ganz zu dekodieren
+  # (die leere Domäne: das Original, es scheitert dort)
   defp edge(t, side) do
-    case dom(t) do
+    case w(t) do
       [] -> throw(:fallback)
-      d -> if side == :left, do: ClpzDom.infimum(d), else: ClpzDom.supremum(d)
+      [h | tl] -> if side == :left, do: elem_bound(h, :left), else: edge_last(h, tl)
+      _ -> no_domain(t)
+    end
+  end
+
+  defp edge_last(h, tl) do
+    case w(tl) do
+      [] -> elem_bound(h, :right)
+      [h2 | tl2] -> edge_last(h2, tl2)
+      _ -> throw(:fallback)
+    end
+  end
+
+  defp elem_bound(h, side) do
+    case w(h) do
+      i when is_integer(i) ->
+        i
+
+      {tag, "..", [l, u]} when tag in [:struct, :gstruct] ->
+        bound(if side == :left, do: l, else: u)
+
+      _ ->
+        throw(:fallback)
     end
   end
 
@@ -132,7 +187,32 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp sup_dec([]), do: throw(:fallback)
   defp sup_dec(d), do: ClpzDom.supremum(d)
 
-  defp contains_t(t, i), do: ClpzDom.contains?(dom(t), i)
+  # domain_contains/2 auf dem Term: bis zum ersten Intervall, das i enthält
+  # oder hinter i liegt
+  defp contains_t(t, i) do
+    case w(t) do
+      [] ->
+        false
+
+      [h | tl] ->
+        case w(h) do
+          x when is_integer(x) ->
+            x == i or (x < i and contains_t(tl, i))
+
+          {tag, "..", [l, u]} when tag in [:struct, :gstruct] ->
+            lb = bound(l)
+            ub = bound(u)
+            (leq(lb, i) and leq(i, ub)) or (lt(ub, i) and contains_t(tl, i))
+
+          _ ->
+            no_domain(t)
+        end
+
+      _ ->
+        no_domain(t)
+    end
+  end
+
   defp dcontains?(d, i), do: ClpzDom.contains?(d, i)
   defp remove(d, x), do: ClpzDom.remove(d, x)
   defp remove_gt(d, g), do: ClpzDom.remove_greater_than(d, g)
@@ -1701,12 +1781,20 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp yes, do: a("yes")
 
   defp put_terminating(x, dom, ps, q, s) do
-    case dom(dom) do
+    case ws(dom, s) do
       # Dom \== empty
-      [] -> :fail
+      [] ->
+        :fail
+
       # ein Einzelwert: queue_goal(X = F)
-      [{b, b}] -> insert(mk("=", [x, b]), 1, q, s)
-      d -> put_dom(x, d, dom, ps, q, s)
+      [h | tl] = d ->
+        case {ws(h, s), ws(tl, s)} do
+          {b, []} when is_integer(b) -> insert(mk("=", [x, b]), 1, q, s)
+          _ -> put_dom(x, d, dom, ps, q, s)
+        end
+
+      _ ->
+        no_domain(dom)
     end
   end
 
@@ -1774,12 +1862,38 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # domain_spread/2 (Fehlschlag des Originals: das Original rechnet)
+  # domain_spread/2 auf dem Term: nur das erste und das letzte Intervall
   defp spread_of(d) do
-    dd = dom(d)
+    case w(d) do
+      [] ->
+        throw(:fallback)
 
-    case ClpzDom.spread(dd) do
-      nil -> throw(:fallback)
-      sp -> sp
+      [h | tl] ->
+        {l1, u1} = elem_pair(h)
+        {ln, un} = last_pair(h, tl)
+        # smallest_finite: l1, oder u1 bei l1 = inf; largest_finite: un, oder ln bei un = sup
+        sm = if l1 == :inf, do: u1, else: l1
+        lg = if un == :sup, do: ln, else: un
+        minus(lg, sm)
+
+      _ ->
+        no_domain(d)
+    end
+  end
+
+  defp elem_pair(h) do
+    case w(h) do
+      i when is_integer(i) -> {i, i}
+      {tag, "..", [l, u]} when tag in [:struct, :gstruct] -> {bound(l), bound(u)}
+      _ -> throw(:fallback)
+    end
+  end
+
+  defp last_pair(h, tl) do
+    case w(tl) do
+      [] -> elem_pair(h)
+      [h2 | tl2] -> last_pair(h2, tl2)
+      _ -> throw(:fallback)
     end
   end
 

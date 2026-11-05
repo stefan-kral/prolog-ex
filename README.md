@@ -1283,8 +1283,19 @@ Abweichung, auch nicht in den Eigenheiten: für `inf..sup` ist die
 450 Zeilen); eine Eingabe, die keine Domäne ist, gibt jetzt
 `type_error(clpz_domain, T)` statt der zufälligen Klauselwahl des
 Originals. Baum gegen Liste: O(log k) gegen O(k) je Zugriff bei k
-Intervallen – bei den üblichen 1–5 Intervallen ist die Liste kleiner und
-billiger; für große, löchrige Domänen siehe die Messung unten. Für dichte
+Intervallen. Gemessen (alt/neu abwechselnd): im Korpus kein Beispiel
+langsamer, die Reduktionen für 8 Damen −5 %; die Stressfälle mit großen,
+löchrigen Domänen sind mit der Liste *schneller* – aus 1..8000 jeden
+zweiten Wert streichen (4000 Löcher) 8,7 → 6,5 s, 100 Damen mit `ff`
+1,77 → 1,49 s, `all_distinct` über 100 Variablen mit je 50 Löchern gleich
+(39 → 37 s, die Zeit liegt dort in `all_distinct`). Der Grund: jeder
+Zugriff dekodierte schon beim Baum den ganzen Term, und die Liste braucht
+dabei weder Pfadkopien noch Knoten. Damit das stimmt, arbeiten die
+häufigsten Zugriffe ohne Dekodieren auf dem Term (Infimum, Supremum,
+Einzelwert-Test, `domain_contains/2` mit frühem Abbruch, die Spannweite
+aus erstem und letztem Intervall); ohne das kosteten Dekodieren und
+Prüfen 5–15 %. Die Operationen prüfen die Ordnung der Liste nicht mehr
+(nur `is_domain/1` tut das), sie vertrauen den Termen aus ClpzDom. Für dichte
 Domänen nahe 0 bleibt eine Bitmengen-Darstellung (`0b101000`, verschoben
 als `shifted_dombits(3, 0b101)`) vorgemerkt; sie passte hinter dieselbe
 API.

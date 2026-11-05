@@ -35,8 +35,10 @@ defmodule PrologEx.Builtins.ClpzDom do
   defp rank(_), do: 1
 
   @doc false
-  def lt(a, b), do: rank(a) < rank(b) or (is_integer(a) and is_integer(b) and a < b)
+  def lt(a, b) when is_integer(a) and is_integer(b), do: a < b
+  def lt(a, b), do: rank(a) < rank(b)
   @doc false
+  def leq(a, b) when is_integer(a) and is_integer(b), do: a <= b
   def leq(a, b), do: not lt(b, a)
 
   defp bmin(a, b), do: if(lt(b, a), do: b, else: a)
