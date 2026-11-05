@@ -52,6 +52,8 @@ defmodule PrologEx.ClpzQueueTest do
           clpz:new_queue(Q), phrase(clpz:fd_put(X, D1, Ps), [Q], _)
       ;   true
       ).
+  % G mit ein- oder ausgeschalteten Abkürzern
+  fast(F, G) :- clpz:'$clpz_fast'(F), call(G).
   % eine Variable mit Domäne und eine neue, kleinere Domäne für sie
   pick(Vs, X, D, Ps) :-
       member(X, Vs), clpz:fd_get_ref(X, D0, Ps), D0 \\== from_to(inf,sup), !,
@@ -211,6 +213,98 @@ defmodule PrologEx.ClpzQueueTest do
           "catch(same(clpz:left_right_linsum_const_ref(#{l}, #{r}, Cs, Vs1, K), " <>
           "clpz:left_right_linsum_const(#{l}, #{r}, Cs, Vs1, K), Vs-N-M-Cs-Vs1-K), E, true), " <>
           "retractall(clpz:monotonic), var(E)"
+      )
+    end)
+  end
+
+  # eine reifizierbare (oder nicht reifizierbare) Formel
+  defp reif_expr(0) do
+    a =
+      Enum.random([
+        "X",
+        "Y",
+        "Z",
+        "W",
+        "N",
+        "3",
+        "0",
+        "-1",
+        "?(X)",
+        "#(N)",
+        "#(M)",
+        "X+1",
+        "abs(Y)",
+        "Z*2",
+        "X-Y",
+        "Y mod 2"
+      ])
+
+    b = Enum.random(["X", "Y", "Z", "W", "N", "M", "2", "0", "Y+N", "#(M)", "max(X,Z)"])
+
+    Enum.random([
+      "#{a} #>= #{b}",
+      "#{a} #=< #{b}",
+      "#{a} #< #{b}",
+      "#{a} #> #{b}",
+      "#{a} #= #{b}",
+      "#{a} #\\= #{b}",
+      "B",
+      "C",
+      "1",
+      "0",
+      "?(C)",
+      "#(D)",
+      "X in 1..3",
+      "N in 0..sup",
+      "Y in 2",
+      "a in 1..2",
+      "f(X)",
+      "2"
+    ])
+  end
+
+  defp reif_expr(d) do
+    a = reif_expr(d - 1)
+    b = reif_expr(:rand.uniform(d) - 1)
+
+    Enum.random([
+      "(#{a}) #/\\ (#{b})",
+      "(#{a}) #\\/ (#{b})",
+      "(#{a}) #==> (#{b})",
+      "(#{a}) #<== (#{b})",
+      "(#{a}) #<==> (#{b})",
+      "(#{a}) #\\ (#{b})",
+      "#\\ (#{a})",
+      a
+    ])
+  end
+
+  test "in/2: der Abkürzer wie drep_to_domain/2 und domain/2", c do
+    check(c, 300, fn ->
+      v = Enum.random(["X", "Y", "N", "3", "a", "f(X)"])
+
+      d =
+        Enum.random(
+          ~w(1..3 3..1 0..0 inf..2 -2..sup inf..sup sup..1 1..inf 4 -1 a..3 1..b foo 1\\/3 X..2)
+        )
+
+      scenario(
+        "catch(same(fast(off, #{v} in #{d}), fast(on, #{v} in #{d}), Vs-N), E, true), var(E)"
+      )
+    end)
+  end
+
+  test "Reifikation: die Abkürzer und Schleifen in Elixir wie das Original", c do
+    check(c, 500, fn ->
+      e = reif_expr(Enum.random(0..2))
+      mono = :rand.uniform(5) == 1
+      goal = Enum.random(["clpz:reify(#{e}, R, Ps)", "(#{e}) #<==> R", "#{e}"])
+
+      scenario(
+        "(#{if mono, do: "assertz(clpz:monotonic)", else: "true"}), " <>
+          "catch(same(fast(off, (#{goal})), fast(on, (#{goal})), " <>
+          "Vs-N-M-C-D-R-Ps), E, true), " <>
+          "clpz:'$clpz_fast'(on), retractall(clpz:monotonic), var(E)"
       )
     end)
   end

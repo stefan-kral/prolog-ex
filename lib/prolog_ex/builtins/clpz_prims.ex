@@ -335,6 +335,134 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # Zahl oder Variable mit Domäne (parse_reified_clpz//3, Abkürzer)
+  defbuiltin "$clpz_fd_atom", [e] do
+    s = subst()
+
+    case if(Process.get(:clpz_no_fast), do: nil, else: PrologEx.walk(e, s)) do
+      i when is_integer(i) -> :ok
+      {:var, _} = v -> if fdvar?(v, s), do: :ok, else: :fail
+      _ -> :fail
+    end
+  end
+
+  # clpz_in/2: V eine Variable oder Zahl, D eine Zahl oder N..M (Zahlen,
+  # inf, sup; N nicht sup, M nicht inf): Dom wie drep_to_domain/2. Sonst
+  # scheitert es (das Original rechnet)
+  defbuiltin "$clpz_in_dom", [v0, d0, dom] do
+    s = subst()
+
+    with nil <- Process.get(:clpz_no_fast),
+         true <- var_or_int?(v0, s),
+         {:ok, d} <- simple_drep(PrologEx.unmark_top(PrologEx.walk(d0, s)), s) do
+      {:unify, [{dom, d}]}
+    else
+      _ -> :fail
+    end
+  end
+
+  defp simple_drep(i, _s) when is_integer(i), do: {:ok, ed({:ft, i, i})}
+
+  defp simple_drep({:struct, "..", [n0, m0]}, s) do
+    with n when n != nil <- drep_bound(PrologEx.walk(n0, s)),
+         m when m != nil <- drep_bound(PrologEx.walk(m0, s)),
+         true <- n != :sup and m != :inf do
+      if leq(n, m), do: {:ok, ed({:ft, n, m})}, else: {:ok, a("empty")}
+    else
+      _ -> :error
+    end
+  end
+
+  defp simple_drep(_, _s), do: :error
+
+  defp drep_bound(i) when is_integer(i), do: i
+  defp drep_bound({:atom, "inf"}), do: :inf
+  defp drep_bound({:atom, "sup"}), do: :sup
+  defp drep_bound(_), do: nil
+
+  # reifiable/1, wenn es gelingt (reify/3 nimmt die erste Lösung); sonst
+  # und bei Fehlern: das Original
+  defbuiltin "$clpz_reifiable", [e] do
+    run("reifiable", [e], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
+      Process.put(:clpz_constrain, [])
+      ok = reifiable?(e, s, monotonic?(ctx.db))
+      vs = Process.delete(:clpz_constrain) |> Enum.reverse() |> Enum.uniq()
+
+      # ?(V)/#(V) mit V ohne Domäne: must_be_fd_integer/1, also
+      # constrain_to_integer/1 – V bekommt die Domäne inf..sup (fd_put/3
+      # ohne Propagatoren, die Queue bleibt leer). Scheitert der Test, wirft
+      # reify/3 ohnehin domain_error (die Bindungen sind dann zurück)
+      if ok do
+        vs
+        |> Enum.reduce(s, fn v, s ->
+          seq(s, &put_terminating(v, default_dom(), no_props(), new_queue(), &1))
+        end)
+        |> case do
+          :fail -> :fail
+          s -> {:subst, s}
+        end
+      else
+        # scheitert der Test, sucht das Original weiter (eine Variable
+        # passt dann auf ?(E), #E, V in _ und den allgemeinen Fall mit
+        # =../2: Bindungen oder instantiation_error): das Original
+        throw(:fallback)
+      end
+    end)
+  end
+
+  @reif_cmp ~w(#>= #> #=< #< #= #\\=)
+  @reif_bool ~w(#==> #<== #<==> #/\\ #\\/ #\\)
+
+  defp reifiable?(e, s, mono) do
+    case PrologEx.unmark_top(PrologEx.walk(e, s)) do
+      {:var, _} = v ->
+        if mono and not fdvar?(v, s), do: throw(:fallback)
+        true
+
+      i when is_integer(i) ->
+        i == 0 or i == 1
+
+      {:struct, f, [x]} when f in ["?", "#"] ->
+        if var_or_int_fd?(x, s), do: true, else: throw(:fallback)
+
+      {:struct, "in", [v, _]} ->
+        if var_or_int?(v, s), do: true, else: throw(:fallback)
+
+      {:struct, op, [_, _]} when op in @reif_cmp ->
+        true
+
+      {:struct, op, [l, r]} when op in @reif_bool ->
+        reifiable?(l, s, mono) and reifiable?(r, s, mono)
+
+      {:struct, "#\\", [x]} ->
+        reifiable?(x, s, mono)
+
+      {:struct, f, _} when f in ["tuples_in", "finite_domain"] ->
+        throw(:fallback)
+
+      _ ->
+        false
+    end
+  end
+
+  # eine Zahl oder eine Variable (must_be_fd_integer/1; eine Variable ohne
+  # Domäne bekommt danach eine, siehe oben)
+  defp var_or_int_fd?(t, s) do
+    case PrologEx.walk(t, s) do
+      i when is_integer(i) ->
+        true
+
+      {:var, _} = v ->
+        unless fdvar?(v, s), do: Process.put(:clpz_constrain, [v | Process.get(:clpz_constrain)])
+        true
+
+      _ ->
+        false
+    end
+  end
+
   # left_right_linsum_const/5: Left - Right als Σ Cs·Vs + (CL - CR), wie
   # linsum//3 (Glieder vn(V, N) in Lesereihenfolge, Konstante), die Glieder
   # rechts negiert, nach vn(V, N) stabil sortiert, gleiche V
@@ -2165,12 +2293,64 @@ defmodule PrologEx.Builtins.ClpzPrims do
           _ -> throw(:fallback)
         end
 
-      only_clpz = alone?(ctx.db)
-      queue_loop(q, args, only_clpz, next, s)
+      case queue_loop(q, args, alone?(ctx.db), s) do
+        :fail -> :fail
+        {:next, t, s} -> out_next(next, t, s)
+      end
     end)
   end
 
-  defp queue_loop(q, args, only_clpz, next, s) do
+  # fd_put/3 (new_queue/1, put_terminating//3, do_queue//0) und
+  # trigger_once_/2 (trigger_prop//1, do_queue//0) in einem Builtin: die
+  # Schleife wie '$clpz_queue_run'/2; braucht sie Prolog (ein Ziel, ein
+  # Propagator für das Original, Wecken), geht es mit do_queue_/3 weiter,
+  # wie im Original nach '$clpz_queue_run'/2
+  defbuiltin "$clpz_fd_put", [x, dom, ps] do
+    run("fd_put", [x, dom, ps], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
+      q = new_queue()
+
+      case put_terminating(x, dom, ps, q, s) do
+        :fail -> :fail
+        s -> run_queue(q, s, ctx.db)
+      end
+    end)
+  end
+
+  defbuiltin "$clpz_trigger_once", [p, q0] do
+    run("trigger_once_", [p, q0], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
+      q = PrologEx.walk(q0, s)
+
+      case trigger(p, q, s) do
+        :fail -> :fail
+        s -> run_queue(q, s, ctx.db)
+      end
+    end)
+  end
+
+  defp run_queue(q, s, db) do
+    args =
+      case ws(q, s) do
+        {tag, "queue", [_, _, _, _] = args} when tag in [:struct, :gstruct] -> args
+        _ -> throw(:fallback)
+      end
+
+    case queue_loop(q, args, alone?(db), s) do
+      :fail ->
+        :fail
+
+      {:next, {:atom, "none"}, s} ->
+        {:subst, s}
+
+      {:next, t, s} ->
+        {:call, mk(":", [a("clpz"), mk("do_queue_", [t, [q], fresh_var()])]), s}
+    end
+  end
+
+  defp queue_loop(q, args, only_clpz, s) do
     case next_entry(args, s) do
       {:prop, e, s} ->
         case activate(e, q, s, only_clpz) do
@@ -2178,31 +2358,31 @@ defmodule PrologEx.Builtins.ClpzPrims do
             :fail
 
           :fallback ->
-            out_next(next, mk("ref", [e]), s)
+            {:next, mk("ref", [e]), s}
 
           {:ok, s} ->
             case s do
               %{wake: ws} ->
                 if only_clpz do
                   case absorb_wake(ws, q, s) do
-                    {:ok, s} -> queue_loop(q, args, only_clpz, next, s)
+                    {:ok, s} -> queue_loop(q, args, only_clpz, s)
                     :fail -> :fail
-                    :no -> out_next(next, a("again"), s)
+                    :no -> {:next, a("again"), s}
                   end
                 else
-                  out_next(next, a("again"), s)
+                  {:next, a("again"), s}
                 end
 
               _ ->
-                queue_loop(q, args, only_clpz, next, s)
+                queue_loop(q, args, only_clpz, s)
             end
         end
 
       {:goal, e, s} ->
-        out_next(next, mk("goal", [e]), s)
+        {:next, mk("goal", [e]), s}
 
       {:none, s} ->
-        out_next(next, a("none"), s)
+        {:next, a("none"), s}
     end
   end
 

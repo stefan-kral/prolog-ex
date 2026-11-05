@@ -1408,6 +1408,25 @@ Bisher in Elixir:
     `clpz:monotonic`, `?(X)`/`#(X)` und Koeffizient 0 bei einer Variablen
     ohne Domäne (beides gibt ihr eine): das Original. SEND+MORE −16 %
     Reduktionen, Rucksack −9 %, magische Reihe −7 %, Planung −4 %.
+  * Reifikation (`#<==>`, `#==>`, `#/\`, …), erste Stufe: Abkürzer für
+    die häufigen Teile, alles Übrige wie bisher.
+    * `in/2` mit einer Zahl oder `N..M` (Zahlen, `inf`, `sup`): die
+      Domäne gleich, ohne `fd_variable/1`, `must_be/2` und
+      `drep_to_domain/2` (jede reifizierte Teilbedingung stellt `B in 0..1`).
+    * `reifiable/1` in Elixir, wenn es gelingt (`?(V)`/`#(V)` mit V ohne
+      Domäne: V bekommt `inf..sup` wie bei `must_be_fd_integer/1`);
+      scheitert es, sucht das Original weiter (und bindet dabei Variablen
+      oder wirft `instantiation_error` – auch das bleibt so).
+    * `parse_reified_clpz//3` für eine Zahl oder eine Variable mit
+      Domäne: gleich `R = E, D = 1`.
+    * `fd_put/3` und `trigger_once_/2` (neue Queue, ablegen bzw. auslösen,
+      `do_queue//0`) als ein Builtin; braucht die Schleife Prolog, geht es
+      mit `do_queue_/3` weiter.
+
+    Ein Schalter (`'$clpz_fast'(off)`) schaltet die Abkürzer für die
+    Vergleichstests ab. Planung: Aufstellen 0,9–1,05 → 0,8 s, ganz
+    1,41–1,49 → 0,97–1,11 s (Scryer 0,9 s), −23 % Reduktionen; magische
+    Reihe −18 %.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

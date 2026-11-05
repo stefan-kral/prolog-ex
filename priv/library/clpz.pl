@@ -1917,6 +1917,11 @@ intervals_to_domain_ref(Is, D) :-
 
 Var in Dom :- clpz_in(Var, Dom).
 
+% PrologEx: V eine Variable oder Zahl, D eine Zahl oder N..M mit Zahlen,
+% inf, sup ('$clpz_in_dom'/3 rechnet drep_to_domain/2): gleich domain/2
+clpz_in(V, D) :-
+        '$clpz_in_dom'(V, D, Dom), !,
+        domain(V, Dom).
 clpz_in(V, D) :-
         fd_variable(V),
         drep_to_domain(D, Dom),
@@ -2857,7 +2862,11 @@ trigger_once(Prop) :-
         new_queue(Q),
         trigger_once_(Prop, Q).
 
-trigger_once_(Prop, Q) :-
+% PrologEx: '$clpz_trigger_once'/2 (die Schleife in Elixir, wie
+% do_queue//0); das Original als trigger_once__ref/2
+trigger_once_(Prop, Q) :- '$clpz_trigger_once'(Prop, Q).
+
+trigger_once__ref(Prop, Q) :-
         trigger_prop(Prop, [Q], S),
         do_queue(S, _).
 
@@ -3820,9 +3829,14 @@ parse_reified(E, R, D,
 % its reified (Boolean) finite domain variable and its Boolean
 % definedness.
 
-make_parse_reified(Clauses) :-
+make_parse_reified([Fast|Clauses]) :-
         parse_reified_clauses(Clauses0),
-        maplist(goals_goal_dcg, Clauses0, Clauses).
+        maplist(goals_goal_dcg, Clauses0, Clauses),
+        % PrologEx: eine Zahl oder eine Variable mit Domäne (die ersten
+        % Klauseln: nicht zyklisch, non_monotonic/1 und
+        % constrain_to_integer/1 ohne Wirkung, R = E, D = 1)
+        Fast = (parse_reified_clpz(E, R, D, S0, S) :-
+                    '$clpz_fd_atom'(E), !, R = E, D = 1, S0 = S).
 
 goals_goal_dcg((Head --> Goals), Clause) :-
         list_goal(Goals, Body),
@@ -3914,24 +3928,28 @@ reify(Expr, B, Ps) :-
         ;   domain_error(clpz_reifiable_expression, Expr)
         ).
 
-reifiable(E)      :- var(E), non_monotonic(E).
-reifiable(E)      :- integer(E), E in 0..1.
-reifiable(?(E))   :- must_be_fd_integer(E).
-reifiable(#E)     :- must_be_fd_integer(E).
-reifiable(V in _) :- fd_variable(V).
-reifiable(Expr)   :-
+% PrologEx: in Elixir ('$clpz_reifiable'/1); Fälle mit Wirkung (eine
+% Variable bekommt eine Domäne, ein Fehler): das Original
+reifiable(E) :- '$clpz_reifiable'(E).
+
+reifiable_ref(E)      :- var(E), non_monotonic(E).
+reifiable_ref(E)      :- integer(E), E in 0..1.
+reifiable_ref(?(E))   :- must_be_fd_integer(E).
+reifiable_ref(#E)     :- must_be_fd_integer(E).
+reifiable_ref(V in _) :- fd_variable(V).
+reifiable_ref(Expr)   :-
         Expr =.. [Op,Left,Right],
         (   memberchk(Op, [#>=,#>,#=<,#<,#=,#\=])
         ;   memberchk(Op, [#==>,#<==,#<==>,#/\,#\/,#\]),
-            reifiable(Left),
-            reifiable(Right)
+            reifiable_ref(Left),
+            reifiable_ref(Right)
         ).
-reifiable(#\ E) :- reifiable(E).
-reifiable(tuples_in(Tuples, Relation)) :-
+reifiable_ref(#\ E) :- reifiable_ref(E).
+reifiable_ref(tuples_in(Tuples, Relation)) :-
         must_be(list(list), Tuples),
         maplist(maplist(fd_variable), Tuples),
         must_be(list(list(integer)), Relation).
-reifiable(finite_domain(V)) :- fd_variable(V).
+reifiable_ref(finite_domain(V)) :- fd_variable(V).
 
 reify(E, B) --> { B in 0..1 }, reify_(E, B).
 
@@ -4160,7 +4178,10 @@ fd_get_ref(X, Dom, Inf, Sup, Ps) :-
 
 fd_put(X, Dom, Ps) --> put_terminating(X, Dom, Ps).
 
-fd_put(X, Dom, Ps) :-
+% PrologEx: '$clpz_fd_put'/3, das Original als fd_put_ref/3
+fd_put(X, Dom, Ps) :- '$clpz_fd_put'(X, Dom, Ps).
+
+fd_put_ref(X, Dom, Ps) :-
         new_queue(Q),
         put_terminating(X, Dom, Ps, [Q], S),
         do_queue(S, _).
