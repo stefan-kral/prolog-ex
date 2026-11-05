@@ -382,6 +382,67 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp a2(x, b, s), do: if(var?(PrologEx.walk(x, s)), do: [mk("a", [x, b])], else: a1(b, s))
   defp a1(b, s), do: if(var?(PrologEx.walk(b, s)), do: [mk("a", [b])], else: [])
 
+  # --- Konstruktion und Prüfung von Domänen (die einzigen Stellen, an denen
+  # lebender Prolog-Code die Darstellung berührt) -----------------------------
+
+  # interval(L, U, D): die Domäne L..U (leer, wenn L > U); L, U Schranken
+  defbuiltin "$clpz_interval", [l, u, d] do
+    run("interval", [l, u, d], subst(), fn ->
+      lb = bound(l)
+      ub = bound(u)
+
+      out(
+        d,
+        if(leq(lb, ub) and lb != :sup and ub != :inf, do: ed({:ft, lb, ub}), else: a("empty"))
+      )
+    end)
+  end
+
+  # singleton(D, V): D besteht aus genau einem Wert V (wie das Muster
+  # from_to(F, F) des Originals: V auch inf oder sup, falls so etwas je
+  # entsteht – die Aufrufer prüfen integer/1)
+  defbuiltin "$clpz_singleton", [d, v] do
+    run("singleton", [d, v], subst(), fn ->
+      case dom(d) do
+        {:ft, b, b} -> out(v, eb(b))
+        _ -> :fail
+      end
+    end)
+  end
+
+  # empty(D): die leere Domäne
+  defbuiltin "$clpz_empty", [d] do
+    {:unify, [{d, a("empty")}]}
+  end
+
+  # is_domain(D): ein wohlgeformter Domänenterm (is_domain/1 des Originals)
+  defbuiltin "$clpz_is_domain", [d] do
+    s = subst()
+
+    try do
+      if valid_dom?(dom(d)), do: :ok, else: :fail
+    catch
+      :fallback -> :fail
+    end
+    |> then(fn r ->
+      _ = s
+      r
+    end)
+  end
+
+  defp valid_dom?(:empty), do: true
+  defp valid_dom?({:ft, l, u}), do: leq(l, u)
+
+  defp valid_dom?({:sp, sp, l, r}),
+    do: valid_dom?(l) and valid_dom?(r) and all_lt?(l, sp) and all_gt?(r, sp)
+
+  defp all_lt?(:empty, _), do: true
+  defp all_lt?({:ft, l, u}, sp), do: lt(l, sp) and lt(u, sp)
+  defp all_lt?({:sp, s0, l, r}, sp), do: s0 < sp and all_lt?(l, sp) and all_lt?(r, sp)
+  defp all_gt?(:empty, _), do: true
+  defp all_gt?({:ft, l, u}, sp), do: gt(l, sp) and gt(u, sp)
+  defp all_gt?({:sp, s0, l, r}, sp), do: s0 > sp and all_gt?(l, sp) and all_gt?(r, sp)
+
   # Zahl oder Variable mit Domäne (parse_reified_clpz//3, Abkürzer)
   defbuiltin "$clpz_fd_atom", [e] do
     s = subst()
@@ -2926,10 +2987,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
         cond do
           z == 0 ->
+            # (wie das Prolog: interval/3 und domains_union/3 statt eines
+            # festen split(0, …) – derselbe Term, nicht nur dieselbe Menge)
             put_isect(
               y,
               yd,
-              {:sp, 0, {:ft, :inf, -abs(x) - 1}, {:ft, abs(x) + 1, :sup}},
+              union!({:ft, :inf, -abs(x) - 1}, {:ft, abs(x) + 1, :sup}),
               yps,
               q,
               s

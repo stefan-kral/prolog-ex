@@ -1246,6 +1246,27 @@ Constraints aller Art die Attribute nach `n(_)` ab. Reduktionen im
 Korpus −2 bis −14 % (8 Damen −10 %, Tripel −14 %, Sechseck −10 %), die
 Attribute der Planung 5 % kleiner; Laufzeit im Rauschen.
 
+**Die Darstellung hat eine benannte API.** Lebender Prolog-Code baut und
+prüft Domänen nur noch über vier Builtins: `interval(L, U, D)` (die
+Domäne L..U, leer bei L > U; die 17 Stellen in den Propagatoren, die
+`from_to(L,U)` als Argument von `domains_intersection/3` bauten, dazu
+`default_domain/1`, `element_domain/2`), `empty_domain(D)`,
+`singleton_domain(D, V)` (der Einzelwert-Test `from_to(F,F)` in
+`put_terminating` und `put_full`) und `is_domain(D)`; das Labeling mit
+`enum` läuft über `domain_intervals/2`. Alles, was die Struktur
+(`empty`, `from_to/2`, `split/3`) zerlegt, sitzt damit in den
+Elixir-Builtins und in den `_ref`-Originalen, die nur noch Testorakel
+sind. Die Darstellung ist so austauschbar, ohne `clpz.pl` anzufassen –
+etwa durch eine kanonische Liste maximaler Intervalle
+(`[inf..3, 5, 9..13, 16..sup]`, Punkte ohne `..`) oder für dichte
+Domänen nahe 0 durch Bitmengen (`0b101000`, verschoben als
+`shifted_dombits(3, 0b101)`); beides ist für später vorgemerkt. Dabei kam
+heraus, dass `ptzdiv` bei `Z = 0` ein festes `split(0, …)` baute, während
+`domains_union/3` den Spalt anders legt – dieselbe Menge, anderer Term;
+beide Seiten bauen jetzt über die Vereinigung, der Vergleichstest hatte
+das sofort gesehen. Mit einer kanonischen Darstellung gäbe es diese
+Klasse von Unterschieden nicht mehr.
+
 Bisher in Elixir:
 
   * die Domänen (`domain_remove/3`, Schnitt, Vereinigung, Differenz,

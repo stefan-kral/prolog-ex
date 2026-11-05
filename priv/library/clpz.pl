@@ -1133,6 +1133,9 @@ goal_expansion(domain_remove_smaller_than(A,B,C), '$clpz_domain_remove_smaller_t
 goal_expansion(domain_subtract(A,B,C), '$clpz_domain_subtract'(A,B,C)).
 goal_expansion(domain_complement(A,B), '$clpz_domain_complement'(A,B)).
 goal_expansion(domain_intervals(A,B), '$clpz_domain_intervals'(A,B)).
+goal_expansion(interval(A,B,C), '$clpz_interval'(A,B,C)).
+goal_expansion(empty_domain(A), '$clpz_empty'(A)).
+goal_expansion(singleton_domain(A,B), '$clpz_singleton'(A,B)).
 goal_expansion(domains_intersection(A,B,C), '$clpz_domains_intersection'(A,B,C)).
 goal_expansion(domains_union(A,B,C), '$clpz_domains_union'(A,B,C)).
 goal_expansion(domain_shift(A,B,C), '$clpz_domain_shift'(A,B,C)).
@@ -1177,6 +1180,12 @@ domain_remove_smaller_than(A,B,C) :- '$clpz_domain_remove_smaller_than'(A,B,C).
 domain_subtract(A,B,C) :- '$clpz_domain_subtract'(A,B,C).
 domain_complement(A,B) :- '$clpz_domain_complement'(A,B).
 domain_intervals(A,B) :- '$clpz_domain_intervals'(A,B).
+% PrologEx: Konstruktion und Prüfung von Domänen – die einzigen Stellen, an
+% denen Code außerhalb der domain_*-Prädikate die Darstellung berührt
+interval(A,B,C) :- '$clpz_interval'(A,B,C).
+empty_domain(A) :- '$clpz_empty'(A).
+singleton_domain(A,B) :- '$clpz_singleton'(A,B).
+is_domain(A) :- '$clpz_is_domain'(A).
 domains_intersection(A,B,C) :- '$clpz_domains_intersection'(A,B,C).
 domains_union(A,B,C) :- '$clpz_domains_union'(A,B,C).
 domain_shift(A,B,C) :- '$clpz_domain_shift'(A,B,C).
@@ -1464,13 +1473,13 @@ check_domain(D) :-
         ;   domain_error(clpz_domain, D)
         ).
 
-is_domain(empty).
-is_domain(from_to(From,To)) :-
+is_domain_ref(empty).
+is_domain_ref(from_to(From,To)) :-
         is_bound(From), is_bound(To),
         From cis_leq To.
-is_domain(split(S, Left, Right)) :-
+is_domain_ref(split(S, Left, Right)) :-
         integer(S),
-        is_domain(Left), is_domain(Right),
+        is_domain_ref(Left), is_domain_ref(Right),
         all_less_than(Left, S),
         all_greater_than(Right, S).
 
@@ -1490,7 +1499,7 @@ all_greater_than(split(S0,Left,Right), S) :-
         all_greater_than(Left, S),
         all_greater_than(Right, S).
 
-default_domain(from_to(inf,sup)).
+default_domain(D) :- interval(inf, sup, D).
 
 domain_infimum_ref(from_to(I, _), I).
 domain_infimum_ref(split(_, Left, _), I) :- domain_infimum_ref(Left, I).
@@ -1505,20 +1514,18 @@ domain_num_elements_ref(split(_, Left, Right), Num) :-
         domain_num_elements_ref(Right, NR),
         Num cis NL + NR.
 
-domain_direction_element(from_to(From, To), Dir, E) :-
+% (über die Intervalle; unendliche Intervalle: kein Element, wie das
+% Original mit seinem Muster from_to(n(From), n(To)))
+domain_direction_element(Dom, Dir, E) :-
+        domain_intervals(Dom, Is0),
+        (   Dir == up -> Is = Is0
+        ;   reverse(Is0, Is)
+        ),
+        member(From-To, Is),
         integer(From), integer(To),
         (   Dir == up -> between(From, To, E)
         ;   between(From, To, E0),
             E is To - (E0 - From)
-        ).
-domain_direction_element(split(_, D1, D2), Dir, E) :-
-        (   Dir == up ->
-            (   domain_direction_element(D1, Dir, E)
-            ;   domain_direction_element(D2, Dir, E)
-            )
-        ;   (   domain_direction_element(D2, Dir, E)
-            ;   domain_direction_element(D1, Dir, E)
-            )
         ).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4212,7 +4219,7 @@ fd_put_ref(X, Dom, Ps) :-
 
 put_terminating_ref(X, Dom, Ps) -->
         Dom \== empty,
-        (   Dom = from_to(F, F) ->
+        (   { singleton_domain(Dom, F) } ->
             % (F = inf oder sup: das Ziel scheitert, wie F = n(X) im Original)
             (   integer(F) -> queue_goal_ref(X = F) ; queue_goal_ref(false) )
         ;   (   { get_attr(X, clpz, Attr) } ->
@@ -4313,7 +4320,7 @@ reinforce_(X) :-
 
 put_full(X, Dom, Ps) :-
         Dom \== empty,
-        (   Dom = from_to(F, F) -> integer(F), X = F
+        (   singleton_domain(Dom, F) -> integer(F), X = F
         ;   (   get_attr(X, clpz, Attr) ->
                 Attr = clpz_attr(_,_,_,OldDom, _OldPs,Q),
                 put_attr(X, clpz, clpz_attr(no,no,no,Dom,Ps,Q)),
@@ -4788,7 +4795,7 @@ run_propagator(check_distinct(Left,Right,X), _) -->
 run_propagator(pelement(N, Is, V), MState) -->
         (   { fd_get(N, NDom, _) } ->
             (   { fd_get(V, VDom, VPs) } ->
-                { integers_remaining(Is, 1, NDom, empty, VDom1),
+                { empty_domain(E0), integers_remaining(Is, 1, NDom, E0, VDom1),
                   domains_intersection(VDom, VDom1, VDom2) },
                 fd_put(V, VDom2, VPs)
             ;   []
@@ -4834,11 +4841,11 @@ run_propagator(pgeq(A,B), MState) -->
             (   { AL cis_geq BU } -> kill(MState)
             ;   AU == BL -> kill(MState), A = B
             ;   { NAL cis max(AL,BL),
-                  domains_intersection(AD, from_to(NAL,AU), NAD) },
+                  interval(NAL,AU,I_4837), domains_intersection(AD, I_4837, NAD) },
                 fd_put(A, NAD, APs),
                 (   { fd_get(B, BD2, BL2, BU2, BPs2) } ->
                     { NBU cis min(BU2, AU),
-                      domains_intersection(BD2, from_to(BL2,NBU), NBD) },
+                      interval(BL2,NBU,I_4841), domains_intersection(BD2, I_4841, NBD) },
                     fd_put(B, NBD, BPs2)
                 ;   []
                 )
@@ -5222,7 +5229,7 @@ run_propagator(ptimes(X,Y,Z,Morph), MState) -->
                         { min_product(NXL, NXU, NYL, NYU, NZL),
                           max_product(NXL, NXU, NYL, NYU, NZU) },
                         (   { NZL cis_leq ZL2, NZU cis_geq ZU2 } -> ZD3 = ZD2
-                        ;   { domains_intersection(ZD2, from_to(NZL,NZU), ZD3) },
+                        ;   { interval(NZL,NZU,I_5225), domains_intersection(ZD2, I_5225, ZD3) },
                             fd_put(Z, ZD3, ZPs2)
                         ),
                         (   { domain_contains(ZD3, 0) } -> []
@@ -5245,9 +5252,9 @@ run_propagator(ptzdiv(X,Y,Z,Morph), MState) -->
                     (   Z =:= 0 ->
                         NYL is -abs(X) - 1,
                         NYU is abs(X) + 1,
-                        { domains_intersection(YD, split(0, from_to(inf,NYL),
-                                                       from_to(NYU, sup)),
-                                             NYD) },
+                        { interval(inf, NYL, Lo), interval(NYU, sup, Hi),
+                          domains_union(Lo, Hi, NotNear0),
+                          domains_intersection(YD, NotNear0, NYD) },
                         fd_put(Y, NYD, YPs)
                     ;   (   sign(X) =:= sign(Z) ->
                             { NYL cis max(X // (Z+sign(Z)) + 1, YL),
@@ -5272,7 +5279,7 @@ run_propagator(ptzdiv(X,Y,Z,Morph), MState) -->
                     (   { X >= 0, NZL cis_gt 0, fd_get(Y, YD1, YPs1) } ->
                         { NYL cis X // (NZU + 1) + 1,
                           NYU cis X // NZL,
-                          domains_intersection(YD1, from_to(NYL, NYU), NYD1) },
+                          interval(NYL,NYU,I_5275), domains_intersection(YD1, I_5275, NYD1) },
                         fd_put(Y, NYD1, YPs1)
                     ;   true
                     )
@@ -5324,7 +5331,7 @@ run_propagator(ptzdiv(X,Y,Z,Morph), MState) -->
                   fd_get(Z, ZD, ZPs),
                   NZU cis max(abs(XL), XU),
                   NZL cis -NZU,
-                  domains_intersection(ZD, from_to(NZL,NZU), NZD0),
+                  interval(NZL,NZU,I_5327), domains_intersection(ZD, I_5327, NZD0),
                   (   XL cis_geq 0, YL cis_geq 0 ->
                       domain_remove_smaller_than(NZD0, 0, NZD1)
                   ;   % TODO: cover more cases
@@ -5631,9 +5638,9 @@ run_propagator(prem(X,Y,Z), MState) -->
                 ;   ZL = YN, ZU = YP
                 ),
                 (   { fd_get(Z, ZD, ZPs) } ->
-                    { domains_intersection(ZD, from_to(ZL, ZU), ZD1) },
+                    { interval(ZL,ZU,I_5634), domains_intersection(ZD, I_5634, ZD1) },
                     fd_put(Z, ZD1, ZPs)
-                ;   ZD1 = from_to(Z, Z)
+                ;   interval(Z, Z, ZD1)
                 ),
                 (   { fd_get(X, XD, _), domain_infimum(XD, Min), integer(Min) } ->
                     Z1 is Min rem Y,
@@ -5690,7 +5697,7 @@ run_propagator(prem(X,Y,Z), MState) -->
               ),
               NInf cis max(max(Inf0, -M + 1), min(XInf,-XSup)),
               NSup cis min(min(Sup0, M - 1), max(abs(XInf),XSup)),
-              domains_intersection(ZD, from_to(NInf,NSup), ZD1) },
+              interval(NInf,NSup,I_5693), domains_intersection(ZD, I_5693, ZD1) },
             fd_put(Z, ZD1, ZPs)
         ;   true % TODO: propagate more
         ).
@@ -5794,7 +5801,7 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                 (   { X > 0, YL cis_geq 0 } ->
                     { NZL cis X^YL,
                       NZU cis X^YU,
-                      domains_intersection(ZD, from_to(NZL,NZU), NZD) },
+                      interval(NZL,NZU,I_5797), domains_intersection(ZD, I_5797, NZD) },
                     fd_put(Z, NZD, ZPs)
                 ;   true
                 ),
@@ -5819,12 +5826,12 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                 (   { Z > 1, between(NXL, Z, Exp), NXL^Exp > Z } ->
                     Exp1 is Exp - 1,
                     { fd_get(Y, YD, YPs),
-                      domains_intersection(YD, from_to(1,Exp1), YD1) },
+                      interval(1,Exp1,I_5822), domains_intersection(YD, I_5822, YD1) },
                     fd_put(Y, YD1, YPs),
                     (   { fd_get(X, XD, XPs) } ->
                         { domain_infimum(YD1, YL), integer(YL),
                           integer_kth_root_leq(Z, YL, RU),
-                          domains_intersection(XD, from_to(NXL,RU), XD1) },
+                          interval(NXL,RU,I_5827), domains_intersection(XD, I_5827, XD1) },
                         fd_put(X, XD1, XPs)
                     ;   true
                     )
@@ -5854,11 +5861,11 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                     ;   NZL = 0
                     ),
                     { NZU cis max(abs(XL),abs(XU))^Y,
-                      domains_intersection(ZD1, from_to(NZL,NZU), ZD2) }
+                      interval(NZL,NZU,I_5857), domains_intersection(ZD1, I_5857, ZD2) }
                 ;   (   { finite(XL) } ->
                         { NZL cis XL^Y,
                           NZU cis XU^Y },
-                        { domains_intersection(ZD1, from_to(NZL,NZU), ZD2) }
+                        { interval(NZL,NZU,I_5861), domains_intersection(ZD1, I_5861, ZD2) }
                     ;   ZD2 = ZD1
                     )
                 ),
@@ -5873,7 +5880,7 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                     ;   RL is -RU
                     ),
                     RL =< RU,
-                    NXD = from_to(RL,RU)
+                    interval(RL, RU, NXD)
                 ;   odd(Y), ZL cis_geq 0, integer(ZU) -> Num = ZU,
                     integer_kth_root_leq(Num, Y, RU),
                     integer(ZL), Num1 = ZL,
@@ -5882,7 +5889,7 @@ run_propagator(pexp(X,Y,Z,Morph), MState) -->
                     ;   RL = RL0
                     ),
                     RL =< RU,
-                    NXD = from_to(RL,RU)
+                    interval(RL, RU, NXD)
                 ;   NXD = XD1   % TODO: propagate more
                 ) },
                 (   { fd_get(X, XD2, XPs) } ->
@@ -6302,7 +6309,7 @@ run_propagator(preified_exp(X, Y, D, R), MState) -->
 
 update_bounds(X, XD, XPs, XL, XU, NXL, NXU) -->
         (   NXL == XL, NXU == XU -> []
-        ;   { domains_intersection(XD, from_to(NXL, NXU), NXD) },
+        ;   { interval(NXL,NXU,I_6305), domains_intersection(XD, I_6305, NXD) },
             fd_put(X, NXD, XPs)
         ).
 
@@ -6315,7 +6322,7 @@ finite(N) :- integer(N).
 
 in_(L, U, X) :-
         fd_get(X, XD, XPs),
-        domains_intersection(XD, from_to(L,U), NXD),
+        interval(L,U,I_6318), domains_intersection(XD, I_6318, NXD),
         fd_put(X, NXD, XPs).
 
 min_max_factor(L1, U1, L2, U2, L3, U3, Min, Max) :-
@@ -6845,7 +6852,7 @@ kill_if_isolated(Left, Right, X, MState) :-
 all_empty_intersection([], _).
 all_empty_intersection([V|Vs], XDom) :-
         (   fd_get(V, VDom, _) ->
-            domains_intersection_(VDom, XDom, empty),
+            \+ domains_intersection(VDom, XDom, _),
             all_empty_intersection(Vs, XDom)
         ;   all_empty_intersection(Vs, XDom)
         ).
@@ -6999,7 +7006,7 @@ element(N, Is, V) :-
 
 element_domain(V, VD) :-
         (   fd_get(V, VD, _) -> true
-        ;   VD = from_to(V, V)
+        ;   interval(V, V, VD)
         ).
 
 element_([], _, _, _).
