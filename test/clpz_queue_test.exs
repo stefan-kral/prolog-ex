@@ -279,6 +279,19 @@ defmodule PrologEx.ClpzQueueTest do
     ])
   end
 
+  test "a//3, a//2, a//1 wie das Original", c do
+    for x <- ["X", "1"], y <- ["Y", "X", "2"], b <- ["B", "X", "0"], rest <- ["R", "[z]"] do
+      for {r, n} <- [
+            {"a_ref(#{x},#{y},#{b})", "a(#{x},#{y},#{b})"},
+            {"a_ref(#{x},#{b})", "a(#{x},#{b})"},
+            {"a_ref(#{b})", "a(#{b})"}
+          ] do
+        q = "phrase(clpz:#{r}, L1, #{rest}), phrase(clpz:#{n}, L2, #{rest}), L1 == L2"
+        assert {_, {:answers, [_]}} = TableCase.run(c.reader, c.db, q), q
+      end
+    end
+  end
+
   test "in/2: der Abkürzer wie drep_to_domain/2 und domain/2", c do
     check(c, 300, fn ->
       v = Enum.random(["X", "Y", "N", "3", "a", "f(X)"])
@@ -438,6 +451,35 @@ defmodule PrologEx.ClpzQueueTest do
       assert ref == new, setup
       assert {o, {:answers, [_]}} = new
       assert o =~ "h", setup
+    end
+  end
+
+  test "Aufstellen mit einem weiteren Hook-Modul: Ausgabe und Ergebnis wie das Original", c do
+    PrologEx.put_db(c.db)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      {:ok, _} = PrologEx.Consult.load_file("test/fixtures/atts/alle.pl")
+    end)
+
+    db = PrologEx.current_db()
+
+    for g <- [
+          "X #\\= Y",
+          "X #\\= Y, Y #\\= Z",
+          "(X #>= Y) #<==> B",
+          "(X #= 3 #/\\ Y #< Z) #<==> B",
+          "abs(X-Y) #\\= 2"
+        ] do
+      [ref, new] =
+        for f <- ["off", "on"] do
+          TableCase.run(
+            c.reader,
+            db,
+            "X in 0..5, Y in 0..5, Z in 1..3, fast(#{f}, (#{g})), write(ende)"
+          )
+        end
+
+      assert ref == new, g
     end
   end
 

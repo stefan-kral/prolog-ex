@@ -335,6 +335,53 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # pit/4: make_propagator/2, new_queue/1, init_propagator_//2,
+  # variables_same_queue/1 (nur, wenn clpz das einzige Hook-Modul ist, wie
+  # '$clpz_variables_same_queue'/1)
+  defbuiltin "$clpz_pit", [vs, p0, prop, qout] do
+    run("pit", [vs, p0, prop, qout], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
+      unless alone?(ctx.db), do: throw(:fallback)
+      p = mk("propagator", [p0, fresh_var()])
+      q = new_queue()
+      items = list_items(vs, s)
+
+      s
+      |> then(&Enum.reduce(items, &1, fn v, s -> seq(s, fn s -> init_one(v, p, q, s) end) end))
+      |> seq(&same_queue(items, &1))
+      |> case do
+        :fail -> :fail
+        s -> out_all([{prop, p}, {qout, q}], drop_inert_wake(s))
+      end
+    end)
+  end
+
+  # a//3, a//2, a//1: die Einträge a(...) für Hilfsvariablen
+  defbuiltin "$clpz_a", [t, s0, s1] do
+    s = subst()
+
+    items =
+      case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+        {:struct, "a", [x, y, b]} -> a3(x, y, b, s)
+        {:struct, "a", [x, b]} -> a2(x, b, s)
+        {:struct, "a", [b]} -> a1(b, s)
+      end
+
+    {:unify, [{s0, list(items, s1)}]}
+  end
+
+  defp a3(x, y, b, s) do
+    cond do
+      not var?(PrologEx.walk(x, s)) -> a2(y, b, s)
+      not var?(PrologEx.walk(y, s)) -> a2(x, b, s)
+      true -> [mk("a", [x, y, b])]
+    end
+  end
+
+  defp a2(x, b, s), do: if(var?(PrologEx.walk(x, s)), do: [mk("a", [x, b])], else: a1(b, s))
+  defp a1(b, s), do: if(var?(PrologEx.walk(b, s)), do: [mk("a", [b])], else: [])
+
   # Zahl oder Variable mit Domäne (parse_reified_clpz//3, Abkürzer)
   defbuiltin "$clpz_fd_atom", [e] do
     s = subst()

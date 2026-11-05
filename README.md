@@ -1427,6 +1427,13 @@ Bisher in Elixir:
     Vergleichstests ab. Planung: Aufstellen 0,9–1,05 → 0,8 s, ganz
     1,41–1,49 → 0,97–1,11 s (Scryer 0,9 s), −23 % Reduktionen; magische
     Reihe −18 %.
+  * Reifikation, zweite Stufe: `pit/4` (Propagator bauen, neue Queue,
+    `init_propagator_//2`, `variables_same_queue/1`) als ein Builtin –
+    `propagator_init_trigger//2`, die vom Matcher erzeugten Klauseln und
+    der Abkürzer von `#\=` rufen es, danach `trigger_once_/2`; mit einem
+    weiteren Hook-Modul das Original. `a//3`, `a//2`, `a//1` (die
+    Einträge für Hilfsvariablen) in Elixir. Planung: Aufstellen
+    0,63–0,72 → 0,55–0,63 s, ganz 0,84–0,93 s (Scryer 0,81–0,9 s).
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

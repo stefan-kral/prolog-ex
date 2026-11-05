@@ -2820,10 +2820,7 @@ parse_goal(g(Goal)) --> [Goal].
 parse_goal(p(Prop0)) -->
         { term_variables(Prop0, Vs),
           morphing_propagator(Prop0, Prop, _) },
-        [make_propagator(Prop, P),
-         new_queue(Q0),
-         init_propagator_(Vs, P, [Q0], [Q]),
-         variables_same_queue(Vs),
+        [pit(Vs, Prop, P, Q),
          trigger_once_(P, Q)].
 
 morphing(pplus).
@@ -2878,11 +2875,19 @@ propagator_init_trigger(P) -->
 
 propagator_init_trigger(Vs, P) -->
         [p(Prop)],
-        { make_propagator(P, Prop),
-          new_queue(Q0),
-          init_propagator_(Vs, Prop, [Q0], [Q]),
-          variables_same_queue(Vs),
+        { pit(Vs, P, Prop, Q),
           trigger_once_(Prop, Q) }.
+
+% PrologEx: make_propagator/2, new_queue/1, init_propagator_//2 und
+% variables_same_queue/1 in einem Builtin ('$clpz_pit'/4); das Original
+% als pit_ref/4
+pit(Vs, P, Prop, Q) :- '$clpz_pit'(Vs, P, Prop, Q).
+
+pit_ref(Vs, P, Prop, Q) :-
+        make_propagator(P, Prop),
+        new_queue(Q0),
+        init_propagator_(Vs, Prop, [Q0], [Q]),
+        variables_same_queue(Vs).
 
 % PrologEx: in Elixir ('$clpz_variables_same_queue'/1), das Original als
 % variables_same_queue_ref/1
@@ -3077,18 +3082,12 @@ fast_matchers([(clpz_neq(A,B) :- '$clpz_neq_kind'(A,B,K), !, clpz_neq_fast(K,A,B
 clpz_neq_fast(num_a, A, B) :- neq_num(A, B).
 clpz_neq_fast(num_b, A, B) :- neq_num(B, A).
 clpz_neq_fast(pneq, A, B) :-
-        make_propagator(pneq(A,B), P),
-        new_queue(Q0),
-        init_propagator_([A,B], P, [Q0], [Q]),
-        variables_same_queue([A,B]),
+        pit([A,B], pneq(A,B), P, Q),
         trigger_once_(P, Q).
 clpz_neq_fast(absdiff, abs(G-H), C) :-
         parse_clpz(G, I),
         parse_clpz(H, J),
-        make_propagator(absdiff_neq(I,J,C), P),
-        new_queue(Q0),
-        init_propagator_([I,J,C], P, [Q0], [Q]),
-        variables_same_queue([I,J,C]),
+        pit([I,J,C], absdiff_neq(I,J,C), P, Q),
         trigger_once_(P, Q).
 
 sort_by_predicate(Clauses, ByPred) :-
@@ -3150,10 +3149,7 @@ match_goal(g(Goal), _) --> [Goal].
 match_goal(p(Prop0), _) -->
         { term_variables(Prop0, Vs),
           morphing_propagator(Prop0, Prop, _) },
-        [make_propagator(Prop, P),
-         new_queue(Q0),
-         init_propagator_(Vs, P, [Q0], [Q]),
-         variables_same_queue(Vs),
+        [pit(Vs, Prop, P, Q),
          trigger_once_(P, Q)].
 
 
@@ -4011,21 +4007,27 @@ boolean(L, R, B, Functor) -->
         propagator_init_trigger([LR,RR,B], Prop),
         a(LR, RR, B).
 
-a(X,Y,B) -->
-        (   nonvar(X) -> a(Y, B)
-        ;   nonvar(Y) -> a(X, B)
+% PrologEx: a//3, a//2, a//1 in Elixir ('$clpz_a'/3); das Original als
+% a_ref//3, a_ref//2, a_ref//1
+a_ref(X,Y,B) -->
+        (   nonvar(X) -> a_ref(Y, B)
+        ;   nonvar(Y) -> a_ref(X, B)
         ;   [a(X,Y,B)]
         ).
 
-a(X, B) -->
+a_ref(X, B) -->
         (   { var(X) } -> [a(X, B)]
-        ;   a(B)
+        ;   a_ref(B)
         ).
 
-a(B) -->
+a_ref(B) -->
         (   { var(B) } -> [a(B)]
         ;   []
         ).
+
+a(X, Y, B, S0, S) :- '$clpz_a'(a(X,Y,B), S0, S).
+a(X, B, S0, S) :- '$clpz_a'(a(X,B), S0, S).
+a(B, S0, S) :- '$clpz_a'(a(B), S0, S).
 
 as([])     --> [].
 as([B|Bs]) --> a(B), as(Bs).
