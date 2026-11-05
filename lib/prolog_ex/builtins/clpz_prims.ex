@@ -33,6 +33,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   """
   use PrologEx.Builtin
   alias PrologEx.Builtins.Blackboard
+  alias PrologEx.Builtins.ClpzDom
 
   # --- Rahmen ---------------------------------------------------------------
 
@@ -70,23 +71,85 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  # Domäne dekodieren: :empty | {:ft, von, bis} | {:sp, loch, links, rechts}
+  # Domäne dekodieren: die kanonische Intervallliste von PrologEx.Builtins.ClpzDom
+  # aus dem Prolog-Term [inf..3, 5, 9..13, 16..sup]. Kein solcher Term: ein
+  # Fehler – die Domänenoperationen haben kein Original mehr, auf das sie
+  # zurückfallen könnten, und clpz ruft sie nur mit Domänen (eine
+  # ungebundene Domäne: instantiation_error wie bei jedem Builtin)
   defp dom(t) do
     case w(t) do
-      {:atom, "empty"} -> :empty
-      {tag, "from_to", [f, to]} when tag in [:struct, :gstruct] -> {:ft, bound(f), bound(to)}
-      {tag, "split", [s, l, r]} when tag in [:struct, :gstruct] -> {:sp, int(s), dom(l), dom(r)}
-      _ -> throw(:fallback)
+      {:var, _} -> PrologEx.Error.instantiation!()
+      _ -> :ok
+    end
+
+    with {:ok, items} <- dom_items(t, []),
+         {:ok, d} <- ClpzDom.from_term(items) do
+      d
+    else
+      _ -> PrologEx.Error.type!("clpz_domain", PrologEx.resolve(t, subst_now()))
     end
   end
+
+  # die Elemente der Liste, dereferenziert und ohne Markierung (Punkte als
+  # Zahl, Intervalle als {:struct, "..", [L, U]} mit Schranken)
+  defp dom_items(t, acc) do
+    case w(t) do
+      [] ->
+        {:ok, Enum.reverse(acc)}
+
+      [h | tl] ->
+        case w(h) do
+          i when is_integer(i) ->
+            dom_items(tl, [i | acc])
+
+          {tag, "..", [l, u]} when tag in [:struct, :gstruct] ->
+            dom_items(tl, [{:struct, "..", [w(l), w(u)]} | acc])
+
+          _ ->
+            :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp ed(d), do: ClpzDom.to_term(d)
+
+  # das Intervall l..u als Domäne (leer, wenn l > u)
+  defp iv(l, u), do: ClpzDom.interval(l, u)
+
+  # Infimum/Supremum (empty: das Original, es scheitert dort)
+  defp edge(t, side) do
+    case dom(t) do
+      [] -> throw(:fallback)
+      d -> if side == :left, do: ClpzDom.infimum(d), else: ClpzDom.supremum(d)
+    end
+  end
+
+  defp inf_dec([]), do: throw(:fallback)
+  defp inf_dec(d), do: ClpzDom.infimum(d)
+  defp sup_dec([]), do: throw(:fallback)
+  defp sup_dec(d), do: ClpzDom.supremum(d)
+
+  defp contains_t(t, i), do: ClpzDom.contains?(dom(t), i)
+  defp dcontains?(d, i), do: ClpzDom.contains?(d, i)
+  defp remove(d, x), do: ClpzDom.remove(d, x)
+  defp remove_gt(d, g), do: ClpzDom.remove_greater_than(d, g)
+  defp remove_lt(d, v), do: ClpzDom.remove_smaller_than(d, v)
+  defp negate(d), do: ClpzDom.negate(d)
+  defp shift(d, o), do: ClpzDom.shift(d, o)
+  defp union!(d1, d2), do: ClpzDom.union(d1, d2)
+  defp smallest_finite(d), do: ClpzDom.smallest_finite(d)
+  defp largest_finite(d), do: ClpzDom.largest_finite(d)
+
+  # negatives m: erst spiegeln, dann mit |m| (wie das Original)
+  defp neg_abs(d, m) when m < 0, do: {negate(d), abs(m)}
+  defp neg_abs(d, m), do: {d, m}
 
   defp eb(:inf), do: a("inf")
   defp eb(:sup), do: a("sup")
   defp eb(i) when is_integer(i), do: i
-
-  defp ed(:empty), do: a("empty")
-  defp ed({:ft, f, t}), do: mk("from_to", [eb(f), eb(t)])
-  defp ed({:sp, s, l, r}), do: mk("split", [s, ed(l), ed(r)])
 
   # Ergebnis: Ausgabe out mit dem Term t unifizieren (nil: Fehlschlag)
   defp out(_o, nil), do: :fail
@@ -279,60 +342,27 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # --- Domänen: Abfragen ------------------------------------------------------
 
-  # Infimum/Supremum entlang des linken/rechten Rands, ohne die Domäne
-  # ganz zu dekodieren
-  defp edge(t, side) do
-    case w(t) do
-      {tag, "from_to", [f, to]} when tag in [:struct, :gstruct] ->
-        bound(if side == :left, do: f, else: to)
-
-      {tag, "split", [_s, l, r]} when tag in [:struct, :gstruct] ->
-        edge(if(side == :left, do: l, else: r), side)
-
-      # empty oder keine Domäne: das Original (empty scheitert dort)
-      _ ->
-        throw(:fallback)
-    end
-  end
-
+  # (die leere Domäne: Fehlschlag, wie das Original)
   defbuiltin "$clpz_domain_infimum", [d, i] do
     run("domain_infimum", [d, i], subst(), fn ->
-      out(i, eb(edge(d, :left)))
+      case dom(d) do
+        [] -> :fail
+        dd -> out(i, eb(ClpzDom.infimum(dd)))
+      end
     end)
   end
 
   defbuiltin "$clpz_domain_supremum", [d, s] do
     run("domain_supremum", [d, s], subst(), fn ->
-      out(s, eb(edge(d, :right)))
+      case dom(d) do
+        [] -> :fail
+        dd -> out(s, eb(ClpzDom.supremum(dd)))
+      end
     end)
   end
-
-  defp num(:empty), do: 0
-  defp num({:ft, f, t}), do: plus(minus(t, f), 1)
-  defp num({:sp, _, l, r}), do: plus(num(l), num(r))
 
   defbuiltin "$clpz_domain_num_elements", [d, n] do
-    run("domain_num_elements", [d, n], subst(), fn ->
-      out(n, eb(num(dom(d))))
-    end)
-  end
-
-  # auf dem Term, entlang des Pfads (ohne die Domäne ganz zu dekodieren)
-  defp contains_t(t, i) do
-    case w(t) do
-      {tag, "from_to", [f, to]} when tag in [:struct, :gstruct] ->
-        leq(bound(f), i) and leq(i, bound(to))
-
-      {tag, "split", [s, l, r]} when tag in [:struct, :gstruct] ->
-        s = int(s)
-        (i < s and contains_t(l, i)) or (i > s and contains_t(r, i))
-
-      {:atom, "empty"} ->
-        false
-
-      _ ->
-        throw(:fallback)
-    end
+    run("domain_num_elements", [d, n], subst(), fn -> out(n, eb(ClpzDom.num_elements(dom(d)))) end)
   end
 
   # pit/4: make_propagator/2, new_queue/1, init_propagator_//2,
@@ -387,15 +417,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # interval(L, U, D): die Domäne L..U (leer, wenn L > U); L, U Schranken
   defbuiltin "$clpz_interval", [l, u, d] do
-    run("interval", [l, u, d], subst(), fn ->
-      lb = bound(l)
-      ub = bound(u)
-
-      out(
-        d,
-        if(leq(lb, ub) and lb != :sup and ub != :inf, do: ed({:ft, lb, ub}), else: a("empty"))
-      )
-    end)
+    run("interval", [l, u, d], subst(), fn -> out(d, ed(iv(bound(l), bound(u)))) end)
   end
 
   # singleton(D, V): D besteht aus genau einem Wert V (wie das Muster
@@ -403,45 +425,30 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # entsteht – die Aufrufer prüfen integer/1)
   defbuiltin "$clpz_singleton", [d, v] do
     run("singleton", [d, v], subst(), fn ->
-      case dom(d) do
-        {:ft, b, b} -> out(v, eb(b))
-        _ -> :fail
+      case ClpzDom.singleton(dom(d)) do
+        {:ok, x} -> out(v, x)
+        :error -> :fail
       end
     end)
   end
 
   # empty(D): die leere Domäne
   defbuiltin "$clpz_empty", [d] do
-    {:unify, [{d, a("empty")}]}
+    {:unify, [{d, []}]}
   end
 
   # is_domain(D): ein wohlgeformter Domänenterm (is_domain/1 des Originals)
+  # is_domain(D): ein kanonischer Domänenterm (Fehlschlag, kein Fehler)
   defbuiltin "$clpz_is_domain", [d] do
-    s = subst()
-
-    try do
-      if valid_dom?(dom(d)), do: :ok, else: :fail
-    catch
-      :fallback -> :fail
-    end
-    |> then(fn r ->
-      _ = s
-      r
+    run("is_domain", [d], subst(), fn ->
+      with {:ok, items} <- dom_items(d, []),
+           {:ok, _} <- ClpzDom.from_term(items) do
+        :ok
+      else
+        _ -> :fail
+      end
     end)
   end
-
-  defp valid_dom?(:empty), do: true
-  defp valid_dom?({:ft, l, u}), do: leq(l, u)
-
-  defp valid_dom?({:sp, sp, l, r}),
-    do: valid_dom?(l) and valid_dom?(r) and all_lt?(l, sp) and all_gt?(r, sp)
-
-  defp all_lt?(:empty, _), do: true
-  defp all_lt?({:ft, l, u}, sp), do: lt(l, sp) and lt(u, sp)
-  defp all_lt?({:sp, s0, l, r}, sp), do: s0 < sp and all_lt?(l, sp) and all_lt?(r, sp)
-  defp all_gt?(:empty, _), do: true
-  defp all_gt?({:ft, l, u}, sp), do: gt(l, sp) and gt(u, sp)
-  defp all_gt?({:sp, s0, l, r}, sp), do: s0 > sp and all_gt?(l, sp) and all_gt?(r, sp)
 
   # Zahl oder Variable mit Domäne (parse_reified_clpz//3, Abkürzer)
   defbuiltin "$clpz_fd_atom", [e] do
@@ -469,13 +476,13 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp simple_drep(i, _s) when is_integer(i), do: {:ok, ed({:ft, i, i})}
+  defp simple_drep(i, _s) when is_integer(i), do: {:ok, ed(iv(i, i))}
 
   defp simple_drep({:struct, "..", [n0, m0]}, s) do
     with n when n != nil <- drep_bound(PrologEx.walk(n0, s)),
          m when m != nil <- drep_bound(PrologEx.walk(m0, s)),
          true <- n != :sup and m != :inf do
-      if leq(n, m), do: {:ok, ed({:ft, n, m})}, else: {:ok, a("empty")}
+      {:ok, ed(iv(n, m))}
     else
       _ -> :error
     end
@@ -775,153 +782,22 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   defbuiltin "$clpz_domain_contains", [d, i] do
     run("domain_contains", [d, i], subst(), fn ->
-      x = int(i)
-      if contains_t(d, x), do: :ok, else: :fail
+      if contains_t(d, int(i)), do: :ok, else: :fail
     end)
   end
 
-  # domain_subdomain(Dom, Sub): Sub ⊆ Dom (Fehlschlag für Dom = empty,
-  # wie das Original)
-  defp subdomain({:ft, _, _} = d, sub), do: sub_fromto(sub, d)
-  defp subdomain({:sp, _, _, _} = d, sub), do: sub_split(sub, d, sub)
-  defp subdomain(:empty, _), do: false
-
-  defp sub_split(:empty, _, _), do: true
-
-  defp sub_split({:ft, f, t}, {:sp, s, l0, r0}, sub) do
-    cond do
-      lt(t, s) -> subdomain(l0, sub)
-      gt(f, s) -> subdomain(r0, sub)
-      true -> false
-    end
-  end
-
-  defp sub_split({:sp, _, l, r}, d, _), do: subdomain(d, l) and subdomain(d, r)
-
-  defp sub_fromto(:empty, _), do: true
-  defp sub_fromto({:ft, f, t}, {:ft, f0, t0}), do: leq(f0, f) and geq(t0, t)
-  defp sub_fromto({:sp, _, l, r}, d), do: sub_fromto(l, d) and sub_fromto(r, d)
-
+  # domain_subdomain(Dom, Sub): Sub ⊆ Dom (Fehlschlag für Dom = [], wie das
+  # Original)
   defbuiltin "$clpz_domain_subdomain", [d, sub] do
     run("domain_subdomain", [d, sub], subst(), fn ->
-      if subdomain(dom(d), dom(sub)), do: :ok, else: :fail
+      if ClpzDom.subdomain?(dom(d), dom(sub)), do: :ok, else: :fail
     end)
   end
 
   # --- Domänen: Entfernen -----------------------------------------------------
 
-  defp remove(:empty, _x), do: :empty
-  defp remove({:ft, l0, u0}, x), do: remove_(l0, u0, x)
-
-  defp remove({:sp, s, l0, r0} = d, x) do
-    cond do
-      x == s ->
-        d
-
-      x < s ->
-        case remove(l0, x) do
-          :empty -> r0
-          l1 -> {:sp, s, l1, r0}
-        end
-
-      true ->
-        case remove(r0, x) do
-          :empty -> l0
-          r1 -> {:sp, s, l0, r1}
-        end
-    end
-  end
-
-  defp remove_(:inf, u0, x) do
-    cond do
-      u0 == x -> {:ft, :inf, x - 1}
-      lt(u0, x) -> {:ft, :inf, u0}
-      true -> {:sp, x, {:ft, :inf, x - 1}, {:ft, x + 1, u0}}
-    end
-  end
-
-  defp remove_(l0, u0, x) when is_integer(l0), do: remove_upper(u0, l0, x)
-  # from_to(sup, _): keine Klausel im Original
-  defp remove_(:sup, _u0, _x), do: throw(:fallback)
-
-  defp remove_upper(:sup, l0, x) do
-    cond do
-      l0 == x -> {:ft, x + 1, :sup}
-      l0 > x -> {:ft, l0, :sup}
-      true -> {:sp, x, {:ft, l0, x - 1}, {:ft, x + 1, :sup}}
-    end
-  end
-
-  defp remove_upper(u0, l0, x) when is_integer(u0) do
-    cond do
-      l0 == u0 and x == l0 -> :empty
-      l0 == x -> {:ft, x + 1, u0}
-      u0 == x -> {:ft, l0, x - 1}
-      l0 <= x and x <= u0 -> {:sp, x, {:ft, l0, x - 1}, {:ft, x + 1, u0}}
-      true -> {:ft, l0, u0}
-    end
-  end
-
-  # from_to(N, inf): keine Klausel im Original
-  defp remove_upper(:inf, _l0, _x), do: throw(:fallback)
-
-  # auf dem Term entlang des Pfads; unberührte Teilbäume bleiben, wie sie
-  # sind (wie im Original)
-  defp remove_t(t, x) do
-    case w(t) do
-      {:atom, "empty"} = e ->
-        e
-
-      {tag, "from_to", [f, to]} when tag in [:struct, :gstruct] ->
-        ed(remove_(bound(f), bound(to), x))
-
-      {tag, "split", [s0, l0, r0]} = sp when tag in [:struct, :gstruct] ->
-        s = int(s0)
-
-        cond do
-          x == s ->
-            sp
-
-          x < s ->
-            case remove_t(l0, x) do
-              {:atom, "empty"} -> r0
-              l1 -> mk("split", [s, l1, r0])
-            end
-
-          true ->
-            case remove_t(r0, x) do
-              {:atom, "empty"} -> l0
-              r1 -> mk("split", [s, l0, r1])
-            end
-        end
-
-      _ ->
-        throw(:fallback)
-    end
-  end
-
   defbuiltin "$clpz_domain_remove", [d, x, r] do
-    run("domain_remove", [d, x, r], subst(), fn ->
-      i = int(x)
-      out(r, remove_t(d, i))
-    end)
-  end
-
-  defp remove_gt(:empty, _), do: :empty
-
-  defp remove_gt({:ft, f0, t0}, g) do
-    if gt(f0, g), do: :empty, else: {:ft, f0, bmin(t0, g)}
-  end
-
-  defp remove_gt({:sp, s, l0, r0}, g) do
-    if s <= g do
-      case remove_gt(r0, g) do
-        :empty -> l0
-        r -> {:sp, s, l0, r}
-      end
-    else
-      remove_gt(l0, g)
-    end
+    run("domain_remove", [d, x, r], subst(), fn -> out(r, ed(remove(dom(d), int(x)))) end)
   end
 
   defbuiltin "$clpz_domain_remove_greater_than", [d, g, r] do
@@ -930,230 +806,59 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
-  defp remove_lt(:empty, _), do: :empty
-
-  defp remove_lt({:ft, f0, t0}, v) do
-    if lt(t0, v), do: :empty, else: {:ft, bmax(f0, v), t0}
-  end
-
-  defp remove_lt({:sp, s, l0, r0}, v) do
-    if s >= v do
-      case remove_lt(l0, v) do
-        :empty -> r0
-        l -> {:sp, s, l, r0}
-      end
-    else
-      remove_lt(r0, v)
-    end
-  end
-
   defbuiltin "$clpz_domain_remove_smaller_than", [d, v, r] do
     run("domain_remove_smaller_than", [d, v, r], subst(), fn ->
       out(r, ed(remove_lt(dom(d), int(v))))
     end)
   end
 
-  # domain_subtract/4 des Originals; :none = Fehlschlag
-  defp subtract(:empty, _, _), do: :empty
-
-  defp subtract({:ft, from0, to0}, d, sub) do
-    case sub do
-      :empty ->
-        d
-
-      {:ft, from, to} ->
-        cond do
-          from == to ->
-            if is_integer(from), do: remove(d, from), else: :none
-
-          gt(from, to0) ->
-            d
-
-          lt(to, from0) ->
-            d
-
-          leq(from, from0) ->
-            if geq(to, to0), do: :empty, else: {:ft, plus(to, 1), to0}
-
-          true ->
-            to1 = minus(from, 1)
-
-            if lt(to, to0) do
-              if is_integer(from),
-                do: {:sp, from, {:ft, from0, to1}, {:ft, plus(to, 1), to0}},
-                else: :none
-            else
-              {:ft, from0, to1}
-            end
-        end
-
-      {:sp, s, l, r} ->
-        cond do
-          gt(s, to0) ->
-            subtract(d, d, l)
-
-          lt(s, from0) ->
-            subtract(d, d, r)
-
-          true ->
-            case subtract(d, d, l) do
-              :none -> :none
-              d1 -> subtract(d1, d1, r)
-            end
-        end
-    end
-  end
-
-  defp subtract({:sp, s, l0, r0}, _, sub) do
-    with l when l != :none <- subtract(l0, l0, sub),
-         r when r != :none <- subtract(r0, r0, sub) do
-      cond do
-        l == :empty -> r
-        r == :empty -> l
-        true -> {:sp, s, l, r}
-      end
-    end
-  end
-
-  defp subtract(:none, _, _), do: :none
-
-  defp nonone(:none), do: nil
-  defp nonone(d), do: ed(d)
-
   defbuiltin "$clpz_domain_subtract", [d0, sub, d] do
     run("domain_subtract", [d0, sub, d], subst(), fn ->
-      dd = dom(d0)
-      out(d, nonone(subtract(dd, dd, dom(sub))))
+      out(d, ed(ClpzDom.subtract(dom(d0), dom(sub))))
     end)
   end
 
   defbuiltin "$clpz_domain_complement", [d, c] do
-    run("domain_complement", [d, c], subst(), fn ->
-      default = {:ft, :inf, :sup}
-      out(c, nonone(subtract(default, default, dom(d))))
-    end)
+    run("domain_complement", [d, c], subst(), fn -> out(c, ed(ClpzDom.complement(dom(d)))) end)
   end
 
   # --- Domänen: Intervalle, Schnitt, Vereinigung ------------------------------
 
-  defp intervals(:empty, acc), do: acc
-  defp intervals({:ft, f, t}, acc), do: [{f, t} | acc]
-  defp intervals({:sp, _, l, r}, acc), do: intervals(l, intervals(r, acc))
-
-  defp e_intervals(is), do: list(Enum.map(is, fn {f, t} -> mk("-", [eb(f), eb(t)]) end))
-
+  # domain_intervals/2: die Intervalle als Liste von Von-Bis
   defbuiltin "$clpz_domain_intervals", [d, is] do
-    run("domain_intervals", [d, is], subst(), fn ->
-      out(is, e_intervals(intervals(dom(d), [])))
-    end)
+    run("domain_intervals", [d, is], subst(), fn -> out(is, e_intervals(dom(d))) end)
   end
 
-  defp intersection_(:empty, _), do: :empty
-  defp intersection_({:ft, l0, u0}, d2), do: narrow(d2, l0, u0)
+  defp e_intervals(d), do: list(Enum.map(d, fn {l, u} -> mk("-", [eb(l), eb(u)]) end))
 
-  defp intersection_({:sp, s, l0, r0}, d2) do
-    l1 = intersection_(l0, d2)
-    r1 = intersection_(r0, d2)
+  # Liste von Intervallen A-B (Schranken), auch unsortiert oder überlappend
+  defp interval_list(t) do
+    case w(t) do
+      [] ->
+        []
 
-    cond do
-      l1 == :empty -> r1
-      r1 == :empty -> l1
-      true -> {:sp, s, l1, r1}
-    end
-  end
+      [h | tl] ->
+        case w(h) do
+          {tag, "-", [a, b]} when tag in [:struct, :gstruct] ->
+            [{bound(a), bound(b)} | interval_list(tl)]
 
-  defp narrow(:empty, _, _), do: :empty
-
-  defp narrow({:ft, l0, u0}, from0, to0) do
-    from1 = bmax(from0, l0)
-    to1 = bmin(to0, u0)
-    if gt(from1, to1), do: :empty, else: {:ft, from1, to1}
-  end
-
-  defp narrow({:sp, s, l0, r0}, from0, to0) do
-    cond do
-      lt(to0, s) ->
-        narrow(l0, from0, to0)
-
-      gt(from0, s) ->
-        narrow(r0, from0, to0)
-
-      true ->
-        l1 = narrow(l0, from0, to0)
-        r1 = narrow(r0, from0, to0)
-
-        cond do
-          l1 == :empty -> r1
-          r1 == :empty -> l1
-          true -> {:sp, s, l1, r1}
+          _ ->
+            throw(:fallback)
         end
+
+      _ ->
+        throw(:fallback)
     end
   end
 
+  # domains_intersection/3 scheitert bei leerem Schnitt
   defbuiltin "$clpz_domains_intersection", [d1, d2, i] do
     run("domains_intersection", [d1, d2, i], subst(), fn ->
-      case intersection_(dom(d1), dom(d2)) do
-        :empty -> :fail
+      case ClpzDom.intersection(dom(d1), dom(d2)) do
+        [] -> :fail
         r -> out(i, ed(r))
       end
     end)
-  end
-
-  # merge_intervals/2: keysort wie im Original mit n(N)-Schlüsseln (inf,
-  # sup, dann die Zahlen; stabil), dann Überlappendes zusammenfassen
-  defp key_rank(:inf), do: {0, 0}
-  defp key_rank(:sup), do: {1, 0}
-  defp key_rank(i), do: {2, i}
-
-  defp merge_intervals(is) do
-    is |> Enum.sort_by(fn {a, _} -> key_rank(a) end) |> merge_overlapping()
-  end
-
-  defp merge_overlapping([]), do: []
-
-  defp merge_overlapping([{a, b0} | rest]) do
-    {b, rest} = merge_remaining(rest, b0)
-    [{a, b} | merge_overlapping(rest)]
-  end
-
-  defp merge_remaining([], b), do: {b, []}
-
-  defp merge_remaining([{n, m} | nms] = all, b0) do
-    if gt(n, plus(b0, 1)), do: {b0, all}, else: merge_remaining(nms, bmax(b0, m))
-  end
-
-  # intervals_to_domain/2; nil = Fehlschlag (das hintere Teilstück beginnt
-  # nicht mit n(_))
-  defp to_domain([]), do: :empty
-  defp to_domain([{m, n}]), do: {:ft, m, n}
-
-  defp to_domain(is) do
-    {front, tail} = Enum.split(is, div(length(is), 2))
-
-    case tail do
-      [{start, _} | _] when is_integer(start) ->
-        with l when l != nil <- to_domain(front),
-             r when r != nil <- to_domain(tail),
-             do: {:sp, start - 1, l, r}
-
-      _ ->
-        nil
-    end
-  end
-
-  defp maybe_ed(nil), do: nil
-  defp maybe_ed(d), do: ed(d)
-
-  # domains_union/3 in Propagatoren (Fehlschlag des Originals: das Original)
-  defp union!(d1, d2) do
-    case union(d1, d2) do
-      nil -> throw(:fallback)
-      d -> d
-    end
-  end
-
-  defp union(d1, d2) do
-    to_domain(merge_intervals(intervals(d1, []) ++ intervals(d2, [])))
   end
 
   # gcc_neq_goals(Vs, KNs, Gs): der Teil von gcc_global//2 unter
@@ -1229,43 +934,19 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defbuiltin "$clpz_domains_union", [d1, d2, u] do
-    run("domains_union", [d1, d2, u], subst(), fn ->
-      out(u, maybe_ed(union(dom(d1), dom(d2))))
-    end)
+    run("domains_union", [d1, d2, u], subst(), fn -> out(u, ed(union!(dom(d1), dom(d2)))) end)
   end
 
-  # Liste von Intervallen A-B (Schranken)
-  defp interval_list(t) do
-    case w(t) do
-      [] ->
-        []
-
-      [h | tl] ->
-        case w(h) do
-          {tag, "-", [a, b]} when tag in [:struct, :gstruct] ->
-            [{bound(a), bound(b)} | interval_list(tl)]
-
-          _ ->
-            throw(:fallback)
-        end
-
-      {:glist, l} ->
-        interval_list(l)
-
-      _ ->
-        throw(:fallback)
-    end
-  end
-
+  # merge_intervals/2: Intervalle sortieren und zusammenfassen
   defbuiltin "$clpz_merge_intervals", [is0, is] do
     run("merge_intervals", [is0, is], subst(), fn ->
-      out(is, e_intervals(merge_intervals(interval_list(is0))))
+      out(is, e_intervals(ClpzDom.from_intervals(interval_list(is0))))
     end)
   end
 
   defbuiltin "$clpz_intervals_to_domain", [is, d] do
     run("intervals_to_domain", [is, d], subst(), fn ->
-      out(d, maybe_ed(to_domain(interval_list(is))))
+      out(d, ed(ClpzDom.from_intervals(interval_list(is))))
     end)
   end
 
@@ -1278,134 +959,53 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp disjoint([]), do: []
-  defp disjoint([n | ns]), do: disjoint(ns, n, n)
-  defp disjoint([], m, n), do: [{m, n}]
-
-  defp disjoint([b | bs], m, n) do
-    if b == n + 1, do: disjoint(bs, m, b), else: [{m, n} | disjoint(bs, b, b)]
-  end
-
   defbuiltin "$clpz_list_to_domain", [l, d] do
-    run("list_to_domain", [l, d], subst(), fn ->
-      case int_list(l) do
-        [] -> out(d, a("empty"))
-        ns -> out(d, maybe_ed(to_domain(disjoint(Enum.uniq(Enum.sort(ns))))))
-      end
-    end)
+    run("list_to_domain", [l, d], subst(), fn -> out(d, ed(ClpzDom.from_list(int_list(l)))) end)
   end
 
   # --- Domänen: Verschieben, Strecken, Stauchen, Spiegeln ---------------------
 
-  defp shift(:empty, _), do: :empty
-  defp shift({:ft, f, t}, o), do: {:ft, plus(f, o), plus(t, o)}
-  defp shift({:sp, s, l, r}, o), do: {:sp, s + o, shift(l, o), shift(r, o)}
-
   defbuiltin "$clpz_domain_shift", [d, o, r] do
-    run("domain_shift", [d, o, r], subst(), fn ->
-      out(r, ed(shift(dom(d), int(o))))
-    end)
+    run("domain_shift", [d, o, r], subst(), fn -> out(r, ed(ClpzDom.shift(dom(d), int(o)))) end)
   end
-
-  defp negate(:empty), do: :empty
-  defp negate({:ft, f, t}), do: {:ft, uminus(t), uminus(f)}
-  defp negate({:sp, s, l, r}), do: {:sp, -s, negate(r), negate(l)}
 
   defbuiltin "$clpz_domain_negate", [d, r] do
-    run("domain_negate", [d, r], subst(), fn ->
-      out(r, ed(negate(dom(d))))
-    end)
+    run("domain_negate", [d, r], subst(), fn -> out(r, ed(negate(dom(d)))) end)
   end
-
-  defp expand_(:empty, _), do: :empty
-  defp expand_({:ft, f, t}, m), do: {:ft, times(f, m), times(t, m)}
-  defp expand_({:sp, s, l, r}, m), do: {:sp, m * s, expand_(l, m), expand_(r, m)}
 
   defbuiltin "$clpz_domain_expand", [d0, m, d] do
     run("domain_expand", [d0, m, d], subst(), fn ->
-      dd = dom(d0)
-      mm = int(m)
-
-      r =
-        cond do
-          mm < 0 -> expand_(negate(dd), abs(mm))
-          mm == 1 -> dd
-          true -> expand_(dd, mm)
-        end
-
-      out(d, ed(r))
+      out(d, ed(ClpzDom.expand(dom(d0), int(m))))
     end)
   end
-
-  defp expand_more_(:empty, _), do: :empty
-
-  defp expand_more_({:ft, f0, t0}, m) do
-    f = if leq(f0, 0), do: plus(times(minus(f0, 1), m), 1), else: times(f0, m)
-    t = if lt(t0, 0), do: times(t0, m), else: minus(times(plus(t0, 1), m), 1)
-    {:ft, f, t}
-  end
-
-  defp expand_more_({:sp, s, l, r}, m), do: {:sp, m * s, expand_more_(l, m), expand_more_(r, m)}
 
   defbuiltin "$clpz_domain_expand_more", [d0, m, d] do
     run("domain_expand_more", [d0, m, d], subst(), fn ->
-      {dd, mm} = neg_abs(dom(d0), int(m))
-      out(d, ed(expand_more_(dd, mm)))
+      out(d, ed(ClpzDom.expand_more(dom(d0), int(m))))
     end)
   end
 
-  defp neg_abs(d, m) when m < 0, do: {negate(d), abs(m)}
-  defp neg_abs(d, m), do: {d, m}
-
-  # Stauchen: die Teile mit domains_union/3 zusammengefügt (nil: Fehlschlag)
-  defp contract_(:empty, _), do: :empty
-
-  defp contract_({:ft, f0, t0}, m) do
-    f = if geq(f0, 0), do: slash(minus(plus(f0, m), 1), m), else: slash(f0, m)
-    t = if geq(t0, 0), do: slash(t0, m), else: slash(plus(minus(t0, m), 1), m)
-    {:ft, f, t}
-  end
-
-  defp contract_({:sp, _, l0, r0}, m) do
-    with l when l != nil <- contract_(l0, m),
-         r when r != nil <- contract_(r0, m),
-         do: union(l, r)
+  # Multiplikator 0 beim Stauchen: Division durch null (wie // im Original)
+  defp nonzero(m) do
+    case int(m) do
+      0 -> PrologEx.Error.evaluation!("zero_divisor")
+      i -> i
+    end
   end
 
   defbuiltin "$clpz_domain_contract", [d0, m, d] do
     run("domain_contract", [d0, m, d], subst(), fn ->
-      {dd, mm} = neg_abs(dom(d0), int(m))
-      out(d, maybe_ed(contract_(dd, mm)))
+      out(d, ed(ClpzDom.contract(dom(d0), nonzero(m))))
     end)
-  end
-
-  defp contract_less_(:empty, _), do: :empty
-  defp contract_less_({:ft, f0, t0}, m), do: {:ft, slash(f0, m), slash(t0, m)}
-
-  defp contract_less_({:sp, _, l0, r0}, m) do
-    with l when l != nil <- contract_less_(l0, m),
-         r when r != nil <- contract_less_(r0, m),
-         do: union(l, r)
   end
 
   defbuiltin "$clpz_domain_contract_less", [d0, m, d] do
     run("domain_contract_less", [d0, m, d], subst(), fn ->
-      {dd, mm} = neg_abs(dom(d0), int(m))
-      out(d, maybe_ed(contract_less_(dd, mm)))
+      out(d, ed(ClpzDom.contract_less(dom(d0), nonzero(m))))
     end)
   end
 
   # --- Domänen: Spannweite, Liste ---------------------------------------------
-
-  defp smallest_finite({:ft, :inf, t}), do: t
-  defp smallest_finite({:ft, f, _}) when is_integer(f), do: f
-  defp smallest_finite({:sp, _, l, _}), do: smallest_finite(l)
-  defp smallest_finite(_), do: nil
-
-  defp largest_finite({:ft, f, :sup}), do: f
-  defp largest_finite({:ft, _, t}) when is_integer(t), do: t
-  defp largest_finite({:sp, _, _, r}), do: largest_finite(r)
-  defp largest_finite(_), do: nil
 
   defp maybe_eb(nil), do: nil
   defp maybe_eb(b), do: eb(b)
@@ -1423,35 +1023,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defbuiltin "$clpz_domain_spread", [d, sp] do
-    run("domain_spread", [d, sp], subst(), fn ->
-      dd = dom(d)
-
-      with s when s != nil <- smallest_finite(dd),
-           l when l != nil <- largest_finite(dd) do
-        out(sp, eb(minus(l, s)))
-      else
-        nil -> :fail
-      end
-    end)
+    run("domain_spread", [d, sp], subst(), fn -> out(sp, maybe_eb(ClpzDom.spread(dom(d)))) end)
   end
 
-  # domain_to_list/2: nur endliche Intervalle (sonst scheitert das Original)
-  defp to_list(:empty, acc), do: {:ok, acc}
-
-  defp to_list({:ft, f, t}, acc) when is_integer(f) and is_integer(t) and f <= t,
-    do: {:ok, Enum.to_list(f..t//1) ++ acc}
-
-  defp to_list({:ft, _, _}, _acc), do: :fail
-
-  defp to_list({:sp, _, l, r}, acc) do
-    with {:ok, acc} <- to_list(r, acc), do: to_list(l, acc)
-  end
-
+  # domain_to_list/2: nur endliche Domänen (sonst scheitert das Original)
   defbuiltin "$clpz_domain_to_list", [d, l] do
     run("domain_to_list", [d, l], subst(), fn ->
-      case to_list(dom(d), []) do
+      case ClpzDom.to_list(dom(d)) do
         {:ok, ns} -> out(l, list(ns))
-        :fail -> :fail
+        :error -> :fail
       end
     end)
   end
@@ -1565,7 +1145,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp default_dom, do: mk("from_to", [a("inf"), a("sup")])
+  defp default_dom, do: ed(ClpzDom.all())
   defp no_props, do: mk("fd_props", [[], [], []])
 
   defbuiltin "$clpz_fd_get", [x, dom, ps] do
@@ -1842,16 +1422,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
           [attr] ->
             case ws(attr, s) do
               {tag, "clpz_attr", [_, _, _, d, ps, q]} when tag in [:struct, :gstruct] ->
-                case ws(d, s) do
-                  {:atom, "empty"} ->
-                    throw(:fallback)
-
-                  {t2, "from_to", [f, t]} when t2 in [:struct, :gstruct] ->
-                    if bound(f) == bound(t), do: throw(:fallback)
-                    put_clpz(s, v, [a("no"), a("no"), a("no"), d, ps, q])
-
-                  _ ->
-                    put_clpz(s, v, [a("no"), a("no"), a("no"), d, ps, q])
+                # (leer oder ein Einzelwert: das Original, es scheitert bzw.
+                # bindet)
+                case dom(d) do
+                  [] -> throw(:fallback)
+                  [{b, b}] -> throw(:fallback)
+                  _ -> put_clpz(s, v, [a("no"), a("no"), a("no"), d, ps, q])
                 end
 
               _ ->
@@ -2125,20 +1701,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp yes, do: a("yes")
 
   defp put_terminating(x, dom, ps, q, s) do
-    case ws(dom, s) do
-      {:atom, "empty"} ->
-        :fail
-
-      {tag, "from_to", [f, t]} = d when tag in [:struct, :gstruct] ->
-        case {bound(f), bound(t)} do
-          # queue_goal(X = F) (from_to(inf,inf) oder (sup,sup) scheitert dort)
-          {b, b} when is_integer(b) -> insert(mk("=", [x, b]), 1, q, s)
-          {b, b} -> insert(a("fail"), 1, q, s)
-          _ -> put_dom(x, d, dom, ps, q, s)
-        end
-
-      _ ->
-        put_dom(x, nil, dom, ps, q, s)
+    case dom(dom) do
+      # Dom \== empty
+      [] -> :fail
+      # ein Einzelwert: queue_goal(X = F)
+      [{b, b}] -> insert(mk("=", [x, b]), 1, q, s)
+      d -> put_dom(x, d, dom, ps, q, s)
     end
   end
 
@@ -2209,11 +1777,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp spread_of(d) do
     dd = dom(d)
 
-    with s when s != nil <- smallest_finite(dd),
-         l when l != nil <- largest_finite(dd) do
-      minus(l, s)
-    else
+    case ClpzDom.spread(dd) do
       nil -> throw(:fallback)
+      sp -> sp
     end
   end
 
@@ -2643,7 +2209,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp fdget(v, s) do
     case fd_get(v, s) do
       {d, ps} -> {dom(d), ps}
-      :default -> {{:ft, :inf, :sup}, no_props()}
+      :default -> {ClpzDom.all(), no_props()}
       :fail -> throw(:fallback)
     end
   end
@@ -2669,9 +2235,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # domains_intersection/3: nil (leer) = Fehlschlag
+  # Schnitt, nil wenn leer (Fehlschlag)
   defp isect(d1, d2) do
-    case intersection_(d1, d2) do
-      :empty -> nil
+    case ClpzDom.intersection(d1, d2) do
+      [] -> nil
       d -> d
     end
   end
@@ -2992,7 +2559,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
             put_isect(
               y,
               yd,
-              union!({:ft, :inf, -abs(x) - 1}, {:ft, abs(x) + 1, :sup}),
+              union!(iv(:inf, -abs(x) - 1), iv(abs(x) + 1, :sup)),
               yps,
               q,
               s
@@ -3024,7 +2591,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
               if x >= 0 and gt(nzl, 0) do
                 {yd1, yps1} = fdget(y, s)
                 nyl = plus(slash(x, plus(nzu, 1)), 1)
-                put_isect(y, yd1, {:ft, nyl, slash(x, nzl)}, yps1, q, s)
+                put_isect(y, yd1, iv(nyl, slash(x, nzl)), yps1, q, s)
               else
                 s
               end
@@ -3064,11 +2631,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
               {zd, zps} = fdget(z, s)
               {dd, mm} = neg_abs(xd, y)
 
-              contracted =
-                case contract_less_(dd, mm) do
-                  nil -> throw(:fallback)
-                  c -> c
-                end
+              contracted = ClpzDom.contract_less(dd, mm)
 
               case isect_e(zd, contracted) do
                 nil ->
@@ -3080,7 +2643,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
                   |> seq(fn s ->
                     {xd2, xps2} = fdget(x, s)
                     {ed, em} = neg_abs(nzd, y)
-                    put_isect(x, xd2, expand_more_(ed, em), xps2, q, s)
+                    put_isect(x, xd2, ClpzDom.expand_more(ed, em), xps2, q, s)
                   end)
               end
             end
@@ -3109,7 +2672,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         {zd, zps} = fdget(z, s)
         nzu = bmax(babs(xl), xu)
 
-        case isect(zd, {:ft, uminus(nzu), nzu}) do
+        case isect(zd, iv(uminus(nzu), nzu)) do
           nil ->
             :fail
 
@@ -3166,7 +2729,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         sup0 = if leq(xsup, 0), do: 0, else: xsup
         ninf = bmax(bmax(inf0, plus(uminus(m), 1)), bmin(xinf, uminus(xsup)))
         nsup = bmin(bmin(sup0, minus(m, 1)), bmax(babs(xinf), xsup))
-        put_isect(z, zd, {:ft, ninf, nsup}, zps, q, s)
+        put_isect(z, zd, iv(ninf, nsup), zps, q, s)
     end
   end
 
@@ -3324,14 +2887,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
               list_items(is0, s)
               |> Enum.with_index(1)
               |> Enum.flat_map(fn {e, i} ->
-                if dcontains?(nd, i), do: intervals(element_dom(e, s), []), else: []
+                if dcontains?(nd, i), do: element_dom(e, s), else: []
               end)
 
-            vd1 =
-              case to_domain(merge_intervals(is)) do
-                nil -> throw(:fallback)
-                d -> d
-              end
+            vd1 = ClpzDom.from_intervals(is)
 
             put_isect(v, vd, vd1, vps, q, s)
 
@@ -3456,7 +3015,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
             xsup = sup_dec(xd2)
 
             s =
-              with true <- yd2 != :empty,
+              with true <- yd2 != [],
                    yinf when is_integer(yinf) <- inf_dec(yd2),
                    true <- is_integer(xsup) and xsup <= yinf + c do
                 kill(st, s)
@@ -3716,7 +3275,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
             s |> kill_then(st) |> bind(a0, b0)
 
           true ->
-            case isect(ad, {:ft, bmax(al, bl), au}) do
+            case isect(ad, iv(bmax(al, bl), au)) do
               nil ->
                 :fail
 
@@ -3727,7 +3286,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
                   case val(b, s) do
                     {:var, _} ->
                       {bd2, bps2} = fdget(b, s)
-                      put_isect(b, bd2, {:ft, inf_dec(bd2), bmin(sup_dec(bd2), au)}, bps2, q, s)
+                      put_isect(b, bd2, iv(inf_dec(bd2), bmin(sup_dec(bd2), au)), bps2, q, s)
 
                     _ ->
                       s
@@ -4036,7 +3595,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
         s =
           if x > 0 and geq(inf_dec(yd), 0) do
-            case isect(zd, {:ft, exp(x, inf_dec(yd)), exp(x, sup_dec(yd))}) do
+            case isect(zd, iv(exp(x, inf_dec(yd)), exp(x, sup_dec(yd)))) do
               nil -> :fail
               nzd -> fdput(z, nzd, zps, q, s)
             end
@@ -4078,7 +3637,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
            e when e != nil <- first_exp_over(nxl, nxl, z) do
         {yd, yps} = fdget(y, s)
 
-        case isect(yd, {:ft, 1, e - 1}) do
+        case isect(yd, iv(1, e - 1)) do
           nil ->
             :fail
 
@@ -4092,7 +3651,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
                 ru ->
                   {xd2, xps} = fdget(x, s)
-                  put_isect(x, xd2, {:ft, nxl, ru}, xps, q, s)
+                  put_isect(x, xd2, iv(nxl, ru), xps, q, s)
               end
             end)
         end
@@ -4141,13 +3700,13 @@ defmodule PrologEx.Builtins.ClpzPrims do
                 true -> 0
               end
 
-            isect(zd1, {:ft, nzl, exp(bmax(babs(xl), babs(xu)), y)})
+            isect(zd1, iv(nzl, exp(bmax(babs(xl), babs(xu)), y)))
 
           is_integer(xl) ->
-            isect(zd1, {:ft, exp(xl, y), exp(xu, y)})
+            isect(zd1, iv(exp(xl, y), exp(xu, y)))
 
           true ->
-            if zd1 == :empty, do: nil, else: zd1
+            if zd1 == [], do: nil, else: zd1
         end
 
       nxd =
@@ -4159,14 +3718,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
                   do: root_up(zl, y),
                   else: -ru
 
-              if rl <= ru, do: {:ft, rl, ru}, else: nil
+              if rl <= ru, do: iv(rl, ru), else: nil
             end
 
           not even and geq(zl, 0) and is_integer(zu) ->
             unless is_integer(zl), do: throw(:fallback)
             ru = integer_kth_root_leq(zu, y)
             rl = root_up(zl, y)
-            if rl <= ru, do: {:ft, rl, ru}, else: nil
+            if rl <= ru, do: iv(rl, ru), else: nil
 
           true ->
             xd1
@@ -4199,8 +3758,6 @@ defmodule PrologEx.Builtins.ClpzPrims do
     if ipow(r0, k) < n, do: r0 + 1, else: r0
   end
 
-  defp isect_e(:empty, _), do: nil
-  defp isect_e(_, :empty), do: nil
   defp isect_e(a, b), do: isect(a, b)
 
   # die übrigen Fälle: X, Y > 0 nach unten beschränkt
@@ -4466,7 +4023,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # element_domain/2: Domäne einer Variablen, sonst der Wert allein
   defp element_dom(e, s) do
     case val(e, s) do
-      i when is_integer(i) -> {:ft, i, i}
+      i when is_integer(i) -> iv(i, i)
       {:var, _} = v -> elem(fdget(v, s), 0)
       _ -> throw(:fallback)
     end
@@ -4514,7 +4071,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
     {zd, zps} = fdget(z, s)
 
-    case isect(zd, {:ft, zl, zu}) do
+    case isect(zd, iv(zl, zu)) do
       nil ->
         :fail
 
@@ -4903,25 +4460,13 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp goal(:fail, _g, _q), do: :fail
   defp goal(s, g, q), do: insert(g, 1, q, s)
 
-  # domain_contains/2 auf einer dekodierten Domäne
-  defp dcontains?(:empty, _), do: false
-  defp dcontains?({:ft, f, t}, i), do: leq(f, i) and leq(i, t)
+  # domain_expand/3, domain_contract/3 in Propagatoren (X ≠ 0 dort
+  # sichergestellt; sonst das Original)
+  defp dexpand(d, m), do: ClpzDom.expand(d, nonzero_i(m))
+  defp dcontract(d, m), do: ClpzDom.contract(d, nonzero_i(m))
 
-  defp dcontains?({:sp, sp, l, r}, i),
-    do: (i < sp and dcontains?(l, i)) or (i > sp and dcontains?(r, i))
-
-  # domain_expand/3, domain_contract/3 (X ≠ 0, 1)
-  defp dexpand(d, m) when m < 0, do: expand_(negate(d), -m)
-  defp dexpand(d, m), do: expand_(d, m)
-
-  defp dcontract(d, m) do
-    {dd, mm} = neg_abs(d, m)
-
-    case contract_(dd, mm) do
-      nil -> throw(:fallback)
-      r -> r
-    end
-  end
+  defp nonzero_i(0), do: throw(:fallback)
+  defp nonzero_i(i), do: i
 
   # ptimes, X bekannt: Z ∩ X·Y, dann Y ∩ Z/X
   defp times_x(x, y, z, q, s) do
@@ -5013,7 +4558,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
             if leq(nzl, zl2) and geq(nzu, zu2) do
               {s, zd2}
             else
-              case isect(zd2, {:ft, nzl, nzu}) do
+              case isect(zd2, iv(nzl, nzu)) do
                 nil -> {:fail, nil}
                 zd3 -> {fdput(z, zd3, zps2, q, s), zd3}
               end
@@ -5129,14 +4674,6 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp inf_d(d), do: inf_dec(d)
   defp sup_d(d), do: sup_dec(d)
 
-  defp inf_dec({:ft, f, _}), do: f
-  defp inf_dec({:sp, _, l, _}), do: inf_dec(l)
-  defp inf_dec(:empty), do: throw(:fallback)
-
-  defp sup_dec({:ft, _, t}), do: t
-  defp sup_dec({:sp, _, _, r}), do: sup_dec(r)
-  defp sup_dec(:empty), do: throw(:fallback)
-
   # pplus, X bekannt: Z ∩ (Y + X), dann Y ∩ (ZD1 - X) mit der berechneten
   # Domäne ZD1 (bei einem einzelnen Wert legt fd_put sie nicht ab)
   defp plus_x(x, y, z, q, s) do
@@ -5237,7 +4774,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp update_bounds(_v, _d, _ps, l, u, l, u, _q, s), do: s
 
   defp update_bounds(v, d, ps, _l, _u, nl, nu, q, s) do
-    put_isect(v, d, {:ft, nl, nu}, ps, q, s)
+    put_isect(v, d, iv(nl, nu), ps, q, s)
   end
 
   # coeffs_variables_const/6: [{C, V}] der offenen Variablen und Σ C·V der
@@ -5324,7 +4861,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       if c < 0 do
         with sup when sup != nil <- int_bound(sup_dec(vd)),
              vd1 = remove_lt(vd, sup + div(d1, c)),
-             false <- vd1 == :empty,
+             false <- vd1 == [],
              inf when inf != nil <- int_bound(inf_dec(vd1)) do
           remove_gt(vd1, inf - div(d2, c))
         else
@@ -5333,7 +4870,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       else
         with inf when inf != nil <- int_bound(inf_dec(vd)),
              vd1 = remove_gt(vd, inf + div(d1, c)),
-             false <- vd1 == :empty,
+             false <- vd1 == [],
              sup when sup != nil <- int_bound(sup_dec(vd1)) do
           remove_lt(vd1, sup - div(d2, c))
         else
@@ -5420,7 +4957,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           var?(PrologEx.walk(v, s)),
           v = PrologEx.walk(v, s),
           {d, _} = fdget(v, s),
-          {:ok, ns} <- [to_list(d, [])],
+          {:ok, ns} <- [ClpzDom.to_list(d)],
           do: {v, ns}
 
     if length(Enum.uniq_by(left, &elem(&1, 0))) != length(left), do: throw(:fallback)
@@ -5566,9 +5103,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
             {:var, _} = var ->
               {d, _} = fdget(var, s)
 
-              case to_list(d, []) do
+              case ClpzDom.to_list(d) do
                 {:ok, ns} -> ns
-                :fail -> nil
+                :error -> nil
               end
 
             i ->

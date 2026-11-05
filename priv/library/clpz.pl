@@ -45,11 +45,16 @@
    (test/clpz_golden_test.exs), der Vergleich mit Scryer
    (test/fixtures/clpz/harness.pl) und Vergleiche mit Triskas Code
    (test/clpz_test.exs). Abweichungen:
-     - Domänen (domain_.../2,3, domains_intersection/3, domains_union/3,
-       list_to_domain/2, intervals_to_domain/2, merge_intervals/2) und die
-       Schranken-Arithmetik (cis_.../2,3): in Elixir ('$clpz_Name');
-       Aufrufe über goal_expansion/2 (nach den goal_expansion-Klauseln
-       des Originals), die Originale mit der Endung _ref
+     - Domänen als kanonische Intervalllisten [inf..3, 5, 9..13, 16..sup]
+       statt der Bäume aus split/3 und from_to/2, Schranken als ganze
+       Zahlen statt n(N); die Operationen (domain_.../2,3,
+       domains_intersection/3, domains_union/3, list_to_domain/2,
+       intervals_to_domain/2, merge_intervals/2) in Elixir
+       (PrologEx.Builtins.ClpzDom, '$clpz_Name'), Aufrufe über
+       goal_expansion/2; Prolog-Code baut Domänen nur über interval/3 und
+       empty_domain/1 und prüft sie mit singleton_domain/2 und is_domain/1.
+       Die Schranken-Arithmetik (cis_.../2,3) in Elixir, die Originale
+       mit der Endung _ref
      - Ablage und Warteschlange: fd_get/3,5, put_terminating//3 (und
        fd_put//3), trigger_props//1,2,3, trigger_prop//1, insert_queue//2,
        queue_goal//1, queue_fast//1, queue_slow//1 in Elixir, ebenso über
@@ -891,7 +896,6 @@ Experimenting with different search strategies is easy because we have
 separated the core relation from the actual search.
 
 
-
 {#clpz-optimisation}
 ## Optimisation
 
@@ -1262,7 +1266,6 @@ goal_expansion(reinforce(X), '$clpz_reinforce'(X)).
 activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
 
 
-
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    A bound is either:
 
@@ -1277,9 +1280,6 @@ activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
    bounds must never be compared or sorted with (@<)/2 or keysort/2.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-is_bound(N) :- integer(N).
-is_bound(inf).
-is_bound(sup).
 
 defaulty_to_bound(D, D).
 
@@ -1447,20 +1447,19 @@ cis_slash_(B, A, S) :- integer(B), S is A // B.
 
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-   A domain is a finite set of disjoint intervals. Internally, domains
-   are represented as trees. Each node is one of:
+   A domain is a finite set of disjoint intervals.
 
-   empty: empty domain.
+   PrologEx: the original represents domains as balanced trees of
+   from_to(From, To) intervals with split(N, Left, Right) holes. Here a
+   domain is a canonical list of maximal intervals, in ascending order,
+   pairwise non-adjacent: [inf..3, 5, 9..13, 16..sup]. An interval is
+   From..To with bounds (integers, inf, sup); a single integer stands for
+   itself (never written X..X); [] is the empty domain. Every set has
+   exactly one representation, so (==)/2 on domains is set equality.
 
-   split(N, Left, Right)
-      - split on integer N, with Left and Right domains whose elements are
-        all less than and greater than N, respectively. The domain is the
-        union of Left and Right, i.e., N is a hole.
-
-   from_to(From, To)
-      - interval (From-1, To+1); From and To are bounds
-
-   Desiderata: rebalance domains; singleton intervals.
+   All operations live in Elixir (PrologEx.Builtins.ClpzDom); the code
+   below only constructs domains through interval/3, empty_domain/1 and
+   tests them with singleton_domain/2 and is_domain/1.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1473,46 +1472,9 @@ check_domain(D) :-
         ;   domain_error(clpz_domain, D)
         ).
 
-is_domain_ref(empty).
-is_domain_ref(from_to(From,To)) :-
-        is_bound(From), is_bound(To),
-        From cis_leq To.
-is_domain_ref(split(S, Left, Right)) :-
-        integer(S),
-        is_domain_ref(Left), is_domain_ref(Right),
-        all_less_than(Left, S),
-        all_greater_than(Right, S).
-
-all_less_than(empty, _).
-all_less_than(from_to(From,To), S) :-
-        From cis_lt S, To cis_lt S.
-all_less_than(split(S0,Left,Right), S) :-
-        S0 < S,
-        all_less_than(Left, S),
-        all_less_than(Right, S).
-
-all_greater_than(empty, _).
-all_greater_than(from_to(From,To), S) :-
-        From cis_gt S, To cis_gt S.
-all_greater_than(split(S0,Left,Right), S) :-
-        S0 > S,
-        all_greater_than(Left, S),
-        all_greater_than(Right, S).
 
 default_domain(D) :- interval(inf, sup, D).
 
-domain_infimum_ref(from_to(I, _), I).
-domain_infimum_ref(split(_, Left, _), I) :- domain_infimum_ref(Left, I).
-
-domain_supremum_ref(from_to(_, S), S).
-domain_supremum_ref(split(_, _, Right), S) :- domain_supremum_ref(Right, S).
-
-domain_num_elements_ref(empty, 0).
-domain_num_elements_ref(from_to(From,To), Num) :- Num cis To - From + 1.
-domain_num_elements_ref(split(_, Left, Right), Num) :-
-        domain_num_elements_ref(Left, NL),
-        domain_num_elements_ref(Right, NR),
-        Num cis NL + NR.
 
 % (über die Intervalle; unendliche Intervalle: kein Element, wie das
 % Original mit seinem Muster from_to(n(From), n(To)))
@@ -1532,38 +1494,11 @@ domain_direction_element(Dom, Dir, E) :-
    Test whether domain contains a given integer.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_contains_ref(from_to(From,To), I) :- From cis_leq I, I cis_leq To.
-domain_contains_ref(split(S, Left, Right), I) :-
-        (   I < S -> domain_contains_ref(Left, I)
-        ;   I > S -> domain_contains_ref(Right, I)
-        ).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Test whether a domain contains another domain.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_subdomain_ref(Dom, Sub) :- domain_subdomain_ref(Dom, Dom, Sub).
-
-domain_subdomain_ref(from_to(_,_), Dom, Sub) :-
-        domain_subdomain_fromto(Sub, Dom).
-domain_subdomain_ref(split(_, _, _), Dom, Sub) :-
-        domain_subdomain_split(Sub, Dom, Sub).
-
-domain_subdomain_split(empty, _, _).
-domain_subdomain_split(from_to(From,To), split(S,Left0,Right0), Sub) :-
-        (   To cis_lt S -> domain_subdomain_ref(Left0, Left0, Sub)
-        ;   From cis_gt S -> domain_subdomain_ref(Right0, Right0, Sub)
-        ).
-domain_subdomain_split(split(_,Left,Right), Dom, _) :-
-        domain_subdomain_ref(Dom, Dom, Left),
-        domain_subdomain_ref(Dom, Dom, Right).
-
-domain_subdomain_fromto(empty, _).
-domain_subdomain_fromto(from_to(From,To), from_to(From0,To0)) :-
-        From0 cis_leq From, To0 cis_geq To.
-domain_subdomain_fromto(split(_,Left,Right), Dom) :-
-        domain_subdomain_fromto(Left, Dom),
-        domain_subdomain_fromto(Right, Dom).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Remove an integer from a domain. The domain is traversed until an
@@ -1571,140 +1506,29 @@ domain_subdomain_fromto(split(_,Left,Right), Dom) :-
    it is clear that no such interval exists.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_remove_ref(empty, _, empty).
-domain_remove_ref(from_to(L0, U0), X, D) :- domain_remove_(L0, U0, X, D).
-domain_remove_ref(split(S, Left0, Right0), X, D) :-
-        (   X =:= S -> D = split(S, Left0, Right0)
-        ;   X < S ->
-            domain_remove_ref(Left0, X, Left1),
-            (   Left1 == empty -> D = Right0
-            ;   D = split(S, Left1, Right0)
-            )
-        ;   domain_remove_ref(Right0, X, Right1),
-            (   Right1 == empty -> D = Left0
-            ;   D = split(S, Left0, Right1)
-            )
-        ).
 
 %?- domain_remove_ref(from_to(0,5), 3, D).
 
-domain_remove_(inf, U0, X, D) :-
-        (   U0 == X -> U1 is X - 1, D = from_to(inf, U1)
-        ;   U0 cis_lt X -> D = from_to(inf,U0)
-        ;   L1 is X + 1, U1 is X - 1,
-            D = split(X, from_to(inf, U1), from_to(L1,U0))
-        ).
-domain_remove_(N, U0, X, D) :- integer(N), domain_remove_upper(U0, N, X, D).
-
-domain_remove_upper(sup, L0, X, D) :-
-        (   L0 =:= X -> L1 is X + 1, D = from_to(L1,sup)
-        ;   L0 > X -> D = from_to(L0,sup)
-        ;   L1 is X + 1, U1 is X - 1,
-            D = split(X, from_to(L0,U1), from_to(L1,sup))
-        ).
-domain_remove_upper(U0, L0, X, D) :-
-        integer(U0),
-        (   L0 =:= U0, X =:= L0 -> D = empty
-        ;   L0 =:= X -> L1 is X + 1, D = from_to(L1, U0)
-        ;   U0 =:= X -> U1 is X - 1, D = from_to(L0, U1)
-        ;   between(L0, U0, X) ->
-            U1 is X - 1, L1 is X + 1,
-            D = split(X, from_to(L0, U1), from_to(L1, U0))
-        ;   D = from_to(L0,U0)
-        ).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Remove all elements greater than / less than a constant.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
-
-domain_remove_greater_than_ref(empty, _, empty).
-domain_remove_greater_than_ref(from_to(From0,To0), G, D) :-
-        (   From0 cis_gt G -> D = empty
-        ;   To cis min(To0,G), D = from_to(From0,To)
-        ).
-domain_remove_greater_than_ref(split(S,Left0,Right0), G, D) :-
-        (   S =< G ->
-            domain_remove_greater_than_ref(Right0, G, Right),
-            (   Right == empty -> D = Left0
-            ;   D = split(S, Left0, Right)
-            )
-        ;   domain_remove_greater_than_ref(Left0, G, D)
-        ).
-
-domain_remove_smaller_than_ref(empty, _, empty).
-domain_remove_smaller_than_ref(from_to(From0,To0), V, D) :-
-        (   To0 cis_lt V -> D = empty
-        ;   From cis max(From0,V), D = from_to(From,To0)
-        ).
-domain_remove_smaller_than_ref(split(S,Left0,Right0), V, D) :-
-        (   S >= V ->
-            domain_remove_smaller_than_ref(Left0, V, Left),
-            (   Left == empty -> D = Right0
-            ;   D = split(S, Left, Right0)
-            )
-        ;   domain_remove_smaller_than_ref(Right0, V, D)
-        ).
 
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Remove a whole domain from another domain. (Set difference.)
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_subtract_ref(Dom0, Sub, Dom) :- domain_subtract_ref(Dom0, Dom0, Sub, Dom).
-
-domain_subtract_ref(empty, _, _, empty).
-domain_subtract_ref(from_to(From0,To0), Dom, Sub, D) :-
-        (   Sub == empty -> D = Dom
-        ;   Sub = from_to(From,To) ->
-            (   From == To -> integer(From), domain_remove_ref(Dom, From, D)
-            ;   From cis_gt To0 -> D = Dom
-            ;   To cis_lt From0 -> D = Dom
-            ;   From cis_leq From0 ->
-                (   To cis_geq To0 -> D = empty
-                ;   From1 cis To + 1,
-                    D = from_to(From1, To0)
-                )
-            ;   To1 cis From - 1,
-                (   To cis_lt To0 ->
-                    integer(From), S = From,
-                    From2 cis To + 1,
-                    D = split(S,from_to(From0,To1),from_to(From2,To0))
-                ;   D = from_to(From0,To1)
-                )
-            )
-        ;   Sub = split(S, Left, Right) ->
-            (   S cis_gt To0 -> domain_subtract_ref(Dom, Dom, Left, D)
-            ;   S cis_lt From0 -> domain_subtract_ref(Dom, Dom, Right, D)
-            ;   domain_subtract_ref(Dom, Dom, Left, D1),
-                domain_subtract_ref(D1, D1, Right, D)
-            )
-        ).
-domain_subtract_ref(split(S, Left0, Right0), _, Sub, D) :-
-        domain_subtract_ref(Left0, Left0, Sub, Left),
-        domain_subtract_ref(Right0, Right0, Sub, Right),
-        (   Left == empty -> D = Right
-        ;   Right == empty -> D = Left
-        ;   D = split(S, Left, Right)
-        ).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Complement of a domain
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_complement_ref(D, C) :-
-        default_domain(Default),
-        domain_subtract_ref(Default, D, C).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Convert domain to a list of disjoint intervals From-To.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_intervals_ref(D, Is) :- phrase(domain_intervals_ref(D), Is).
-
-domain_intervals_ref(split(_, Left, Right)) -->
-        domain_intervals_ref(Left), domain_intervals_ref(Right).
-domain_intervals_ref(empty)                 --> [].
-domain_intervals_ref(from_to(From,To))      --> [From-To].
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    To compute the intersection of two domains D1 and D2, we choose D1
@@ -1712,83 +1536,22 @@ domain_intervals_ref(from_to(From,To))      --> [From-To].
    far and to which values D2 lets us extend it.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domains_intersection_ref(D1, D2, Intersection) :-
-        domains_intersection_(D1, D2, Intersection),
-        Intersection \== empty.
-
-domains_intersection_(empty, _, empty).
-domains_intersection_(from_to(L0,U0), D2, Dom) :-
-        narrow(D2, L0, U0, Dom).
-domains_intersection_(split(S,Left0,Right0), D2, Dom) :-
-        domains_intersection_(Left0, D2, Left1),
-        domains_intersection_(Right0, D2, Right1),
-        (   Left1 == empty -> Dom = Right1
-        ;   Right1 == empty -> Dom = Left1
-        ;   Dom = split(S, Left1, Right1)
-        ).
-
-narrow(empty, _, _, empty).
-narrow(from_to(L0,U0), From0, To0, Dom) :-
-        From1 cis max(From0,L0), To1 cis min(To0,U0),
-        (   From1 cis_gt To1 -> Dom = empty
-        ;   Dom = from_to(From1,To1)
-        ).
-narrow(split(S, Left0, Right0), From0, To0, Dom) :-
-        (   To0 cis_lt S -> narrow(Left0, From0, To0, Dom)
-        ;   From0 cis_gt S -> narrow(Right0, From0, To0, Dom)
-        ;   narrow(Left0, From0, To0, Left1),
-            narrow(Right0, From0, To0, Right1),
-            (   Left1 == empty -> Dom = Right1
-            ;   Right1 == empty -> Dom = Left1
-            ;   Dom = split(S, Left1, Right1)
-            )
-        ).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Union of 2 domains.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domains_union_ref(D1, D2, Union) :-
-        domain_intervals_ref(D1, Is1),
-        domain_intervals_ref(D2, Is2),
-        append(Is1, Is2, IsU0),
-        merge_intervals_ref(IsU0, IsU1),
-        intervals_to_domain_ref(IsU1, Union).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Shift the domain by an offset.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_shift_ref(empty, _, empty).
-domain_shift_ref(from_to(From0,To0), O, from_to(From,To)) :-
-        From cis From0 + O, To cis To0 + O.
-domain_shift_ref(split(S0, Left0, Right0), O, split(S, Left, Right)) :-
-        S is S0 + O,
-        domain_shift_ref(Left0, O, Left),
-        domain_shift_ref(Right0, O, Right).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    The new domain contains all values of the old domain,
    multiplied by a constant multiplier.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_expand_ref(D0, M, D) :-
-        (   M < 0 ->
-            domain_negate_ref(D0, D1),
-            M1 is abs(M),
-            domain_expand_(D1, M1, D)
-        ;   M =:= 1 -> D = D0
-        ;   domain_expand_(D0, M, D)
-        ).
-
-domain_expand_(empty, _, empty).
-domain_expand_(from_to(From0, To0), M, from_to(From,To)) :-
-        From cis From0*M,
-        To cis To0*M.
-domain_expand_(split(S0, Left0, Right0), M, split(S, Left, Right)) :-
-        S is M*S0,
-        domain_expand_(Left0, M, Left),
-        domain_expand_(Right0, M, Right).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    similar to domain_expand/3, tailored for truncated division: an
@@ -1797,126 +1560,27 @@ domain_expand_(split(S0, Left0, Right0), M, split(S, Left, Right)) :-
    from interval.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_expand_more_ref(D0, M, D) :-
-        %format("expanding ~w by ~w\n", [D0,M]),
-        (   M < 0 -> domain_negate_ref(D0, D1), M1 is abs(M)
-        ;   D1 = D0, M1 = M
-        ),
-        domain_expand_more_(D1, M1, D).
-        %format("yield: ~w\n", [D]).
-
-domain_expand_more_(empty, _, empty).
-domain_expand_more_(from_to(From0, To0), M, from_to(From,To)) :-
-        (   From0 cis_leq 0 ->
-            From cis (From0-1)*M + 1
-        ;   From cis From0*M
-        ),
-        (   To0 cis_lt 0 ->
-            To cis To0*M
-        ;   To cis (To0+1)*M - 1
-        ).
-domain_expand_more_(split(S0, Left0, Right0), M, split(S, Left, Right)) :-
-        S is M*S0,
-        domain_expand_more_(Left0, M, Left),
-        domain_expand_more_(Right0, M, Right).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Scale a domain down by a constant multiplier. Assuming (//)/2.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_contract_ref(D0, M, D) :-
-        %format("contracting ~w by ~w\n", [D0,M]),
-        (   M < 0 -> domain_negate_ref(D0, D1), M1 is abs(M)
-        ;   D1 = D0, M1 = M
-        ),
-        domain_contract_(D1, M1, D).
-
-domain_contract_(empty, _, empty).
-domain_contract_(from_to(From0, To0), M, from_to(From,To)) :-
-        (   From0 cis_geq 0 ->
-            From cis (From0 + M - 1) // M
-        ;   From cis From0 // M
-        ),
-        (   To0 cis_geq 0 ->
-            To cis To0 // M
-        ;   To cis (To0 - M + 1) // M
-        ).
-domain_contract_(split(_,Left0,Right0), M, D) :-
-        %  Scaled down domains do not necessarily retain any holes of
-        %  the original domain.
-        domain_contract_(Left0, M, Left),
-        domain_contract_(Right0, M, Right),
-        domains_union_ref(Left, Right, D).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Similar to domain_contract, tailored for division, i.e.,
    {21,23} contracted by 4 is 5. It contracts "less".
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_contract_less_ref(D0, M, D) :-
-        (   M < 0 -> domain_negate_ref(D0, D1), M1 is abs(M)
-        ;   D1 = D0, M1 = M
-        ),
-        domain_contract_less_(D1, M1, D).
-
-domain_contract_less_(empty, _, empty).
-domain_contract_less_(from_to(From0, To0), M, from_to(From,To)) :-
-        From cis From0 // M, To cis To0 // M.
-domain_contract_less_(split(_,Left0,Right0), M, D) :-
-        %  Scaled down domains do not necessarily retain any holes of
-        %  the original domain.
-        domain_contract_less_(Left0, M, Left),
-        domain_contract_less_(Right0, M, Right),
-        domains_union_ref(Left, Right, D).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Negate the domain. Left and Right sub-domains and bounds switch sides.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-domain_negate_ref(empty, empty).
-domain_negate_ref(from_to(From0, To0), from_to(From, To)) :-
-        From cis -To0, To cis -From0.
-domain_negate_ref(split(S0, Left0, Right0), split(S, Left, Right)) :-
-        S is -S0,
-        domain_negate_ref(Left0, Right),
-        domain_negate_ref(Right0, Left).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Construct a domain from a list of integers. Try to balance it.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-list_to_disjoint_intervals([], []).
-list_to_disjoint_intervals([N|Ns], Is) :-
-        list_to_disjoint_intervals(Ns, N, N, Is).
-
-list_to_disjoint_intervals([], M, N, [M-N]).
-list_to_disjoint_intervals([B|Bs], M, N, Is) :-
-        (   B =:= N + 1 ->
-            list_to_disjoint_intervals(Bs, M, B, Is)
-        ;   Is = [M-N|Rest],
-            list_to_disjoint_intervals(Bs, B, B, Rest)
-        ).
-
-list_to_domain_ref(List0, D) :-
-        (   List0 == [] -> D = empty
-        ;   sort(List0, List),
-            list_to_disjoint_intervals(List, Is),
-            intervals_to_domain_ref(Is, D)
-        ).
-
-intervals_to_domain_ref([], empty) :- !.
-intervals_to_domain_ref([M-N], from_to(M,N)) :- !.
-intervals_to_domain_ref(Is, D) :-
-        length(Is, L),
-        FL is L // 2,
-        length(Front, FL),
-        append(Front, Tail, Is),
-        Tail = [Start-_|_],
-        integer(Start),
-        Hole is Start - 1,
-        intervals_to_domain_ref(Front, Left),
-        intervals_to_domain_ref(Tail, Right),
-        D = split(Hole, Left, Right).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -3176,7 +2840,6 @@ match_goal(p(Prop0), _) -->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-
 %% #>=(?X, ?Y)
 %
 % Same as Y #=< X. When reasoning over integers, replace (>=)/2 by (#>=)/2
@@ -4145,31 +3808,6 @@ drep_to_domain(DR, D) :-
         merge_intervals(Is0, Is1),
         intervals_to_domain(Is1, D).
 
-merge_intervals_ref(Is0, Is) :-
-        maplist(interval_key, Is0, Ks0),
-        keysort(Ks0, Ks),
-        maplist(interval_key, Is1, Ks),
-        merge_overlapping(Is1, Is).
-
-
-% (dieselbe Reihenfolge wie keysort/2 auf n(N): inf, sup, dann die Zahlen)
-interval_key(L-U, K-(L-U)) :-
-        (   L == inf -> K = k(0, 0)
-        ;   L == sup -> K = k(0, 1)
-        ;   K = k(1, L)
-        ).
-merge_overlapping([], []).
-merge_overlapping([A-B0|ABs0], [A-B|ABs]) :-
-        merge_remaining(ABs0, B0, B, Rest),
-        merge_overlapping(Rest, ABs).
-
-merge_remaining([], B, B, []).
-merge_remaining([N-M|NMs], B0, B, Rest) :-
-        Next cis B0 + 1,
-        (   N cis_gt Next -> B = B0, Rest = [N-M|NMs]
-        ;   B1 cis max(B0,M),
-            merge_remaining(NMs, B1, B, Rest)
-        ).
 
 domain(V, Dom) :-
         (   fd_get(V, Dom0, VPs) ->
@@ -4218,7 +3856,7 @@ fd_put_ref(X, Dom, Ps) :-
         do_queue(S, _).
 
 put_terminating_ref(X, Dom, Ps) -->
-        Dom \== empty,
+        Dom \== [],
         (   { singleton_domain(Dom, F) } ->
             % (F = inf oder sup: das Ziel scheitert, wie F = n(X) im Original)
             (   integer(F) -> queue_goal_ref(X = F) ; queue_goal_ref(false) )
@@ -4284,23 +3922,6 @@ insert_queue_ref(Element, Which) -->
           put_atts(Arg, queue(Head,Tail)) }.
 
 
-domain_spread_ref(Dom, Spread) :-
-        domain_smallest_finite_ref(Dom, S),
-        domain_largest_finite_ref(Dom, L),
-        Spread cis L - S.
-
-smallest_finite(inf, Y, Y).
-smallest_finite(N, _, N) :- integer(N).
-
-domain_smallest_finite_ref(from_to(F,T), S)   :- smallest_finite(F, T, S).
-domain_smallest_finite_ref(split(_, L, _), S) :- domain_smallest_finite_ref(L, S).
-
-largest_finite(sup, Y, Y).
-largest_finite(N, _, N) :- integer(N).
-
-domain_largest_finite_ref(from_to(F,T), L)   :- largest_finite(T, F, L).
-domain_largest_finite_ref(split(_, _, R), L) :- domain_largest_finite_ref(R, L).
-
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    All relevant constraints get a propagation opportunity whenever a
    new constraint is posted.
@@ -4319,7 +3940,7 @@ reinforce_(X) :-
         ).
 
 put_full(X, Dom, Ps) :-
-        Dom \== empty,
+        Dom \== [],
         (   singleton_domain(Dom, F) -> integer(F), X = F
         ;   (   get_attr(X, clpz, Attr) ->
                 Attr = clpz_attr(_,_,_,OldDom, _OldPs,Q),
@@ -4532,7 +4153,6 @@ print_queue -->
           ignore(get_atts(Fast, queue(FHs,_))),
           ignore(get_atts(Slow, queue(SHs,_))),
           format("Current queue:~n   goal: ~q~n   fast: ~q~n   slow: ~q~n~n", [GHs,FHs,SHs]) }.
-
 
 
 queue_get_goal(Goal) --> queue_get_arg(1, Goal).
@@ -6447,12 +6067,6 @@ difference_arcs(Vars, FreeLeft, FreeRight) :-
         assoc_to_list(NumVar, LsNumVar),
         pairs_values(LsNumVar, FreeRight).
 
-domain_to_list_ref(Domain, List) :- phrase(domain_to_list_ref(Domain), List).
-
-domain_to_list_ref(split(_, Left, Right)) -->
-        domain_to_list_ref(Left), domain_to_list_ref(Right).
-domain_to_list_ref(empty)                 --> [].
-domain_to_list_ref(from_to(F,T))    --> { integer(F), integer(T), numlist(F, T, Ns) }, seq(Ns).
 
 difference_arcs([], []) --> [].
 difference_arcs([V|Vs], FL0) -->

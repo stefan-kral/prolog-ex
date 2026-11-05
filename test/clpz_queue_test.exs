@@ -40,15 +40,15 @@ defmodule PrologEx.ClpzQueueTest do
   is_gcc(propagator(F, _)) :- functor(F, N, _), memberchk(N, [pgcc_check, pgcc_check_single]).
   % X = V bei abgeschalteter Queue von X (der Hook reiht nur ein)
   quiet_bind(X-V) :-
-      (   var(X), clpz:variable_queue(X, Q), clpz:fd_get_ref(X, D, _),
-          clpz:domain_contains_ref(D, V) ->
+      (   var(X), clpz:variable_queue(X, Q), clpz:fd_get(X, D, _),
+          clpz:domain_contains(D, V) ->
           phrase(clpz:disable_queue, [Q], _), X = V, phrase(clpz:enable_queue, [Q], _)
       ;   true
       ).
   % X ≠ V ohne Propagation (die Einträge in eine neue Queue)
   quiet_neq(X-V) :-
-      (   var(X), clpz:fd_get_ref(X, D, Ps) ->
-          clpz:domain_remove_ref(D, V, D1),
+      (   var(X), clpz:fd_get(X, D, Ps) ->
+          clpz:domain_remove(D, V, D1),
           clpz:new_queue(Q), phrase(clpz:fd_put(X, D1, Ps), [Q], _)
       ;   true
       ).
@@ -56,11 +56,11 @@ defmodule PrologEx.ClpzQueueTest do
   fast(F, G) :- clpz:'$clpz_fast'(F), call(G).
   % eine Variable mit Domäne und eine neue, kleinere Domäne für sie
   pick(Vs, X, D, Ps) :-
-      member(X, Vs), clpz:fd_get_ref(X, D0, Ps), D0 \\== from_to(inf,sup), !,
-      clpz:domain_infimum_ref(D0, I), clpz:domain_supremum_ref(D0, S),
-      (   integer(I) -> clpz:domain_remove_ref(D0, I, D)
-      ;   integer(S) -> clpz:domain_remove_ref(D0, S, D)
-      ;   clpz:domains_intersection_ref(D0, from_to(-1,1), D)
+      member(X, Vs), clpz:fd_get(X, D0, Ps), clpz:default_domain(All), D0 \\== All, !,
+      clpz:domain_infimum(D0, I), clpz:domain_supremum(D0, S),
+      (   integer(I) -> clpz:domain_remove(D0, I, D)
+      ;   integer(S) -> clpz:domain_remove(D0, S, D)
+      ;   clpz:interval(-1, 1, M), clpz:domains_intersection(D0, M, D)
       ).
   """
 
@@ -365,7 +365,7 @@ defmodule PrologEx.ClpzQueueTest do
   test "init_propagator_//2, reinforce/1: Variable mit Einzelwert-Domäne, noch ungebunden", c do
     single =
       "X in 0..5, Y in 0..5, X #\\= Y, clpz:get_atts(X, clpz(clpz_attr(L,R,Sp,_,Ps,Q0))), " <>
-        "clpz:put_atts(X, clpz(clpz_attr(L,R,Sp,from_to(2,2),Ps,Q0)))"
+        "clpz:put_atts(X, clpz(clpz_attr(L,R,Sp,[2],Ps,Q0)))"
 
     for cmp <- [
           "clpz:new_queue(Q), P = propagator(pneq(X,Y), _), " <>
@@ -596,7 +596,7 @@ defmodule PrologEx.ClpzQueueTest do
 
   test "put_terminating//3: Einzelwert (Ziel in die Queue), leere Domäne, neue Variable", c do
     check(c, 150, fn ->
-      d = Enum.random(["from_to(2,2)", "empty", "from_to(0,3)", "from_to(inf,1)"])
+      d = Enum.random(["[2]", "[]", "[0..3]", "[inf..1]"])
       v = Enum.random(["V", "N", "7"])
 
       scenario(
@@ -687,8 +687,8 @@ defmodule PrologEx.ClpzQueueTest do
           "clpz:new_queue(Q), " <>
             "Ps = fd_props([propagator(pneq(3,Y),S1)], [propagator(pgeq(Y,3),S2)], " <>
             "[propagator(pplus(3,Y,Z,_),S3)]), " <>
-            "same(clpz:trigger_props_ref(Ps, 3, from_to(0,5), from_to(3,3), [Q], _), " <>
-            "clpz:trigger_props(Ps, 3, from_to(0,5), from_to(3,3), [Q], _), Q-S1-S2-S3)",
+            "same(clpz:trigger_props_ref(Ps, 3, [0..5], [3], [Q], _), " <>
+            "clpz:trigger_props(Ps, 3, [0..5], [3], [Q], _), Q-S1-S2-S3)",
           # erst Ziele, dann schnelle, dann langsame Propagatoren
           "clpz:new_queue(Q), clpz:insert_queue_ref(slow1, 3, [Q], _), " <>
             "clpz:insert_queue_ref(fast1, 2, [Q], _), clpz:insert_queue_ref(goal1, 1, [Q], _), " <>
@@ -721,12 +721,12 @@ defmodule PrologEx.ClpzQueueTest do
       29 ->
         d =
           Enum.random([
-            "from_to(1,3)",
-            "from_to(inf,2)",
-            "from_to(0,sup)",
-            "split(2, from_to(0,1), from_to(4,sup))",
-            "from_to(0,0)",
-            "from_to(inf,sup)"
+            "[1..3]",
+            "[inf..2]",
+            "[0..sup]",
+            "[0..1,4..sup]",
+            "[0]",
+            "[inf..sup]"
           ])
 
         "reified_in(#{parg()}, #{d}, #{Enum.random(["B", "B", "0", "1", "W"])})"
@@ -975,8 +975,8 @@ defmodule PrologEx.ClpzQueueTest do
        "psign(X, -1)",
        "psign(X, 2)",
        "reified_fd(X, Y)",
-       "reified_in(X, from_to(0,3), Y)",
-       "reified_in(X, split(3, from_to(-2,1), from_to(5,sup)), Y)"
+       "reified_in(X, [0..3], Y)",
+       "reified_in(X, [-2..1,5..sup], Y)"
      ]},
     {"prem",
      ["prem(X, Y, Z)", "prem(X, 3, Z)", "prem(X, -4, Z)", "prem(X, 3, 1)", "prem(X, -4, -2)"]},

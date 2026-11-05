@@ -1255,17 +1255,39 @@ Domäne L..U, leer bei L > U; die 17 Stellen in den Propagatoren, die
 `put_terminating` und `put_full`) und `is_domain(D)`; das Labeling mit
 `enum` läuft über `domain_intervals/2`. Alles, was die Struktur
 (`empty`, `from_to/2`, `split/3`) zerlegt, sitzt damit in den
-Elixir-Builtins und in den `_ref`-Originalen, die nur noch Testorakel
-sind. Die Darstellung ist so austauschbar, ohne `clpz.pl` anzufassen –
-etwa durch eine kanonische Liste maximaler Intervalle
-(`[inf..3, 5, 9..13, 16..sup]`, Punkte ohne `..`) oder für dichte
-Domänen nahe 0 durch Bitmengen (`0b101000`, verschoben als
-`shifted_dombits(3, 0b101)`); beides ist für später vorgemerkt. Dabei kam
-heraus, dass `ptzdiv` bei `Z = 0` ein festes `split(0, …)` baute, während
-`domains_union/3` den Spalt anders legt – dieselbe Menge, anderer Term;
-beide Seiten bauen jetzt über die Vereinigung, der Vergleichstest hatte
-das sofort gesehen. Mit einer kanonischen Darstellung gäbe es diese
-Klasse von Unterschieden nicht mehr.
+Elixir-Builtins. Die Darstellung ist so austauschbar, ohne `clpz.pl`
+anzufassen. Dabei kam heraus, dass `ptzdiv` bei `Z = 0` ein festes
+`split(0, …)` baute, während `domains_union/3` den Spalt anders legt –
+dieselbe Menge, anderer Term; der Vergleichstest hatte das sofort
+gesehen.
+
+**Domänen als kanonische Intervallliste.** Statt Triskas balancierter
+Bäume (`split(S, from_to(…), from_to(…))`) ist eine Domäne eine Liste
+maximaler Intervalle, aufsteigend, paarweise nicht benachbart, Punkte als
+Zahl: `[inf..3, 5, 9..13, 16..sup]`, `[]` leer, `[inf..sup]` alle Zahlen.
+Jede Menge hat genau eine Darstellung, `==` auf Domänen ist
+Mengengleichheit, und die Terme sind die Dreps von clpz als Liste
+(`fd_dom/2` ist ein `\/`-Falten). Alle Operationen stehen in
+`PrologEx.Builtins.ClpzDom` (reines Elixir, Mischläufe über sortierte
+Listen, O(k+m)); die Mengenoperationen sind exakt, `expand`,
+`expand_more`, `contract`, `contract_less` rechnen wie das Original
+intervallweise mit den Schranken – bewusste Obermengen, von denen die
+Propagation von `ptimes` abhängt. Geprüft wird das Modul gegen ein
+Mengenorakel (test/clpz_dom_test.exs: Elemente in einem Fenster plus
+„unten offen“/„oben offen“), und vor dem Umschalten wurden die alten
+Baum-Builtins auf 9000 Zufallsfällen als Mengen mit ihm verglichen (keine
+Abweichung, auch nicht in den Eigenheiten: für `inf..sup` ist die
+„kleinste endliche Schranke“ `sup` und die Spannweite `inf`, und
+`domain_subdomain/2` scheitert für die leere Domäne). Die
+`_ref`-Originale der Domänenprädikate und ihre Helfer sind gelöscht (rund
+450 Zeilen); eine Eingabe, die keine Domäne ist, gibt jetzt
+`type_error(clpz_domain, T)` statt der zufälligen Klauselwahl des
+Originals. Baum gegen Liste: O(log k) gegen O(k) je Zugriff bei k
+Intervallen – bei den üblichen 1–5 Intervallen ist die Liste kleiner und
+billiger; für große, löchrige Domänen siehe die Messung unten. Für dichte
+Domänen nahe 0 bleibt eine Bitmengen-Darstellung (`0b101000`, verschoben
+als `shifted_dombits(3, 0b101)`) vorgemerkt; sie passte hinter dieselbe
+API.
 
 Bisher in Elixir:
 

@@ -1,9 +1,9 @@
 defmodule PrologEx.ClpzPrimsTest do
-  # Domänen und Schranken von clpz in Elixir (PrologEx.Builtins.ClpzPrims)
+  # Schranken-Arithmetik von clpz in Elixir (PrologEx.Builtins.ClpzPrims)
   # gegen Triskas Code (die Originale mit der Endung _ref in clpz.pl):
-  # Zufallsdomänen (aus Intervallen mit inf/sup, durch Entfernen auch
-  # unausgeglichen), Zahlen, Listen; verglichen werden Ergebnis,
-  # Fehlschlag und Fehler
+  # Zufallsschranken; verglichen werden Ergebnis, Fehlschlag und Fehler.
+  # Die Domänen (PrologEx.Builtins.ClpzDom) prüft clpz_dom_test gegen ein
+  # Mengenorakel; hier nur die Prolog-Schnittstelle der Domänenbuiltins.
   use ExUnit.Case, async: true
   alias PrologEx.{Reader, TableCase}
 
@@ -20,8 +20,6 @@ defmodule PrologEx.ClpzPrimsTest do
       ;   throw(verschieden(O1, O2))
       ).
   % die Argumente vergleichen (die Ziele selbst heißen verschieden)
-  rm_all([], D, D).
-  rm_all([X|Xs], D0, D) :- clpz:domain_remove_ref(D0, X, D1), rm_all(Xs, D1, D).
   arg_eq(R1, R2, O1, O2) :-
       R1 = _:G1, R2 = _:G2, G1 =.. [_|A1], G2 =.. [_|A2],
       (   A1 == A2 -> true ; throw(verschieden(O1, O2)) ).
@@ -52,35 +50,6 @@ defmodule PrologEx.ClpzPrimsTest do
       2 -> "sup"
       3 -> "#{Enum.random([-1000, 10 ** 20, 7])}"
       _ -> "#{int()}"
-    end
-  end
-
-  # Ziel, das D an eine Zufallsdomäne bindet (nur mit _ref-Prädikaten)
-  defp dom_goal(d) do
-    case :rand.uniform(10) do
-      1 ->
-        "#{d} = empty"
-
-      2 ->
-        "#{d} = from_to(inf,sup)"
-
-      _ ->
-        pts = Enum.take_random(-8..12, 2 * Enum.random(1..4)) |> Enum.sort()
-        ivs = pts |> Enum.chunk_every(2) |> Enum.map(fn [a, b] -> {a, b} end)
-        ivs = if :rand.uniform(4) == 1, do: [{"inf", elem(hd(ivs), 1)} | tl(ivs)], else: ivs
-
-        ivs =
-          if :rand.uniform(4) == 1,
-            do: List.replace_at(ivs, -1, {elem(List.last(ivs), 0), "sup"}),
-            else: ivs
-
-        # (negative Zahlen in Klammern: -3- -1 liest sich sonst nicht)
-        b = fn x -> if is_integer(x) and x < 0, do: "(#{x})", else: x end
-        is = Enum.map_join(ivs, ",", fn {x, y} -> "#{b.(x)}-#{b.(y)}" end)
-        rm = for _ <- 1..Enum.random(0..3)//1, do: int()
-
-        "clpz:intervals_to_domain_ref([#{is}], #{d}0), " <>
-          "rm_all([#{Enum.join(rm, ",")}], #{d}0, #{d})"
     end
   end
 
@@ -147,62 +116,6 @@ defmodule PrologEx.ClpzPrimsTest do
     end
   end
 
-  # --- Domänen ----------------------------------------------------------------
-
-  test "Domänen: eine Domäne", c do
-    for name <- ~w(domain_infimum domain_supremum domain_num_elements domain_negate
-                   domain_intervals domain_complement domain_spread domain_smallest_finite
-                   domain_largest_finite domain_to_list) do
-      check(c, 200, fn ->
-        {r, n} = pair(name, ["D"])
-        {dom_goal("D"), r, n}
-      end)
-    end
-  end
-
-  test "Domänen: Domäne und Zahl", c do
-    for name <- ~w(domain_contains domain_remove domain_remove_greater_than
-                   domain_remove_smaller_than domain_shift domain_expand domain_expand_more
-                   domain_contract domain_contract_less) do
-      check(c, 200, fn ->
-        out = name != "domain_contains"
-        x = if :rand.uniform(20) == 1, do: "a", else: "#{Enum.random(-4..12)}"
-        {r, n} = pair(name, ["D", x], out)
-        {dom_goal("D"), r, n}
-      end)
-    end
-  end
-
-  test "Domänen: zwei Domänen", c do
-    for {name, out} <- [
-          {"domain_subdomain", false},
-          {"domain_subtract", true},
-          {"domains_intersection", true},
-          {"domains_union", true}
-        ] do
-      check(c, 250, fn ->
-        {r, n} = pair(name, ["D", "E"], out)
-        {dom_goal("D") <> ", " <> dom_goal("E"), r, n}
-      end)
-    end
-  end
-
-  test "Listen: list_to_domain, intervals_to_domain, merge_intervals", c do
-    check(c, 200, fn ->
-      l = for _ <- 1..Enum.random(0..7)//1, do: Enum.random(-5..8)
-      {r, n} = pair("list_to_domain", ["[#{Enum.join(l, ",")}]"])
-      {"true", r, n}
-    end)
-
-    for name <- ~w(intervals_to_domain merge_intervals) do
-      check(c, 200, fn ->
-        is = for _ <- 1..Enum.random(0..5)//1, do: "(#{bound()})-(#{bound()})"
-        {r, n} = pair(name, ["[#{Enum.join(is, ",")}]"])
-        {"true", r, n}
-      end)
-    end
-  end
-
   test "Schranken: alle Paare aus inf, sup, -2..2", c do
     bs = ~w(inf sup) ++ for(i <- -2..2, do: "#{i}")
 
@@ -224,31 +137,81 @@ defmodule PrologEx.ClpzPrimsTest do
     end
   end
 
-  test "Sonderfälle: ungebundene oder falsche Eingaben wie das Original", c do
+  test "Sonderfälle der Schranken: ungebundene oder falsche Eingaben wie das Original", c do
     for {setup, ref, new} <- [
-          {"true", "clpz:domain_remove_ref(D, 3, _)", "clpz:domain_remove(D, 3, _)"},
-          {"true", "clpz:domain_remove_ref(foo, 3, _)", "clpz:domain_remove(foo, 3, _)"},
-          {"true", "clpz:domain_infimum_ref(empty, _)", "clpz:domain_infimum(empty, _)"},
-          {"true", "clpz:domain_contract_ref(from_to(1,5), 0, _)",
-           "clpz:domain_contract(from_to(1,5), 0, _)"},
           {"true", "clpz:cis_exp_ref(2, -1, _)", "clpz:cis_exp(2, -1, _)"},
           {"true", "clpz:cis_exp_ref(1, -3, _)", "clpz:cis_exp(1, -3, _)"},
           {"true", "clpz:cis_slash_ref(4, 0, _)", "clpz:cis_slash(4, 0, _)"},
-          {"true", "clpz:cis_max_ref(1, B, M)", "clpz:cis_max(1, B, M)"},
-          {"true", "clpz:list_to_domain_ref([a], _)", "clpz:list_to_domain([a], _)"},
-          {"true", "clpz:domain_to_list_ref(from_to(inf,3), _)",
-           "clpz:domain_to_list(from_to(inf,3), _)"},
-          # keine gewöhnlichen Domänen, aber eindeutig im Original
-          {"true", "clpz:domain_to_list_ref(from_to(3,1), _)",
-           "clpz:domain_to_list(from_to(3,1), _)"},
-          {"true", "clpz:domain_subtract_ref(from_to(1,5), from_to(sup,sup), _)",
-           "clpz:domain_subtract(from_to(1,5), from_to(sup,sup), _)"},
-          {"true", "clpz:domain_subtract_ref(from_to(1,5), from_to(3,sup), _)",
-           "clpz:domain_subtract(from_to(1,5), from_to(3,sup), _)"}
+          {"true", "clpz:cis_max_ref(1, B, M)", "clpz:cis_max(1, B, M)"}
         ] do
       assert TableCase.run(c.reader, c.db, "#{setup}, cmp(#{ref}, #{new})") ==
                {"", {:answers, ["true"]}},
              ref
+    end
+  end
+
+  # Die Prolog-Schnittstelle der Domänen: Terme hin und zurück, Fehlschlag
+  # und Fehler bei Eingaben, die keine Domänen sind
+  test "Domänenbuiltins: Terme, Fehlschlag, Fehler", c do
+    for {q, expect} <- [
+          {"clpz:interval(1, 5, D)", ["D = [1..5]"]},
+          {"clpz:interval(3, 3, D)", ["D = [3]"]},
+          {"clpz:interval(5, 1, D)", ["D = []"]},
+          {"clpz:interval(inf, sup, D)", ["D = [inf..sup]"]},
+          {"clpz:interval(sup, sup, D)", ["D = []"]},
+          {"clpz:empty_domain(D)", ["D = []"]},
+          {"clpz:singleton_domain([3], V)", ["V = 3"]},
+          {"clpz:singleton_domain([3..4], V)", :fails},
+          {"clpz:singleton_domain([], V)", :fails},
+          {"clpz:is_domain([inf..3,5,9..13,16..sup])", true},
+          {"clpz:is_domain([])", true},
+          {"clpz:is_domain([1..3,4..6])", :fails},
+          {"clpz:is_domain([3..3])", :fails},
+          {"clpz:is_domain([5,3])", :fails},
+          {"clpz:is_domain(foo)", :fails},
+          {"clpz:is_domain(_)", :fails},
+          {"clpz:domain_remove([1..5], 3, D)", ["D = [1..2,4..5]"]},
+          {"clpz:domain_remove([1..5], 9, D)", ["D = [1..5]"]},
+          {"clpz:domain_remove([3], 3, D)", ["D = []"]},
+          {"clpz:domains_intersection([1..5], [4..9], D)", ["D = [4..5]"]},
+          {"clpz:domains_intersection([1..5], [7..9], D)", :fails},
+          {"clpz:domains_union([1..3], [4..6], D)", ["D = [1..6]"]},
+          {"clpz:domain_complement([inf..3,5], D)", ["D = [4,6..sup]"]},
+          {"clpz:domain_subtract([1..9], [3..4], D)", ["D = [1..2,5..9]"]},
+          {"clpz:domain_infimum([inf..3,5], I), clpz:domain_supremum([inf..3,5], S)",
+           ["I = inf, S = 5"]},
+          {"clpz:domain_infimum([], _)", :fails},
+          {"clpz:domain_num_elements([1..3,7], N)", ["N = 4"]},
+          {"clpz:domain_num_elements([1..sup], N)", ["N = sup"]},
+          {"clpz:domain_num_elements([], N)", ["N = 0"]},
+          {"clpz:domain_contains([1..3,7], 7)", true},
+          {"clpz:domain_contains([1..3,7], 5)", :fails},
+          {"clpz:domain_subdomain([1..9], [2..3,7])", true},
+          {"clpz:domain_subdomain([1..9], [2..3,10])", :fails},
+          {"clpz:domain_subdomain([], [])", :fails},
+          {"clpz:domain_to_list([1..3,7], L)", ["L = [1,2,3,7]"]},
+          {"clpz:domain_to_list([1..sup], L)", :fails},
+          {"clpz:domain_intervals([inf..3,5], Is)", ["Is = [inf-3,5-5]"]},
+          {"clpz:intervals_to_domain([5-7,1-3,4-4], D)", ["D = [1..7]"]},
+          {"clpz:list_to_domain([5,3,4,9,3], D)", ["D = [3..5,9]"]},
+          {"clpz:list_to_domain([], D)", ["D = []"]},
+          {"clpz:domain_expand([1..3], 2, D)", ["D = [2..6]"]},
+          {"clpz:domain_expand([1..3], 0, D)", ["D = [0]"]},
+          {"clpz:domain_contract([1..3], 0, D)", {:error, "evaluation_error(zero_divisor)"}},
+          {"clpz:domain_contract([3..8], 3, D)", ["D = [1..2]"]},
+          {"clpz:domain_spread([inf..3,7..9], S)", ["S = 6"]},
+          {"clpz:domain_spread([inf..sup], S)", ["S = inf"]},
+          # keine Domäne: Fehler (das Original hatte dafür zufällige Klauseln)
+          {"clpz:domain_remove(D, 3, _)", {:error, "instantiation_error"}},
+          {"clpz:domain_remove(foo, 3, _)", {:error, "type_error(clpz_domain,foo)"}},
+          {"clpz:domain_remove([1..3,4..6], 3, _)",
+           {:error, "type_error(clpz_domain,[1..3,4..6])"}},
+          {"clpz:domain_remove(empty, 3, _)", {:error, "type_error(clpz_domain,empty)"}},
+          {"clpz:domain_remove(from_to(1,5), 3, _)",
+           {:error, "type_error(clpz_domain,from_to(1,5))"}}
+        ] do
+      actual = TableCase.run(c.reader, c.db, q)
+      assert TableCase.matches?(expect, actual), inspect({q, actual})
     end
   end
 end

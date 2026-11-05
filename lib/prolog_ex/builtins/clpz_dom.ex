@@ -290,20 +290,20 @@ defmodule PrologEx.Builtins.ClpzDom do
 
   @doc """
   domain_expand/3: jedes Intervall l..u wird l·m..u·m (eine Obermenge der
-  Vielfachen, wie im Original); m ≠ 0
+  Vielfachen, wie im Original)
   """
   def expand(d, 1), do: d
 
-  def expand(d, m) when is_integer(m) and m != 0 do
+  def expand(d, m) when is_integer(m) do
     {d, m} = neg_abs(d, m)
     d |> Enum.map(fn {l, u} -> {times(l, m), times(u, m)} end) |> from_intervals()
   end
 
   @doc """
   domain_expand_more/3: l..u wird zur Menge aller x mit x // m in l..u
-  (für die Rückrichtung von ptimes); m ≠ 0
+  (für die Rückrichtung von ptimes)
   """
-  def expand_more(d, m) when is_integer(m) and m != 0 do
+  def expand_more(d, m) when is_integer(m) do
     {d, m} = neg_abs(d, m)
 
     d
