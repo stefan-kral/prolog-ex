@@ -1395,6 +1395,13 @@ Bisher in Elixir:
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige
     Hook-Modul, weckt die Maschine sie nicht mehr: beim Aufstellen der
     Planung 10435 → 4570 Hook-Aufrufe, −5 % Reduktionen.
+  * Abkürzer für `#\=`: der Matcher probiert seine Klauseln der Reihe nach
+    (bei `abs(X-Y) #\= D` zehn, bevor die passende greift). Ein Builtin
+    erkennt einfache Formen – Zahl oder Variable mit Domäne auf beiden
+    Seiten, `abs(X-Y)` gegen eine Zahl –, bei denen alle früheren Klauseln
+    ohne Wirkung scheitern, und es läuft gleich der Rumpf der Klausel, die
+    das Original nähme; sonst der Matcher wie bisher. 30 Damen aufstellen
+    143 → 83 ms (Scryer 51 ms).
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

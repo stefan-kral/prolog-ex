@@ -133,6 +133,51 @@ defmodule PrologEx.ClpzQueueTest do
     "Vs = [X,Y,Z,W,B], ((#{setup_goal()}) -> #{cmp} ; true)"
   end
 
+  # ein Argument für A #\\= B: Variable (mit oder ohne Domäne), Zahl,
+  # abs(X-Y) und andere Ausdrücke (die nimmt der Abkürzer nicht)
+  defp neq_arg do
+    Enum.random([
+      "X",
+      "Y",
+      "Z",
+      "W",
+      "B",
+      "N",
+      "3",
+      "0",
+      "-2",
+      "abs(X-Y)",
+      "abs(X-3)",
+      "abs(2-Y)",
+      "abs(N-X)",
+      "abs(X-X)",
+      "abs(X+Y)",
+      "X+Y",
+      "X-Y",
+      "abs(X)",
+      "#(X)",
+      "?(Y)",
+      "X*Y",
+      "abs(f(a)-X)",
+      "-(X-Y)"
+    ])
+  end
+
+  test "clpz_neq/2: der Abkürzer wählt dieselbe Klausel wie der Matcher", c do
+    check(c, 600, fn ->
+      a = neq_arg()
+      b = neq_arg()
+      mono = :rand.uniform(4) == 1
+
+      scenario(
+        "(#{if mono, do: "assertz(clpz:monotonic)", else: "true"}), " <>
+          "catch(same((clpz:'$clpz_fast'(off), clpz:clpz_neq(#{a}, #{b})), " <>
+          "(clpz:'$clpz_fast'(on), clpz:clpz_neq(#{a}, #{b})), Vs-N), E, true), " <>
+          "clpz:'$clpz_fast'(on), retractall(clpz:monotonic), var(E)"
+      )
+    end)
+  end
+
   test "init_propagator_//2, init_propagator/2, reinforce/1 wie das Original", c do
     check(c, 400, fn ->
       vs = ["X", "Y", "Z", "W", "B", "_", "3", "N"]

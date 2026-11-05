@@ -3052,8 +3052,33 @@ make_matches(Clauses) :-
         maplist(prevent_cyclic_argument, Fs, PrevCyclicClauses),
         phrase(matchers(Ms), Clauses0),
         maplist(goals_goal, Clauses0, MatcherClauses),
-        append(PrevCyclicClauses, MatcherClauses, Clauses1),
+        fast_matchers(Fast),
+        append([Fast, PrevCyclicClauses, MatcherClauses], Clauses1),
         sort_by_predicate(Clauses1, Clauses).
+
+% PrologEx: Abkürzer vor den Klauseln des Matchers. '$clpz_neq_kind'/3
+% erkennt einfache Formen (Zahlen, Variablen mit Domäne, abs(X-Y) gegen
+% eine Zahl), bei denen alle früheren Klauseln ohne Wirkung scheitern, und
+% sagt, welche Klausel das Original als erste nähme; clpz_neq_fast/3 ist
+% deren Rumpf. Sonst scheitert es, und die Klauseln laufen wie bisher.
+fast_matchers([(clpz_neq(A,B) :- '$clpz_neq_kind'(A,B,K), !, clpz_neq_fast(K,A,B))]).
+
+clpz_neq_fast(num_a, A, B) :- neq_num(A, B).
+clpz_neq_fast(num_b, A, B) :- neq_num(B, A).
+clpz_neq_fast(pneq, A, B) :-
+        make_propagator(pneq(A,B), P),
+        new_queue(Q0),
+        init_propagator_([A,B], P, [Q0], [Q]),
+        variables_same_queue([A,B]),
+        trigger_once_(P, Q).
+clpz_neq_fast(absdiff, abs(G-H), C) :-
+        parse_clpz(G, I),
+        parse_clpz(H, J),
+        make_propagator(absdiff_neq(I,J,C), P),
+        new_queue(Q0),
+        init_propagator_([I,J,C], P, [Q0], [Q]),
+        variables_same_queue([I,J,C]),
+        trigger_once_(P, Q).
 
 sort_by_predicate(Clauses, ByPred) :-
         map_list_to_pairs(predname, Clauses, Keyed),

@@ -335,6 +335,67 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # Abkürzer für clpz_neq/2 (A #\\= B): welche Klausel des Matchers das
+  # Original als erste nähme, für Formen, bei denen alle früheren Klauseln
+  # ohne Wirkung scheitern: v_or_i/1 gelingt dort nur für Zahlen und
+  # Variablen mit Domäne (ohne non_monotonic/1-Fehler), sonst scheitert es
+  # sofort; nichts davon ist zyklisch. num_a: neq_num(A, B) (B eine Zahl),
+  # num_b: neq_num(B, A), pneq: zwei Variablen, absdiff: abs(X-Y) gegen
+  # eine Zahl (X, Y Variablen oder Zahlen). Sonst scheitert es (die
+  # Klauseln laufen). '$clpz_fast'(off) schaltet ab (für die Tests)
+  defbuiltin "$clpz_neq_kind", [a0, b0, k] do
+    s = subst()
+
+    kind =
+      if Process.get(:clpz_no_fast) do
+        nil
+      else
+        a = PrologEx.unmark_top(PrologEx.walk(a0, s))
+        b = PrologEx.unmark_top(PrologEx.walk(b0, s))
+
+        cond do
+          simple?(a, s) and is_integer(b) -> "num_a"
+          is_integer(a) and simple?(b, s) -> "num_b"
+          fdvar?(a, s) and fdvar?(b, s) -> "pneq"
+          is_integer(b) and absdiff?(a, s) -> "absdiff"
+          true -> nil
+        end
+      end
+
+    if kind, do: {:unify, [{k, a(kind)}]}, else: :fail
+  end
+
+  defbuiltin "$clpz_fast", [onoff] do
+    case deref(onoff) do
+      {:atom, "off"} -> Process.put(:clpz_no_fast, true)
+      _ -> Process.delete(:clpz_no_fast)
+    end
+
+    :ok
+  end
+
+  defp fdvar?({:var, _} = v, s), do: att(v, s, "clpz", 1) != nil
+  defp fdvar?(_, _s), do: false
+
+  defp simple?(i, _s) when is_integer(i), do: true
+  defp simple?(t, s), do: fdvar?(t, s)
+
+  defp absdiff?({:struct, "abs", [d]}, s) do
+    case PrologEx.unmark_top(PrologEx.walk(d, s)) do
+      {:struct, "-", [x, y]} -> var_or_int?(x, s) and var_or_int?(y, s)
+      _ -> false
+    end
+  end
+
+  defp absdiff?(_, _s), do: false
+
+  defp var_or_int?(t, s) do
+    case PrologEx.walk(t, s) do
+      {:var, _} -> true
+      i -> is_integer(i)
+    end
+  end
+
   # v_or_i/1: eine Zahl oder eine Variable mit clpz-Attribut (fd_var/1);
   # eine Variable ohne: das Original (non_monotonic/1)
   defbuiltin "$clpz_v_or_i", [v] do
