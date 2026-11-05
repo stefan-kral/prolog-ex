@@ -444,6 +444,34 @@ defmodule PrologEx do
     end
   end
 
+  @doc """
+  Probe: sind x und y unifizierbar? Die Bindungen der Probe werden
+  zurückgenommen – die Substitution bleibt, wie sie war.
+  """
+  def unifiable?(x, y, subst) do
+    case unify(x, y, subst) do
+      {:ok, _} ->
+        Store.restore(subst)
+        true
+
+      :error ->
+        false
+    end
+  end
+
+  @doc "Probe für mehrere Paare (siehe unifiable?/3)"
+  def unifiable_all?(pairs, subst) do
+    case unify_pairs(pairs, subst, Process.get(@occurs_key)) do
+      {:ok, _} ->
+        Store.restore(subst)
+        true
+
+      :error ->
+        Store.restore(subst)
+        false
+    end
+  end
+
   @doc "Unifikation immer mit Occurs-Check (unabhängig vom Flag)"
   def unify_with_occurs_check(x, y, subst) do
     old = Process.put(@occurs_key, true)

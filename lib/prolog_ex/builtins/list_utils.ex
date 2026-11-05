@@ -139,7 +139,7 @@ defmodule PrologEx.Builtins.ListUtils do
     end
   end
 
-  defp unifiable?(a, b, s), do: match?({:ok, _}, PrologEx.unify(a, b, s))
+  defp unifiable?(a, b, s), do: PrologEx.unifiable?(a, b, s)
 
   defp sum_list(l, sum, s) do
     with {:ok, items} <- proper(l, s),

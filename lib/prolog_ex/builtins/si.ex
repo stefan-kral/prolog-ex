@@ -109,7 +109,7 @@ defmodule PrologEx.Builtins.Si do
       Order.compare(x, y, s) == :eq ->
         :fail
 
-      PrologEx.unify(x, y, s) == :error ->
+      not PrologEx.unifiable?(x, y, s) ->
         :ok
 
       true ->

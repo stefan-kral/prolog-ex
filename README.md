@@ -11,7 +11,22 @@ Ein Prolog-Kern in Elixir:
   Darstellung nicht. Ein veränderlicher Speicher mit Trail (Marke je
   Choice Point, Zurückspulen statt Kopieren) wäre damit ein Austausch
   dieses einen Moduls. Kosten der Schnittstelle: keine messbaren
-  (Reduktionen ±1 %, Laufzeit im Rauschen)
+  (Reduktionen ±1 %, Laufzeit im Rauschen).
+  Ausprobiert und verworfen (Branch `trail-store`): genau dieser
+  Austausch – Prozesswörterbuch mit Trail, Marken statt Schnappschüsse,
+  Zurückspulen statt Kopieren, Aufräumen statt Neuaufbau. Alle Prüfungen
+  bestehen, aber er ist langsamer: nrev 314 → 530 ms, loop 555 → 946 ms,
+  tak 209 → 349 ms, n_queens(60) in clpz +25 %, die clpz-Beispiele +3 bis
+  +20 % (einzig queens(8, alle) 87 → 71 ms). Eine Bindung kostet dort drei
+  Wörterbuchzugriffe statt eines Map-Eintrags, das Aufräumen ist
+  O(Schreibvorgänge) statt O(lebende Daten), und weil die Kompaktierung die
+  lebenden Substitutionen klein hält, ist die persistente Map ohnehin im
+  Vorteil; der Mikrobenchmark (Binden in einen 100 000-Einträge-Speicher
+  zehnmal billiger) hat die Maschine nicht abgebildet. Was der Versuch
+  nebenbei gezeigt hat: wo die Maschine Substitutionen probeweise ändert
+  und verwirft (gescheiterte oder Probe-Unifikation, Unter-Maschinen,
+  clpz-Fallbacks), ist nun dokumentiert – `PrologEx.unifiable?/3`,
+  `unifiable_all?/2` fassen die Proben zusammen.
 - Listen als native BEAM-Cons-Zellen (`'.'(H,T)` = `[H|T]`)
 - Klauseln werden beim Laden in eine WAM-artige IR kompiliert
   (`lib/prolog_ex/compiler.ex`): Variablenklassifikation, Read-/Write-Modus
