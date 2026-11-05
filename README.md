@@ -1402,6 +1402,12 @@ Bisher in Elixir:
     ohne Wirkung scheitern, und es läuft gleich der Rumpf der Klausel, die
     das Original nähme; sonst der Matcher wie bisher. 30 Damen aufstellen
     143 → 83 ms (Scryer 51 ms).
+  * `left_right_linsum_const/5` (zerlegt beide Seiten von `#=`, `#\=`,
+    `#>=` in Σ C·V + Konstante; `#>=` ruft es immer, die anderen für
+    lineare Ausdrücke) in Elixir. Eine Variable ohne Domäne bei
+    `clpz:monotonic`, `?(X)`/`#(X)` und Koeffizient 0 bei einer Variablen
+    ohne Domäne (beides gibt ihr eine): das Original. SEND+MORE −16 %
+    Reduktionen, Rucksack −9 %, magische Reihe −7 %, Planung −4 %.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

@@ -335,6 +335,133 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # left_right_linsum_const/5: Left - Right als Σ Cs·Vs + (CL - CR), wie
+  # linsum//3 (Glieder vn(V, N) in Lesereihenfolge, Konstante), die Glieder
+  # rechts negiert, nach vn(V, N) stabil sortiert, gleiche V
+  # zusammengefasst, Koeffizienten 0 weg, Const = CR - CL. Scheitert wie
+  # das Original (nichtlinear, keine Variable). Eine Variable ohne Domäne
+  # bei clpz:monotonic (Fehler) und ?(X)/#(X) mit X ohne Domäne (bekommt
+  # erst eine): das Original
+  defbuiltin "$clpz_linsum", [l, r, cs, vs, c] do
+    run("left_right_linsum_const", [l, r, cs, vs, c], subst(), fn ->
+      s = subst_now()
+      mono = monotonic?(ctx.db)
+
+      with {:ok, ls, cl} <- linsum(l, s, mono),
+           {:ok, rs, cr} <- linsum(r, s, mono),
+           items = ls ++ Enum.map(rs, fn {v, n} -> {v, -n} end),
+           [_ | _] <- items do
+        sorted =
+          Enum.sort(items, fn {v1, n1}, {v2, n2} ->
+            case PrologEx.Order.compare(v1, v2, s) do
+              :lt -> true
+              :gt -> false
+              :eq -> n1 <= n2
+            end
+          end)
+
+        merged =
+          Enum.chunk_while(
+            sorted,
+            nil,
+            fn
+              {v, n}, nil ->
+                {:cont, {v, n}}
+
+              {v, n}, {v0, n0} ->
+                if PrologEx.Order.compare(v, v0, s) == :eq,
+                  do: {:cont, {v0, n0 + n}},
+                  else: {:cont, {v0, n0}, {v, n}}
+            end,
+            fn acc -> {:cont, acc, nil} end
+          )
+
+        # Koeffizient 0: constrain_to_integer/1 (eine Variable ohne Domäne
+        # bekommt dort eine: das Original)
+        for {{:var, _} = v, 0} <- merged, not fdvar?(v, s), do: throw(:fallback)
+        merged = Enum.reject(merged, fn {_, n} -> n == 0 end)
+
+        out_all(
+          [
+            {cs, list(Enum.map(merged, &elem(&1, 1)))},
+            {vs, list(Enum.map(merged, &elem(&1, 0)))},
+            {c, cr - cl}
+          ],
+          s
+        )
+      else
+        _ -> :fail
+      end
+    end)
+  end
+
+  defp out_all(pairs, s) do
+    Enum.reduce_while(pairs, {:subst, s}, fn {t, v}, {:subst, s} ->
+      case PrologEx.unify(t, v, s) do
+        {:ok, s} -> {:cont, {:subst, s}}
+        :error -> {:halt, :fail}
+      end
+    end)
+  end
+
+  defp monotonic?(db) do
+    case Map.get(db, {"clpz", "monotonic", 0}) do
+      nil -> false
+      {:pred, [], _, _, _} -> false
+      _ -> true
+    end
+  end
+
+  # linsum//3: {:ok, [{V, N}], Konstante} oder :fail
+  defp linsum(t, s, mono) do
+    case lin(t, s, mono, 1, []) do
+      {:ok, acc, k} -> {:ok, Enum.reverse(acc), k}
+      :fail -> :fail
+    end
+  end
+
+  # Glieder (umgekehrt) mal m, Konstante mal m
+  defp lin(t, s, mono, m, acc) do
+    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+      {:var, _} = v ->
+        if mono and not fdvar?(v, s), do: throw(:fallback)
+        {:ok, [{v, m} | acc], 0}
+
+      i when is_integer(i) ->
+        {:ok, acc, m * i}
+
+      {:struct, f, [x]} when f in ["?", "#"] ->
+        case PrologEx.walk(x, s) do
+          i when is_integer(i) -> {:ok, [{i, m} | acc], 0}
+          {:var, _} = v -> if fdvar?(v, s), do: {:ok, [{v, m} | acc], 0}, else: throw(:fallback)
+          _ -> throw(:fallback)
+        end
+
+      {:struct, "-", [a]} ->
+        lin(a, s, mono, -m, acc)
+
+      {:struct, "*", [a, b]} ->
+        case {PrologEx.walk(a, s), PrologEx.walk(b, s)} do
+          {n, _} when is_integer(n) -> lin(b, s, mono, m * n, acc)
+          {_, n} when is_integer(n) -> lin(a, s, mono, m * n, acc)
+          _ -> :fail
+        end
+
+      {:struct, "+", [a, b]} ->
+        with {:ok, acc, k1} <- lin(a, s, mono, m, acc),
+             {:ok, acc, k2} <- lin(b, s, mono, m, acc),
+             do: {:ok, acc, k1 + k2}
+
+      {:struct, "-", [a, b]} ->
+        with {:ok, acc, k1} <- lin(a, s, mono, m, acc),
+             {:ok, acc, k2} <- lin(b, s, mono, -m, acc),
+             do: {:ok, acc, k1 + k2}
+
+      _ ->
+        :fail
+    end
+  end
+
   # Abkürzer für clpz_neq/2 (A #\\= B): welche Klausel des Matchers das
   # Original als erste nähme, für Formen, bei denen alle früheren Klauseln
   # ohne Wirkung scheitern: v_or_i/1 gelingt dort nur für Zahlen und

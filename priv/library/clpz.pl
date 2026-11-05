@@ -65,6 +65,8 @@
        pgcc_check_single (eine Bindung höchstens als letzte Aktion eines Zweigs), pdistinct und pcircuit
        (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
        Original activate_propagator_ref//1
+     - left_right_linsum_const/5 in Elixir ('$clpz_linsum'/5), Abkürzer
+       vor den Klauseln von clpz_neq/2 ('$clpz_neq_kind'/3)
      - der Kern von gcc_global//2 (Wertenetz, Fluss, Komponenten, die
        neq_num-Ziele) in Elixir: gcc_neq_goals/3; Original gcc_neq_goals_ref/3
      - verify_attributes/3 in Elixir für einen Wert und für Variablen ohne
@@ -3397,7 +3399,12 @@ samsort(Ls0, Ls) :-
 
 as_key(E, E-t).
 
+% PrologEx: in Elixir ('$clpz_linsum'/5); Variablen ohne Domäne bei
+% clpz:monotonic und ?(X)/#(X) mit X ohne Domäne: das Original
 left_right_linsum_const(Left, Right, Cs, Vs, Const) :-
+        '$clpz_linsum'(Left, Right, Cs, Vs, Const).
+
+left_right_linsum_const_ref(Left, Right, Cs, Vs, Const) :-
         phrase(linsum(Left, 0, CL), Lefts0, Rights),
         phrase(linsum(Right, 0, CR), Rights0),
         maplist(linterm_negate, Rights0, Rights),

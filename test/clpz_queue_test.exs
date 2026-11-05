@@ -163,6 +163,58 @@ defmodule PrologEx.ClpzQueueTest do
     ])
   end
 
+  # ein linearer (oder nicht linearer) Ausdruck für left_right_linsum_const/5
+  defp lin_expr(0) do
+    Enum.random([
+      "X",
+      "Y",
+      "Z",
+      "W",
+      "B",
+      "N",
+      "M",
+      "3",
+      "0",
+      "-2",
+      "?(X)",
+      "#(Y)",
+      "#(N)",
+      "?(4)",
+      "#(f)"
+    ])
+  end
+
+  defp lin_expr(d) do
+    a = lin_expr(d - 1)
+    b = lin_expr(:rand.uniform(d) - 1)
+
+    Enum.random([
+      "(#{a})+(#{b})",
+      "(#{a})-(#{b})",
+      "-(#{a})",
+      "(#{Enum.random([2, -3, 0, 1])})*(#{a})",
+      "(#{a})*(#{Enum.random([2, -1, 0])})",
+      "(#{a})*(#{b})",
+      "abs(#{a})",
+      a
+    ])
+  end
+
+  test "left_right_linsum_const/5 wie das Original", c do
+    check(c, 700, fn ->
+      l = lin_expr(Enum.random(0..3))
+      r = lin_expr(Enum.random(0..3))
+      mono = :rand.uniform(4) == 1
+
+      scenario(
+        "(#{if mono, do: "assertz(clpz:monotonic)", else: "true"}), " <>
+          "catch(same(clpz:left_right_linsum_const_ref(#{l}, #{r}, Cs, Vs1, K), " <>
+          "clpz:left_right_linsum_const(#{l}, #{r}, Cs, Vs1, K), Vs-N-M-Cs-Vs1-K), E, true), " <>
+          "retractall(clpz:monotonic), var(E)"
+      )
+    end)
+  end
+
   test "clpz_neq/2: der Abkürzer wählt dieselbe Klausel wie der Matcher", c do
     check(c, 600, fn ->
       a = neq_arg()
