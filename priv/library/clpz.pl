@@ -4428,7 +4428,7 @@ do_queue_ref -->
 % do_queue_ref//0
 do_queue(S0, S) :- '$clpz_queue_run'(S0, Next), do_queue_(Next, S0, S).
 
-do_queue_(none, S0, S) :- S = S0.
+do_queue_(none, S, S).
 do_queue_(goal(Goal), S0, S) :- call(Goal), do_queue(S0, S).
 do_queue_(prop(P), S0, S) :- activate_propagator(P, S0, S1), do_queue(S1, S).
 do_queue_(ref(P), S0, S) :- activate_propagator_ref(P, S0, S1), do_queue(S1, S).

@@ -7,7 +7,12 @@ Ein Prolog-Kern in Elixir:
 - Listen als native BEAM-Cons-Zellen (`'.'(H,T)` = `[H|T]`)
 - Klauseln werden beim Laden in eine WAM-artige IR kompiliert
   (`lib/prolog_ex/compiler.ex`): Variablenklassifikation, Read-/Write-Modus
-  im Kopf, Rumpf wird erst nach passendem Kopf gebaut
+  im Kopf, Rumpf wird erst nach passendem Kopf gebaut. Ziele `X = V`
+  zweier Variablen, deren V nur noch in den folgenden Zielen derselben
+  Konjunktion vorkommt, fallen dabei weg (V wird zu X) – etwa die Ketten
+  `S0 = S1` aus DCG-Übersetzungen; `clause/2` und `listing/1` zeigen die
+  Quelle. Ein DCG-Zahlenparser −10 % Reduktionen, die clpz-Beispiele
+  −1 bis −4 %
 - explizite Ziel- und Choice-Point-Stacks mit Last-Call-Optimierung,
   vorberechneter Index nach dem ersten Argument
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.

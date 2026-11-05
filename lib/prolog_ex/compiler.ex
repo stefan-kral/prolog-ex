@@ -65,6 +65,7 @@ defmodule PrologEx.Compiler do
   """
 
   def compile_clause({head, body}) do
+    body = alias_vars(head, body)
     counts = count_vars(body, count_vars(head, %{}))
     st = %{slots: %{}, fresh: %{}, counts: counts, voids: 0}
 
@@ -120,6 +121,88 @@ defmodule PrologEx.Compiler do
   defp compound?({:gstruct, _, _}), do: true
   defp compound?({:glist, _}), do: true
   defp compound?(_), do: false
+
+  # --- Verkettungen X = V ---------------------------------------------
+  #
+  # Ein Ziel `X = V` zweier verschiedener benannter Variablen fällt weg, wenn
+  # V nur noch in den folgenden Zielen derselben Konjunktion vorkommt (nicht
+  # im Kopf, nicht davor, nicht in anderen Zweigen): V ist dort beim Ziel
+  # frisch, `X = V` gelingt immer, bindet nur V (die neuere Variable, ohne
+  # Wecken) und hat keine weitere Wirkung – danach steht V überall für X.
+  # V wird in den folgenden Zielen durch X ersetzt. So fallen etwa die
+  # Ketten S0 = S1, S1 = S2 aus DCG-Übersetzungen weg. Nur die
+  # übersetzte Klausel ändert sich; clause/2 und listing/1 zeigen die
+  # Quelle.
+
+  @control ~w(, ; -> *-> \\+)
+
+  @doc false
+  def alias_vars(head, body) do
+    counts = count_vars(body, count_vars(head, %{}))
+    {body, _} = simp(body, counts)
+    body
+  end
+
+  defp simp({:struct, ",", [_, _]} = g, counts) do
+    {gs, counts} = simp_list(conj_list(g), counts)
+    {list_conj(gs), counts}
+  end
+
+  defp simp({:struct, op, args}, counts) when op in @control do
+    {args, counts} = Enum.map_reduce(args, counts, &simp/2)
+    {{:struct, op, args}, counts}
+  end
+
+  defp simp(g, counts), do: {g, counts}
+
+  defp simp_list([], counts), do: {[], counts}
+
+  defp simp_list([g | rest], counts) do
+    {g, counts} = simp(g, counts)
+
+    case alias_goal(g, rest, counts) do
+      {v, x} ->
+        counts =
+          counts
+          |> Map.update!(x, &(&1 - 1 + counts[v] - 1))
+          |> Map.delete(v)
+
+        simp_list(rename(rest, v, x), counts)
+
+      nil ->
+        {rest, counts} = simp_list(rest, counts)
+        {[g | rest], counts}
+    end
+  end
+
+  # {V, X}: V fällt weg und wird zu X
+  defp alias_goal({:struct, "=", [{:var, a}, {:var, b}]}, rest, counts)
+       when a != b and a != "_" and b != "_" do
+    cond do
+      counts[b] == 1 + occ(rest, b) -> {b, a}
+      counts[a] == 1 + occ(rest, a) -> {a, b}
+      true -> nil
+    end
+  end
+
+  defp alias_goal(_, _, _), do: nil
+
+  defp occ({:var, n}, n), do: 1
+  defp occ({:struct, _, args}, n), do: occ(args, n)
+  defp occ([h | t], n), do: occ(h, n) + occ(t, n)
+  defp occ(_, _), do: 0
+
+  defp rename({:var, v}, v, x), do: {:var, x}
+  defp rename({:struct, f, args}, v, x), do: {:struct, f, rename(args, v, x)}
+  defp rename([h | t], v, x), do: [rename(h, v, x) | rename(t, v, x)]
+  defp rename(t, _, _), do: t
+
+  defp conj_list({:struct, ",", [a, b]}), do: conj_list(a) ++ conj_list(b)
+  defp conj_list(g), do: [g]
+
+  defp list_conj([]), do: {:atom, "true"}
+  defp list_conj([g]), do: g
+  defp list_conj([g | gs]), do: {:struct, ",", [g, list_conj(gs)]}
 
   # --- Kopf -------------------------------------------------------------
 
