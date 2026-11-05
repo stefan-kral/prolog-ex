@@ -64,6 +64,8 @@
        pgcc_check_single (eine Bindung höchstens als letzte Aktion eines Zweigs), pdistinct und pcircuit
        (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
        Original activate_propagator_ref//1
+     - der Kern von gcc_global//2 (Wertenetz, Fluss, Komponenten, die
+       neq_num-Ziele) in Elixir: gcc_neq_goals/3; Original gcc_neq_goals_ref/3
      - verify_attributes/3 in Elixir für einen Wert und für Variablen ohne
        clpz-Attribut (Zustand von Propagatoren, Warteschlangen); zwei
        Variablen mit Domänen: das Original verify_attributes_ref/3
@@ -7061,7 +7063,17 @@ gcc_global(Vs, KNs) -->
         gcc_check(KNs),  % see comment above.
         do_queue,        % is this needed? this (also) needs more analysis.
 
-        { with_local_attributes(Vs,
+        { gcc_neq_goals(Vs, KNs, Gs) },
+        disable_queue,
+        neq_nums(Gs),
+        enable_queue.
+
+% PrologEx: das Wertenetz, der Fluss und die Komponenten in Elixir
+% ('$clpz_gcc_goals'/3), das Original als gcc_neq_goals_ref/3
+gcc_neq_goals(Vs, KNs, Gs) :- '$clpz_gcc_goals'(Vs, KNs, Gs).
+
+gcc_neq_goals_ref(Vs, KNs, Gs) :-
+        with_local_attributes(Vs,
               (gcc_arcs(KNs, S, Vals),
                variables_with_num_occurrences(Vs, VNs),
                maplist(target_to_v(T), VNs),
@@ -7072,10 +7084,7 @@ gcc_global(Vs, KNs) -->
                    gcc_consistent(T),
                    scc(Vals, gcc_successors),
                    phrase(gcc_goals(Vals), Gs)
-               ;   Gs = [] )), Gs) },
-        disable_queue,
-        neq_nums(Gs),
-        enable_queue.
+               ;   Gs = [] )), Gs).
 
 gcc_consistent(T) :-
         get_attr(T, edges, Es),

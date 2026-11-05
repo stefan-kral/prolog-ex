@@ -33,6 +33,10 @@ defmodule PrologEx.ClpzQueueTest do
   gcc_props(X, Ps) :-
       clpz:get_atts(X, clpz(clpz_attr(_,_,_,_,fd_props(A,B,C),_))),
       append([A,B,C], L), include(is_gcc, L, Ps).
+  % pgcc(Xs, Pairs, Pairs1) an X
+  pgcc_of(X, Xs, Pairs1) :-
+      clpz:get_atts(X, clpz(clpz_attr(_,_,_,_,fd_props(A,B,C),_))),
+      append([A,B,C], L), member(propagator(pgcc(Xs, _, Pairs1), _), L), !.
   is_gcc(propagator(F, _)) :- functor(F, N, _), memberchk(N, [pgcc_check, pgcc_check_single]).
   % X = V bei abgeschalteter Queue von X (der Hook reiht nur ein)
   quiet_bind(X-V) :-
@@ -788,6 +792,96 @@ defmodule PrologEx.ClpzQueueTest do
   # gleich (im Original erst die äußere Schleife)
   defp gcc_queue(""), do: "clpz:new_queue(Q)"
   defp gcc_queue(v), do: "(clpz:variable_queue(#{v}, Q) -> true ; clpz:new_queue(Q))"
+
+  test "gcc_neq_goals: Wertenetz, Fluss, Komponenten wie das Original", c do
+    xs = ~w(A B C D E F)
+
+    diffs =
+      for _ <- 1..900 do
+        n = Enum.random(2..6)
+        keys = Enum.take_random([1, 2, 3, 4], Enum.random(2..4)) |> Enum.sort()
+        kd = Enum.join(keys, "\\/")
+
+        doms =
+          Enum.map_join(Enum.take(xs, n), ", ", fn v ->
+            sub = Enum.take_random(keys, Enum.random(1..length(keys))) |> Enum.join("\\/")
+            "#{v} in #{Enum.random([kd, kd, sub])}"
+          end)
+
+        ns = Enum.take(~w(N1 N2 N3 N4), length(keys))
+
+        nums =
+          Enum.map_join(ns, ", ", fn v ->
+            "#{v} in #{Enum.random(~w(0..6 1..2 0..1 2..2 1..3 0..0 2..6 3..4 2..3 0..8))}"
+          end)
+
+        pairs = Enum.zip(keys, ns) |> Enum.map_join(",", fn {k, n} -> "#{k}-#{n}" end)
+
+        mods =
+          Enum.map_join(0..Enum.random(0..4)//1, ", ", fn _ ->
+            x = Enum.random(Enum.take(xs, n) ++ ns)
+            v = Enum.random(0..4)
+            if :rand.uniform(2) == 1, do: "quiet_bind(#{x}-#{v})", else: "quiet_neq(#{x}-#{v})"
+          end)
+
+        xl = Enum.take(xs, n) |> Enum.join(",")
+
+        # ohne Propagation: die Num0 wie gcc_pairs/3, gcc_check//1 (das
+        # Original), dann das Netz; die
+        # Variablen auch mehrfach und durcheinander (Kapazitäten über 1,
+        # Sortieren)
+        xl0 =
+          if :rand.uniform(2) == 1,
+            do: xl,
+            else:
+              Enum.map_join(1..Enum.random(2..8), ",", fn _ -> Enum.random(Enum.take(xs, n)) end)
+
+        q0 =
+          "Vs = [A,B,C,D,E,F,N1,N2,N3,N4], (#{doms}, #{nums}, Xs = [#{xl0}], " <>
+            "clpz:gcc_pairs([#{pairs}], Xs, Ps1), clpz:new_queue(Q0), " <>
+            "phrase(clpz:gcc_check(Ps1), [Q0], _) -> " <>
+            "same(clpz:gcc_neq_goals_ref(Xs, Ps1, G), clpz:gcc_neq_goals(Xs, Ps1, G), Vs-G) ; true)"
+
+        r0 = TableCase.run(c.reader, c.db, q0)
+
+        q =
+          "Vs = [A,B,C,D,E,F,N1,N2,N3,N4], (#{doms}, #{nums}, " <>
+            "global_cardinality([#{xl}], [#{pairs}]), #{mods}, " <>
+            "once((member(X0, [#{Enum.take(xs, n) |> Enum.join(",")}]), var(X0), " <>
+            "pgcc_of(X0, Xs, Ps1))) -> " <>
+            "same(clpz:gcc_neq_goals_ref(Xs, Ps1, G), clpz:gcc_neq_goals(Xs, Ps1, G), Vs-G) ; true)"
+
+        r = TableCase.run(c.reader, c.db, q)
+
+        if(match?({_, {:answers, [_]}}, r0), do: [], else: [{q0, r0}]) ++
+          if match?({_, {:answers, [_]}}, r), do: [], else: [{q, r}]
+      end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
+
+  test "gcc_neq_goals: Umleiten über Rückwärtskanten", c do
+    diffs =
+      for {setup, xl, pairs} <- [
+            # Val2 nimmt zuerst B, Val1 kann nur B: über B zurück zu Val2, dann A
+            {"A in 2..3, B in 1..2, N3 in 0..1", "A,B", "1-1,2-1,3-N3"},
+            {"A in 2..3, B in 1..2, C in 1..3, N3 in 0..2", "A,B,C", "1-1,2-1,3-N3"},
+            {"A in 2..3, B in 1..2, C in 2..3, D in 1..1\\/3", "A,B,C,D", "1-1,2-2,3-1"},
+            {"A in 2..3, B in 1..2, C in 1..2", "A,B,C,B", "1-2,2-1,3-1"},
+            {"A in 2..3, B in 1..2, C in 1..3", "C,B,A,B", "1-1,2-2,3-1"}
+          ] do
+        q =
+          "Vs = [A,B,C,D,N3], (#{setup}, Xs = [#{xl}], " <>
+            "clpz:gcc_pairs([#{pairs}], Xs, Ps1), clpz:new_queue(Q0), " <>
+            "phrase(clpz:gcc_check(Ps1), [Q0], _) -> " <>
+            "same(clpz:gcc_neq_goals_ref(Xs, Ps1, G), clpz:gcc_neq_goals(Xs, Ps1, G), Vs-G) ; fail)"
+
+        r = TableCase.run(c.reader, c.db, q)
+        if match?({_, {:answers, [_]}}, r), do: [], else: [{q, r}]
+      end
+
+    assert List.flatten(diffs) == [], inspect(Enum.take(List.flatten(diffs), 2), pretty: true)
+  end
 
   test "pgcc_check: Sonderfälle (alle ≠ Key, eine Bindung am Ende, zu viele)", c do
     diffs =

@@ -718,6 +718,78 @@ defmodule PrologEx.Builtins.ClpzPrims do
     to_domain(merge_intervals(intervals(d1, []) ++ intervals(d2, [])))
   end
 
+  # gcc_neq_goals(Vs, KNs, Gs): der Teil von gcc_global//2 unter
+  # with_local_attributes/3 (Wertenetz, Fluss, Komponenten), siehe
+  # PrologEx.Builtins.ClpzGcc; Gs die neq_num-Ziele
+  defbuiltin "$clpz_gcc_goals", [vs, kns, gs] do
+    run("gcc_neq_goals", [vs, kns, gs], subst(), fn ->
+      s = subst_now()
+
+      vals =
+        list_items(kns, s)
+        |> Enum.flat_map(fn p ->
+          {key, num0} =
+            case ws(p, s) do
+              {tag, "-", [k, n0]} when tag in [:struct, :gstruct] ->
+                case {val(k, s), PrologEx.walk(n0, s)} do
+                  {k, {:var, _} = n0} when is_integer(k) -> {k, n0}
+                  _ -> throw(:fallback)
+                end
+
+              _ ->
+                throw(:fallback)
+            end
+
+          case att(num0, s, "clpz_gcc_vs", 1) do
+            nil ->
+              []
+
+            [gvs] ->
+              [num] = att(num0, s, "clpz_gcc_num", 1) || throw(:fallback)
+              [occ] = att(num0, s, "clpz_gcc_occurred", 1) || throw(:fallback)
+              occ = val(occ, s)
+              is_integer(occ) || throw(:fallback)
+
+              {l, u} =
+                case val(num, s) do
+                  i when is_integer(i) ->
+                    {i - occ, i - occ}
+
+                  {:var, _} = v ->
+                    case ibounds(v, s) do
+                      {l0, u0} when is_integer(l0) and is_integer(u0) -> {l0 - occ, u0 - occ}
+                      _ -> throw(:fallback)
+                    end
+
+                  _ ->
+                    throw(:fallback)
+                end
+
+              [{key, l, u, var_counts(list_items(gvs, s), s)}]
+          end
+        end)
+
+      case PrologEx.Builtins.ClpzGcc.goals(vals, var_counts(list_items(vs, s), s)) do
+        :fail ->
+          :fail
+
+        goals ->
+          out(gs, PrologEx.list(Enum.map(goals, fn {v, k} -> mk("neq_num", [v, k]) end)))
+      end
+    end)
+  end
+
+  # variables_with_num_occurrences/2: die Variablen (stabil sortiert) mit
+  # ihrer Anzahl
+  defp var_counts(items, s) do
+    items
+    |> Enum.map(&PrologEx.walk(&1, s))
+    |> Enum.filter(&match?({:var, _}, &1))
+    |> Enum.sort(fn a, b -> PrologEx.Order.compare(a, b, s) != :gt end)
+    |> Enum.chunk_by(& &1)
+    |> Enum.map(fn [v | _] = l -> {v, length(l)} end)
+  end
+
   defbuiltin "$clpz_domains_union", [d1, d2, u] do
     run("domains_union", [d1, d2, u], subst(), fn ->
       out(u, maybe_ed(union(dom(d1), dom(d2))))

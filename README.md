@@ -1339,6 +1339,16 @@ Bisher in Elixir:
     äußeren Schleife, der Fixpunkt ist derselbe); mehrere Bindungen oder
     eine früher: das Original. Das gcc-Beispiel 122–134 → 101–115 ms
     (−8 % Reduktionen); den größten Teil rechnet weiter `gcc_global//2`.
+  * `gcc_global//2` (`pgcc`, `pgcc_single`, Régins Flussverfahren): der
+    reine Kern unter `with_local_attributes/3` – Wertenetz, zulässiger und
+    maximaler Fluss, Tarjans Komponenten, die Liste der `neq_num/2` – als
+    `$clpz_gcc_goals/3` in Elixir (`PrologEx.Builtins.ClpzGcc`) mit Maps
+    statt Attributen, Schritt für Schritt in derselben Reihenfolge; die
+    Ziele werden wie bisher in Prolog gesetzt. Unendliche Grenzen einer
+    Anzahl: das Original. Welche Variablen-Wert-Kanten wegfallen, hängt
+    nach Régin nicht davon ab, welcher maximale Fluss gefunden wird. Das
+    gcc-Beispiel 83–94 → 18 ms (Scryer 16 ms), 11,6 → 2,5 Mio.
+    Reduktionen.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =
