@@ -55,6 +55,62 @@ defmodule PrologEx.DCG do
     goal
   end
 
+  @doc """
+  Wie `phrase_goal/4` für den ungelösten Rumpf `g`: aufgelöst werden nur
+  die Steuerkonstrukte und Listengerüste, die Argumente der Nichtterminale
+  bleiben, wie sie sind (die Ausführung dereferenziert sie ohnehin); so
+  kostet ein Nichtterminal mit großen Argumenten nicht deren Größe. Bei
+  einem Fehler (oder sehr tiefer Schachtelung) der bisherige Weg über den
+  ganz aufgelösten Rumpf, damit die Fehlerterme dieselben sind.
+  """
+  def phrase_goal_lazy(g, s0, s, subst) do
+    goal =
+      case shallow(g, subst, 0) do
+        {:var, _} -> PrologEx.Error.instantiation!()
+        b -> tr(b, s0, s)
+      end
+
+    PrologEx.check_body!(goal, subst)
+    goal
+  rescue
+    PrologEx.Error -> phrase_goal(PrologEx.resolve(g, subst), s0, s, subst)
+  catch
+    :dcg_deep -> phrase_goal(PrologEx.resolve(g, subst), s0, s, subst)
+  end
+
+  defp shallow(_t, _subst, d) when d > 10_000, do: throw(:dcg_deep)
+
+  defp shallow(t, subst, d) do
+    case PrologEx.unmark_top(PrologEx.walk(t, subst)) do
+      {:var, _} = v ->
+        v
+
+      {:struct, op, [x, y]} when op in [",", ";", "|", "->"] ->
+        {:struct, op, [shallow(x, subst, d + 1), shallow(y, subst, d + 1)]}
+
+      {:struct, "\\+", [x]} ->
+        {:struct, "\\+", [shallow(x, subst, d + 1)]}
+
+      {:struct, ":", [m, b]} ->
+        {:struct, ":", [PrologEx.walk(m, subst), shallow(b, subst, d + 1)]}
+
+      [h | tl] ->
+        [h | shallow_tail(tl, subst, d + 1)]
+
+      other ->
+        other
+    end
+  end
+
+  defp shallow_tail(_t, _subst, d) when d > 10_000, do: throw(:dcg_deep)
+
+  defp shallow_tail(t, subst, d) do
+    case PrologEx.unmark_top(PrologEx.walk(t, subst)) do
+      [h | tl] -> [h | shallow_tail(tl, subst, d + 1)]
+      other -> other
+    end
+  end
+
   defp tr({:var, _} = v, s0, s), do: mk("phrase", [v, s0, s])
 
   defp tr({:struct, ",", [x, y]}, s0, s) do
@@ -92,7 +148,7 @@ defmodule PrologEx.DCG do
   defp tr({:struct, "call", args}, s0, s), do: mk("call", args ++ [s0, s])
   # M:Rumpf: der Rumpf im Modul M (wie SWI; z. B. Grammatiken, die ein
   # Meta-Prädikat mit //-Argument qualifiziert weitergibt)
-  defp tr({:struct, ":", [m, b]}, s0, s), do: mk(":", [m, tr(unmark(b), s0, s)])
+  defp tr({:struct, ":", [m, b]}, s0, s), do: mk(":", [m, tr(PrologEx.unmark_top(b), s0, s)])
 
   defp tr([_ | _] = l, s0, s), do: tr_terminals(l, s0, s)
 

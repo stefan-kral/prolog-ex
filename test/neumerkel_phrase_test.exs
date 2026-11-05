@@ -68,7 +68,37 @@ defmodule PrologEx.NeumerkelPhraseTest do
     {"phrase([], non_list)", :fails},
     {"phrase([], [a|non_list])", :fails},
     {"phrase([], L,non_list)", ["L = non_list"]},
-    {"phrase([], L,[a|non_list])", ["L = [a|non_list]"]}
+    {"phrase([], L,[a|non_list])", ["L = [a|non_list]"]},
+    # Rumpf, Teilziele und Listengerüste über gebundene Variablen
+    # (phrase/2,3 löst nur die Steuerkonstrukte auf)
+    {"X = [b], T = [c|U], U = [], G = ([a],X,T), phrase(G, L)",
+     ["G = ([a],[b],[c]), L = [a,b,c], T = [c], U = [], X = [b]"]},
+    {"Y = 1, X = (\\+ Y), phrase(X, [])", {:error, "type_error(callable,1)"}},
+    {"Y = 1, X = ([a], Y), phrase(X, [])", {:error, @callable}},
+    {"T = [b|V], phrase([a|T], L)", {:error, @inst}},
+    {"X = [Y], Y = [], phrase(([a] -> X), L)", ["L = [a,[]], X = [[]], Y = []"]},
+    {"M = lists, N = append([x]), phrase(M:N, [y], R)",
+     ["M = lists, N = append([x]), R = [x,y]"]},
+    {"G = {Z = 1}, phrase(G, [], R)", ["G = {1=1}, R = [], Z = 1"]},
+    {"B = (A ; [c]), A = [b], phrase(([a], B), L)",
+     ["A = [b], B = ([b];[c]), L = [a,b]", "A = [b], B = ([b];[c]), L = [a,c]"]},
+    {"X = Y, phrase(X, L)", {:error, @inst}},
+    # ! über Variablen: schneidet die Alternativen des ganzen Rumpfs ab
+    {"A = !, B = (A, {fail}), C = (B ; []), phrase(C, [])", :fails},
+    {"A = !, B = (A, {fail}), C = '|'(B, []), phrase(C, [])", :fails},
+    {"A = !, B = (A, {fail}), C = (B, []), phrase((C ; []), [])", :fails},
+    {"A = [a], B = {fail}, C = (A -> B), phrase((C ; [a]), L)", :fails},
+    {"A = !, B = (A, {fail}), phrase((lists:B ; []), [])", :fails},
+    {"A = !, B = (A, {fail}), phrase(\\+ B, [])", ["A = !, B = (!,{fail})"]},
+    {"Y = 1, Z = f(W), W = 2, X = ([a], Z, Y), phrase(X, [])",
+     {:error, "type_error(callable,1)"}},
+    {"X = [a|T], T = [b|c], phrase(X, L)", {:error, "type_error(list,[a,b|c])"}},
+    # der Fehlerterm ist aufgelöst (Bindungen im catch-Ziel sind danach weg)
+    {"catch((W = 3, Z = g(W), phrase((Z, {1}), _)), error(type_error(_, (g(V,_,_),_,_)), _), true), V == 3",
+     ["V = 3"]},
+    {"catch((F = 1, T = [e(F)|c], phrase([a|T], _)), error(type_error(list, [_, e(V)|_]), _), true), V == 1",
+     ["V = 1"]},
+    {"A = [a], B = (!, {fail}), phrase((((A -> B) ; []) ; [a]), [a])", :fails}
   ]
 
   setup_all do

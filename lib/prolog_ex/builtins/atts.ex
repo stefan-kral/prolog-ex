@@ -185,13 +185,9 @@ defmodule PrologEx.Builtins.Atts do
     v
     |> PrologEx.get_attrs(s)
     |> Map.get(mod, [])
-    |> PrologEx.unmark()
-    |> items()
+    |> top_items()
     |> Enum.map(fn att -> {PrologEx.Compiler.key(att), att} end)
   end
-
-  defp items([]), do: []
-  defp items([h | t]), do: [h | items(t)]
 
   defp specs(spec, s) do
     case PrologEx.unmark_top(PrologEx.walk(spec, s)) do

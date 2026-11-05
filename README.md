@@ -1349,6 +1349,17 @@ Bisher in Elixir:
     nach Régin nicht davon ab, welcher maximale Fluss gefunden wird. Das
     gcc-Beispiel 83–94 → 18 ms (Scryer 16 ms), 11,6 → 2,5 Mio.
     Reduktionen.
+  * zwei Kosten, die mit der Zahl der Constraints an einer Variablen
+    wuchsen (Aufstellen insgesamt also überlinear): `get_atts/2` und
+    `put_atts/2` kopierten das ganze Attribut (mit den Propagatorlisten)
+    bei jedem Zugriff, um Markierungen zu entfernen – jetzt nur die oberste
+    Ebene; `phrase/2,3` löste den ganzen Rumpf samt Argumenten der
+    Nichtterminale auf (clpz ruft `phrase(init_propagator_(…), …)` und
+    `fd_put/3` mit dem Attribut als Argument) – jetzt nur Steuerkonstrukte
+    und Listengerüste (ein Fehler: wie bisher über den ganz aufgelösten
+    Rumpf). `fd_get` + `fd_put` an einer Variable mit 120 Propagatoren:
+    170 → 15 µs. Aufstellen von 30 Damen 270–290 → 180–260 ms, 60 Damen
+    1,64 → 1,1 s.
   * `verify_attributes/3`, der Hook bei jeder Bindung: eine Variable ohne
     clpz-Attribut (der Zustand eines getöteten Propagators, eine
     zusammengelegte Warteschlange – die meisten Aufrufe) gibt gleich `Gs =

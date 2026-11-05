@@ -307,11 +307,11 @@ defmodule PrologEx.Builtins.Core do
   # --- DCG ---------------------------------------------------------------
 
   defbuiltin "phrase", [g, l] do
-    {:call, PrologEx.DCG.phrase_goal(resolve(g), l, [], subst())}
+    {:call, PrologEx.DCG.phrase_goal_lazy(g, l, [], subst())}
   end
 
   defbuiltin "phrase", [g, l, r] do
-    {:call, PrologEx.DCG.phrase_goal(resolve(g), l, r, subst())}
+    {:call, PrologEx.DCG.phrase_goal_lazy(g, l, r, subst())}
   end
 
   # --- System ------------------------------------------------------------
