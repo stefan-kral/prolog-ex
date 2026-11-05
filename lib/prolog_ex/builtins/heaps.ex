@@ -134,7 +134,7 @@ defmodule PrologEx.Builtins.Heaps do
       |> items!(s)
       |> Enum.with_index()
       |> Enum.map(fn {e, i} ->
-        case PrologEx.unmark_top(PrologEx.walk(e, s)) do
+        case PrologEx.unmark_top(PrologEx.Store.walk(e, s)) do
           {:struct, "-", [k, v]} -> {k, i, v}
           {:var, _} -> Error.instantiation!()
           other -> Error.type!("pair", PrologEx.resolve(other, s))
@@ -187,10 +187,10 @@ defmodule PrologEx.Builtins.Heaps do
   defbuiltin "is_heap", [h] do
     s = subst()
 
-    case PrologEx.unmark_top(PrologEx.walk(h, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(h, s)) do
       {:struct, "heap", [n, x, t]} ->
-        with n when is_integer(n) and n >= 0 <- PrologEx.walk(n, s),
-             x when is_integer(x) and x >= 0 <- PrologEx.walk(x, s),
+        with n when is_integer(n) and n >= 0 <- PrologEx.Store.walk(n, s),
+             x when is_integer(x) and x >= 0 <- PrologEx.Store.walk(x, s),
              {:ok, ^n, _} <- check(t, nil, s) do
           true
         else
@@ -231,9 +231,9 @@ defmodule PrologEx.Builtins.Heaps do
   end
 
   defp rank(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, "t"} -> 0
-      {:struct, "t", [_, _, _, r, _, _]} -> PrologEx.walk(r, s)
+      {:struct, "t", [_, _, _, r, _, _]} -> PrologEx.Store.walk(r, s)
     end
   end
 
@@ -293,13 +293,13 @@ defmodule PrologEx.Builtins.Heaps do
 
   # {:ok, größe, rang}; Heap-Bedingung, Rang und Leftist-Eigenschaft
   defp check(t, parent, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, "t"} ->
         {:ok, 0, 0}
 
       {:struct, "t", [k, q, v, r, l, rt]} ->
-        with q when is_integer(q) <- PrologEx.walk(q, s),
-             r when is_integer(r) <- PrologEx.walk(r, s),
+        with q when is_integer(q) <- PrologEx.Store.walk(q, s),
+             r when is_integer(r) <- PrologEx.Store.walk(r, s),
              true <- parent == nil or not before?({k, q, v, r, l, rt}, parent, s),
              {:ok, nl, rl} <- check(l, {k, q, v, r, l, rt}, s),
              {:ok, nr, rr} <- check(rt, {k, q, v, r, l, rt}, s),
@@ -317,9 +317,9 @@ defmodule PrologEx.Builtins.Heaps do
   # --- Lesen und Prüfen ---------------------------------------------------------
 
   defp heap!(h, s) do
-    case PrologEx.unmark_top(PrologEx.walk(h, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(h, s)) do
       {:struct, "heap", [n, x, t]} = hp ->
-        case {PrologEx.walk(n, s), PrologEx.walk(x, s)} do
+        case {PrologEx.Store.walk(n, s), PrologEx.Store.walk(x, s)} do
           {n, x} when is_integer(n) and is_integer(x) -> {n, x, t}
           _ -> Error.type!("heap", PrologEx.resolve(hp, s))
         end
@@ -333,12 +333,12 @@ defmodule PrologEx.Builtins.Heaps do
   end
 
   defp node!(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, "t"} ->
         :empty
 
       {:struct, "t", [k, q, v, r, l, rt]} = n ->
-        case {PrologEx.walk(q, s), PrologEx.walk(r, s)} do
+        case {PrologEx.Store.walk(q, s), PrologEx.Store.walk(r, s)} do
           {q, r} when is_integer(q) and is_integer(r) -> {k, q, v, r, l, rt}
           _ -> Error.type!("heap", PrologEx.resolve(n, s))
         end

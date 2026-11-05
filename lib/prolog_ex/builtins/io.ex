@@ -59,7 +59,7 @@ defmodule PrologEx.Builtins.IO do
 
   # Dateiname: Atom oder Zeichen-/Codeliste
   defp fs_path!(f, s) do
-    case PrologEx.walk(f, s) do
+    case PrologEx.Store.walk(f, s) do
       {:var, _} ->
         Error.instantiation!()
 
@@ -376,15 +376,15 @@ defmodule PrologEx.Builtins.IO do
   def out(text), do: S.put_text(current_out!(:text), text)
 
   defp write_to(stream, x, opts, s) do
-    id = output!(PrologEx.walk(stream, s), :text)
+    id = output!(PrologEx.Store.walk(stream, s), :text)
     S.put_text(id, Writer.format(PrologEx.resolve(x, s), opts))
   end
 
   # --- open ---------------------------------------------------------------
 
   defp open(src, mode, stream, opts, s) do
-    src = PrologEx.walk(src, s)
-    mode = PrologEx.walk(mode, s)
+    src = PrologEx.Store.walk(src, s)
+    mode = PrologEx.Store.walk(mode, s)
 
     if match?({:var, _}, src) or match?({:var, _}, mode), do: Error.instantiation!()
 
@@ -397,7 +397,7 @@ defmodule PrologEx.Builtins.IO do
         other -> Error.type!("atom", PrologEx.resolve(other, s))
       end
 
-    case PrologEx.walk(stream, s) do
+    case PrologEx.Store.walk(stream, s) do
       {:var, _} -> :ok
       other -> Error.uninstantiation!(PrologEx.resolve(other, s))
     end
@@ -625,7 +625,7 @@ defmodule PrologEx.Builtins.IO do
   end
 
   defp put_char(id, c, s) do
-    case PrologEx.walk(c, s) do
+    case PrologEx.Store.walk(c, s) do
       {:var, _} ->
         Error.instantiation!()
 
@@ -640,7 +640,7 @@ defmodule PrologEx.Builtins.IO do
   end
 
   defp put_code(id, c, s) do
-    case PrologEx.walk(c, s) do
+    case PrologEx.Store.walk(c, s) do
       {:var, _} ->
         Error.instantiation!()
 
@@ -656,7 +656,7 @@ defmodule PrologEx.Builtins.IO do
   end
 
   defp put_byte(id, b, s) do
-    case PrologEx.walk(b, s) do
+    case PrologEx.Store.walk(b, s) do
       {:var, _} -> Error.instantiation!()
       n when is_integer(n) and n >= 0 and n <= 255 -> S.put_byte(id, n)
       other -> Error.type!("byte", PrologEx.resolve(other, s))

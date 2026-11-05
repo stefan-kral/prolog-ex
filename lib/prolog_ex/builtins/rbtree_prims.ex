@@ -140,7 +140,7 @@ defmodule PrologEx.Builtins.RbtreePrims do
   defbuiltin "$rb_is_rbtree", [t] do
     s = subst()
 
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:struct, "t", [nil_, root]} ->
         Order.equal?(nil_, root, s) or check(root, s)
 
@@ -220,7 +220,7 @@ defmodule PrologEx.Builtins.RbtreePrims do
 
     ps =
       Enum.map(items, fn e ->
-        case PrologEx.unmark_top(PrologEx.walk(e, s)) do
+        case PrologEx.unmark_top(PrologEx.Store.walk(e, s)) do
           {:struct, "-", [k, v]} -> {k, v}
           {:var, _} -> Error.instantiation!()
           other -> Error.type!("pair", PrologEx.resolve(other, s))
@@ -250,7 +250,7 @@ defmodule PrologEx.Builtins.RbtreePrims do
   # --- Lesen -------------------------------------------------------------------
 
   defp tree!(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:struct, "t", [nil_, root]} -> {nil_, root}
       {:var, _} -> Error.instantiation!()
       other -> Error.type!("rbtree", PrologEx.resolve(other, s))
@@ -259,7 +259,7 @@ defmodule PrologEx.Builtins.RbtreePrims do
 
   # :leaf ('') oder {farbe, l, k, v, r}
   defp node(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, ""} -> :leaf
       {:struct, "black", [l, k, v, r]} -> {:black, l, k, v, r}
       {:struct, "red", [l, k, v, r]} -> {:red, l, k, v, r}

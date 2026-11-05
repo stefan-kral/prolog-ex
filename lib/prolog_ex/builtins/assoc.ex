@@ -171,7 +171,7 @@ defmodule PrologEx.Builtins.Assoc do
 
     ps =
       Enum.map(items, fn p ->
-        case PrologEx.unmark_top(PrologEx.walk(p, s)) do
+        case PrologEx.unmark_top(PrologEx.Store.walk(p, s)) do
           {:struct, "-", [k, v]} -> {k, v}
           _ -> Error.domain!("key_ordered_pairs", resolve(l))
         end
@@ -249,12 +249,12 @@ defmodule PrologEx.Builtins.Assoc do
 
   # :empty oder {K, V, Balance, L, R}; Balance als "<", "-", ">"
   defp node!(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, "t"} ->
         :empty
 
       {:struct, "t", [k, v, b, l, r]} = n ->
-        case PrologEx.walk(b, s) do
+        case PrologEx.Store.walk(b, s) do
           {:atom, bal} when bal in ["<", "-", ">"] -> {k, v, bal, l, r}
           {:var, _} -> Error.instantiation!()
           _ -> Error.type!("assoc", PrologEx.resolve(n, s))
@@ -352,12 +352,12 @@ defmodule PrologEx.Builtins.Assoc do
 
   # {:ok, Min, Max, Tiefe} für einen gültigen Baum (wie SWIs is_assoc/1)
   defp check(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, "t"} ->
         {:ok, nil, nil, 0}
 
       {:struct, "t", [k, _v, b, l, r]} ->
-        with {:atom, bal} when bal in ["<", "-", ">"] <- PrologEx.walk(b, s),
+        with {:atom, bal} when bal in ["<", "-", ">"] <- PrologEx.Store.walk(b, s),
              true <- PrologEx.Builtins.Order.variables(k, s) == [],
              {:ok, lmin, lmax, ld} <- check(l, s),
              {:ok, rmin, rmax, rd} <- check(r, s),
@@ -594,7 +594,7 @@ defmodule PrologEx.Builtins.Assoc do
 
   # wie keysort/2
   defp pair!(p, s) do
-    case PrologEx.unmark_top(PrologEx.walk(p, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(p, s)) do
       {:struct, "-", [k, v]} -> {k, v}
       {:var, _} -> Error.instantiation!()
       other -> Error.type!("pair", PrologEx.resolve(other, s))

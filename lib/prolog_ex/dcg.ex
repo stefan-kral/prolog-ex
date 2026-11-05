@@ -81,7 +81,7 @@ defmodule PrologEx.DCG do
   defp shallow(_t, _subst, d) when d > 10_000, do: throw(:dcg_deep)
 
   defp shallow(t, subst, d) do
-    case PrologEx.unmark_top(PrologEx.walk(t, subst)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, subst)) do
       {:var, _} = v ->
         v
 
@@ -92,7 +92,7 @@ defmodule PrologEx.DCG do
         {:struct, "\\+", [shallow(x, subst, d + 1)]}
 
       {:struct, ":", [m, b]} ->
-        {:struct, ":", [PrologEx.walk(m, subst), shallow(b, subst, d + 1)]}
+        {:struct, ":", [PrologEx.Store.walk(m, subst), shallow(b, subst, d + 1)]}
 
       [h | tl] ->
         [h | shallow_tail(tl, subst, d + 1)]
@@ -105,7 +105,7 @@ defmodule PrologEx.DCG do
   defp shallow_tail(_t, _subst, d) when d > 10_000, do: throw(:dcg_deep)
 
   defp shallow_tail(t, subst, d) do
-    case PrologEx.unmark_top(PrologEx.walk(t, subst)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, subst)) do
       [h | tl] -> [h | shallow_tail(tl, subst, d + 1)]
       other -> other
     end

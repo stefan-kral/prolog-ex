@@ -69,15 +69,15 @@ defmodule PrologEx.Builtins.Files do
 
   # {:list, elemente} | {:partial, elemente} | :other (Elemente dereferenziert)
   defp items(t, s, acc \\ []) do
-    case PrologEx.walk(t, s) |> uncons() do
+    case PrologEx.Store.walk(t, s) |> uncons() do
       :empty ->
         {:list, Enum.reverse(acc)}
 
       {:cons, h, tl} ->
-        items(tl, s, [PrologEx.walk(h, s) | acc])
+        items(tl, s, [PrologEx.Store.walk(h, s) | acc])
 
       :other ->
-        case PrologEx.walk(t, s) do
+        case PrologEx.Store.walk(t, s) do
           {:var, _} -> {:partial, Enum.reverse(acc)}
           _ -> :other
         end
@@ -205,7 +205,7 @@ defmodule PrologEx.Builtins.Files do
   defbuiltin "path_segments", [p, segs] do
     s = subst()
 
-    case PrologEx.walk(p, s) do
+    case PrologEx.Store.walk(p, s) do
       {:var, _} ->
         segments =
           case items(segs, s) do

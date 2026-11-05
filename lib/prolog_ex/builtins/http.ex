@@ -39,7 +39,7 @@ defmodule PrologEx.Builtins.Http do
     url = text!(address, s)
     m = String.to_atom(atom_name!(method, s))
     hs = header_terms!(req_headers, s)
-    body = data_bytes(PrologEx.walk(data, s), s)
+    body = data_bytes(PrologEx.Store.walk(data, s), s)
     profile!()
 
     {ct, hs} =
@@ -227,7 +227,7 @@ defmodule PrologEx.Builtins.Http do
   # Zeichen mit Codes 0..255 als Bytes ausgeben (bytes(B) eines Rumpfs)
   defbuiltin "$http_put_byte_chars", [stream, cs] do
     s = subst()
-    id = S.lookup!(PrologEx.walk(stream, s))
+    id = S.lookup!(PrologEx.Store.walk(stream, s))
 
     bin =
       for c <- items!(cs, s), into: <<>> do
@@ -284,7 +284,7 @@ defmodule PrologEx.Builtins.Http do
   # --- Hilfen ---------------------------------------------------------------
 
   defp take_handle!(handle, s) do
-    case PrologEx.unmark_top(PrologEx.walk(handle, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(handle, s)) do
       {:struct, "$http_handle", [h]} ->
         case Process.delete({:prolog_ex_http_handle, h}) do
           nil -> Error.existence!("http_response", PrologEx.resolve(handle, s))
@@ -300,7 +300,7 @@ defmodule PrologEx.Builtins.Http do
   end
 
   defp listener_id!(l, s) do
-    case PrologEx.unmark_top(PrologEx.walk(l, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(l, s)) do
       {:struct, "$http_listener", [id]} -> id
       {:var, _} -> Error.instantiation!()
       other -> Error.domain!("http_listener", PrologEx.resolve(other, s))
@@ -318,7 +318,7 @@ defmodule PrologEx.Builtins.Http do
   end
 
   defp status!(code, s) do
-    case PrologEx.walk(code, s) do
+    case PrologEx.Store.walk(code, s) do
       n when is_integer(n) and n >= 100 and n <= 999 -> n
       {:var, _} -> Error.instantiation!()
       n when is_integer(n) -> Error.domain!("http_status", n)
@@ -327,7 +327,7 @@ defmodule PrologEx.Builtins.Http do
   end
 
   defp int!(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       n when is_integer(n) -> n
       {:var, _} -> Error.instantiation!()
       other -> Error.type!("integer", PrologEx.resolve(other, s))
@@ -335,7 +335,7 @@ defmodule PrologEx.Builtins.Http do
   end
 
   defp atom_name!(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, n} -> n
       {:var, _} -> Error.instantiation!()
       other -> Error.type!("atom", PrologEx.resolve(other, s))
@@ -345,7 +345,7 @@ defmodule PrologEx.Builtins.Http do
   # [name(Wert), ...] → [{"name", "wert"}]
   defp header_terms!(l, s) do
     for h <- items!(l, s) do
-      case PrologEx.unmark_top(PrologEx.walk(h, s)) do
+      case PrologEx.unmark_top(PrologEx.Store.walk(h, s)) do
         {:struct, name, [v]} -> {String.downcase(name), text!(v, s)}
         {:var, _} -> Error.instantiation!()
         other -> Error.type!("http_header", PrologEx.resolve(other, s))
@@ -363,7 +363,7 @@ defmodule PrologEx.Builtins.Http do
 
   # Zeichenliste, Codeliste oder Atom → Binary
   defp text!(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, n} ->
         n
 
@@ -375,7 +375,7 @@ defmodule PrologEx.Builtins.Http do
 
       _ ->
         for c <- items!(t, s), into: "" do
-          case PrologEx.walk(c, s) do
+          case PrologEx.Store.walk(c, s) do
             {:atom, <<_::utf8>> = ch} -> ch
             n when is_integer(n) and n >= 0 -> <<n::utf8>>
             {:var, _} -> Error.instantiation!()

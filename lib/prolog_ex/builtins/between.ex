@@ -105,7 +105,7 @@ defmodule PrologEx.Builtins.Between do
   defp elem_int(nil, _s), do: nil
 
   defp elem_int(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       k when is_integer(k) -> k
       {:var, _} -> nil
       _ -> :bad
@@ -113,7 +113,7 @@ defmodule PrologEx.Builtins.Between do
   end
 
   defp int_or_var!(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       k when is_integer(k) -> k
       {:var, _} -> nil
       other -> Error.type!("integer", PrologEx.resolve(other, s))

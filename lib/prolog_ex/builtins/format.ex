@@ -67,7 +67,7 @@ defmodule PrologEx.Builtins.Format do
   # --- Argumente prüfen ---------------------------------------------------
 
   defp control!(f, s) do
-    case PrologEx.walk(f, s) do
+    case PrologEx.Store.walk(f, s) do
       {:var, _} ->
         Error.instantiation!()
 
@@ -102,7 +102,7 @@ defmodule PrologEx.Builtins.Format do
     end
 
     for x <- Lists.items(l, s) do
-      case PrologEx.walk(x, s) do
+      case PrologEx.Store.walk(x, s) do
         {:var, _} -> Error.instantiation!()
         c when is_integer(c) and c >= 0 and c <= 0x10FFFF -> c
         {:atom, ch} -> single_char!(ch, bad)
@@ -175,7 +175,7 @@ defmodule PrologEx.Builtins.Format do
     {t, args} = next(args)
 
     name =
-      case PrologEx.walk(t, s) do
+      case PrologEx.Store.walk(t, s) do
         {:var, _} -> Error.instantiation!()
         [] -> "[]"
         {:atom, n} -> n
@@ -199,7 +199,7 @@ defmodule PrologEx.Builtins.Format do
     {t, args} = next(args)
 
     text =
-      case PrologEx.walk(t, s) do
+      case PrologEx.Store.walk(t, s) do
         {:var, _} ->
           Error.instantiation!()
 

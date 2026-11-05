@@ -3,7 +3,15 @@ Elixir does Prolog!
 
 Ein Prolog-Kern in Elixir:
 
-- Unifikation über persistente Substitutions-Maps, eine zentrale `bind/3`
+- Unifikation über persistente Substitutions-Maps, eine zentrale `bind/3`.
+  Alle Zugriffe auf die Substitution (Verfolgen und Binden von Variablen,
+  Attribute, Weck-Vermerk, Ebene von `call_with_depth_limit/3`,
+  backtrackbares Blackboard, Festhalten für Choice Points) laufen über
+  `PrologEx.Store`; Maschine, Builtins und Kompaktierung kennen die
+  Darstellung nicht. Ein veränderlicher Speicher mit Trail (Marke je
+  Choice Point, Zurückspulen statt Kopieren) wäre damit ein Austausch
+  dieses einen Moduls. Kosten der Schnittstelle: keine messbaren
+  (Reduktionen ±1 %, Laufzeit im Rauschen)
 - Listen als native BEAM-Cons-Zellen (`'.'(H,T)` = `[H|T]`)
 - Klauseln werden beim Laden in eine WAM-artige IR kompiliert
   (`lib/prolog_ex/compiler.ex`): Variablenklassifikation, Read-/Write-Modus

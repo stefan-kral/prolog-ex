@@ -149,7 +149,7 @@ defmodule PrologEx.Builtin do
   end
 
   defmacro deref(t),
-    do: quote(do: PrologEx.walk(unquote(t), var!(ctx).subst))
+    do: quote(do: PrologEx.Store.walk(unquote(t), var!(ctx).subst))
 
   defmacro resolve(t),
     do: quote(do: PrologEx.resolve(unquote(t), var!(ctx).subst))

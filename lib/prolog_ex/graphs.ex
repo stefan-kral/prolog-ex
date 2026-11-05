@@ -46,7 +46,7 @@ defmodule PrologEx.Graphs do
 
   @doc "`A-B` als `{a, b}`; sonst `type_error(pair, T)`"
   def pair!(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:struct, "-", [a, b]} -> {a, b}
       {:var, _} -> Error.instantiation!()
       other -> Error.type!("pair", PrologEx.resolve(other, s))
@@ -55,7 +55,7 @@ defmodule PrologEx.Graphs do
 
   @doc "Gewicht: eine Zahl"
   def weight!(w, s) do
-    case PrologEx.walk(w, s) do
+    case PrologEx.Store.walk(w, s) do
       x when is_number(x) -> x
       {:var, _} -> Error.instantiation!()
       other -> Error.type!("number", PrologEx.resolve(other, s))

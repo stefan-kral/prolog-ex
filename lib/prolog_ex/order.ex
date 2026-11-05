@@ -15,7 +15,8 @@ defmodule PrologEx.Order do
   Ground-Markierungen spielen keine Rolle.
   """
 
-  import PrologEx, only: [walk: 2, uncons: 1, is_marked: 1]
+  import PrologEx, only: [uncons: 1, is_marked: 1]
+  import PrologEx.Store, only: [walk: 2]
 
   @doc """
   `:lt`, `:eq` oder `:gt`, direkt auf dem Paar: Klassen, Zahlen, Atome und

@@ -161,7 +161,7 @@ defmodule PrologEx.Builtins.FastRW do
 
   # Bytes als Prolog-Liste von 0..255 -> {:ok, binary}; sonst :no (schreiben)
   defp byte_list(l, s) do
-    case PrologEx.walk(l, s) do
+    case PrologEx.Store.walk(l, s) do
       {:var, _} ->
         :no
 

@@ -105,7 +105,7 @@ defmodule PrologEx.Builtins.Charsio do
     cs
     |> PrologEx.Builtins.Lists.items(s)
     |> Enum.map_join(fn t ->
-      {:atom, c} = PrologEx.walk(t, s)
+      {:atom, c} = PrologEx.Store.walk(t, s)
       c
     end)
   end
@@ -186,7 +186,7 @@ defmodule PrologEx.Builtins.Charsio do
       _ ->
         bytes =
           for t <- PrologEx.Builtins.Lists.items(cs, s), into: <<>> do
-            {:atom, <<c::utf8>>} = PrologEx.walk(t, s)
+            {:atom, <<c::utf8>>} = PrologEx.Store.walk(t, s)
             <<c>>
           end
 

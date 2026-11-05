@@ -32,14 +32,14 @@ defmodule PrologEx.Builtins.Gensym do
   defbuiltin "gensym", [base, unique] do
     s = subst()
 
-    case PrologEx.walk(unique, s) do
+    case PrologEx.Store.walk(unique, s) do
       {:var, _} = v ->
         b = base!(base, s)
         db = PrologEx.current_db()
         counters = Map.get(db, :gensym, %{})
         n = Map.get(counters, b, 0) + 1
         PrologEx.put_db(Map.put(db, :gensym, Map.put(counters, b, n)))
-        {:subst, PrologEx.bind(v, {:atom, b <> Integer.to_string(n)}, s)}
+        {:subst, PrologEx.Store.bind(v, {:atom, b <> Integer.to_string(n)}, s)}
 
       _ ->
         Error.uninstantiation!(resolve(unique))
@@ -82,7 +82,7 @@ defmodule PrologEx.Builtins.Gensym do
   defp counters, do: Map.get(PrologEx.current_db(), :gensym, %{})
 
   defp base!(base, s) do
-    case PrologEx.unmark_top(PrologEx.walk(base, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(base, s)) do
       {:var, _} -> Error.instantiation!()
       {:atom, b} -> b
       [] -> "[]"

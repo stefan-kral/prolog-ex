@@ -2,6 +2,7 @@ defmodule PrologEx.Builtins.Terms do
   @moduledoc "Termaufbau und -zerlegung: functor/3, (=..)/2."
   use PrologEx.Builtin
   alias PrologEx.Builtins.Core
+  alias PrologEx.Store
 
   # plus(X, Y, Z): Z = X + Y für Ganzzahlen, zwei beliebige gebunden (wie
   # SWI); gebundene Nicht-Ganzzahl: type_error(integer, _), weniger als zwei
@@ -23,14 +24,14 @@ defmodule PrologEx.Builtins.Terms do
 
     cond do
       is_integer(a) and is_integer(b) -> int_result(c, a + b, s)
-      is_integer(a) and is_integer(c) -> {:subst, PrologEx.bind(b, c - a, s)}
-      is_integer(b) and is_integer(c) -> {:subst, PrologEx.bind(a, c - b, s)}
+      is_integer(a) and is_integer(c) -> {:subst, PrologEx.Store.bind(b, c - a, s)}
+      is_integer(b) and is_integer(c) -> {:subst, PrologEx.Store.bind(a, c - b, s)}
       true -> PrologEx.Error.instantiation!()
     end
   end
 
   defp int_or_var!(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       n when is_integer(n) -> n
       {:var, _} = v -> v
       other -> PrologEx.Error.type!("integer", PrologEx.resolve(other, s))
@@ -40,7 +41,7 @@ defmodule PrologEx.Builtins.Terms do
   # Ergebnis n an t (ganze Zahl oder ungebundene Variable)
   defp int_result(n, n, _s), do: :ok
   defp int_result(m, _n, _s) when is_integer(m), do: :fail
-  defp int_result(v, n, s), do: {:subst, PrologEx.bind(v, n, s)}
+  defp int_result(v, n, s), do: {:subst, PrologEx.Store.bind(v, n, s)}
 
   # numbervars(T, Start, End): die Variablen von T (nach erstem Auftreten)
   # werden '$VAR'(Start), '$VAR'(Start+1), ...; End ist die nächste Nummer
@@ -87,20 +88,23 @@ defmodule PrologEx.Builtins.Terms do
   # ein vollständig geprüfter Teilterm bleibt azyklisch, über welchen Pfad
   # man ihn auch erreicht (ein Zyklus über ihn wäre schon gefunden worden)
   defp acyclic({:var, _} = x, s, path, done) do
-    cond do
-      not Map.has_key?(s, x) ->
+    case Store.binding(s, x) do
+      :error ->
         done
 
-      Map.has_key?(done, x) ->
-        done
+      {:ok, t} ->
+        cond do
+          Map.has_key?(done, x) ->
+            done
 
-      MapSet.member?(path, x) ->
-        :cyclic
+          MapSet.member?(path, x) ->
+            :cyclic
 
-      true ->
-        case acyclic(Map.fetch!(s, x), s, MapSet.put(path, x), done) do
-          :cyclic -> :cyclic
-          done -> Map.put(done, x, true)
+          true ->
+            case acyclic(t, s, MapSet.put(path, x), done) do
+              :cyclic -> :cyclic
+              done -> Map.put(done, x, true)
+            end
         end
     end
   end
@@ -141,10 +145,10 @@ defmodule PrologEx.Builtins.Terms do
   @doc false
   # functor/3 – auch direkt aus der Maschine (PrologEx.step/5)
   def functor(t, name, arity, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} ->
-        n = PrologEx.walk(name, s)
-        ar = PrologEx.walk(arity, s)
+        n = PrologEx.Store.walk(name, s)
+        ar = PrologEx.Store.walk(arity, s)
 
         cond do
           match?({:var, _}, n) or match?({:var, _}, ar) ->
@@ -193,8 +197,8 @@ defmodule PrologEx.Builtins.Terms do
   # Wecken), sonst strikt vergleichen (wie unify/4: 1 und 1.0 verschieden);
   # ein Occurs-Check ist bei atomarem v nie nötig
   defp bind_atomic(t, v, s) do
-    case PrologEx.walk(t, s) do
-      {:var, _} = x -> {:ok, PrologEx.bind(x, v, s)}
+    case PrologEx.Store.walk(t, s) do
+      {:var, _} = x -> {:ok, PrologEx.Store.bind(x, v, s)}
       ^v -> {:ok, s}
       _ -> :error
     end
@@ -211,7 +215,7 @@ defmodule PrologEx.Builtins.Terms do
   # arg/3 – auch direkt aus der Maschine (PrologEx.step/5)
   def arg(n, t, x, s) do
     args =
-      case PrologEx.walk(t, s) do
+      case PrologEx.Store.walk(t, s) do
         {:var, _} ->
           PrologEx.Error.instantiation!()
 
@@ -221,7 +225,7 @@ defmodule PrologEx.Builtins.Terms do
             else: PrologEx.Error.type!("compound", PrologEx.resolve(tt, s))
       end
 
-    case PrologEx.walk(n, s) do
+    case PrologEx.Store.walk(n, s) do
       k when is_integer(k) and k >= 1 ->
         case nth_arg(args, k) do
           {:ok, a} -> {:unify, [{x, a}]}
@@ -261,9 +265,9 @@ defmodule PrologEx.Builtins.Terms do
   def copy_term(t, c, s) do
     copy = PrologEx.copy_fresh(t, s)
 
-    case PrologEx.walk(c, s) do
+    case PrologEx.Store.walk(c, s) do
       {:var, {:attv, _}} -> {:unify, [{c, copy}]}
-      {:var, _} = v -> {:subst, PrologEx.bind(v, copy, s)}
+      {:var, _} = v -> {:subst, PrologEx.Store.bind(v, copy, s)}
       _ -> {:unify, [{c, copy}]}
     end
   end
@@ -276,11 +280,11 @@ defmodule PrologEx.Builtins.Terms do
   @doc false
   # =../2 – auch direkt aus der Maschine (PrologEx.step/5)
   def univ(t, l, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} ->
         case proper_list(l, s) do
           {:ok, [n]} ->
-            n = PrologEx.walk(n, s)
+            n = PrologEx.Store.walk(n, s)
 
             cond do
               match?({:var, _}, n) -> PrologEx.Error.instantiation!()
@@ -289,7 +293,7 @@ defmodule PrologEx.Builtins.Terms do
             end
 
           {:ok, [n | args]} ->
-            case PrologEx.walk(n, s) do
+            case PrologEx.Store.walk(n, s) do
               {:var, _} ->
                 PrologEx.Error.instantiation!()
 

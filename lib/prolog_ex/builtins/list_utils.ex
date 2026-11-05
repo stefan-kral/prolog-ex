@@ -28,7 +28,7 @@ defmodule PrologEx.Builtins.ListUtils do
   # memberchk(X, L): wie member(X, L), !. Ein offener Rest wird wie bei
   # member/2 zu [X|_] verlängert.
   defbuiltin "memberchk", [x, l], protected: false do
-    chk(x, PrologEx.walk(l, subst()), subst())
+    chk(x, PrologEx.Store.walk(l, subst()), subst())
   end
 
   defbuiltin "last", [l, x], protected: false, helpers: [{"$last", 2}] do
@@ -126,7 +126,7 @@ defmodule PrologEx.Builtins.ListUtils do
       {:cons, h, tl} ->
         if unifiable?(x, h, s),
           do: {:unify, [{x, h}]},
-          else: chk(x, PrologEx.walk(tl, s), s)
+          else: chk(x, PrologEx.Store.walk(tl, s), s)
 
       :empty ->
         false
@@ -143,7 +143,7 @@ defmodule PrologEx.Builtins.ListUtils do
 
   defp sum_list(l, sum, s) do
     with {:ok, items} <- proper(l, s),
-         nums = Enum.map(items, &PrologEx.walk(&1, s)),
+         nums = Enum.map(items, &PrologEx.Store.walk(&1, s)),
          true <- Enum.all?(nums, &is_number/1) do
       {:unify, [{sum, Enum.reduce(nums, 0, &(&2 + &1))}]}
     else
@@ -154,7 +154,7 @@ defmodule PrologEx.Builtins.ListUtils do
   # nur Integer oder nur Floats: dann ist max/min der BEAM eindeutig
   defp extremum(l, m, s, fun, helper) do
     with {:ok, [_ | _] = items} <- proper(l, s),
-         nums = Enum.map(items, &PrologEx.walk(&1, s)),
+         nums = Enum.map(items, &PrologEx.Store.walk(&1, s)),
          true <- Enum.all?(nums, &is_integer/1) or Enum.all?(nums, &is_float/1) do
       {:unify, [{m, Enum.reduce(nums, fun)}]}
     else

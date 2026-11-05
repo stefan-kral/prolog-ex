@@ -34,7 +34,7 @@ defmodule PrologEx.Builtins.Database do
     {m, h, b} = split(c, s, context_module())
 
     key =
-      case PrologEx.walk(h, s) do
+      case PrologEx.Store.walk(h, s) do
         {:var, _} -> PrologEx.Error.instantiation!()
         hh -> mkey(m, hh)
       end
@@ -49,7 +49,7 @@ defmodule PrologEx.Builtins.Database do
       {:ok, pred} ->
         check_dynamic!(key)
         # nur Klauseln, die zum ersten Argument passen können
-        entries = PrologEx.candidate_entries(pred, Compiler.args_of(PrologEx.walk(h, s)), s)
+        entries = PrologEx.candidate_entries(pred, Compiler.args_of(PrologEx.Store.walk(h, s)), s)
         retract_from(next_match(entries, h, b, s), key, h, b, s)
     end
   end
@@ -138,8 +138,8 @@ defmodule PrologEx.Builtins.Database do
         PrologEx.Error.instantiation!()
 
       {:struct, "/", [n, ar]} ->
-        n = PrologEx.walk(n, s)
-        ar = PrologEx.walk(ar, s)
+        n = PrologEx.Store.walk(n, s)
+        ar = PrologEx.Store.walk(ar, s)
 
         cond do
           match?({:var, _}, n) or match?({:var, _}, ar) -> PrologEx.Error.instantiation!()
@@ -177,7 +177,7 @@ defmodule PrologEx.Builtins.Database do
     {m, h, b} = split(c, s, ctx)
 
     key =
-      case PrologEx.walk(h, s) do
+      case PrologEx.Store.walk(h, s) do
         {:var, _} -> PrologEx.Error.instantiation!()
         hh -> mkey(m, hh)
       end

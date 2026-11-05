@@ -35,7 +35,7 @@ defmodule PrologEx.Builtins.OS do
     t
     |> PrologEx.Builtins.Lists.items(s)
     |> Enum.map_join(fn x ->
-      {:atom, c} = PrologEx.walk(x, s)
+      {:atom, c} = PrologEx.Store.walk(x, s)
       c
     end)
   end
@@ -211,7 +211,7 @@ defmodule PrologEx.Builtins.OS do
   end
 
   defp spec(t, fd, s) do
-    case PrologEx.Builtins.Lists.items(t, s) |> Enum.map(&PrologEx.walk(&1, s)) do
+    case PrologEx.Builtins.Lists.items(t, s) |> Enum.map(&PrologEx.Store.walk(&1, s)) do
       [{:atom, "std"}] -> {:std, fd}
       [{:atom, "null"}] -> {:null, fd}
       [{:atom, "pipe"}, v] -> {:pipe, v, fd}
@@ -277,7 +277,7 @@ defmodule PrologEx.Builtins.OS do
 
   # env: Umgebung leeren und setzen; environment: erben und überschreiben
   defp env_opt(env, s) do
-    [kind, pairs] = PrologEx.Builtins.Lists.items(env, s) |> Enum.map(&PrologEx.walk(&1, s))
+    [kind, pairs] = PrologEx.Builtins.Lists.items(env, s) |> Enum.map(&PrologEx.Store.walk(&1, s))
 
     set =
       for pair <- PrologEx.Builtins.Lists.items(pairs, s) do

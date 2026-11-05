@@ -21,6 +21,7 @@ defmodule PrologEx.Builtins.Mutables do
   """
   use PrologEx.Builtin, module: "mutables"
   alias PrologEx.Error
+  alias PrologEx.Store
 
   @attr "$mutable"
 
@@ -56,7 +57,7 @@ defmodule PrologEx.Builtins.Mutables do
   `'$mutable'(Wert)` (mit aufgelöstem Wert) statt mit seiner Zelle.
   """
   def show(t, s) do
-    if Enum.any?(s, &match?({{:attrs, _}, %{@attr => _}}, &1)),
+    if Store.any_attrs?(s, &match?(%{@attr => _}, &1)),
       do: show_term(t, s, MapSet.new()),
       else: t
   end
@@ -64,7 +65,7 @@ defmodule PrologEx.Builtins.Mutables do
   # seen: Zellen auf dem Weg hierher – ein Mutable, das sich selbst
   # enthält, wird beim zweiten Mal mit seiner Zelle gezeigt
   defp show_term({:struct, "$mutable", [{:var, {:attv, id}}]} = t, s, seen) do
-    case Map.get(s, {:attrs, id}, %{}) do
+    case Store.attrs(s, id) do
       %{@attr => value} ->
         if MapSet.member?(seen, id),
           do: t,
@@ -88,11 +89,11 @@ defmodule PrologEx.Builtins.Mutables do
   # ---------------------------------------------------------------------
 
   defp nonvar!(t, s) do
-    if match?({:var, _}, PrologEx.walk(t, s)), do: Error.instantiation!()
+    if match?({:var, _}, PrologEx.Store.walk(t, s)), do: Error.instantiation!()
   end
 
   defp cell!(m, s) do
-    case PrologEx.walk(m, s) do
+    case PrologEx.Store.walk(m, s) do
       {:var, _} ->
         Error.instantiation!()
 
@@ -104,7 +105,7 @@ defmodule PrologEx.Builtins.Mutables do
   # die Zellvariable eines Mutables, sonst nil
   defp cell(t, s) do
     with {:struct, "$mutable", [v]} <- PrologEx.unmark_top(t),
-         v = PrologEx.walk(v, s),
+         v = PrologEx.Store.walk(v, s),
          true <- PrologEx.attv?(v),
          true <- Map.has_key?(PrologEx.get_attrs(v, s), @attr) do
       v

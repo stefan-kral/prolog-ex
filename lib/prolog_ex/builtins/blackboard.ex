@@ -29,6 +29,7 @@ defmodule PrologEx.Builtins.Blackboard do
   use PrologEx.Builtin, module: "blackboard"
   require PrologEx
   alias PrologEx.Error
+  alias PrologEx.Store
 
   defbuiltin "bb_put", [key, t] do
     put(key, t, context_module(), subst())
@@ -42,7 +43,7 @@ defmodule PrologEx.Builtins.Blackboard do
   defbuiltin "bb_b_put", [key, t] do
     s = subst()
     k = key!(key, context_module(), s)
-    {:subst, Map.update(s, @b_key, %{k => t}, &Map.put(&1, k, t))}
+    {:subst, Store.update(s, @b_key, %{k => t}, &Map.put(&1, k, t))}
   end
 
   defbuiltin "bb_get", [key, t] do
@@ -55,10 +56,10 @@ defmodule PrologEx.Builtins.Blackboard do
   """
   def put(key, t, mod, s) do
     k = key!(key, mod, s)
-    put(k, value_copy(PrologEx.walk(t, s), s))
+    put(k, value_copy(PrologEx.Store.walk(t, s), s))
 
-    case s do
-      %{@b_key => %{^k => _} = m} -> {:subst, Map.put(s, @b_key, Map.delete(m, k))}
+    case Store.fetch(s, @b_key) do
+      {:ok, %{^k => _} = m} -> {:subst, Store.put(s, @b_key, Map.delete(m, k))}
       _ -> :ok
     end
   end
@@ -82,9 +83,9 @@ defmodule PrologEx.Builtins.Blackboard do
       {:ok, v} ->
         v = value_copy(v, %{})
 
-        case PrologEx.walk(t, s) do
+        case PrologEx.Store.walk(t, s) do
           {:var, id} = var when not (is_tuple(id) and elem(id, 0) == :attv) ->
-            {:subst, Map.put(s, var, v)}
+            {:subst, Store.put_binding(s, var, v)}
 
           _ ->
             {:unify, [{t, v}]}
@@ -131,7 +132,7 @@ defmodule PrologEx.Builtins.Blackboard do
 
         case PrologEx.unify(old, value_copy(v, %{}), s) do
           {:ok, s} ->
-            put(k, value_copy(PrologEx.walk(new, s), s))
+            put(k, value_copy(PrologEx.Store.walk(new, s), s))
             {:subst, s}
 
           _ ->
@@ -160,7 +161,7 @@ defmodule PrologEx.Builtins.Blackboard do
   @doc false
   def b_put(s, mod, name, v) do
     k = {mod, {:atom, name}}
-    Map.update(s, @b_key, %{k => v}, &Map.put(&1, k, v))
+    Store.update(s, @b_key, %{k => v}, &Map.put(&1, k, v))
   end
 
   defp fetch(k), do: PrologEx.current_db() |> Map.get(:blackboard, %{}) |> Map.fetch(k)
@@ -171,9 +172,9 @@ defmodule PrologEx.Builtins.Blackboard do
 
   # {Modul, Schlüssel}; M:K auch geschachtelt
   defp key!(key, mod, s) do
-    case PrologEx.unmark_top(PrologEx.walk(key, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(key, s)) do
       {:struct, ":", [m, k]} ->
-        case PrologEx.walk(m, s) do
+        case PrologEx.Store.walk(m, s) do
           {:atom, m} -> key!(k, m, s)
           {:var, _} -> Error.instantiation!()
           other -> Error.type!("atom", PrologEx.resolve(other, s))

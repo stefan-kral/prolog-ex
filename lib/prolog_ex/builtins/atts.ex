@@ -32,7 +32,7 @@ defmodule PrologEx.Builtins.Atts do
     mod = context_module()
     s = subst()
 
-    case PrologEx.walk(var, s) do
+    case PrologEx.Store.walk(var, s) do
       {:var, _} = v ->
         decl = declared!(mod)
         old = current(v, mod, s)
@@ -58,12 +58,12 @@ defmodule PrologEx.Builtins.Atts do
     mod = context_module()
     s = subst()
 
-    case PrologEx.walk(var, s) do
+    case PrologEx.Store.walk(var, s) do
       {:var, _} = v ->
         decl = declared!(mod)
         present = current(v, mod, s)
 
-        case PrologEx.walk(spec, s) do
+        case PrologEx.Store.walk(spec, s) do
           {:var, _} ->
             {:unify, [{spec, list(Enum.map(present, &elem(&1, 1)))}]}
 
@@ -190,11 +190,11 @@ defmodule PrologEx.Builtins.Atts do
   end
 
   defp specs(spec, s) do
-    case PrologEx.unmark_top(PrologEx.walk(spec, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(spec, s)) do
       [] -> []
       [h | t] -> specs(h, s) ++ specs(t, s)
-      {:struct, "+", [att]} -> [{:+, PrologEx.walk(att, s)}]
-      {:struct, "-", [att]} -> [{:-, PrologEx.walk(att, s)}]
+      {:struct, "+", [att]} -> [{:+, PrologEx.Store.walk(att, s)}]
+      {:struct, "-", [att]} -> [{:-, PrologEx.Store.walk(att, s)}]
       {:var, _} -> Error.instantiation!()
       att -> [{:+, att}]
     end

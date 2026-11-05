@@ -252,7 +252,7 @@ defmodule PrologEx.Builtins.Lists do
     s = subst()
     # einmal vorab: X dereferenzieren und daraus den Filter bestimmen, der
     # für alle Zellen gilt (ändert sich auch nach Backtracking nicht)
-    member_scan(x, member_key(PrologEx.walk(x, s)), deref(l), s)
+    member_scan(x, member_key(PrologEx.Store.walk(x, s)), deref(l), s)
   end
 
   defbuiltin "between", [lo, hi, x], nondet: true, protected: false, module: "system" do
@@ -382,12 +382,13 @@ defmodule PrologEx.Builtins.Lists do
   def skip_list(t, subst), do: skip(t, subst, 0, nil, 1, 0)
 
   # raw: der Rest, noch nicht dereferenziert; tort/power/lam: Brent
-  defp skip({:var, _} = raw, subst, n, raw, _power, _lam), do: {n, PrologEx.walk(raw, subst)}
+  defp skip({:var, _} = raw, subst, n, raw, _power, _lam),
+    do: {n, PrologEx.Store.walk(raw, subst)}
 
   defp skip({:var, _} = raw, subst, n, tort, power, lam) do
     {tort, power, lam} = if lam == power, do: {raw, power * 2, 1}, else: {tort, power, lam + 1}
 
-    case PrologEx.walk(raw, subst) do
+    case PrologEx.Store.walk(raw, subst) do
       [_ | t] -> skip(t, subst, n + 1, tort, power, lam)
       {:glist, l} -> skip_raw(l, n)
       other -> {n, other}
@@ -404,7 +405,7 @@ defmodule PrologEx.Builtins.Lists do
 
   @doc "Elemente des gebundenen Anfangs einer (auch offenen) Liste."
   def items_prefix(t, subst) do
-    case PrologEx.walk(t, subst) do
+    case PrologEx.Store.walk(t, subst) do
       [h | tl] -> [h | items_prefix(tl, subst)]
       {:glist, l} -> raw_prefix(l)
       _ -> []
@@ -416,7 +417,7 @@ defmodule PrologEx.Builtins.Lists do
 
   @doc "Elemente einer echten Liste (Elemente nicht dereferenziert)."
   def items(t, subst) do
-    case PrologEx.walk(t, subst) do
+    case PrologEx.Store.walk(t, subst) do
       [h | tl] -> [h | items(tl, subst)]
       {:glist, l} -> l
       [] -> []
@@ -425,14 +426,14 @@ defmodule PrologEx.Builtins.Lists do
 
   # Vorderteil für append: {:ok, {:glist, l}} | {:ok, {:items, [..]}} | :partial
   defp prefix(x, subst) do
-    case PrologEx.walk(x, subst) do
+    case PrologEx.Store.walk(x, subst) do
       {:glist, l} -> if proper?(l), do: {:ok, {:glist, l}}, else: :partial
       _ -> collect(x, subst, [])
     end
   end
 
   defp collect(x, subst, acc) do
-    case PrologEx.walk(x, subst) do
+    case PrologEx.Store.walk(x, subst) do
       [] -> {:ok, {:items, Enum.reverse(acc)}}
       [h | t] -> collect(t, subst, [h | acc])
       {:glist, l} -> if proper?(l), do: {:ok, {:items, Enum.reverse(acc, l)}}, else: :partial
@@ -444,7 +445,7 @@ defmodule PrologEx.Builtins.Lists do
   defp proper?(t), do: t == []
 
   defp join({:glist, l}, y, subst) do
-    case PrologEx.walk(y, subst) do
+    case PrologEx.Store.walk(y, subst) do
       [] -> {:glist, l}
       {:glist, ly} -> {:glist, l ++ ly}
       _ -> l ++ y
@@ -482,11 +483,11 @@ defmodule PrologEx.Builtins.Lists do
 
   # Zellen ohne Choice Point überspringen, bis eine passen kann
   defp member_scan(x, k, [h | t], s) do
-    hd = PrologEx.walk(h, s)
+    hd = PrologEx.Store.walk(h, s)
 
     case member_match(k, hd) do
       :skip ->
-        case PrologEx.walk(t, s) do
+        case PrologEx.Store.walk(t, s) do
           [_ | _] = next -> member_scan(x, k, next, s)
           {:glist, cells} -> member_scan_raw(x, k, cells)
           {:var, _} = next -> member_cells(x, next, s)
@@ -496,7 +497,7 @@ defmodule PrologEx.Builtins.Lists do
       m ->
         r = if m == :eq, do: :ok, else: {:unify, [{x, h}]}
 
-        case PrologEx.walk(t, s) do
+        case PrologEx.Store.walk(t, s) do
           next when is_list(next) and next != [] -> [r | fn -> member_scan(x, k, next, s) end]
           {:glist, _} = next -> [r | fn -> member_scan(x, k, next, s) end]
           {:var, _} = next -> [r | fn -> member_cells(x, next, s) end]
@@ -531,7 +532,7 @@ defmodule PrologEx.Builtins.Lists do
   # Weiter geht es nur, wenn der Rest eine Liste oder ungebunden ist;
   # sonst ([] oder z. B. [a|b]) ist dies die letzte Lösung
   defp member_cells(x, [h | t], s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       next when is_list(next) and next != [] ->
         [{:unify, [{x, h}]} | fn -> member_cells(x, next, s) end]
 
@@ -554,7 +555,7 @@ defmodule PrologEx.Builtins.Lists do
   # --- Zellen durchlaufen ----------------------------------------------
   # {:cons, kopf, rest} | :end ([] oder keine Liste) | {:open, variable}
   defp cell(t, s) do
-    t = PrologEx.walk(t, s)
+    t = PrologEx.Store.walk(t, s)
 
     case uncons(t) do
       {:cons, h, tl} -> {:cons, h, tl}
@@ -568,7 +569,7 @@ defmodule PrologEx.Builtins.Lists do
 
   # nth: base 0 oder 1; r = nil (nth/3) oder Restliste (nth/4)
   defp nth(base, i, l, e, r, s) do
-    case PrologEx.walk(i, s) do
+    case PrologEx.Store.walk(i, s) do
       k when is_integer(k) and k >= base -> nth_at(k - base, l, e, r, [], 0, s)
       # nth1(0, ...) scheitert, ein negativer Index ist ein Fehler (Prologue)
       k when is_integer(k) and k >= 0 -> []

@@ -22,6 +22,8 @@
 #     halten ihren eigenen Map-Schnappschuss, bleiben also korrekt.
 
 defmodule PrologEx do
+  alias PrologEx.Store
+
   # ---------------------------------------------------------------------
   # Terme
   #   {:var, {"X", 17}}          Variable aus dem Quelltext (Name, Kennung)
@@ -135,23 +137,16 @@ defmodule PrologEx do
   # Unifikation
   # ---------------------------------------------------------------------
 
-  def walk({:var, _} = var, subst) do
-    case Map.fetch(subst, var) do
-      {:ok, t} -> walk(t, subst)
-      :error -> var
-    end
-  end
-
+  # Alle Zugriffe auf die Substitution laufen über PrologEx.Store; walk/2
+  # und bind/3 bleiben hier als die bekannten Namen.
+  def walk({:var, _} = var, subst), do: Store.walk(var, subst)
   def walk(t, _subst), do: t
 
   # Einzige Stelle, an der Variablen gebunden werden. Eine attributierte
   # Variable ({:var, {:attv, id}}) wird zusätzlich unter :wake vermerkt; die
   # Maschine weckt danach ihre Ziele (siehe after_unify/2). Für normale
   # Variablen kostet das nichts (Mustervergleich auf den Namen).
-  def bind({:var, {:attv, _}} = var, t, subst),
-    do: subst |> Map.put(var, t) |> Map.update(:wake, [var], &[var | &1])
-
-  def bind({:var, _} = var, t, subst), do: Map.put(subst, var, t)
+  def bind({:var, _} = var, t, subst), do: Store.bind(var, t, subst)
 
   # ---------------------------------------------------------------------
   # Attributierte Variablen
@@ -175,8 +170,8 @@ defmodule PrologEx do
 
   @doc "Attribute einer Variablen (dereferenziert): Map modul => Term"
   def get_attrs(var, subst) do
-    case walk(var, subst) do
-      {:var, {:attv, id}} -> Map.get(subst, {:attrs, id}, %{})
+    case Store.walk(var, subst) do
+      {:var, {:attv, id}} -> Store.attrs(subst, id)
       _ -> %{}
     end
   end
@@ -187,13 +182,12 @@ defmodule PrologEx do
   Ergebnis: neue Substitution.
   """
   def put_attr(subst, var, module, value) do
-    case walk(var, subst) do
+    case Store.walk(var, subst) do
       {:var, {:attv, id}} ->
-        Map.update(subst, {:attrs, id}, %{module => value}, &Map.put(&1, module, value))
+        Store.update_attrs(subst, id, %{module => value}, &Map.put(&1, module, value))
 
       {:var, _} = v ->
-        id = attv_id()
-        subst |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{module => value})
+        Store.attach(subst, v, attv_id(), %{module => value})
     end
   end
 
@@ -202,15 +196,14 @@ defmodule PrologEx do
   ändern: ein walk, ein Schreibzugriff.
   """
   def update_attr(subst, var, module, fun) do
-    case walk(var, subst) do
+    case Store.walk(var, subst) do
       {:var, {:attv, id}} ->
-        Map.update(subst, {:attrs, id}, %{module => fun.(nil)}, fn attrs ->
+        Store.update_attrs(subst, id, %{module => fun.(nil)}, fn attrs ->
           Map.put(attrs, module, fun.(Map.get(attrs, module)))
         end)
 
       {:var, _} = v ->
-        id = attv_id()
-        subst |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{module => fun.(nil)})
+        Store.attach(subst, v, attv_id(), %{module => fun.(nil)})
     end
   end
 
@@ -226,15 +219,14 @@ defmodule PrologEx do
   def suspend(subst, vars, susp) do
     Enum.reduce(vars, subst, fn v, s ->
       # ein walk statt dreien (get_attrs, put_attr)
-      case walk(v, s) do
+      case Store.walk(v, s) do
         {:var, {:attv, id}} ->
-          Map.update(s, {:attrs, id}, %{"$susp" => [susp]}, fn attrs ->
+          Store.update_attrs(s, id, %{"$susp" => [susp]}, fn attrs ->
             Map.put(attrs, "$susp", cons(susp, Map.get(attrs, "$susp", [])))
           end)
 
         {:var, _} = v ->
-          id = attv_id()
-          s |> Map.put(v, {:var, {:attv, id}}) |> Map.put({:attrs, id}, %{"$susp" => [susp]})
+          Store.attach(s, v, attv_id(), %{"$susp" => [susp]})
       end
     end)
   end
@@ -253,7 +245,7 @@ defmodule PrologEx do
 
   # seen: gesehene Variablen und (PrologEx.Share) schon abgelaufene Teilterme
   defp attvars(t, subst, {acc, seen} = st) do
-    case walk(t, subst) do
+    case Store.walk(t, subst) do
       {:var, {:attv, id}} = v ->
         if Map.has_key?(seen, v) do
           st
@@ -261,7 +253,7 @@ defmodule PrologEx do
           st = {[v | acc], Map.put(seen, v, true)}
 
           subst
-          |> Map.get({:attrs, id}, %{})
+          |> Store.attrs(id)
           |> Enum.reduce(st, fn {_m, a}, st -> attvars(a, subst, st) end)
         end
 
@@ -338,7 +330,7 @@ defmodule PrologEx do
   def bind_checked(var, t, subst, mode) do
     case mode do
       nil ->
-        {:ok, bind(var, t, subst)}
+        {:ok, Store.bind(var, t, subst)}
 
       mode ->
         if occurs_checked?(var, t, subst) do
@@ -346,7 +338,7 @@ defmodule PrologEx do
             do: PrologEx.Error.error!(mk("occurs_check", [var, t])),
             else: :error
         else
-          {:ok, bind(var, t, subst)}
+          {:ok, Store.bind(var, t, subst)}
         end
     end
   end
@@ -356,7 +348,7 @@ defmodule PrologEx do
   # Check: statistics-Schlüssel occurs_checks (+1) und occurs_check_steps
   # (+ besuchte Teilterme) – lokal mitgezählt, einmal je Check gebucht
   defp occurs_checked?(var, t, subst) do
-    case walk(t, subst) do
+    case Store.walk(t, subst) do
       {:struct, _, _} = c -> count_occurs(occurs_steps(var, c, subst, 0, %{}))
       [_ | _] = c -> count_occurs(occurs_steps(var, c, subst, 0, %{}))
       ^var -> true
@@ -381,7 +373,7 @@ defmodule PrologEx do
   defp occurs_steps(var, t, subst, n, m) do
     n = n + 1
 
-    case walk(t, subst) do
+    case Store.walk(t, subst) do
       ^var ->
         {true, n, m}
 
@@ -469,8 +461,8 @@ defmodule PrologEx do
   # zusammengesetzten Termen: auf zwei verschiedenen DAGs liefe es (in C)
   # Pfad für Pfad; physisch derselbe Term genügt (same?/2, O(1)).
   defp u(x, y, subst, mode, m) do
-    x = walk(x, subst)
-    y = walk(y, subst)
+    x = Store.walk(x, subst)
+    y = Store.walk(y, subst)
 
     cond do
       # strikt: 1 und 1.0 sind verschiedene Terme (Elixirs == hält sie für gleich)
@@ -579,7 +571,7 @@ defmodule PrologEx do
   end
 
   defp resolve(t, subst, memo) do
-    case walk(t, subst) do
+    case Store.walk(t, subst) do
       {:struct, f, args} = st ->
         case PrologEx.Share.get(memo, st) do
           {:ok, r} ->
@@ -645,7 +637,7 @@ defmodule PrologEx do
   end
 
   defp copy(t, subst, map) do
-    case walk(t, subst) do
+    case Store.walk(t, subst) do
       {:var, _} = var ->
         case Map.fetch(map, var) do
           {:ok, fresh} ->
@@ -946,7 +938,7 @@ defmodule PrologEx do
 
     case args do
       [x | _] ->
-        case walk(x, subst) do
+        case Store.walk(x, subst) do
           {:var, _} ->
             entries
 
@@ -1030,7 +1022,7 @@ defmodule PrologEx do
     open =
       case args do
         [] -> true
-        [x | _] -> match?({:var, _}, walk(x, subst))
+        [x | _] -> match?({:var, _}, Store.walk(x, subst))
       end
 
     if open do
@@ -1084,7 +1076,7 @@ defmodule PrologEx do
         flat(all)
 
       [x | _] ->
-        case walk(x, subst) do
+        case Store.walk(x, subst) do
           {:var, _} -> flat(all)
           t -> Map.get(by_key, index_key(t), var_only)
         end
@@ -1114,17 +1106,17 @@ defmodule PrologEx do
   end
 
   defp m({:const, c}, t, env, s, nv, _mode) do
-    case walk(t, s) do
+    case Store.walk(t, s) do
       ^c -> {:ok, env, s, nv}
-      {:var, _} = v -> {:ok, env, bind(v, c, s), nv}
+      {:var, _} = v -> {:ok, env, Store.bind(v, c, s), nv}
       _ -> :error
     end
   end
 
   defp m({:ground, c}, t, env, s, nv, mode) do
-    case walk(t, s) do
+    case Store.walk(t, s) do
       {:var, _} = v ->
-        {:ok, env, bind(v, c, s), nv}
+        {:ok, env, Store.bind(v, c, s), nv}
 
       t ->
         case unify(t, c, s, mode) do
@@ -1135,7 +1127,7 @@ defmodule PrologEx do
   end
 
   defp m({:list, ph, pt} = p, t, env, s, nv, mode) do
-    case walk(t, s) do
+    case Store.walk(t, s) do
       [h | tl] ->
         case m(ph, h, env, s, nv, mode) do
           {:ok, env, s, nv} -> m(pt, tl, env, s, nv, mode)
@@ -1164,7 +1156,7 @@ defmodule PrologEx do
   end
 
   defp m({:struct, f, n, ps} = p, t, env, s, nv, mode) do
-    case walk(t, s) do
+    case Store.walk(t, s) do
       {tag, ^f, args} when tag in [:struct, :gstruct] and length(args) == n ->
         match_args(ps, args, env, s, nv, mode)
 
@@ -1262,7 +1254,7 @@ defmodule PrologEx do
   @time_ball {:atom, "time_limit_exceeded"}
 
   defstruct goals: [],
-            subst: %{},
+            subst: Store.new(),
             cps: [],
             height: 0,
             db: %{},
@@ -1310,7 +1302,7 @@ defmodule PrologEx do
         {:sol, st}
 
       [{goal, cutb, mod} | rest] ->
-        goal = unmark_top(walk(goal, st.subst))
+        goal = unmark_top(Store.walk(goal, st.subst))
         count_inference(goal, st.icount)
 
         # ohne aktive Inferenz- oder Zeitgrenze nur dieser eine Vergleich
@@ -1363,7 +1355,7 @@ defmodule PrologEx do
     do: run(%{st | goals: [{g1, cutb, mod}, {g2, cutb, mod} | rest]})
 
   defp step({:struct, ";", [g1, g2]}, cutb, mod, rest, st) do
-    case unmark_top(walk(g1, st.subst)) do
+    case unmark_top(Store.walk(g1, st.subst)) do
       {:struct, "->", [c, t]} ->
         if_then_else(c, t, g2, cutb, mod, rest, st)
 
@@ -1441,7 +1433,7 @@ defmodule PrologEx do
   # Folgeziel und call(G, X..., V0, V1) werden ohne Ground-Prüfung gebaut –
   # sie enthalten die frische Variable V1, sind also nie ground.
   defp step({:struct, "$foldl", [l, g, v0, v]} = goal, cutb, "apply" = mod, rest, st) do
-    case uncons(walk(l, st.subst)) do
+    case uncons(Store.walk(l, st.subst)) do
       {:cons, x, t} ->
         {v1, st} = foldl_var(st)
         foldl_call(g, [x, v0, v1], {:struct, "$foldl", [t, g, v1, v]}, cutb, mod, rest, st)
@@ -1455,7 +1447,7 @@ defmodule PrologEx do
   end
 
   defp step({:struct, "$foldl", [l1, l2, g, v0, v]} = goal, cutb, "apply" = mod, rest, st) do
-    case {uncons(walk(l1, st.subst)), uncons(walk(l2, st.subst))} do
+    case {uncons(Store.walk(l1, st.subst)), uncons(Store.walk(l2, st.subst))} do
       {{:cons, x, t1}, {:cons, y, t2}} ->
         {v1, st} = foldl_var(st)
         next = {:struct, "$foldl", [t1, t2, g, v1, v]}
@@ -1470,7 +1462,8 @@ defmodule PrologEx do
   end
 
   defp step({:struct, "$foldl", [l1, l2, l3, g, v0, v]} = goal, cutb, "apply" = mod, rest, st) do
-    case {uncons(walk(l1, st.subst)), uncons(walk(l2, st.subst)), uncons(walk(l3, st.subst))} do
+    case {uncons(Store.walk(l1, st.subst)), uncons(Store.walk(l2, st.subst)),
+          uncons(Store.walk(l3, st.subst))} do
       {{:cons, x, t1}, {:cons, y, t2}, {:cons, z, t3}} ->
         {v1, st} = foldl_var(st)
         next = {:struct, "$foldl", [t1, t2, t3, g, v1, v]}
@@ -1511,10 +1504,10 @@ defmodule PrologEx do
   # ungebundenes Order (gewöhnliche Variable) direkt binden, gebundenes
   # gültiges nur vergleichen; sonst (attributiert, Fehler) das Builtin
   defp step({:struct, "compare", [o, x, y]} = goal, _cutb, mod, rest, st) do
-    case walk(o, st.subst) do
+    case Store.walk(o, st.subst) do
       {:var, n} = v when not (is_tuple(n) and elem(n, 0) == :attv) ->
         sym = order_atom(PrologEx.Order.compare(x, y, st.subst))
-        run(%{st | goals: rest, subst: bind(v, sym, st.subst)})
+        run(%{st | goals: rest, subst: Store.bind(v, sym, st.subst)})
 
       {:atom, s} when s in ["<", "=", ">"] ->
         if order_atom(PrologEx.Order.compare(x, y, st.subst)) == {:atom, s},
@@ -1573,7 +1566,7 @@ defmodule PrologEx do
   # current_prolog_flag/2 (ISO, geschützt) mit gebundenem Namen: das Flag
   # direkt lesen, deterministisch; sonst (Aufzählen, Fehler) das Builtin
   defp step({:struct, "current_prolog_flag", [f, v]} = goal, _cutb, mod, rest, st) do
-    with {:atom, name} <- unmark_top(walk(f, st.subst)),
+    with {:atom, name} <- unmark_top(Store.walk(f, st.subst)),
          val when val != nil <- PrologEx.Flags.get(name) do
       apply_result({:unify, [{v, val}]}, mod, rest, st)
     else
@@ -1771,8 +1764,8 @@ defmodule PrologEx do
         wake_and_run(attvs, st.subst, st, rest)
 
       mods ->
-        pairs = for v <- attvs, do: {v, Map.fetch!(st.subst, v)}
-        subst = Enum.reduce(attvs, st.subst, &Map.delete(&2, &1))
+        pairs = for v <- attvs, {:ok, val} = Store.binding(st.subst, v), do: {v, val}
+        subst = Enum.reduce(attvs, st.subst, &Store.unbind(&2, &1))
 
         hooks =
           for {v, val} <- pairs, m <- mods do
@@ -1847,8 +1840,8 @@ defmodule PrologEx do
       |> Enum.reduce({st.subst, [], []}, fn p, {s, attvs, again} ->
         {_, "$p", [v, val]} = unmark_top(p)
 
-        case walk(v, s) do
-          {:var, {:attv, _}} = av -> {Map.put(s, av, val), [av | attvs], again}
+        case Store.walk(v, s) do
+          {:var, {:attv, _}} = av -> {Store.put_binding(s, av, val), [av | attvs], again}
           # vom Hook gebunden (laut SICStus undefiniert): normal unifizieren
           _ -> {s, attvs, [mk("=", [v, val]) | again]}
         end
@@ -1878,7 +1871,7 @@ defmodule PrologEx do
 
   # M:G – G im Modul M ausführen (transparent für den Cut)
   defp step({:struct, ":", [m, g]}, cutb, _mod, rest, st) do
-    case walk(m, st.subst) do
+    case Store.walk(m, st.subst) do
       {:atom, name} -> run(%{st | goals: [{g, cutb, name} | rest]})
       {:var, _} -> throw_error(st, &PrologEx.Error.instantiation!/0)
       other -> throw_error(st, fn -> PrologEx.Error.type!("module", other) end)
@@ -1892,7 +1885,7 @@ defmodule PrologEx do
   defp step({:struct, "catch", [g, c, r]}, _cutb, mod, rest, st) do
     id = make_ref()
     h = st.height
-    st = push(st, {:catch, id, c, r, rest, mod, st.subst, st.answer})
+    st = push(st, {:catch, id, c, r, rest, mod, Store.snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$catch_exit", id, h}, 0, mod} | rest], st)
   end
 
@@ -1906,7 +1899,7 @@ defmodule PrologEx do
   end
 
   defp step({:struct, "throw", [b]}, _cutb, _mod, _rest, st) do
-    case walk(b, st.subst) do
+    case Store.walk(b, st.subst) do
       {:var, _} -> throw_error(st, &PrologEx.Error.instantiation!/0)
       _ -> throw_ball(b, st)
     end
@@ -1955,11 +1948,11 @@ defmodule PrologEx do
   # Zeit außerhalb von G zählt nicht) oder per_answer (je Lösung neu).
   # OnTimeout: throw, fail oder ein Ziel.
   defp step({:struct, "$call_with_timeout", [g, us, mode, on]}, _cutb, mod, rest, st) do
-    us = walk(us, st.subst)
-    {:atom, mode} = walk(mode, st.subst)
+    us = Store.walk(us, st.subst)
+    {:atom, mode} = Store.walk(mode, st.subst)
 
     on =
-      case walk(on, st.subst) do
+      case Store.walk(on, st.subst) do
         {:atom, "throw"} -> :throw
         {:atom, "fail"} -> :fail
         {:struct, "call", [goal]} -> goal
@@ -1968,7 +1961,7 @@ defmodule PrologEx do
     id = make_ref()
     h = st.height
     st = add_tlimit(st, id, now_us() + us)
-    st = push(st, {:tlimit, id, on, rest, mod, st.subst, st.answer})
+    st = push(st, {:tlimit, id, on, rest, mod, Store.snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$tlimit_exit", id, mode, us, h}, 0, mod} | rest], st)
   end
 
@@ -1987,7 +1980,7 @@ defmodule PrologEx do
   # set_timer/1: ein Timer je Anfrage (ein neuer ersetzt ihn), bis zum Ende
   # der Anfrage oder cancel_timer/0; Backtracking nimmt ihn nicht zurück
   defp step({:struct, "$set_timer", [us]}, _cutb, _mod, rest, st) do
-    Process.put(@timers_key, Map.put(timers(), st.qref, now_us() + walk(us, st.subst)))
+    Process.put(@timers_key, Map.put(timers(), st.qref, now_us() + Store.walk(us, st.subst)))
     run(%{check_soon(rearm(st)) | goals: rest})
   end
 
@@ -1999,7 +1992,7 @@ defmodule PrologEx do
   # '$sleep'(Ms): schlafen, aber höchstens bis zur nächsten Deadline –
   # dann time_limit_exceeded
   defp step({:struct, "$sleep", [ms]}, _cutb, _mod, rest, st) do
-    sleep_step(now_us() + walk(ms, st.subst) * 1000, rest, st)
+    sleep_step(now_us() + Store.walk(ms, st.subst) * 1000, rest, st)
   end
 
   defp step({:"$ilimit_exit", id, n, h, r}, _cutb, _mod, rest, st) do
@@ -2054,7 +2047,7 @@ defmodule PrologEx do
 
   # Rumpf zu Ende: Ebene des Aufrufers wiederherstellen
   defp step({:"$depth", level}, _cutb, _mod, rest, st),
-    do: run(%{st | goals: rest, subst: Map.put(st.subst, @depth_key, level)})
+    do: run(%{st | goals: rest, subst: Store.put(st.subst, @depth_key, level)})
 
   # setup_call_cleanup(S, G, C) wie SWI und der WG17-Vorschlag (N215):
   #
@@ -2127,7 +2120,7 @@ defmodule PrologEx do
   # anders importiertes Prädikat gleichen Namens geht vor; unsichtbar:
   # gewöhnlicher Aufruf (also existence_error).
   defp disjunction(g1, g2, cutb, mod, rest, st) do
-    st = push(st, {:alt, {g2, cutb, mod}, rest, st.subst, st.answer})
+    st = push(st, {:alt, {g2, cutb, mod}, rest, Store.snapshot(st.subst), st.answer})
     run(%{st | goals: [{g1, cutb, mod} | rest]})
   end
 
@@ -2170,7 +2163,7 @@ defmodule PrologEx do
     do: PrologEx.Builtins.system_module?(mod) or PrologEx.Flags.get("swi_compat") == a("true")
 
   defp engine_step({:struct, "call_nth", [g, n]}, cutb, mod, rest, st) do
-    case walk(n, st.subst) do
+    case Store.walk(n, st.subst) do
       {:var, _} ->
         call_nth(g, n, cutb, mod, rest, st)
 
@@ -2192,7 +2185,7 @@ defmodule PrologEx do
     chunk =
       guarded(fn ->
         k =
-          case walk(n, st.subst) do
+          case Store.walk(n, st.subst) do
             k when is_integer(k) and k >= 1 -> k
             k when is_integer(k) -> PrologEx.Error.domain!("not_less_than_one", k)
             {:var, _} -> PrologEx.Error.instantiation!()
@@ -2211,7 +2204,7 @@ defmodule PrologEx do
   defp engine_step({:struct, "countall", [g, n]}, _cutb, mod, rest, st) do
     counted =
       guarded(fn ->
-        case walk(n, st.subst) do
+        case Store.walk(n, st.subst) do
           x when is_integer(x) or (is_tuple(x) and elem(x, 0) == :var) -> :ok
           x -> PrologEx.Error.type!("integer", x)
         end
@@ -2264,7 +2257,7 @@ defmodule PrologEx do
     do: run(%{st | goals: [{c, st.height, mod}, {t, cutb, mod} | rest]})
 
   defp engine_step({:struct, "call_with_inference_limit", [g, l, r]}, _cutb, mod, rest, st) do
-    case walk(l, st.subst) do
+    case Store.walk(l, st.subst) do
       {:var, _} ->
         throw_error(st, &PrologEx.Error.instantiation!/0)
 
@@ -2272,7 +2265,7 @@ defmodule PrologEx do
         id = make_ref()
         h = st.height
         st = add_ilimit(st, id, :counters.get(st.icount, 1) + n)
-        st = push(st, {:ilimit, id, r, rest, mod, st.subst, st.answer})
+        st = push(st, {:ilimit, id, r, rest, mod, Store.snapshot(st.subst), st.answer})
         run_body(g, h + 1, mod, [{{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest], st)
 
       n when is_integer(n) ->
@@ -2284,18 +2277,18 @@ defmodule PrologEx do
   end
 
   defp engine_step({:struct, "call_with_depth_limit", [g, l, r]}, _cutb, mod, rest, st) do
-    case walk(l, st.subst) do
+    case Store.walk(l, st.subst) do
       {:var, _} ->
         throw_error(st, &PrologEx.Error.instantiation!/0)
 
       n when is_integer(n) and n >= 0 ->
         ref = :atomics.new(2, signed: true)
         if n >= 1, do: :atomics.put(ref, 1, 1)
-        base = Map.get(st.subst, @depth_key, 0)
+        base = Store.get(st.subst, @depth_key, 0)
         frame = {ref, base, base + n - 1}
         h = st.height
-        st = add_dlimit(%{st | subst: Map.put(st.subst, @depth_key, base)}, frame)
-        st = push(st, {:dlimit, frame, r, rest, mod, st.subst, st.answer})
+        st = add_dlimit(%{st | subst: Store.put(st.subst, @depth_key, base)}, frame)
+        st = push(st, {:dlimit, frame, r, rest, mod, Store.snapshot(st.subst), st.answer})
         run_body(g, h + 1, mod, [{{:"$dlimit_exit", frame, h, r}, 0, mod} | rest], st)
 
       n when is_integer(n) ->
@@ -2324,7 +2317,7 @@ defmodule PrologEx do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
-    st = push(st, {:time_fail, ref, st.subst, st.answer})
+    st = push(st, {:time_fail, ref, Store.snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$time_exit", ref, h}, 0, mod} | rest], st)
   end
 
@@ -2354,7 +2347,7 @@ defmodule PrologEx do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, 0)}
-    st = push(st, {:nth_cleanup, ref, st.subst, st.answer})
+    st = push(st, {:nth_cleanup, ref, Store.snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$nth", ref, n, h}, 0, mod} | rest], st)
   end
 
@@ -2362,7 +2355,7 @@ defmodule PrologEx do
     c = Map.fetch!(st.counters, ref) + 1
     st = %{st | counters: Map.put(st.counters, ref, c)}
 
-    case walk(n, st.subst) do
+    case Store.walk(n, st.subst) do
       k when is_integer(k) and c < k ->
         backtrack(st)
 
@@ -2518,7 +2511,7 @@ defmodule PrologEx do
   def meta_spec?(spec), do: is_integer(spec) or spec in ["^", "//", ":"]
 
   defp qualified?(t, subst) do
-    case walk(t, subst) do
+    case Store.walk(t, subst) do
       {tag, ":", [_, _]} when tag in [:struct, :gstruct] -> true
       _ -> false
     end
@@ -2531,23 +2524,28 @@ defmodule PrologEx do
   # dem Rest (wie SICStus: am nächsten Aufruf-Port). Ohne Module mit
   # verify_attributes/3 verarbeitet die Maschine die eingebauten
   # Suspensionen gleich hier; sonst über das Ziel $wake (Hooks, $attv_redo).
-  defp cont(st, %{wake: ws} = s, goals) do
-    s = Map.delete(s, :wake)
-    attvs = Enum.reverse(ws)
+  defp cont(st, s, goals) do
+    case Store.take_wake(s) do
+      {ws, s} ->
+        attvs = Enum.reverse(ws)
 
-    case verify_modules(current_db()) do
-      [] -> wake_and_run(attvs, s, st, goals)
-      _ -> run(%{st | subst: s, goals: [{{:"$wake", attvs}, 0, "system"} | goals]})
+        case verify_modules(current_db()) do
+          [] -> wake_and_run(attvs, s, st, goals)
+          _ -> run(%{st | subst: s, goals: [{{:"$wake", attvs}, 0, "system"} | goals]})
+        end
+
+      :none ->
+        run(%{st | goals: goals, subst: s})
     end
   end
 
-  defp cont(st, s, goals), do: run(%{st | goals: goals, subst: s})
-
   # (für Stellen, die das Wecken als Ziel brauchen, siehe call_nth/2)
-  defp after_unify(%{wake: ws} = s, goals),
-    do: {Map.delete(s, :wake), [{{:"$wake", Enum.reverse(ws)}, 0, "system"} | goals]}
-
-  defp after_unify(s, goals), do: {s, goals}
+  defp after_unify(s, goals) do
+    case Store.take_wake(s) do
+      {ws, s} -> {s, [{{:"$wake", Enum.reverse(ws)}, 0, "system"} | goals]}
+      :none -> {s, goals}
+    end
+  end
 
   defp wake_and_run(attvs, s, st, rest) do
     case wake_builtin(attvs, s, st, :immediate) do
@@ -2558,7 +2556,7 @@ defmodule PrologEx do
 
   # Goals-Liste eines Hooks (Restlisten können gebundene Variablen sein)
   defp goal_list(l, subst) do
-    case uncons(walk(l, subst)) do
+    case uncons(Store.walk(l, subst)) do
       :empty -> []
       {:cons, h, t} -> [h | goal_list(t, subst)]
       :other -> PrologEx.Error.type!("list", resolve(l, subst))
@@ -2595,7 +2593,7 @@ defmodule PrologEx do
   # acc = {Substitution, Einträge (umgekehrt), schon ein Ziel?}; Einträge
   # {:goal, ziel, cutb, modul} oder {:dif, suspension}
   defp wake_var({:var, {:attv, id}} = v, {s, _, _} = acc, st) do
-    attrs = Map.get(s, {:attrs, id}, %{})
+    attrs = Store.attrs(s, id)
 
     acc =
       case attrs do
@@ -2631,7 +2629,7 @@ defmodule PrologEx do
   # freeze: V an eine Variable gebunden – der Eintrag wandert mit; sonst
   # läuft das Ziel
   defp wake_susp({:struct, "$fz", [g]}, susp, v, {s, items, false}, st) do
-    case walk(v, s) do
+    case Store.walk(v, s) do
       {:var, _} = w -> {suspend(s, [w], susp), items, false}
       _ -> {s, [goal_item(g, s, st.height) | items], true}
     end
@@ -2669,8 +2667,8 @@ defmodule PrologEx do
 
   # Weckziel M:G direkt als Ziel in M (wie der Schritt für ':'), Cut lokal
   defp goal_item(g, s, height) do
-    with {tag, ":", [m, inner]} when tag in [:struct, :gstruct] <- walk(g, s),
-         {:atom, name} <- walk(m, s) do
+    with {tag, ":", [m, inner]} when tag in [:struct, :gstruct] <- Store.walk(g, s),
+         {:atom, name} <- Store.walk(m, s) do
       {:goal, inner, height, name}
     else
       _ -> {:goal, g, height, "system"}
@@ -2692,13 +2690,13 @@ defmodule PrologEx do
   # when-Suspension neu stellen: :done (Done schon gebunden), {:ok, s}
   # (wartet weiter) oder {:call, Ziel, s}
   defp wake_when(susp, s) do
-    case unmark_top(walk(susp, s)) do
+    case unmark_top(Store.walk(susp, s)) do
       {:struct, "$wh", [c, g]} ->
         wake_when_(c, g, s)
 
       {:struct, "$wh", [d, c, g]} ->
-        case walk(d, s) do
-          {:var, _} = dv -> wake_when_(c, g, Map.put(s, dv, {:atom, "true"}))
+        case Store.walk(d, s) do
+          {:var, _} = dv -> wake_when_(c, g, Store.put_binding(s, dv, {:atom, "true"}))
           _ -> :done
         end
     end
@@ -2713,14 +2711,14 @@ defmodule PrologEx do
 
   # dif-Suspension neu stellen (Done binden): {:ok, s} oder :fail
   defp wake_dif(susp, s) do
-    case unmark_top(walk(susp, s)) do
+    case unmark_top(Store.walk(susp, s)) do
       {:struct, "$df", [l, r]} ->
         PrologEx.Builtins.Coroutining.dif(l, r, s)
 
       {:struct, "$df", [d, l, r]} ->
-        case walk(d, s) do
+        case Store.walk(d, s) do
           {:var, _} = dv ->
-            PrologEx.Builtins.Coroutining.dif(l, r, Map.put(s, dv, {:atom, "true"}))
+            PrologEx.Builtins.Coroutining.dif(l, r, Store.put_binding(s, dv, {:atom, "true"}))
 
           _ ->
             {:ok, s}
@@ -2797,7 +2795,7 @@ defmodule PrologEx do
   defp start_solutions([r], mod, rest, st), do: apply_result(r, mod, rest, st)
 
   defp start_solutions([r | more], mod, rest, st) do
-    st = push(st, {:solutions_list, more, mod, rest, st.subst, st.answer})
+    st = push(st, {:solutions_list, more, mod, rest, Store.snapshot(st.subst), st.answer})
     apply_result(r, mod, rest, st)
   end
 
@@ -2809,7 +2807,7 @@ defmodule PrologEx do
   end
 
   defp next_solution({:suspended, r, cont}, mod, rest, st) do
-    st = push(st, {:solutions, cont, mod, rest, st.subst, st.answer})
+    st = push(st, {:solutions, cont, mod, rest, Store.snapshot(st.subst), st.answer})
     apply_result(r, mod, rest, st)
   end
 
@@ -2867,7 +2865,7 @@ defmodule PrologEx do
         cps: [],
         height: 0,
         answer: [],
-        subst: subst,
+        subst: Store.restore(subst),
         ilimits: [],
         ilimit: nil
     }
@@ -2878,7 +2876,7 @@ defmodule PrologEx do
   # Ziel prüfen wie call/1 (Variable: instantiation_error, sonst
   # Rumpfumwandlung mit type_error(callable, _))
   defp callable_goal!(t, subst) do
-    case walk(t, subst) do
+    case Store.walk(t, subst) do
       {:var, _} -> PrologEx.Error.instantiation!()
       g -> to_body(unmark_top(g), g, subst)
     end
@@ -2907,7 +2905,7 @@ defmodule PrologEx do
     if PrologEx.Builtins.system_module?(m) do
       {st, rest}
     else
-      level = Map.get(st.subst, @depth_key, 0)
+      level = Store.get(st.subst, @depth_key, 0)
 
       if level > st.dlimit do
         for {ref, _base, max} <- st.dlimits, level > max, do: :atomics.put(ref, 2, 1)
@@ -2924,7 +2922,7 @@ defmodule PrologEx do
             _ -> [{{:"$depth", level}, 0, "system"} | rest]
           end
 
-        {%{st | subst: Map.put(st.subst, @depth_key, level + 1)}, rest}
+        {%{st | subst: Store.put(st.subst, @depth_key, level + 1)}, rest}
       end
     end
   end
@@ -2950,7 +2948,7 @@ defmodule PrologEx do
   end
 
   defp to_body(g, whole, subst) do
-    case unmark_top(walk(g, subst)) do
+    case unmark_top(Store.walk(g, subst)) do
       {:var, _} = v ->
         {:struct, "call", [v]}
 
@@ -2959,7 +2957,7 @@ defmodule PrologEx do
 
       # M:Rumpf: der Rumpf ebenso (mit offenem M entscheidet der Aufruf)
       {:struct, ":", [m, inner]} = t ->
-        case walk(m, subst) do
+        case Store.walk(m, subst) do
           {:atom, _} = ma -> {:struct, ":", [ma, to_body(inner, whole, subst)]}
           _ -> t
         end
@@ -2987,7 +2985,7 @@ defmodule PrologEx do
   # Atom oder eine Struktur ohne Steuer-Funktor, auch als M:G mit Atom M;
   # sonst {:general, G} (Steuerkonstrukte, Variablen, Fehler)
   defp call_target(g, extra, mod, subst) do
-    case unmark_top(walk(g, subst)) do
+    case unmark_top(Store.walk(g, subst)) do
       {:atom, f} = a when f not in @body_ops ->
         {if(extra == [], do: a, else: mk(f, extra)), mod}
 
@@ -2997,8 +2995,8 @@ defmodule PrologEx do
       # M:G mit Atom M (so kommen Meta-Argumente an: maplist, foldl, ...):
       # G direkt in M
       {:struct, ":", [m, inner]} = t ->
-        with {:atom, mn} <- walk(m, subst),
-             goal when goal != nil <- plain_goal(unmark_top(walk(inner, subst)), extra) do
+        with {:atom, mn} <- Store.walk(m, subst),
+             goal when goal != nil <- plain_goal(unmark_top(Store.walk(inner, subst)), extra) do
           {goal, mn}
         else
           _ -> {:general, t}
@@ -3034,7 +3032,7 @@ defmodule PrologEx do
   # wie call_target/4, aber extra enthält eine frische Variable: das Ziel
   # ist nie ground, also ohne Ground-Prüfung gebaut
   defp call_target_open(g, extra, mod, subst) do
-    case unmark_top(walk(g, subst)) do
+    case unmark_top(Store.walk(g, subst)) do
       {:atom, f} when f not in @body_ops ->
         {{:struct, f, extra}, mod}
 
@@ -3042,8 +3040,8 @@ defmodule PrologEx do
         {{:struct, f, args ++ extra}, mod}
 
       {:struct, ":", [m, inner]} ->
-        with {:atom, mn} <- walk(m, subst),
-             goal when goal != nil <- open_goal(unmark_top(walk(inner, subst)), extra) do
+        with {:atom, mn} <- Store.walk(m, subst),
+             goal when goal != nil <- open_goal(unmark_top(Store.walk(inner, subst)), extra) do
           {goal, mn}
         else
           _ -> :general
@@ -3102,7 +3100,7 @@ defmodule PrologEx do
   # (Cut darin lokal); nicht aufrufbar → type_error(callable). Für \+,
   # findall/3 & Co., catch/3, ... – ohne eigenen call-Schritt
   defp body!(g, subst) do
-    case unmark_top(walk(g, subst)) do
+    case unmark_top(Store.walk(g, subst)) do
       {:var, _} -> PrologEx.Error.instantiation!()
       goal -> to_body(goal, goal, subst)
     end
@@ -3340,7 +3338,7 @@ defmodule PrologEx do
         # dann müssen auch Cuts hier hinsehen (cut_to/3)
         {:more, sub} ->
           st = if sub.scc, do: %{st | scc: true}, else: st
-          push(st, {:findnsols, sub, k, l, tail, rest, st.subst, st.answer})
+          push(st, {:findnsols, sub, k, l, tail, rest, Store.snapshot(st.subst), st.answer})
 
         :done ->
           st
@@ -3358,7 +3356,7 @@ defmodule PrologEx do
   # für den Cut transparent (Barriere des umgebenden Prädikats).
   defp if_then_else(c, t, e, cutb, mod, rest, st) do
     h = st.height
-    st = push(st, {:alt, {e, cutb, mod}, rest, st.subst, st.answer})
+    st = push(st, {:alt, {e, cutb, mod}, rest, Store.snapshot(st.subst), st.answer})
     run(%{st | goals: [{c, h + 1, mod}, {{:"$cut_to", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
@@ -3366,7 +3364,7 @@ defmodule PrologEx do
   # E weg – für jede Lösung von C läuft T; E nur, wenn C keine hat
   defp soft_if(c, t, e, cutb, mod, rest, st) do
     h = st.height
-    st = push(st, {:alt, {e, cutb, mod}, rest, st.subst, st.answer})
+    st = push(st, {:alt, {e, cutb, mod}, rest, Store.snapshot(st.subst), st.answer})
     run(%{st | goals: [{c, h + 1, mod}, {{:"$soft_cut", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
@@ -3377,7 +3375,7 @@ defmodule PrologEx do
   def add_args(g, [], _subst), do: g
 
   def add_args({:struct, ":", [m, g]}, extra, subst),
-    do: mk(":", [m, add_args(unmark_top(walk(g, subst)), extra, subst)])
+    do: mk(":", [m, add_args(unmark_top(Store.walk(g, subst)), extra, subst)])
 
   def add_args({:atom, f}, extra, _subst), do: mk(f, extra)
   # [] ist in ISO ein Atom: call([], A) ruft '[]'(A)
@@ -3424,7 +3422,11 @@ defmodule PrologEx do
         st =
           if more == [],
             do: st,
-            else: push(st, {:clauses, goal, args, more, rest, mod, st.subst, st.answer})
+            else:
+              push(
+                st,
+                {:clauses, goal, args, more, rest, mod, Store.snapshot(st.subst), st.answer}
+              )
 
         goals = inst_goals(body, env, nv, barrier, mod, rest)
         cont(%{st | next_var: nv + nfresh}, s1, goals)
@@ -3453,16 +3455,20 @@ defmodule PrologEx do
         backtrack(st)
 
       {:alt, goal, rest, subst, answer} ->
-        run(%{st | goals: [goal | rest], subst: subst, answer: answer})
+        run(%{st | goals: [goal | rest], subst: Store.restore(subst), answer: answer})
 
       {:clauses, goal, args, more, rest, mod, subst, answer} ->
-        try_clauses(goal, args, more, rest, mod, %{st | subst: subst, answer: answer})
+        try_clauses(goal, args, more, rest, mod, %{
+          st
+          | subst: Store.restore(subst),
+            answer: answer
+        })
 
       {:solutions_list, more, mod, rest, subst, answer} ->
-        start_solutions(more, mod, rest, %{st | subst: subst, answer: answer})
+        start_solutions(more, mod, rest, %{st | subst: Store.restore(subst), answer: answer})
 
       {:solutions, cont, mod, rest, subst, answer} ->
-        st = %{st | subst: subst, answer: answer}
+        st = %{st | subst: Store.restore(subst), answer: answer}
 
         case guarded(fn -> cont.({:cont, nil}) end) do
           {:ok, r} -> next_solution(r, mod, rest, st)
@@ -3470,7 +3476,7 @@ defmodule PrologEx do
         end
 
       {:findnsols, sub, k, l, tail, rest, subst, answer} ->
-        st = %{st | subst: subst, answer: answer}
+        st = %{st | subst: Store.restore(subst), answer: answer}
 
         case guarded(fn -> collect(backtrack(sub), k, []) end) do
           {:ok, collected} -> findnsols_chunk(collected, k, l, tail, rest, resync(st))
@@ -3478,11 +3484,22 @@ defmodule PrologEx do
         end
 
       {:nth_cleanup, ref, subst, answer} ->
-        backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
+        backtrack(%{
+          st
+          | subst: Store.restore(subst),
+            answer: answer,
+            counters: Map.delete(st.counters, ref)
+        })
 
       {:time_fail, ref, subst, answer} ->
         report_time(time_stop(st, ref))
-        backtrack(%{st | subst: subst, answer: answer, counters: Map.delete(st.counters, ref)})
+
+        backtrack(%{
+          st
+          | subst: Store.restore(subst),
+            answer: answer,
+            counters: Map.delete(st.counters, ref)
+        })
 
       # G von setup_call_cleanup/3 endgültig gescheitert: Cleanup, dann weiter
       {:scc, _, _, _, _, _, _} = frame ->
@@ -3497,7 +3514,7 @@ defmodule PrologEx do
         st = remove_dlimit(st, frame)
 
         with 1 <- :atomics.get(ref, 2),
-             {:ok, s} <- unify(r, {:atom, "depth_limit_exceeded"}, subst) do
+             {:ok, s} <- unify(r, {:atom, "depth_limit_exceeded"}, Store.restore(subst)) do
           cont(%{st | answer: answer}, s, rest)
         else
           _ -> backtrack(st)
@@ -3573,7 +3590,7 @@ defmodule PrologEx do
     if MapSet.member?(st.catch_off, id) do
       unwind(ball, below, h - 1, st)
     else
-      case unify(c, ball, subst) do
+      case unify(c, ball, Store.restore(subst)) do
         {:ok, s} ->
           st = %{st | cps: below, height: h - 1, answer: answer}
           cont(st, s, [{r, h - 1, mod} | rest])
@@ -3600,7 +3617,7 @@ defmodule PrologEx do
     if ball == {:atom, "inference_limit_exceeded"} and ilimit_exceeded?(st, id) do
       st = remove_ilimit(%{st | cps: below, height: h - 1, answer: answer}, id)
 
-      case unify(r, ball, subst) do
+      case unify(r, ball, Store.restore(subst)) do
         {:ok, s} -> cont(st, s, rest)
         :error -> backtrack(st)
       end
@@ -3616,8 +3633,15 @@ defmodule PrologEx do
       st = remove_tlimit(%{st | cps: below, height: h - 1, answer: answer}, id)
 
       case on do
-        :fail -> backtrack(st)
-        goal -> run(%{st | goals: [{mk("call", [goal]), h - 1, mod} | rest], subst: subst})
+        :fail ->
+          backtrack(st)
+
+        goal ->
+          run(%{
+            st
+            | goals: [{mk("call", [goal]), h - 1, mod} | rest],
+              subst: Store.restore(subst)
+          })
       end
     else
       unwind(ball, below, h - 1, remove_tlimit(st, id))
@@ -3645,9 +3669,11 @@ defmodule PrologEx do
   # großen ground Daten.
   # ---------------------------------------------------------------------
 
-  defp maybe_compact(%{subst: s, threshold: t} = st) when map_size(s) < t, do: st
-
   defp maybe_compact(st) do
+    if Store.size(st.subst) < st.threshold, do: st, else: compact_all(st)
+  end
+
+  defp compact_all(st) do
     # acc = {Memo, Größe, erreichte attributierte Variablen (Kennungen)}
     {goals, acc} =
       Enum.map_reduce(st.goals, {%{}, 0, []}, fn {g, cutb, mod}, acc ->
@@ -3681,8 +3707,8 @@ defmodule PrologEx do
     bb_key = PrologEx.Builtins.Blackboard.b_key()
 
     {bb_b, acc} =
-      case st.subst do
-        %{^bb_key => m} ->
+      case Store.fetch(st.subst, bb_key) do
+        {:ok, m} ->
           {kvs, acc} =
             Enum.map_reduce(m, acc, fn {k, v}, acc ->
               {v, acc} = compact(v, st.subst, acc)
@@ -3706,22 +3732,22 @@ defmodule PrologEx do
       case Process.get(:prolog_ex_crv_marks) do
         [_ | _] = marks ->
           m = Enum.min(marks)
-          for {:attrs, id} <- Map.keys(st.subst), id > m, do: id
+          for id <- Store.attv_ids(st.subst), id > m, do: id
 
         _ ->
           []
       end
 
-    {attrs, size} = compact_attrs(root_attvs ++ keep, %{}, acc, st.subst)
+    {attrs, size} = compact_attrs(root_attvs ++ keep, Store.new(), acc, st.subst)
 
     # Ebene von call_with_depth_limit/3 mitnehmen
     attrs =
-      case st.subst do
-        %{@depth_key => level} -> Map.put(attrs, @depth_key, level)
-        _ -> attrs
+      case Store.fetch(st.subst, @depth_key) do
+        {:ok, level} -> Store.put(attrs, @depth_key, level)
+        :error -> attrs
       end
 
-    attrs = if bb_b, do: Map.put(attrs, bb_key, bb_b), else: attrs
+    attrs = if bb_b, do: Store.put(attrs, bb_key, bb_b), else: attrs
 
     # Zähler von call_nth/2 und Uhren von time/1, deren Choice Point (z. B.
     # durch einen Cut) verschwunden ist, werden nie mehr gebraucht
@@ -3735,7 +3761,7 @@ defmodule PrologEx do
         cps: cps,
         subst: attrs,
         counters: counters,
-        threshold: max(st.min_threshold, 2 * max(size, map_size(attrs)))
+        threshold: max(st.min_threshold, 2 * max(size, Store.size(attrs)))
     }
   end
 
@@ -3748,10 +3774,8 @@ defmodule PrologEx do
   defp compact_attrs([], out, {_memo, size, _}, _subst), do: {out, size}
 
   defp compact_attrs([id | ids], out, acc, subst) do
-    key = {:attrs, id}
-
-    case subst do
-      %{^key => old} when not is_map_key(out, key) ->
+    case not Store.has_attrs?(out, id) and Store.fetch_attrs(subst, id) do
+      {:ok, old} ->
         # die beim Kompaktieren erreichten attributierten Variablen sammelt
         # compact3/3 im Akkumulator (je Teilterm einmal, auch bei geteilten
         # Teiltermen); sie sind die nächsten Kandidaten
@@ -3766,7 +3790,7 @@ defmodule PrologEx do
           end)
 
         # attributierte Variablen in den (kompaktierten) Attributen selbst
-        compact_attrs(new ++ ids, Map.put(out, key, attrs), {memo, size, []}, subst)
+        compact_attrs(new ++ ids, Store.put_attrs(out, id, attrs), {memo, size, []}, subst)
 
       _ ->
         compact_attrs(ids, out, acc, subst)
@@ -3808,7 +3832,7 @@ defmodule PrologEx do
         {t, acc, t != var, g}
 
       :error ->
-        case walk(var, subst) do
+        case Store.walk(var, subst) do
           # freie attributierte Variable: merken, dass sie erreichbar ist
           # (kein Memo – ein Blatt)
           {:var, {:attv, id}} = free ->
@@ -3892,7 +3916,7 @@ defmodule PrologEx do
         {memo, _, _} = acc
 
         with :error <- Map.fetch(memo, var),
-             [_ | _] = next <- walk(var, subst) do
+             [_ | _] = next <- Store.walk(var, subst) do
           compact_spine(next, subst, acc, [{:link, var} | spine])
         else
           _ -> {spine, t, acc}
@@ -4115,7 +4139,7 @@ defmodule PrologEx do
       {:sol, st} ->
         {:ok,
          %{
-           bindings: map_size(st.subst),
+           bindings: Store.size(st.subst),
            choicepoints: st.height,
            # Kennungen nie über den Block hinaus vergeben
            vars_in_block: st.next_var <= st.var_end

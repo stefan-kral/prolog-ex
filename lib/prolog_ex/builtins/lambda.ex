@@ -144,7 +144,7 @@ defmodule PrologEx.Builtins.Lambda do
   # Parameter X^... der Reihe nach an die Argumente binden, dann den Rumpf
   # mit den übrigen Argumenten aufrufen
   defp params(m, t, args, s) do
-    case {PrologEx.unmark_top(PrologEx.walk(t, s)), args} do
+    case {PrologEx.unmark_top(PrologEx.Store.walk(t, s)), args} do
       {{:struct, "^", [v, body]}, [a | rest]} ->
         case PrologEx.unify(v, a, s) do
           {:ok, s} -> params(m, body, rest, s)

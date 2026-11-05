@@ -104,7 +104,7 @@ defmodule PrologEx.Builtins.Pcre do
         n -> n
       end
 
-    v = PrologEx.walk(v, s)
+    v = PrologEx.Store.walk(v, s)
 
     cond do
       match?({:var, _}, v) ->
@@ -207,7 +207,7 @@ defmodule PrologEx.Builtins.Pcre do
     bad = fn -> Error.domain!("regex", PrologEx.resolve(t, s)) end
 
     pat =
-      case PrologEx.walk(p, s) do
+      case PrologEx.Store.walk(p, s) do
         {:atom, x} -> x
         _ -> bad.()
       end
@@ -353,7 +353,7 @@ defmodule PrologEx.Builtins.Pcre do
 
   # {Binary, Art}: :atom, :chars, :codes
   defp text!(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} -> Error.instantiation!()
       {:atom, x} -> {x, :atom}
       [] -> {"", default_kind()}
@@ -378,7 +378,7 @@ defmodule PrologEx.Builtins.Pcre do
       _ -> Error.type!("text", PrologEx.resolve(l, s))
     end
 
-    items = Enum.map(Lists.items(l, s), &PrologEx.walk(&1, s))
+    items = Enum.map(Lists.items(l, s), &PrologEx.Store.walk(&1, s))
     if Enum.any?(items, &match?({:var, _}, &1)), do: Error.instantiation!()
 
     case items do

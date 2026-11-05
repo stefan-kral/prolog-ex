@@ -84,7 +84,7 @@ defmodule PrologEx.Builtins.Solutions do
 
     keyed =
       for p <- Lists.items(pairs, s) do
-        {:struct, "-", [k, v]} = PrologEx.unmark_top(PrologEx.walk(p, s))
+        {:struct, "-", [k, v]} = PrologEx.unmark_top(PrologEx.Store.walk(p, s))
         {k, {k, v}}
       end
 
@@ -133,7 +133,7 @@ defmodule PrologEx.Builtins.Solutions do
 
   # M:G und V^G abstreifen: {Ziel (mit Modul), existenzielle Terme}
   defp strip(g, s, ex) do
-    case PrologEx.unmark_top(PrologEx.walk(g, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(g, s)) do
       {:var, _} ->
         Error.instantiation!()
 
@@ -195,7 +195,7 @@ defmodule PrologEx.Builtins.Solutions do
   end
 
   defp canon(t, s, m) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} = v ->
         case m do
           %{^v => n} -> {{:v, n}, m}

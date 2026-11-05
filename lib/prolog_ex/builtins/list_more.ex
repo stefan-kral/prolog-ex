@@ -118,7 +118,7 @@ defmodule PrologEx.Builtins.ListMore do
   end
 
   defp memberd(x, l, s) do
-    case PrologEx.walk(l, s) do
+    case PrologEx.Store.walk(l, s) do
       [e | es] ->
         case PrologEx.Builtins.Coroutining.unifier(x, e, s) do
           :different ->

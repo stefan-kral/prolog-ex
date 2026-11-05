@@ -34,6 +34,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   use PrologEx.Builtin
   alias PrologEx.Builtins.Blackboard
   alias PrologEx.Builtins.ClpzDom
+  alias PrologEx.Store
 
   # --- Rahmen ---------------------------------------------------------------
 
@@ -49,7 +50,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp w(t), do: PrologEx.unmark_top(PrologEx.walk(t, subst_now()))
+  defp w(t), do: PrologEx.unmark_top(PrologEx.Store.walk(t, subst_now()))
 
   # die Substitution des laufenden Builtins (im Prozess abgelegt, siehe defb)
   defp subst_now, do: Process.get(:clpz_prims_subst)
@@ -472,7 +473,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     s = subst()
 
     items =
-      case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+      case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
         {:struct, "a", [x, y, b]} -> a3(x, y, b, s)
         {:struct, "a", [x, b]} -> a2(x, b, s)
         {:struct, "a", [b]} -> a1(b, s)
@@ -483,14 +484,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   defp a3(x, y, b, s) do
     cond do
-      not var?(PrologEx.walk(x, s)) -> a2(y, b, s)
-      not var?(PrologEx.walk(y, s)) -> a2(x, b, s)
+      not var?(PrologEx.Store.walk(x, s)) -> a2(y, b, s)
+      not var?(PrologEx.Store.walk(y, s)) -> a2(x, b, s)
       true -> [mk("a", [x, y, b])]
     end
   end
 
-  defp a2(x, b, s), do: if(var?(PrologEx.walk(x, s)), do: [mk("a", [x, b])], else: a1(b, s))
-  defp a1(b, s), do: if(var?(PrologEx.walk(b, s)), do: [mk("a", [b])], else: [])
+  defp a2(x, b, s), do: if(var?(PrologEx.Store.walk(x, s)), do: [mk("a", [x, b])], else: a1(b, s))
+  defp a1(b, s), do: if(var?(PrologEx.Store.walk(b, s)), do: [mk("a", [b])], else: [])
 
   # --- Konstruktion und Prüfung von Domänen (die einzigen Stellen, an denen
   # lebender Prolog-Code die Darstellung berührt) -----------------------------
@@ -534,7 +535,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defbuiltin "$clpz_fd_atom", [e] do
     s = subst()
 
-    case if(Process.get(:clpz_no_fast), do: nil, else: PrologEx.walk(e, s)) do
+    case if(Process.get(:clpz_no_fast), do: nil, else: PrologEx.Store.walk(e, s)) do
       i when is_integer(i) -> :ok
       {:var, _} = v -> if fdvar?(v, s), do: :ok, else: :fail
       _ -> :fail
@@ -549,7 +550,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
     with nil <- Process.get(:clpz_no_fast),
          true <- var_or_int?(v0, s),
-         {:ok, d} <- simple_drep(PrologEx.unmark_top(PrologEx.walk(d0, s)), s) do
+         {:ok, d} <- simple_drep(PrologEx.unmark_top(PrologEx.Store.walk(d0, s)), s) do
       {:unify, [{dom, d}]}
     else
       _ -> :fail
@@ -559,8 +560,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp simple_drep(i, _s) when is_integer(i), do: {:ok, ed(iv(i, i))}
 
   defp simple_drep({:struct, "..", [n0, m0]}, s) do
-    with n when n != nil <- drep_bound(PrologEx.walk(n0, s)),
-         m when m != nil <- drep_bound(PrologEx.walk(m0, s)),
+    with n when n != nil <- drep_bound(PrologEx.Store.walk(n0, s)),
+         m when m != nil <- drep_bound(PrologEx.Store.walk(m0, s)),
          true <- n != :sup and m != :inf do
       {:ok, ed(iv(n, m))}
     else
@@ -611,7 +612,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   @reif_bool ~w(#==> #<== #<==> #/\\ #\\/ #\\)
 
   defp reifiable?(e, s, mono) do
-    case PrologEx.unmark_top(PrologEx.walk(e, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(e, s)) do
       {:var, _} = v ->
         if mono and not fdvar?(v, s), do: throw(:fallback)
         true
@@ -645,7 +646,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # eine Zahl oder eine Variable (must_be_fd_integer/1; eine Variable ohne
   # Domäne bekommt danach eine, siehe oben)
   defp var_or_int_fd?(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       i when is_integer(i) ->
         true
 
@@ -745,7 +746,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # Glieder (umgekehrt) mal m, Konstante mal m
   defp lin(t, s, mono, m, acc) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:var, _} = v ->
         if mono and not fdvar?(v, s), do: throw(:fallback)
         {:ok, [{v, m} | acc], 0}
@@ -754,7 +755,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         {:ok, acc, m * i}
 
       {:struct, f, [x]} when f in ["?", "#"] ->
-        case PrologEx.walk(x, s) do
+        case PrologEx.Store.walk(x, s) do
           i when is_integer(i) -> {:ok, [{i, m} | acc], 0}
           {:var, _} = v -> if fdvar?(v, s), do: {:ok, [{v, m} | acc], 0}, else: throw(:fallback)
           _ -> throw(:fallback)
@@ -764,7 +765,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         lin(a, s, mono, -m, acc)
 
       {:struct, "*", [a, b]} ->
-        case {PrologEx.walk(a, s), PrologEx.walk(b, s)} do
+        case {PrologEx.Store.walk(a, s), PrologEx.Store.walk(b, s)} do
           {n, _} when is_integer(n) -> lin(b, s, mono, m * n, acc)
           {_, n} when is_integer(n) -> lin(a, s, mono, m * n, acc)
           _ -> :fail
@@ -800,8 +801,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
       if Process.get(:clpz_no_fast) do
         nil
       else
-        a = PrologEx.unmark_top(PrologEx.walk(a0, s))
-        b = PrologEx.unmark_top(PrologEx.walk(b0, s))
+        a = PrologEx.unmark_top(PrologEx.Store.walk(a0, s))
+        b = PrologEx.unmark_top(PrologEx.Store.walk(b0, s))
 
         cond do
           simple?(a, s) and is_integer(b) -> "num_a"
@@ -831,7 +832,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp simple?(t, s), do: fdvar?(t, s)
 
   defp absdiff?({:struct, "abs", [d]}, s) do
-    case PrologEx.unmark_top(PrologEx.walk(d, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(d, s)) do
       {:struct, "-", [x, y]} -> var_or_int?(x, s) and var_or_int?(y, s)
       _ -> false
     end
@@ -840,7 +841,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp absdiff?(_, _s), do: false
 
   defp var_or_int?(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} -> true
       i -> is_integer(i)
     end
@@ -852,7 +853,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     run("v_or_i", [v], subst(), fn ->
       s = subst_now()
 
-      case PrologEx.walk(v, s) do
+      case PrologEx.Store.walk(v, s) do
         i when is_integer(i) -> :ok
         {:var, _} = x -> if att(x, s, "clpz", 1), do: :ok, else: throw(:fallback)
         _ -> :fail
@@ -954,7 +955,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           {key, num0} =
             case ws(p, s) do
               {tag, "-", [k, n0]} when tag in [:struct, :gstruct] ->
-                case {val(k, s), PrologEx.walk(n0, s)} do
+                case {val(k, s), PrologEx.Store.walk(n0, s)} do
                   {k, {:var, _} = n0} when is_integer(k) -> {k, n0}
                   _ -> throw(:fallback)
                 end
@@ -1006,7 +1007,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # ihrer Anzahl
   defp var_counts(items, s) do
     items
-    |> Enum.map(&PrologEx.walk(&1, s))
+    |> Enum.map(&PrologEx.Store.walk(&1, s))
     |> Enum.filter(&match?({:var, _}, &1))
     |> Enum.sort(fn a, b -> PrologEx.Order.compare(a, b, s) != :gt end)
     |> Enum.chunk_by(& &1)
@@ -1126,7 +1127,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # merkt sich über clpz_aux(queued) an seinem Zustand, dass er eingereiht
   # ist. Der DCG-Zustand ([Queue|_]) läuft unverändert durch.
 
-  defp ws(t, s), do: PrologEx.unmark_top(PrologEx.walk(t, s))
+  defp ws(t, s), do: PrologEx.unmark_top(PrologEx.Store.walk(t, s))
 
   defp cell(t, s) do
     case ws(t, s) do
@@ -1207,7 +1208,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # fd_get/3: {Domäne, Propagatoren} von x, :default oder :fail
   defp fd_get(x, s) do
-    case PrologEx.walk(x, s) do
+    case PrologEx.Store.walk(x, s) do
       {:var, _} = v ->
         case att(v, s, "clpz", 1) do
           [a] ->
@@ -1260,7 +1261,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     arg =
       case ws(q, s) do
         {tag, "queue", [_, _, _, _] = args} when tag in [:struct, :gstruct] ->
-          PrologEx.walk(Enum.at(args, which - 1), s)
+          PrologEx.Store.walk(Enum.at(args, which - 1), s)
 
         _ ->
           throw(:fallback)
@@ -1309,7 +1310,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp trigger(p, q, s) do
     case ws(p, s) do
       {tag, "propagator", [c, state]} when tag in [:struct, :gstruct] ->
-        st = PrologEx.walk(state, s)
+        st = PrologEx.Store.walk(state, s)
 
         cond do
           st == {:atom, "dead"} ->
@@ -1545,7 +1546,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defp same_queue(items, s) do
-    vs = for v <- items, w = PrologEx.walk(v, s), var?(w), do: w
+    vs = for v <- items, w = PrologEx.Store.walk(v, s), var?(w), do: w
 
     if vs == [] do
       s
@@ -1595,14 +1596,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Gs = [], und es gibt keine freeze/dif/when-Suspensionen. Ist clpz das
   # einzige Modul mit verify_attributes/3 (vom Aufrufer geprüft), braucht
   # die Maschine sie also nicht zu wecken
-  defp drop_inert_wake(%{wake: ws} = s) do
-    if Enum.all?(ws, &inert?(&1, s)), do: Map.delete(s, :wake), else: s
+  defp drop_inert_wake(s) do
+    case Store.take_wake(s) do
+      {ws, s1} -> if Enum.all?(ws, &inert?(&1, s)), do: s1, else: s
+      :none -> s
+    end
   end
 
-  defp drop_inert_wake(s), do: s
-
   defp inert?({:var, {:attv, id}}, s) do
-    case Map.get(s, {:attrs, id}, %{}) do
+    case Store.attrs(s, id) do
       m when map_size(m) == 0 ->
         true
 
@@ -1623,7 +1625,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     case ws(q, s) do
       {tag, "queue", args} when tag in [:struct, :gstruct] and length(args) == 4 ->
         for a <- args do
-          case PrologEx.walk(a, s) do
+          case PrologEx.Store.walk(a, s) do
             {:var, _} = v -> v
             _ -> throw(:fallback)
           end
@@ -1676,7 +1678,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       s = subst_now()
 
       v =
-        case PrologEx.walk(var, s) do
+        case PrologEx.Store.walk(var, s) do
           {:var, _} = v -> v
           _ -> throw(:fallback)
         end
@@ -1695,7 +1697,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
                 throw(:fallback)
             end
 
-          case PrologEx.walk(other, s) do
+          case PrologEx.Store.walk(other, s) do
             {:var, _} = o ->
               verify_vars(v, attr, dom, ps, o, gs, ctx.db, s)
 
@@ -1799,7 +1801,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defp put_dom(x, _d, dom, ps, q, s) do
-    case PrologEx.walk(x, s) do
+    case PrologEx.Store.walk(x, s) do
       {:var, _} = v ->
         case att(v, s, "clpz", 1) do
           [attr] ->
@@ -1908,13 +1910,13 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # vorne aus Liste which: {Element, s} oder nil
   defp pop(args, which, s) do
-    arg = PrologEx.walk(Enum.at(args, which - 1), s)
+    arg = PrologEx.Store.walk(Enum.at(args, which - 1), s)
 
     with {:var, _} <- arg,
          [h, t] <- att(arg, s, "queue", 2),
          {e, es} <- cell(h, s) do
       s =
-        if match?({:var, _}, PrologEx.walk(es, s)),
+        if match?({:var, _}, PrologEx.Store.walk(es, s)),
           do: del_att(s, arg, "queue", 2),
           else: put_att(s, arg, mk("queue", [es, t]))
 
@@ -1937,7 +1939,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           _ -> throw(:fallback)
         end
 
-      aux = PrologEx.walk(Enum.at(args, 3), s)
+      aux = PrologEx.Store.walk(Enum.at(args, 3), s)
 
       {t, s} =
         cond do
@@ -2016,7 +2018,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           _ -> throw(:fallback)
         end
 
-      st = PrologEx.walk(state, s)
+      st = PrologEx.Store.walk(state, s)
 
       cond do
         st == {:atom, "dead"} ->
@@ -2053,7 +2055,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
           # (auch ein Fehlschlag: das Original weckt vorher vielleicht noch)
           cond do
-            not alone and (r == :fail or Map.has_key?(r, :wake)) -> :fallback
+            not alone and (r == :fail or Store.wake?(r)) -> :fallback
             r == :fail -> :fail
             true -> {:ok, r}
           end
@@ -2113,7 +2115,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     run("trigger_once_", [p, q0], subst(), fn ->
       s = subst_now()
       if Process.get(:clpz_no_fast), do: throw(:fallback)
-      q = PrologEx.walk(q0, s)
+      q = PrologEx.Store.walk(q0, s)
 
       case trigger(p, q, s) do
         :fail -> :fail
@@ -2152,10 +2154,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
             {:next, mk("ref", [e]), s}
 
           {:ok, s} ->
-            case s do
-              %{wake: ws} ->
+            case Store.take_wake(s) do
+              {ws, s0} ->
                 if only_clpz do
-                  case absorb_wake(ws, q, s) do
+                  case absorb_wake(ws, q, s0) do
                     {:ok, s} -> queue_loop(q, args, only_clpz, s)
                     :fail -> :fail
                     :no -> {:next, a("again"), s}
@@ -2191,8 +2193,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
     if Enum.all?(vs, &match?({:var, {:attv, _}}, &1)) and
          Enum.all?(vs, &only_clpz_attrs?(&1, s)) do
-      pairs = for v <- vs, do: {v, Map.fetch!(s, v)}
-      s0 = Enum.reduce(vs, Map.delete(s, :wake), &Map.delete(&2, &1))
+      pairs = for v <- vs, {:ok, val} = Store.binding(s, v), do: {v, val}
+      s0 = Enum.reduce(vs, s, &Store.unbind(&2, &1))
       Process.put(:clpz_prims_subst, s0)
 
       try do
@@ -2202,7 +2204,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
           {s1, qs} ->
             if Enum.all?(qs, &PrologEx.Order.equal?(&1, q, s1)) do
-              {:ok, Enum.reduce(pairs, s1, fn {v, val}, acc -> Map.put(acc, v, val) end)}
+              {:ok,
+               Enum.reduce(pairs, s1, fn {v, val}, acc -> Store.put_binding(acc, v, val) end)}
             else
               :no
             end
@@ -2234,7 +2237,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           end
 
         i =
-          case PrologEx.walk(val, s) do
+          case PrologEx.Store.walk(val, s) do
             i when is_integer(i) -> i
             _ -> throw(:fallback)
           end
@@ -2254,7 +2257,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # nur Attribute im Modul clpz (oder keine)
   defp only_clpz_attrs?({:var, {:attv, id}}, s) do
-    case Map.get(s, {:attrs, id}, %{}) do
+    case Store.attrs(s, id) do
       m when map_size(m) == 0 -> true
       %{"clpz" => _} = m when map_size(m) == 1 -> true
       _ -> false
@@ -2273,7 +2276,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # nächster Eintrag wie queue_enabled//0, queue_get_goal//1,
   # queue_get_fast//1, queue_get_slow//1
   defp next_entry(args, s) do
-    aux = PrologEx.walk(Enum.at(args, 3), s)
+    aux = PrologEx.Store.walk(Enum.at(args, 3), s)
 
     cond do
       match?({:var, _}, aux) and att(aux, s, "disabled", 0) != nil ->
@@ -2298,7 +2301,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # Werte: ganze Zahl, Variable oder (sonst) das Original
   defp val(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       i when is_integer(i) -> i
       {:var, _} = v -> v
       _ -> throw(:fallback)
@@ -2310,7 +2313,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # kill/1: del_attr(State, clpz_aux), State = dead
   defp kill(st, s) do
-    st = PrologEx.walk(st, s)
+    st = PrologEx.Store.walk(st, s)
     s = if var?(st), do: del_att(s, st, "clpz_aux", 1), else: s
 
     case PrologEx.unify(st, a("dead"), s) do
@@ -2367,7 +2370,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp aux(q, s) do
     case ws(q, s) do
       {tag, "queue", [_, _, _, aux]} when tag in [:struct, :gstruct] ->
-        case PrologEx.walk(aux, s) do
+        case PrologEx.Store.walk(aux, s) do
           {:var, _} = v -> v
           _ -> throw(:fallback)
         end
@@ -2587,9 +2590,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # mit mehreren Bindungen oder neuen Bedingungen: das Original.
 
   defp propagate("reified_geq", [dx0, x0, dy0, y0, ps, b0], st, _q, s) do
-    dx = PrologEx.walk(dx0, s)
-    dy = PrologEx.walk(dy0, s)
-    b = PrologEx.walk(b0, s)
+    dx = PrologEx.Store.walk(dx0, s)
+    dy = PrologEx.Store.walk(dy0, s)
+    b = PrologEx.Store.walk(b0, s)
 
     cond do
       dx == 0 or dy == 0 ->
@@ -2623,9 +2626,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   defp propagate(name, [dx0, x0, dy0, y0, ps, b0], st, _q, s)
        when name in ["reified_eq", "reified_neq"] do
-    dx = PrologEx.walk(dx0, s)
-    dy = PrologEx.walk(dy0, s)
-    b = PrologEx.walk(b0, s)
+    dx = PrologEx.Store.walk(dx0, s)
+    dy = PrologEx.Store.walk(dy0, s)
+    b = PrologEx.Store.walk(b0, s)
     eq = name == "reified_eq"
 
     cond do
@@ -2923,7 +2926,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         propagate("reified_and", [y0, ps2, x0, ps1, b0], st, q, s)
 
       # X = 1, Y = 1: zwei Bindungen (das Original)
-      PrologEx.walk(b0, s) == 1 ->
+      PrologEx.Store.walk(b0, s) == 1 ->
         throw(:fallback)
 
       true ->
@@ -2947,7 +2950,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       Enum.map(list_items(pairs0, s), fn p ->
         case ws(p, s) do
           {tag, "-", [k, n0]} when tag in [:struct, :gstruct] ->
-            case {val(k, s), PrologEx.walk(n0, s)} do
+            case {val(k, s), PrologEx.Store.walk(n0, s)} do
               {k, {:var, _} = n0} when is_integer(k) -> {k, n0}
               _ -> throw(:fallback)
             end
@@ -3043,7 +3046,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         propagate("reified_or", [y0, ps2, x0, ps1, b0], st, q, s)
 
       # X = 0, Y = 0: zwei Bindungen (das Original)
-      PrologEx.walk(b0, s) == 0 ->
+      PrologEx.Store.walk(b0, s) == 0 ->
         throw(:fallback)
 
       true ->
@@ -4509,12 +4512,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
         del_clpz(v, s)
 
       {tag, "a", [x, b]} when tag in [:struct, :gstruct] ->
-        if PrologEx.walk(x, s) == PrologEx.walk(b, s), do: s, else: del_clpz(b, s)
+        if PrologEx.Store.walk(x, s) == PrologEx.Store.walk(b, s), do: s, else: del_clpz(b, s)
 
       {tag, "a", [x, y, b]} when tag in [:struct, :gstruct] ->
-        bw = PrologEx.walk(b, s)
+        bw = PrologEx.Store.walk(b, s)
 
-        if PrologEx.walk(x, s) == bw or PrologEx.walk(y, s) == bw,
+        if PrologEx.Store.walk(x, s) == bw or PrologEx.Store.walk(y, s) == bw,
           do: s,
           else: del_clpz(b, s)
 
@@ -4525,7 +4528,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # del_attr(V, clpz): nur für eine Variable
   defp del_clpz(v, s) do
-    case PrologEx.walk(v, s) do
+    case PrologEx.Store.walk(v, s) do
       {:var, _} = var -> del_att(s, var, "clpz", 1)
       _ -> s
     end
@@ -5068,8 +5071,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp distinct_goals(vs, s) do
     left =
       for v <- list_items(vs, s),
-          var?(PrologEx.walk(v, s)),
-          v = PrologEx.walk(v, s),
+          var?(PrologEx.Store.walk(v, s)),
+          v = PrologEx.Store.walk(v, s),
           {d, _} = fdget(v, s),
           {:ok, ns} <- [ClpzDom.to_list(d)],
           do: {v, ns}

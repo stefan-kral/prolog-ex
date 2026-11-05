@@ -59,7 +59,8 @@ defmodule PrologEx.Arith do
   `integer` nehmen auch Ganzzahlen (wie SWI; ISO verlangt einen Float).
   """
 
-  import PrologEx, only: [walk: 2, unmark_top: 1]
+  import PrologEx, only: [unmark_top: 1]
+  import PrologEx.Store, only: [walk: 2]
   alias PrologEx.Error
 
   @max_tagged 576_460_752_303_423_487

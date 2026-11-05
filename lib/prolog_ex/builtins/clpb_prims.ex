@@ -174,9 +174,9 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # Code des Teilbaums; die Nummer vergibt die Präordnung (erst der Knoten,
   # dann Low, dann High)
   defp dense_visit(t, s, {num, entries} = acc) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:struct, "node", [id, var, low, high, _aux]} = node ->
-        id = PrologEx.walk(id, s)
+        id = PrologEx.Store.walk(id, s)
 
         case num do
           %{^id => i} ->
@@ -184,7 +184,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
           _ ->
             var =
-              case PrologEx.walk(var, s) do
+              case PrologEx.Store.walk(var, s) do
                 {:var, _} = v -> v
                 _ -> throw(:bound)
               end
@@ -221,7 +221,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
       ir ->
         case top(ir, s) do
-          {:struct, "index_root", [i, _]} -> PrologEx.walk(i, s)
+          {:struct, "index_root", [i, _]} -> PrologEx.Store.walk(i, s)
           _ -> nil
         end
     end
@@ -345,7 +345,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   defbuiltin "$clpb_apply", [f, na, nb, node] do
     s = subst()
-    {:atom, op} = PrologEx.walk(f, s)
+    {:atom, op} = PrologEx.Store.walk(f, s)
 
     try do
       {res, st} = apply_bdd(op, na, nb, %{s: s, memo: %{}, idx: %{}})
@@ -363,7 +363,8 @@ defmodule PrologEx.Builtins.ClpbPrims do
     s = subst()
 
     try do
-      {res, st} = make_node(PrologEx.walk(var, s), top(low, s), top(high, s), %{s: s, idx: %{}})
+      {res, st} =
+        make_node(PrologEx.Store.walk(var, s), top(low, s), top(high, s), %{s: s, idx: %{}})
 
       case PrologEx.unify(node, res, st.s) do
         {:ok, s} -> {:subst, s}
@@ -374,12 +375,12 @@ defmodule PrologEx.Builtins.ClpbPrims do
     end
   end
 
-  defp top(t, s), do: PrologEx.unmark_top(PrologEx.walk(t, s))
+  defp top(t, s), do: PrologEx.unmark_top(PrologEx.Store.walk(t, s))
 
   # Kennung für Schlüssel: Blätter false/true (wie node_id/2), Knoten ihre ID
   defp nid(0, _s), do: false
   defp nid(1, _s), do: true
-  defp nid({:struct, "node", [id | _]}, s), do: PrologEx.walk(id, s)
+  defp nid({:struct, "node", [id | _]}, s), do: PrologEx.Store.walk(id, s)
 
   defp apply_bdd(f, na, nb, st) do
     na = top(na, st.s)
@@ -437,7 +438,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp apply_split(f, na, nb, st) do
     case {na, nb} do
       {{:struct, "node", [_, va, la, ha, _]}, _} ->
-        va = PrologEx.walk(va, st.s)
+        va = PrologEx.Store.walk(va, st.s)
 
         {less, st} =
           case nb do
@@ -446,7 +447,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
             {:struct, "node", [_, vb, _, _, _]} ->
               {ia, st} = var_idx(va, st)
-              {ib, st} = var_idx(PrologEx.walk(vb, st.s), st)
+              {ib, st} = var_idx(PrologEx.Store.walk(vb, st.s), st)
               {ia != nil and ib != nil and ia < ib, st}
           end
 
@@ -471,12 +472,12 @@ defmodule PrologEx.Builtins.ClpbPrims do
     end
   end
 
-  defp same_var?(va, {:struct, "node", [_, vb | _]}, s), do: va == PrologEx.walk(vb, s)
+  defp same_var?(va, {:struct, "node", [_, vb | _]}, s), do: va == PrologEx.Store.walk(vb, s)
 
   defp split_b(f, na, {:struct, "node", [_, vb, lb, hb, _]}, st) do
     {low, st} = apply_bdd(f, na, lb, st)
     {high, st} = apply_bdd(f, na, hb, st)
-    make_node(PrologEx.walk(vb, st.s), top(low, st.s), top(high, st.s), st)
+    make_node(PrologEx.Store.walk(vb, st.s), top(low, st.s), top(high, st.s), st)
   end
 
   defp split_b(_f, _na, _nb, _st), do: throw(:clpb_fail)
@@ -507,7 +508,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
         :none ->
           {:ok, id} = Blackboard.b_value("clpb", "$clpb_next_node", s)
-          id = PrologEx.walk(id, s)
+          id = PrologEx.Store.walk(id, s)
           s = Blackboard.b_put(s, "clpb", "$clpb_next_node", id + 1)
           node = {:struct, "node", [id, var, low, high, {:var, PrologEx.Vars.next()}]}
           hash = Assoc.put_value(hash, key, node, s)
@@ -524,7 +525,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
     try do
       {r, st} =
-        restrict(top(node, s), PrologEx.walk(vi, s), PrologEx.walk(value, s), %{
+        restrict(top(node, s), PrologEx.Store.walk(vi, s), PrologEx.Store.walk(value, s), %{
           s: s,
           idx: %{},
           rmemo: %{}
@@ -543,7 +544,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
     s = subst()
 
     try do
-      {r, st} = existential(PrologEx.walk(v, s), top(bdd, s), %{s: s, memo: %{}, idx: %{}})
+      {r, st} = existential(PrologEx.Store.walk(v, s), top(bdd, s), %{s: s, memo: %{}, idx: %{}})
 
       case PrologEx.unify(node, r, st.s) do
         {:ok, s} -> {:subst, s}
@@ -574,7 +575,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp restrict(node, _vi, _value, st) when is_integer(node), do: {node, st}
 
   defp restrict({:struct, "node", [id, var, low, high, _]} = node, vi, value, st) do
-    case PrologEx.walk(var, st.s) do
+    case PrologEx.Store.walk(var, st.s) do
       0 ->
         restrict(top(low, st.s), vi, value, st)
 
@@ -586,7 +587,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
       v ->
         {i0, st} = var_idx(v, st)
-        id = PrologEx.walk(id, st.s)
+        id = PrologEx.Store.walk(id, st.s)
 
         cond do
           i0 == nil ->
@@ -622,7 +623,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # von term_variables/2)
   defbuiltin "$clpb_parse", [sat0, mono, sat] do
     s = subst()
-    {res, s} = parse(sat0, PrologEx.walk(mono, s) == a("true"), s)
+    {res, s} = parse(sat0, PrologEx.Store.walk(mono, s) == a("true"), s)
 
     case PrologEx.unify(sat, res, s) do
       {:ok, s} -> {:subst, s}
@@ -654,7 +655,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
         true
 
       {:struct, "v", [x]} ->
-        case PrologEx.walk(x, s) do
+        case PrologEx.Store.walk(x, s) do
           {:var, _} -> true
           i -> i in [0, 1]
         end
@@ -678,7 +679,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
         must_be_list(ls, s) |> Enum.all?(&sat?(&1, mono, s))
 
       {:struct, "^", [x, f]} ->
-        match?({:var, _}, PrologEx.walk(x, s)) and sat?(f, mono, s)
+        match?({:var, _}, PrologEx.Store.walk(x, s)) and sat?(f, mono, s)
 
       {:struct, "card", [is, fs]} ->
         is |> must_be_list(s) |> Enum.each(&must_be_nonvar(&1, s))
@@ -711,7 +712,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   # must_be(ground, _, T) ist im Original functor(T, _, _)
   defp must_be_nonvar(t, s) do
-    if match?({:var, _}, PrologEx.walk(t, s)), do: PrologEx.Error.instantiation!()
+    if match?({:var, _}, PrologEx.Store.walk(t, s)), do: PrologEx.Error.instantiation!()
   end
 
   # sat_rewrite/2; {Term, Substitution} – neue Atome bekommen Variablen
@@ -730,14 +731,14 @@ defmodule PrologEx.Builtins.ClpbPrims do
         atom_var([], s)
 
       {:struct, "v", [x]} ->
-        {PrologEx.walk(x, s), s}
+        {PrologEx.Store.walk(x, s), s}
 
       {:struct, op, [p, q]} when op in ["*", "+", "#"] ->
         bin(op, p, q, s)
 
       {:struct, "^", [x, f]} ->
         {f, s} = rewrite(f, s)
-        {mk("^", [PrologEx.walk(x, s), f]), s}
+        {mk("^", [PrologEx.Store.walk(x, s), f]), s}
 
       {:struct, "card", [is, fs]} ->
         {fs, s} = fs |> must_be_list(s) |> Enum.map_reduce(s, &rewrite/2)
@@ -807,14 +808,14 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
     case Assoc.lookup_value(at, atoms, s) do
       {:ok, v} ->
-        {PrologEx.walk(v, s), s}
+        {PrologEx.Store.walk(v, s), s}
 
       :none ->
         v = {:var, PrologEx.Vars.next()}
         s = Atts.put_one(s, v, "clpb", mk("clpb_atom", [at]))
         s = Atts.put_one(s, v, "clpb", mk("clpb_omit_boolean", [a("true")]))
         s = Blackboard.b_put(s, "clpb", "$clpb_atoms", Assoc.put_value(atoms, at, v, s))
-        {PrologEx.walk(v, s), s}
+        {PrologEx.Store.walk(v, s), s}
     end
   end
 
@@ -824,7 +825,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
       s
     else
       {:ok, i} = Blackboard.b_value("clpb", "$clpb_next_var", s)
-      i = PrologEx.walk(i, s)
+      i = PrologEx.Store.walk(i, s)
       s = Blackboard.b_put(s, "clpb", "$clpb_next_var", i + 1)
       root = {:var, PrologEx.Vars.next()}
       s = Atts.put_one(s, v, "clpb", mk("clpb", [mk("index_root", [i, root])]))
@@ -862,7 +863,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
       {:struct, "^", [v, f]} ->
         {b, st} = sat_bdd(f, st)
-        existential(PrologEx.walk(v, st.s), b, st)
+        existential(PrologEx.Store.walk(v, st.s), b, st)
 
       {:struct, "card", [is, fs]} ->
         counter_network(is, fs, st)
@@ -894,7 +895,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
     {vars, exs, _seen, st} =
       Enum.reduce(fs, {[], [], MapSet.new(), st}, fn f, {vars, exs, seen, st} ->
-        case PrologEx.walk(f, st.s) do
+        case PrologEx.Store.walk(f, st.s) do
           {:var, _} = v ->
             if MapSet.member?(seen, v),
               do: helper(f, vars, exs, seen, st),
@@ -932,7 +933,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp helper(f, vars, exs, seen, st) do
     v = {:var, PrologEx.Vars.next()}
     s = enumerate(v, st.s)
-    v = PrologEx.walk(v, s)
+    v = PrologEx.Store.walk(v, s)
     {sat, s} = rewrite(mk("=:=", [v, f]), s)
     {bdd, st} = sat_bdd(sat, %{st | s: s})
     {[v | vars], [{v, bdd} | exs], seen, st}
@@ -954,7 +955,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # (Fehler wie between/3)
   defp indicator(k, cs, s) do
     cond do
-      Enum.any?(cs, &(PrologEx.walk(&1, s) === k)) ->
+      Enum.any?(cs, &(PrologEx.Store.walk(&1, s) === k)) ->
         1
 
       Enum.any?(cs, fn c ->
@@ -971,9 +972,9 @@ defmodule PrologEx.Builtins.ClpbPrims do
   end
 
   defp in_range?(k, lo, hi, s) do
-    lo = int_arg(PrologEx.walk(lo, s))
+    lo = int_arg(PrologEx.Store.walk(lo, s))
 
-    case PrologEx.walk(hi, s) do
+    case PrologEx.Store.walk(hi, s) do
       {:atom, inf} when inf in ["inf", "infinite"] -> k >= lo
       hi -> k >= lo and k <= int_arg(hi)
     end
@@ -1011,13 +1012,13 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
       :single ->
         try do
-          {bdd, g, s} = sat_single(sat0, PrologEx.walk(mono, s) == a("true"), s)
+          {bdd, g, s} = sat_single(sat0, PrologEx.Store.walk(mono, s) == a("true"), s)
 
           # ohne clpb:validation gleich die Propagation (satisfiable_bdd/1)
           # auf demselben eingelesenen BDD; mit ihr erst is_bdd/1 in Prolog
           {res, s} =
             cond do
-              PrologEx.walk(validation, s) == a("true") -> {mk("bdd", [bdd]), s}
+              PrologEx.Store.walk(validation, s) == a("true") -> {mk("bdd", [bdd]), s}
               bdd === 0 -> throw(:clpb_fail)
               bdd === 1 -> {a("skip"), s}
               true -> propagate(g, bdd, s)
@@ -1135,7 +1136,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   defp rebuild_bound(bdd, s) do
     Enum.each(node_list(bdd, s), fn {:struct, "node", [_, var | _]} ->
-      case PrologEx.walk(var, s) do
+      case PrologEx.Store.walk(var, s) do
         {:var, _} -> :ok
         other -> PrologEx.Error.uninstantiation!(PrologEx.resolve(other, s))
       end
@@ -1148,7 +1149,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # billiger als Terme node(LID, HID) – um ein Fünftel schneller.
   defp key_code(0, _s), do: 0
   defp key_code(1, _s), do: 1
-  defp key_code({:struct, "node", [id | _]}, s), do: PrologEx.walk(id, s) + 2
+  defp key_code({:struct, "node", [id | _]}, s), do: PrologEx.Store.walk(id, s) + 2
 
   defp node_key(a, b), do: div((a + b) * (a + b + 1), 2) + b
 
@@ -1159,7 +1160,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   end
 
   defp node_list({:struct, "node", [id, _, low, high, _]} = node, s, {acc, seen}) do
-    id = PrologEx.walk(id, s)
+    id = PrologEx.Store.walk(id, s)
 
     if MapSet.member?(seen, id) do
       {acc, seen}
@@ -1303,7 +1304,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
     s = subst()
 
     try do
-      {goals, s} = verify(var, other, PrologEx.walk(mono, s) == a("true"), s)
+      {goals, s} = verify(var, other, PrologEx.Store.walk(mono, s) == a("true"), s)
 
       case PrologEx.unify(gs, list(goals), s) do
         {:ok, s} -> {:subst, s}
@@ -1328,7 +1329,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
             {sat, bdd0} = formula_bdd(root, s)
 
             {bdd, st} =
-              restrict(bdd0, PrologEx.walk(i, s), o, %{s: s, idx: %{}, rmemo: %{}})
+              restrict(bdd0, PrologEx.Store.walk(i, s), o, %{s: s, idx: %{}, rmemo: %{}})
 
             s = Atts.put_one(st.s, root, "clpb", mk("clpb_bdd", [mk("-", [sat, bdd])]))
             {[mk("satisfiable_bdd", [bdd])], s}
@@ -1377,7 +1378,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
     s = subst()
 
     try do
-      {sat, s} = parse(formula, PrologEx.walk(mono, s) == a("true"), s)
+      {sat, s} = parse(formula, PrologEx.Store.walk(mono, s) == a("true"), s)
       {b, st} = sat_bdd(sat, %{s: s, memo: %{}, idx: %{}})
       s = Atts.put_one(st.s, root, "clpb", mk("clpb_bdd", [mk("-", [formula, b])]))
 
@@ -1403,7 +1404,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
     s = subst()
 
     try do
-      count = sat_count(sat0, PrologEx.walk(mono, s) == a("true"), s)
+      count = sat_count(sat0, PrologEx.Store.walk(mono, s) == a("true"), s)
 
       case PrologEx.unify(n, count, s) do
         {:ok, s} -> {:subst, s}
@@ -1436,7 +1437,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
     others =
       for {:struct, "node", [_, var | _]} <- node_list(bdd1, st.s),
-          v = PrologEx.walk(var, st.s),
+          v = PrologEx.Store.walk(var, st.s),
           match?({:var, _}, v),
           not MapSet.member?(in_sat0, v),
           uniq: true,
@@ -1466,7 +1467,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp bdd_count(node, _ctx, memo) when is_integer(node), do: {node, memo}
 
   defp bdd_count({:struct, "node", [id, var, low, high, _]}, ctx, memo) do
-    id = PrologEx.walk(id, ctx.s)
+    id = PrologEx.Store.walk(id, ctx.s)
 
     case memo do
       %{^id => c} ->
@@ -1477,7 +1478,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
         high = top(high, ctx.s)
         {lc, memo} = bdd_count(low, ctx, memo)
         {hc, memo} = bdd_count(high, ctx, memo)
-        i = count_idx(PrologEx.walk(var, ctx.s), ctx)
+        i = count_idx(PrologEx.Store.walk(var, ctx.s), ctx)
         c = pow2(var_u(low, ctx) - i - 1) * lc + pow2(var_u(high, ctx) - i - 1) * hc
         {c, Map.put(memo, id, c)}
     end
@@ -1487,7 +1488,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp var_u(node, ctx) when is_integer(node), do: ctx.vnum
 
   defp var_u({:struct, "node", [_, var | _]}, ctx),
-    do: count_idx(PrologEx.walk(var, ctx.s), ctx)
+    do: count_idx(PrologEx.Store.walk(var, ctx.s), ctx)
 
   # der neue Index (oder, für eine nicht umnummerierte Variable, der alte)
   defp count_idx(v, ctx) do
@@ -1507,11 +1508,11 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # BDDs verlieren ihre clpb-Attribute. Scheitert wie das Original.
   defbuiltin "$clpb_attribute_goals", [var, mono, mode, gs] do
     s = subst()
-    mono = PrologEx.walk(mono, s) == a("true")
-    bdd_mode = PrologEx.walk(mode, s) == a("bdd")
+    mono = PrologEx.Store.walk(mono, s) == a("true")
+    bdd_mode = PrologEx.Store.walk(mode, s) == a("bdd")
 
     try do
-      {goals, s} = attribute_goals(PrologEx.walk(var, s), mono, bdd_mode, s)
+      {goals, s} = attribute_goals(PrologEx.Store.walk(var, s), mono, bdd_mode, s)
 
       case PrologEx.unify(gs, list(goals), s) do
         {:ok, s} -> {:subst, s}
@@ -1603,7 +1604,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # bdd_variables/2: die ungebundenen Variablen der Knoten, ohne Wiederholung
   defp bdd_variables(bdd, s) do
     for {:struct, "node", [_, var | _]} <- node_list(bdd, s),
-        v = PrologEx.walk(var, s),
+        v = PrologEx.Store.walk(var, s),
         match?({:var, _}, v),
         uniq: true,
         do: v
@@ -1612,7 +1613,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   # nodes//1 (clpb_residuals(bdd)): ID-(v(Var,Index) -> High ; Low)
   defp bdd_projection(bdd, s) do
     for {:struct, "node", [_, var0, low, high, _]} = node <- node_list(bdd, s) do
-      var0 = PrologEx.walk(var0, s)
+      var0 = PrologEx.Store.walk(var0, s)
       vi = index_of(var0, s) || throw(:clpb_fail)
       ite = mk("->", [mk("v", [var_or_atom(var0, s), vi]), projection(top(high, s), s)])
       mk("-", [projection(node, s), mk(";", [ite, projection(top(low, s), s)])])
@@ -1754,14 +1755,14 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp node_xors(1, _s, memo), do: {[[]], memo}
 
   defp node_xors({:struct, "node", [id, var0, low, high, _]}, s, memo) do
-    id = PrologEx.walk(id, s)
+    id = PrologEx.Store.walk(id, s)
 
     case memo do
       %{^id => xs} ->
         {xs, memo}
 
       _ ->
-        var = var_or_atom(PrologEx.walk(var0, s), s)
+        var = var_or_atom(PrologEx.Store.walk(var0, s), s)
         {ls0, memo} = node_xors(top(low, s), s, memo)
         {hs0, memo} = node_xors(top(high, s), s, memo)
         raw = ls0 ++ Enum.map(ls0, &[var | &1]) ++ Enum.map(hs0, &[var | &1])
@@ -1853,7 +1854,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
       qvs =
         qvs
         |> items(s)
-        |> Enum.map(&PrologEx.walk(&1, s))
+        |> Enum.map(&PrologEx.Store.walk(&1, s))
         |> Enum.filter(&(match?({:var, _}, &1) and index_of(&1, s) != nil))
 
       roots =
@@ -1906,7 +1907,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
     items = must_be_list(vs0, s)
 
     Enum.each(items, fn v ->
-      case PrologEx.walk(v, s) do
+      case PrologEx.Store.walk(v, s) do
         {:var, _} -> :ok
         b when b === 0 or b === 1 -> :ok
         other -> clpb_error(mk("domain_error", [a("clpb_variable"), other]), other)
@@ -1963,7 +1964,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
     try do
       ws = items(ws, s)
-      vars = vars |> items(s) |> Enum.map(&PrologEx.walk(&1, s))
+      vars = vars |> items(s) |> Enum.map(&PrologEx.Store.walk(&1, s))
       if length(ws) != length(vars), do: throw(:clpb_fail)
       bdd0 = top(bdd0, s)
       in_vars = MapSet.new(vars)
@@ -1983,7 +1984,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
         |> Enum.zip(ws)
         |> Enum.map(fn {v, w} ->
           k = mk("-", [index_of(v, s) || 0, v])
-          {k, {k, {v, PrologEx.walk(w, s)}}}
+          {k, {k, {v, PrologEx.Store.walk(w, s)}}}
         end)
         |> PrologEx.Order.keysort(s)
         |> group_consecutive(s)
@@ -2010,11 +2011,11 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp bdd_maximum(1, ps, s), do: {positive_sum(ps), s}
 
   defp bdd_maximum({:struct, "node", [_, var, low, high, aux]}, ps0, s) do
-    aux = PrologEx.walk(aux, s)
+    aux = PrologEx.Store.walk(aux, s)
 
     case Atts.get_one(aux, "clpb", "clpb_max", s) do
       nil ->
-        var = PrologEx.walk(var, s)
+        var = PrologEx.Store.walk(var, s)
         {weight, ps} = skip_to_var(var, ps0, s)
         low = top(low, s)
         high = top(high, s)
@@ -2049,7 +2050,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
       mx ->
         {:struct, "max", [m, _]} = top(mx, s)
-        {PrologEx.walk(m, s), s}
+        {PrologEx.Store.walk(m, s), s}
     end
   end
 
@@ -2064,7 +2065,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
   defp between_weights(1, _ps, _s), do: 0
 
   defp between_weights({:struct, "node", [_, var | _]}, ps, s) do
-    var = PrologEx.walk(var, s)
+    var = PrologEx.Store.walk(var, s)
 
     ps
     |> Enum.take_while(fn {v, _} -> v != var end)

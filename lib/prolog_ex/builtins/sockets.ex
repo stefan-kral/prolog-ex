@@ -501,7 +501,7 @@ defmodule PrologEx.Builtins.Sockets do
   # --- Hilfen ----------------------------------------------------------------
 
   defp must_be_var!(t, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} -> :ok
       other -> Error.uninstantiation!(PrologEx.resolve(other, s))
     end

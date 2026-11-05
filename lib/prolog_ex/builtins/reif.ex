@@ -159,7 +159,7 @@ defmodule PrologEx.Builtins.Reif do
   end
 
   defp memberd_t(e, l, t, s) do
-    case PrologEx.walk(l, s) do
+    case PrologEx.Store.walk(l, s) do
       [x | rest] ->
         case Coroutining.unifier(x, e, s) do
           :different ->
@@ -211,7 +211,7 @@ defmodule PrologEx.Builtins.Reif do
   # entschiedene Elemente sammeln (acc umgekehrt); beim ersten offenen zwei
   # Zweige, der Rest dann wieder über tfilter/3
   defp filter(c, y, eq?, l, fs, acc, s) do
-    case PrologEx.walk(l, s) do
+    case PrologEx.Store.walk(l, s) do
       [e | rest] ->
         case Coroutining.unifier(y, e, s) do
           {:maybe, _, _} ->
@@ -273,7 +273,7 @@ defmodule PrologEx.Builtins.Reif do
   end
 
   defp partition(p, y, eq?, l, ts, fs, at, af, s) do
-    case PrologEx.walk(l, s) do
+    case PrologEx.Store.walk(l, s) do
       [e | rest] ->
         case Coroutining.unifier(y, e, s) do
           {:maybe, _, _} ->
@@ -347,11 +347,11 @@ defmodule PrologEx.Builtins.Reif do
 
   # M:G abstreifen (auch mehrfach): {Modul, G}
   defp strip(t, s, m) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:struct, ":", [mm, g]} ->
-        case PrologEx.walk(mm, s) do
+        case PrologEx.Store.walk(mm, s) do
           {:atom, name} -> strip(g, s, name)
-          _ -> {m, PrologEx.unmark_top(PrologEx.walk(t, s))}
+          _ -> {m, PrologEx.unmark_top(PrologEx.Store.walk(t, s))}
         end
 
       other ->

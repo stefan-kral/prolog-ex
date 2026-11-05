@@ -36,6 +36,7 @@ defmodule PrologEx.Builtins.Coroutining do
   use PrologEx.Builtin
   alias PrologEx.Builtins.Lists
   alias PrologEx.Builtins.Order
+  alias PrologEx.Store
 
   # freeze(X, G): G läuft, sobald X gebunden ist (sofort, wenn schon)
   defbuiltin "freeze", [x, g] do
@@ -51,7 +52,7 @@ defmodule PrologEx.Builtins.Coroutining do
   # freeze mit qualifiziertem Ziel: {:call, Ziel} oder {:ok, s} (wartet).
   # Auch für das Wecken in der Maschine.
   def freeze(x, goal, s) do
-    case PrologEx.walk(x, s) do
+    case PrologEx.Store.walk(x, s) do
       {:var, _} = v -> {:ok, PrologEx.suspend(s, [v], mk("$fz", [goal]))}
       _ -> {:call, goal}
     end
@@ -102,7 +103,7 @@ defmodule PrologEx.Builtins.Coroutining do
   def active?(susp, s) do
     case done_var(susp) do
       nil -> true
-      d -> match?({:var, _}, PrologEx.walk(d, s))
+      d -> match?({:var, _}, PrologEx.Store.walk(d, s))
     end
   end
 
@@ -263,7 +264,7 @@ defmodule PrologEx.Builtins.Coroutining do
   # Die Variable mit der Ausschlussmenge data ist jetzt x (gebunden oder
   # eine andere Variable): :fail oder {:ok, s}
   def check_excluded(x, {:difset, set, rev}, s) do
-    case PrologEx.walk(x, s) do
+    case PrologEx.Store.walk(x, s) do
       {:var, _} = w ->
         {:ok, exclude_all(s, w, Enum.reverse(rev))}
 
@@ -341,10 +342,10 @@ defmodule PrologEx.Builtins.Coroutining do
     s = subst()
 
     vars =
-      for {{:attrs, id}, attrs} <- s,
+      for {id, attrs} <- Store.all_attrs(s),
           id > mark,
           v = {:var, {:attv, id}},
-          PrologEx.walk(v, s) == v,
+          PrologEx.Store.walk(v, s) == v,
           attrs_active?(attrs, s) do
         {id, v}
       end
@@ -466,7 +467,7 @@ defmodule PrologEx.Builtins.Coroutining do
 
   @doc false
   def qualify(g, mod, s) do
-    case PrologEx.walk(g, s) do
+    case PrologEx.Store.walk(g, s) do
       {:var, _} -> PrologEx.Error.instantiation!()
       {tag, ":", [_, _]} = q when tag in [:struct, :gstruct] -> q
       _ -> mk(":", [a(mod), g])
@@ -476,12 +477,12 @@ defmodule PrologEx.Builtins.Coroutining do
   @doc false
   # Bedingung von when/2: true oder {:wait, variablen} (auch für when_si/2)
   def condition(c, s) do
-    case PrologEx.unmark_top(PrologEx.walk(c, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(c, s)) do
       {:var, _} ->
         PrologEx.Error.instantiation!()
 
       {:struct, "nonvar", [x]} ->
-        case PrologEx.walk(x, s) do
+        case PrologEx.Store.walk(x, s) do
           {:var, _} = v -> {:wait, [v]}
           _ -> true
         end
@@ -557,7 +558,7 @@ defmodule PrologEx.Builtins.Coroutining do
 
   # acc = {Bindungen, Paare in Reihenfolge (umgekehrt)}
   defp w(t, s, {m, _} = acc) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} = v ->
         case Map.fetch(m, v) do
           {:ok, t2} -> w(t2, s, acc)

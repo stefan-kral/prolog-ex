@@ -157,7 +157,7 @@ defmodule PrologEx.Builtins.Si do
 
     keyed =
       Enum.map(items, fn item ->
-        case PrologEx.unmark_top(PrologEx.walk(item, s)) do
+        case PrologEx.unmark_top(PrologEx.Store.walk(item, s)) do
           {:struct, "-", [k, _v]} -> {k, item}
           {:var, _} -> Error.instantiation!()
           other -> Error.type!("pair", PrologEx.resolve(other, s))
@@ -168,7 +168,7 @@ defmodule PrologEx.Builtins.Si do
 
     keys =
       Enum.map(result, fn item ->
-        {:struct, "-", [k, _]} = PrologEx.unmark_top(PrologEx.walk(item, s))
+        {:struct, "-", [k, _]} = PrologEx.unmark_top(PrologEx.Store.walk(item, s))
         k
       end)
 
@@ -214,7 +214,7 @@ defmodule PrologEx.Builtins.Si do
   defp chars_si([], _s), do: :ok
 
   defp chars_si([c | rest], s) do
-    case character_si(PrologEx.walk(c, s)) do
+    case character_si(PrologEx.Store.walk(c, s)) do
       :ok -> chars_si(rest, s)
       :fail -> :fail
     end

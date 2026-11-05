@@ -74,7 +74,7 @@ defmodule PrologEx.Builtins.Order do
 
     keyed =
       Enum.map(items, fn item ->
-        case PrologEx.unmark_top(PrologEx.walk(item, s)) do
+        case PrologEx.unmark_top(PrologEx.Store.walk(item, s)) do
           {:struct, "-", [k, _v]} -> {k, item}
           {:var, _} -> PrologEx.Error.instantiation!()
           other -> PrologEx.Error.type!("pair", PrologEx.resolve(other, s))
@@ -121,7 +121,7 @@ defmodule PrologEx.Builtins.Order do
   # {:found, V} oder das Memo der schon als variablenfrei bekannten
   # Teilterme (PrologEx.Share)
   defp first_var(t, s, memo) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} = v ->
         {:found, v}
 
@@ -160,7 +160,7 @@ defmodule PrologEx.Builtins.Order do
   # seen: gesehene Variablen und (PrologEx.Share) schon abgelaufene
   # Teilterme – ein geteilter Teilterm bringt beim zweiten Mal nichts Neues
   defp vars(t, s, {acc, seen} = st) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {:var, _} = v ->
         if Map.has_key?(seen, v), do: st, else: {[v | acc], Map.put(seen, v, true)}
 
@@ -194,8 +194,8 @@ defmodule PrologEx.Builtins.Order do
 
   # Ergebnis: neue lokale Bindungen oder :error
   defp match(g, sp, s, frozen, m) do
-    g = PrologEx.walk(g, s)
-    sp = PrologEx.walk(sp, s)
+    g = PrologEx.Store.walk(g, s)
+    sp = PrologEx.Store.walk(sp, s)
 
     case g do
       {:var, _} ->

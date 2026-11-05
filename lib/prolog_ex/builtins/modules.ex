@@ -64,9 +64,9 @@ defmodule PrologEx.Builtins.Modules do
     db = db()
 
     {mod_t, h} =
-      case PrologEx.walk(head, s) do
+      case PrologEx.Store.walk(head, s) do
         {tag, ":", [m, inner]} when tag in [:struct, :gstruct] ->
-          {PrologEx.walk(m, s), PrologEx.walk(inner, s)}
+          {PrologEx.Store.walk(m, s), PrologEx.Store.walk(inner, s)}
 
         other ->
           {a(context_module()), other}
@@ -82,8 +82,8 @@ defmodule PrologEx.Builtins.Modules do
     # wie die meisten Systeme (und Logtalks Konformitätstests): ohne Kopf
     # kein Aufzählen (M:H mit ungebundenem H zählt dagegen die Prädikate
     # von M auf); eine unbekannte Eigenschaft ist ein domain_error
-    if match?({:var, _}, PrologEx.walk(head, s)), do: PrologEx.Error.instantiation!()
-    check_property!(PrologEx.walk(prop, s), s)
+    if match?({:var, _}, PrologEx.Store.walk(head, s)), do: PrologEx.Error.instantiation!()
+    check_property!(PrologEx.Store.walk(prop, s), s)
 
     for m <- mods,
         {n, ar} <- candidate_keys(db, m, h),
@@ -198,7 +198,7 @@ defmodule PrologEx.Builtins.Modules do
   defp use_module({:var, _}, _keys, _ctx, _s), do: PrologEx.Error.instantiation!()
 
   defp use_module({tag, "library", [lib]}, keys, ctx, s) when tag in [:struct, :gstruct] do
-    name = lib_name(PrologEx.walk(lib, s))
+    name = lib_name(PrologEx.Store.walk(lib, s))
 
     case {PrologEx.Builtins.exports(name), PrologEx.Builtins.library_file(name)} do
       {nil, nil} ->
@@ -370,9 +370,9 @@ defmodule PrologEx.Builtins.Modules do
   `M:T` abstreifen: `{modul, t}` (verschachtelt: das innerste Modul gilt).
   """
   def strip(t, mod, s) do
-    case PrologEx.walk(t, s) do
+    case PrologEx.Store.walk(t, s) do
       {tag, ":", [m, inner]} when tag in [:struct, :gstruct] ->
-        case PrologEx.walk(m, s) do
+        case PrologEx.Store.walk(m, s) do
           {:atom, name} -> strip(inner, name, s)
           {:var, _} -> PrologEx.Error.instantiation!()
           other -> PrologEx.Error.type!("module", other)

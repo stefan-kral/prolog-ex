@@ -25,7 +25,7 @@ defmodule PrologEx.Aggregate do
 
   @doc "Form des Templates (wirft bei ungültigem Template)"
   def spec!(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:var, _} -> Error.instantiation!()
       {:atom, "count"} -> :count
       {:struct, "sum", [_]} -> :sum
@@ -115,7 +115,7 @@ defmodule PrologEx.Aggregate do
   defp arg(t, s, i), do: Enum.at(args(t, s), i)
 
   defp args(t, s) do
-    case PrologEx.unmark_top(PrologEx.walk(t, s)) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:struct, _, args} -> args
       [h | tl] -> [h, tl]
     end

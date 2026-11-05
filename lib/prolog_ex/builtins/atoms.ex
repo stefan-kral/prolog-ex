@@ -119,7 +119,7 @@ defmodule PrologEx.Builtins.Atoms do
   end
 
   defp atom_text(x, l, s, kind) do
-    name = atom_name!(PrologEx.walk(x, s), :optional)
+    name = atom_name!(PrologEx.Store.walk(x, s), :optional)
 
     case text(l, s, kind) do
       {:ok, str} -> {:unify, [{x, a(str)}]}
@@ -162,7 +162,7 @@ defmodule PrologEx.Builtins.Atoms do
     s = subst()
 
     sep_text =
-      case PrologEx.walk(sep, s) do
+      case PrologEx.Store.walk(sep, s) do
         {:var, _} ->
           Error.instantiation!()
 
@@ -183,7 +183,7 @@ defmodule PrologEx.Builtins.Atoms do
 
   # Ergebnis: ungebunden (nil) oder ein Atom (sein Name)
   defp result_atom!(res, s) do
-    case PrologEx.walk(res, s) do
+    case PrologEx.Store.walk(res, s) do
       {:var, _} -> nil
       [] -> "[]"
       {:atom, n} -> n
@@ -194,8 +194,11 @@ defmodule PrologEx.Builtins.Atoms do
   # vollständige Liste atomarer Elemente? (für den Zerlegungsmodus)
   defp proper_atomics?(l, s) do
     case PrologEx.Builtins.Lists.skip_list(l, s) do
-      {_, []} -> Enum.all?(PrologEx.Builtins.Lists.items(l, s), &atomic?(PrologEx.walk(&1, s)))
-      _ -> false
+      {_, []} ->
+        Enum.all?(PrologEx.Builtins.Lists.items(l, s), &atomic?(PrologEx.Store.walk(&1, s)))
+
+      _ ->
+        false
     end
   end
 
@@ -207,7 +210,7 @@ defmodule PrologEx.Builtins.Atoms do
     end
 
     for x <- PrologEx.Builtins.Lists.items(l, s) do
-      case PrologEx.walk(x, s) do
+      case PrologEx.Store.walk(x, s) do
         {:var, _} -> Error.instantiation!()
         y -> if atomic?(y), do: y, else: Error.type!("atomic", PrologEx.resolve(y, s))
       end
@@ -460,7 +463,7 @@ defmodule PrologEx.Builtins.Atoms do
   # ---------------------------------------------------------------------
 
   defp number_text(n, l, s, kind) do
-    nn = PrologEx.walk(n, s)
+    nn = PrologEx.Store.walk(n, s)
 
     unless match?({:var, _}, nn) or is_number(nn),
       do: Error.type!("number", PrologEx.resolve(nn, s))
@@ -482,7 +485,7 @@ defmodule PrologEx.Builtins.Atoms do
   defp text(l, s, kind) do
     case Lists.skip_list(l, s) do
       {_, []} ->
-        elems = Enum.map(Lists.items(l, s), &PrologEx.walk(&1, s))
+        elems = Enum.map(Lists.items(l, s), &PrologEx.Store.walk(&1, s))
         Enum.each(elems, &check_elem(&1, kind))
 
         if Enum.any?(elems, &match?({:var, _}, &1)),
@@ -491,7 +494,7 @@ defmodule PrologEx.Builtins.Atoms do
 
       {_, {:var, _}} ->
         # offene Liste: Elemente trotzdem prüfen (ISO: type_error zuerst)
-        Lists.items_prefix(l, s) |> Enum.each(&check_elem(PrologEx.walk(&1, s), kind))
+        Lists.items_prefix(l, s) |> Enum.each(&check_elem(PrologEx.Store.walk(&1, s), kind))
         :partial
 
       _ ->
