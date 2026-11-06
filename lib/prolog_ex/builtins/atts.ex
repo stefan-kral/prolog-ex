@@ -146,14 +146,30 @@ defmodule PrologEx.Builtins.Atts do
     end)
   end
 
+  # Ein neues Attribut (Schlüssel k kommt in items nicht vor) einsortieren:
+  # items stehen schon in Deklarationsreihenfolge, also vor das erste, das
+  # in der Deklaration nach k steht – ein Durchlauf statt Schlüssel
+  # bilden, sortieren und zurückwandeln. Ohne Platz in der Deklaration ans
+  # Ende (wie zuvor: der Rang nil sortiert hinter alle Zahlen).
   defp insert_sorted(items, k, att, decl) do
-    items
-    |> Enum.map(&{PrologEx.Compiler.key(&1), &1})
-    |> List.keystore(k, 0, {k, att})
-    |> Enum.sort_by(fn {k, _} -> Enum.find_index(decl, &(&1 == k)) end)
-    |> Enum.map(&elem(&1, 1))
-    |> list()
+    case rank(decl, k, 0) do
+      nil -> list(items ++ [att])
+      r -> list(insert_at(items, r, att, decl))
+    end
   end
+
+  defp insert_at([], _r, att, _decl), do: [att]
+
+  defp insert_at([h | t] = items, r, att, decl) do
+    case rank(decl, PrologEx.Compiler.key(h), 0) do
+      rh when is_integer(rh) and rh < r -> [h | insert_at(t, r, att, decl)]
+      _ -> [att | items]
+    end
+  end
+
+  defp rank([], _k, _i), do: nil
+  defp rank([k | _], k, i), do: i
+  defp rank([_ | ds], k, i), do: rank(ds, k, i + 1)
 
   # Attribut mit Schlüssel f/n in der (Prolog-)Liste l durch att ersetzen;
   # der Rest hinter der Stelle bleibt, wie er ist

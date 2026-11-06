@@ -1366,6 +1366,13 @@ Variable nur einmal dereferenziert. Nebenbei: `update_attr/4` wertete die
 Default `%{module => fun.(nil)}` wurde vorab berechnet) – jetzt einmal.
 Reduktionen pyth −5,9 %, magic_hexagon −3,2 %, n_queens(30) −2,9 %,
 zebra −1,6 %; Laufzeit im Median pyth −7,5 %, magic_hexagon −4,5 %.
+Ein *neues* Attribut wird in einem Durchlauf einsortiert (vor das erste,
+das in der Deklaration danach kommt – die Liste ist schon sortiert),
+statt Schlüssel zu bilden, mit `sort_by`/`find_index` zu sortieren und
+zurückzuwandeln. Das ist häufiger, als man denkt: `clpz_aux(queued)`
+wird ständig entfernt und neu gesetzt. Reduktionen pyth −2,8 %,
+magic_hexagon −2,5 %, n_queens −2,3 %; Laufzeit im Median pyth −4,6 %,
+magic_hexagon −3,9 %.
 
 Bisher in Elixir:
 

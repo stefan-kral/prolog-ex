@@ -104,6 +104,10 @@ defmodule PrologEx.AttsTest do
 
       assert show.(s) ==
                norm.([mk("a", [a("p"), a("q")]), mk("b", [a("x")]), mk("a", [2]), a("c")])
+
+      # nicht deklariert (clpz/clpb tun das nicht): ans Ende
+      s = put.(PrologEx.Store.new(), mk("b", [a("x")])) |> put.(mk("z", [1]))
+      assert show.(s) == norm.([mk("b", [a("x")]), mk("z", [1])])
     end
   end
 
