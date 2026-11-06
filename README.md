@@ -543,6 +543,29 @@ ist jeweils am Dateianfang vermerkt.
   `phrase//2,3` (`phrase/4,5`: `phrase(G, A)` als Nichtterminal ist G mit
   dem zusätzlichen Argument A, etwa `phrase(seq, Xs)`). `phrase/2,3` und
   die DCG-Übersetzung bleiben die eingebauten.
+* `library(dcg/high_order)` wie SWI: `sequence//2,3,5`, `optional//2`,
+  `foreach//2,3` – sie geben die Elemente nur weiter, Zeichen oder Codes
+  ist ihnen gleich. Wie SWI liest `sequence//3` einen Trenner am Ende mit
+  (`"1,2,"`) und erzeugt deshalb auch `"1,2,"`.
+* `library(dcg/chars)`: die Nichtterminale von SWIs `library(dcg/basics)`
+  (`blank//0`, `blanks//0`, `white//0`, `whites//0`, `blanks_to_nl//0`,
+  `nonblank//1`, `nonblanks//1`, `digit//1`, `digits//1`, `integer//1`,
+  `float//1`, `number//1`, `xdigit//1`, `xdigits//1`, `xinteger//1`,
+  `string//1`, `string_without//2`, `remainder//1`, `eos//0`, `eol//0`,
+  `alpha_to_lower//1`, `csym//1`, `csyms//1`, `prolog_symbol//1`,
+  `atom//1`), aber auf **Zeichen** statt Codes – passend zu
+  `double_quotes=chars`, `phrase_from_file/2` und `library(dcgs)`. Der
+  eigene Name ist Absicht: SWI-Code, der Codes erwartet
+  (`digits(Ds), {number_codes(N, Ds)}`), lädt nicht stillschweigend und
+  scheitert dann, sondern muss angepasst werden. Was eine Zahl liefert
+  (`integer//1`, `number//1`, `xdigit//1`, …), verhält sich wie bei SWI;
+  `integer`, `float`, `number`, `xinteger`, `csym` und `atom` erzeugen
+  auch. Die Zeichenklassen sind die von `code_type/2`.
+
+  ```prolog
+  ?- phrase(sequence(kv, (blanks, ",", blanks), L), "a=1 , b=-2").
+  L = [a-1,b- -2].                 % kv(K-V) --> csym(K), "=", integer(V).
+  ```
 * `append/2` (Liste von Listen) steht jetzt in `library(lists)`, wie in
   SWI und Scryer.
 * `library(format)` (Markus Triska, gemeinfrei) ist rein deklarativ:
