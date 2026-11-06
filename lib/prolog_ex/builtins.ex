@@ -264,7 +264,6 @@ defmodule PrologEx.Builtins do
       Map.merge(@home_reexports["iso_ext"], %{
         {"call_cleanup", 2} => "system",
         {"call_residue_vars", 2} => "system",
-        {"copy_term", 3} => "system",
         {"bb_get", 2} => "blackboard",
         {"bb_put", 2} => "blackboard",
         {"bb_b_put", 2} => "blackboard"

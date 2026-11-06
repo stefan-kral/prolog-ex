@@ -1954,7 +1954,10 @@ Variablen. `mix run bench/memberd_bench.exs`: `memberd(X, L)` mit 1000
 Elementen, alle Antworten, 2200 ms → 3 ms.
 
 `frozen/2`, `copy_term/3` (Body als Konjunktion) und `term_attvars/2` wie
-SICStus. `copy_term/2` und `findall/3` kopieren Attribute nicht mit.
+SICStus. Mit `library(iso_ext)` ist `copy_term/3` das von Scryer (und SWI):
+die Ziele als Liste, `[]` ohne Attribute, `can_be(list, Gs)` vorab. Die
+Bibliotheken aus Scryer (clpz, clpb, ...) zeigen in ihren Beispielen diese
+Form. `copy_term/2` und `findall/3` kopieren Attribute nicht mit.
 
 `call_residue_vars(G, Vs)` wie SICStus und SWI: `Vs` sind die
 attributierten Variablen, die während `G` entstanden sind und nach der
@@ -2033,7 +2036,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
     | Bibliothek | Prädikate |
     |---|---|
-    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`; weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `copy_term/3`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3` – und gibt alle obigen weiter |

@@ -730,7 +730,9 @@ To inspect residual goals, it is best to let the toplevel display them
 for us. Wrap the call of your predicate into `call_residue_vars/2` to
 make sure that all constrained variables are displayed. To make the
 constraints a variable is involved in available as a Prolog term for
-further reasoning within your program, use `copy_term/3`. For example:
+further reasoning within your program, use `copy_term/3`. For example
+(PrologEx: this list form with library(iso_ext), as in Scryer; the
+built-in copy_term/3 gives a conjunction, as in SICStus):
 
 ```
 ?- X #= Y + Z, X in 0..5, copy_term([X,Y,Z], [X,Y,Z], Gs).

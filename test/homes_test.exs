@@ -96,6 +96,20 @@ defmodule PrologEx.HomesTest do
              ["X = 1"]
   end
 
+  test "copy_term/3: eingebaut wie SICStus (Rumpf), mit library(iso_ext) wie Scryer (Liste)", c do
+    g = "freeze(X, true), freeze(Y, true), copy_term(X-Y, _, G)"
+    # eingebaut: Konjunktion, true ohne Attribute
+    assert ask(c, g <> ", G = (_, _)") != []
+    assert ask(c, "copy_term(f(_), _, G)") == ["G = true"]
+
+    # library(iso_ext): Liste, [] ohne Attribute, can_be(list, G)
+    src = ":- use_module(library(iso_ext)).\n"
+    assert ask(c, g <> ", G = [_, _]", src) != []
+    assert ask(c, "copy_term(f(_), _, G)", src) == ["G = []"]
+    assert err(c, "copy_term(a, _, foo)", src) == ["E = type_error(list,foo)"]
+    assert ask(c, "copy_term(a, _, [x|_])", src) == []
+  end
+
   test "Flag swi_compat: Voreinstellung false; true wie früher", c do
     assert ask(c, "current_prolog_flag(swi_compat, F)") == ["F = false"]
 
