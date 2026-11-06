@@ -37,6 +37,9 @@ defmodule PrologEx.Flags do
     # true: die eingebauten Prädikate aus library(swi), iso_ext, between,
     # fastrw sind ohne Import sichtbar (wie früher; Übergang)
     "swi_compat" => {false, [false, true]},
+    # library(clpz): Restziele lesbar (X #> 1 statt X in 2..sup, X #< Y
+    # statt X #=< Y + -1) oder genau wie Scryer
+    "clpz_residuals" => {:compact, [:compact, :scryer]},
     "version" => {1, :read_only}
   }
 

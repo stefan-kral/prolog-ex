@@ -6,6 +6,7 @@ defmodule PrologEx.ClpzGoldenTest do
   # Anfragen geben in Scryer dieselben Ergebnisse (Vergleich mit
   # test/fixtures/clpz/harness.pl, siehe gen_golden.exs; abweichend nur die
   # Reihenfolge der Variablen in Summen und zusammengefasste freeze-Ziele).
+  # Restziele in Scryers Form (Flag clpz_residuals = scryer).
   use ExUnit.Case, async: true
   alias PrologEx.Reader
 
@@ -43,6 +44,8 @@ defmodule PrologEx.ClpzGoldenTest do
     Reader.put_current(c.reader)
     Process.put(:prolog_ex_ops, c.ops)
     PrologEx.put_db(c.db)
+    # Restziele genau wie Scryer (Standard ist die lesbare Form)
+    PrologEx.Flags.set("clpz_residuals", PrologEx.a("scryer"))
 
     diffs =
       for line <- @golden |> File.read!() |> String.split("\n", trim: true),

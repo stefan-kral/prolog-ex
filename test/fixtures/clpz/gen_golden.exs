@@ -161,6 +161,8 @@ else
     PrologEx.Consult.load(%{}, Reader.read_terms(r, ":- use_module(library(clpz)).\n"))
 
   PrologEx.put_db(db)
+  # Restziele in Scryers Form (Standard ist die lesbare)
+  PrologEx.Flags.set("clpz_residuals", PrologEx.a("scryer"))
 
   lines =
     for q <- queries do

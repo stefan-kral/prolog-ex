@@ -7800,7 +7800,7 @@ attribute_goals(X) -->
           append(Ps0, Os, Ps),
           domain_to_drep(Dom, Drep) },
         (   { default_domain(Dom), \+ all_dead_(Ps) } -> []
-        ;   [clpz:(X in Drep)]
+        ;   { residual_in(X, Drep, G) }, [clpz:G]
         ),
         attributes_goals(Ps),
         { del_attr(X, clpz) }.
@@ -7822,6 +7822,42 @@ attributes_goals([propagator(P, State)|As]) -->
 
 with_clpz(G, clpz:G).
 
+% PrologEx: Restziele lesbar (Flag clpz_residuals, Standard compact; mit
+% scryer genau wie im Original). Eine halboffene Domäne wird ein Vergleich,
+% eine Konstante wandert in den Vergleich – jeweils die Form mit der
+% kleineren Zahl: X in 2..sup -> X #> 1, X in 0..sup -> X #>= 0,
+% X in inf..2 -> X #=< 2, X #=< Y + -1 -> X #< Y, X #=< Y + -3 -> X #< Y - 2.
+% Im monotonen Modus bleibt die Domäne bei in/2 (Variablen stünden dort
+% sonst ohne #).
+
+compact_residuals :- current_prolog_flag(clpz_residuals, compact).
+
+residual_in(X, Drep, G) :-
+        (   compact_residuals, \+ monotonic -> compact_in(Drep, X, G)
+        ;   G = (X in Drep)
+        ).
+
+compact_in(L..sup, X, G) :- integer(L), !,
+        L1 is L - 1,
+        (   abs(L1) < abs(L) -> G = (X #> L1) ; G = (X #>= L) ).
+compact_in(inf..U, X, G) :- integer(U), !,
+        U1 is U + 1,
+        (   abs(U1) < abs(U) -> G = (X #< U1) ; G = (X #=< U) ).
+compact_in(Drep, X, X in Drep).
+
+residual_leq(X, Y, C, G) :-
+        (   compact_residuals ->
+            C1 is C + 1,
+            (   abs(C1) < abs(C) -> plus_const(#Y, C1, R), G = (#X #< R)
+            ;   plus_const(#Y, C, R), G = (#X #=< R)
+            )
+        ;   G = (#X #=< #Y + C)
+        ).
+
+plus_const(Y, 0, Y) :- !.
+plus_const(Y, C, Y - N) :- C < 0, !, N is -C.
+plus_const(Y, C, Y + C).
+
 unwrap_with(_, V, V)           :- var(V), !.
 unwrap_with(Goal, #V0, V)    :- !, call(Goal, V0, V).
 unwrap_with(Goal, Term0, Term) :-
@@ -7839,7 +7875,7 @@ attribute_goal_(ptimes(X,Y,Z,_))       --> [#X * #Y #= #Z].
 attribute_goal_(absdiff_neq(X,Y,C))    --> [abs(#X - #Y) #\= C].
 attribute_goal_(x_eq_abs_plus_v(X,V))  --> [#X #= abs(#X) + #V].
 attribute_goal_(x_neq_y_plus_z(X,Y,Z)) --> [#X #\= #Y + #Z].
-attribute_goal_(x_leq_y_plus_c(X,Y,C)) --> [#X #=< #Y + C].
+attribute_goal_(x_leq_y_plus_c(X,Y,C)) --> { residual_leq(X, Y, C, G) }, [G].
 attribute_goal_(ptzdiv(X,Y,Z,_))       --> [#X // #Y #= #Z].
 attribute_goal_(pexp(X,Y,Z,_))         --> [#X ^ #Y #= #Z].
 attribute_goal_(psign(X,Y))            --> [#Y #= sign(#X)].

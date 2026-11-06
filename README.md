@@ -172,7 +172,7 @@ auch `once/1`, `->`, `\\+` – die offenen Choice Points abschneidet; beim
 Abbruch einer Anfrage im Toplevel nach der ersten Antwort läuft es noch nicht), `exists_file/1`, `exists_directory/1`, `delete_file/1` (wie SWI), `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
 `V^G`; Gruppen nach Zeugen sortiert wie SICStus/SWI), `=@=/2`, `\=@=/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
-`occurs_check`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
+`occurs_check`, `clpz_residuals`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
 `current_predicate/1`, `assert/1` `asserta/1` `assertz/1` `retract/1`
 `retractall/1` `abolish/1` `dynamic/1`, `number_chars/2`, `number_codes/2` (ISO; Leerraum und Kommentare davor erlaubt, `0x`/`0o`/`0b`/`0'c`, Zifferngruppen),
 `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_chars/2`, `atom_codes/2`,
@@ -1214,6 +1214,26 @@ X in 0..4, Y^2#=X, Y in -2..2.
 ?- X in 0..5, X #\= 3, fd_dom(X, D).
 D = 0..2\/4..5, X in 0..2\/4..5.
 ```
+
+Nur zwei Formen schreibt PrologEx lesbarer (Flag `clpz_residuals`,
+Voreinstellung `compact`): eine halboffene Domäne als Vergleich mit einer
+Zahl und `X #=< Y + C` als `#<` oder `#=<` – jeweils mit der betragsmäßig
+kleineren Konstante (`X #> 1` statt `X #>= 2`, aber `X #=< 2` statt
+`X #< 3`):
+
+```prolog
+?- A #> 1, A #< B, C #< 3.
+A#>1, A#<B, B#>2, C#=<2.          % Scryer: A in 2..sup, A#=<B+ -1, B in 3..sup, C in inf..2
+?- X #=< Y - 3.
+X#<Y-2.                          % Scryer: X#=<Y+ -3
+```
+
+Andere Domänen (`X in 1..3`, `X in 1..3\/7..sup`) und alles mit
+`clpz:monotonic` bleiben wie bei Scryer; `set_prolog_flag(clpz_residuals,
+scryer)` stellt die Form Scryers ganz her (damit vergleicht
+`test/clpz_golden_test.exs` mit der ursprünglichen Fassung; die lesbare
+Form prüft `test/clpz_residuals_test.exs`, auch dass sie wieder gepostet
+dasselbe bedeutet).
 
 Klauseln, die clpz-Bedingungen enthalten, übersetzt clpz beim Laden über
 `user:goal_expansion/2` in schnellere Ziele (wie Scryer;
