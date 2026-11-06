@@ -1339,6 +1339,23 @@ Domänen nahe 0 bleibt eine Bitmengen-Darstellung (`0b101000`, verschoben
 als `shifted_dombits(3, 0b101)`) vorgemerkt; sie passte hinter dieselbe
 API.
 
+**`cumulative/2` bei fester Dauer: ein reifiziertes `in/2` je Zeitscheibe.**
+Triskas Zerlegung legt für jede Aufgabe und jeden Zeitpunkt T des
+Horizonts `((T #>= Start) #/\ (T #< End)) #<==> B` an: zwei reifizierte
+Vergleiche, eine Konjunktion, zwei Hilfsvariablen. Ist die Dauer D eine
+Zahl, läuft die Aufgabe zum Zeitpunkt T genau dann, wenn `Start in
+T-D+1..T`; PrologEx legt dann `B #<==> (Start in T-D+1..T)` an – ein
+Propagator, domänenkonsistent (bei `B = 0` fällt das ganze Intervall aus
+der Domäne). Mit variabler Dauer bleibt es beim Original. Dieselben
+Lösungen (test/clpz_cumulative_test.exs prüft gegen die ursprüngliche
+Zerlegung); `label/1` und `labeling([min(E)])` liefern sie in derselben
+Reihenfolge wie Scryer, Strategien mit Domänengrößen (`ff`, `ffc`) wegen
+der stärkeren Propagation in anderer. Die Restziele sind kürzer als in
+Scryer (`S in 2..3 #<==> B` statt der Paare von Vergleichen). Das Beispiel
+von Triska (vier Aufgaben, Starts in 0..100, `labeling([min(End)])`):
+Aufstellen 364 → 201 ms, mit Optimieren 505 → 291 ms (Scryer 262 bzw.
+509 ms); bei Horizont 400: 2,1 → 1,0 s (Scryer 1,9 s).
+
 **Paarung in `all_distinct` ohne MapSet und Access.** Die Propagation von
 `all_distinct/1` sucht eine maximale Paarung (augmentierende Pfade) und
 streicht dann Werte, die weder von einem freien Wert aus erreichbar noch

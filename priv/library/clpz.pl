@@ -7243,7 +7243,21 @@ task_bs(Task, InfStart-Bs) :-
         fd_sup(End, SupEnd),
         L is SupEnd - InfStart,
         length(Bs, L),
-        task_running(Bs, Start, End, InfStart).
+        (   integer(D) -> task_running_d(Bs, Start, D, InfStart)
+        ;   task_running(Bs, Start, End, InfStart)
+        ).
+
+% PrologEx: bei fester Dauer D läuft die Aufgabe zum Zeitpunkt T genau dann,
+% wenn Start in T-D+1..T liegt – ein reifiziertes in/2 (ein Propagator,
+% domänenkonsistent) statt T #>= Start #/\ T #< End (zwei reifizierte
+% Vergleiche, eine Konjunktion, zwei Hilfsvariablen). Dieselben Lösungen in
+% derselben Reihenfolge; die Restziele sehen anders aus als im Original.
+task_running_d([], _, _, _).
+task_running_d([B|Bs], Start, D, T) :-
+        T0 is T - D + 1,
+        #B #<==> (Start in T0..T),
+        T1 is T + 1,
+        task_running_d(Bs, Start, D, T1).
 
 task_running([], _, _, _).
 task_running([B|Bs], Start, End, T) :-
