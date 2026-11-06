@@ -63,7 +63,14 @@ Ein Prolog-Kern in Elixir:
   gespeichert; in Scryer ebenso). Das Memo ist eine Heuristik (je
   Schlüssel nur die letzten Einträge); in Messungen kostet es auf
   gewöhnlichen Termen nichts Messbares (Fakten, `findall`, `sort`/`msort`
-  im Rahmen des Rauschens oder schneller).
+  im Rahmen des Rauschens oder schneller). Bei `==` auf Listen kommt nur
+  die erste Zelle ins Memo; die Folgezellen mit flachem Kopf (Zahl, Atom,
+  Struktur mit atomaren Argumenten) laufen ohne, denn sie verzweigen nicht
+  (eine Struktur wie `f(L, L)` mit `L` als Variable ist selbst nicht im
+  Memo – dort schützt die erste Zelle von `L`). Lange Listen, etwa
+  clpz-Domänen mit vielen Intervallen, zahlten vorher einen Memo-Eintrag
+  und eine Closure je Zelle: sieve(5000) 1,09 → 0,37 s, Reduktionen
+  sieve(2000) −34 %.
 
 ## Loslegen
 

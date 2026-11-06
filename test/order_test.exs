@@ -27,6 +27,37 @@ defmodule PrologEx.OrderTest do
     end
   end
 
+  describe "==/2 auf Listen" do
+    # jede Zelle zählt, auch hinter der ersten (die Folgezellen laufen ohne
+    # Memo), markiert (ground) oder nicht, mit Variablen und Strukturen
+    test "Unterschied an jeder Stelle" do
+      for n <- 1..5, k <- 0..(n - 1) do
+        xs = Enum.to_list(1..n)
+        ys = List.update_at(xs, k, &(&1 + 100))
+        assert Order.equal?(xs, xs, %{}), inspect(xs)
+        refute Order.equal?(xs, ys, %{}), inspect({xs, ys})
+        refute Order.equal?({:glist, xs}, ys, %{}), inspect({xs, ys})
+        refute Order.equal?(xs, {:glist, ys}, %{}), inspect({xs, ys})
+        assert Order.equal?({:glist, xs}, xs, %{}), inspect(xs)
+        # Kopf als flache Struktur, als Atom, als Variable
+        g = fn l -> Enum.map(l, &s("..", [&1, a("sup")])) end
+        refute Order.equal?(g.(xs), g.(ys), %{})
+        assert Order.equal?(g.(xs), g.(xs), %{})
+        at = fn l -> Enum.map(l, &a("a#{&1}")) end
+        refute Order.equal?(at.(xs), at.(ys), %{})
+      end
+
+      assert ok?(s("==", [[1, 2, @x], [1, 2, @x]]))
+      refute ok?(s("==", [[1, 2, @x], [1, 2, @y]]))
+      assert ok?(s("==", [list([1, 2, 3], @l), list([1, 2, 3], @l)]))
+      refute ok?(s("==", [list([1, 2, 3], @l), list([1, 2, 3], @x)]))
+      refute ok?(s("==", [[1, 2, 3], [1, 2, 3, 4]]))
+      refute ok?(s("==", [[1, 2, 3, 4], [1, 2, 3]]))
+      assert ok?(s(",", [s("=", [@x, [3, 4]]), s("==", [list([1, 2], @x), [1, 2, 3, 4]])]))
+      refute ok?(s(",", [s("=", [@x, [3, 5]]), s("==", [list([1, 2], @x), [1, 2, 3, 4]])]))
+    end
+  end
+
   describe "Standardordnung" do
     # [1] ist '.'(1, []): Stelligkeit 2 wie f(a, a), und '.' < f
     test "Var < Zahl < Atom < zusammengesetzt" do

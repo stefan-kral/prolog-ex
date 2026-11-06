@@ -158,6 +158,32 @@ defmodule PrologEx.Order do
       else: eq(a, b, subst, m)
   end
 
+  # der Rest einer Liste (siehe eq/4 für Listen)
+  defp same_tail(a, b, subst, m) do
+    a = walk(a, subst)
+    b = walk(b, subst)
+
+    if (is_tuple(a) or is_list(a)) and PrologEx.Share.same?(a, b),
+      do: {true, m},
+      else: eq_tail(a, b, subst, m)
+  end
+
+  defp eq_tail({:glist, l}, b, subst, m), do: eq_tail(l, b, subst, m)
+  defp eq_tail(a, {:glist, l}, subst, m), do: eq_tail(a, l, subst, m)
+
+  defp eq_tail([x | xs] = a, [y | ys] = b, subst, m) do
+    if flat_head?(x) do
+      case same(x, y, subst, m) do
+        {true, m} -> same_tail(xs, ys, subst, m)
+        other -> other
+      end
+    else
+      eq(a, b, subst, m)
+    end
+  end
+
+  defp eq_tail(a, b, subst, m), do: eq(a, b, subst, m)
+
   # zusammengesetzte Paare mit Memo (PrologEx.Share); Blätter billig
   defp eq({:glist, l}, b, subst, m), do: eq(l, b, subst, m)
   defp eq(a, {:glist, l}, subst, m), do: eq(a, l, subst, m)
@@ -165,10 +191,17 @@ defmodule PrologEx.Order do
   defp eq({ta, f, xs} = a, {tb, f, ys} = b, subst, m) when ta in @st and tb in @st,
     do: eq_memo(a, b, m, fn m -> eq_args(xs, ys, subst, m) end)
 
+  # Listen: die erste Zelle mit Memo (sie kann über ein Argument, einen
+  # Kopf oder eine Variable von mehreren Stellen her erreicht werden – f(L, L)
+  # mit L als Variable kommt selbst nicht ins Memo, PrologEx.Share), die
+  # Folgezellen über den Rest ohne, solange ihr Kopf flach ist: Eine solche
+  # Zelle verzweigt nicht, jede Verzweigung darüber ist gemerkt, der
+  # Mehraufwand also höchstens polynomiell. Lange Listen aus Zahlen oder
+  # L..U (clpz-Domänen) zahlen so einen Memo-Eintrag statt einen je Zelle.
   defp eq([x | xs] = a, [y | ys] = b, subst, m) do
     eq_memo(a, b, m, fn m ->
       case same(x, y, subst, m) do
-        {true, m} -> same(xs, ys, subst, m)
+        {true, m} -> same_tail(xs, ys, subst, m)
         other -> other
       end
     end)
@@ -181,6 +214,20 @@ defmodule PrologEx.Order do
   defp eq(x, y, _, m) when is_integer(x) and is_integer(y), do: {x === y, m}
   defp eq([], [], _, m), do: {true, m}
   defp eq(x, y, subst, m), do: {compare(x, y, subst) == :eq, m}
+
+  # flach: atomar oder eine Struktur mit lauter atomaren Argumenten
+  # (Variablen zählen nicht als atomar – gebunden könnten sie verzweigen)
+  defp flat_head?(x) when is_number(x), do: true
+  defp flat_head?({:atom, _}), do: true
+  defp flat_head?([]), do: true
+  defp flat_head?({tag, _, args}) when tag in [:struct, :gstruct], do: atomic_args?(args)
+  defp flat_head?(_), do: false
+
+  defp atomic_args?([]), do: true
+  defp atomic_args?([x | xs]) when is_number(x), do: atomic_args?(xs)
+  defp atomic_args?([{:atom, _} | xs]), do: atomic_args?(xs)
+  defp atomic_args?([[] | xs]), do: atomic_args?(xs)
+  defp atomic_args?(_), do: false
 
   defp eq_memo(a, b, m, f) do
     case PrologEx.Share.get2(m, a, b) do

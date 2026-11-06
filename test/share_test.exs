@@ -19,6 +19,15 @@ defmodule PrologEx.ShareTest do
   % dasselbe mit Listenzellen: L(k+1) = [L(k)|L(k)]
   lchain(0, L, L) :- !.
   lchain(N, L0, L) :- N1 is N - 1, lchain(N1, [L0|L0], L).
+  % Listenzellen mit flachem Kopf im DAG: T(k+1) = f([1|T(k)], [1|T(k)])
+  % (zwei Zellen) und T(k+1) = f(L, L) mit L = [g(1, 2)|T(k)] (eine geteilte)
+  % wie lchain, der Kopf eine Struktur: M(k+1) = [h(M(k))|M(k)]
+  mchain(0, L, L) :- !.
+  mchain(N, L0, L) :- N1 is N - 1, mchain(N1, [h(L0)|L0], L).
+  fchain(0, T, T) :- !.
+  fchain(N, T0, T) :- N1 is N - 1, fchain(N1, f([1|T0], [1|T0]), T).
+  gchain(0, T, T) :- !.
+  gchain(N, T0, T) :- N1 is N - 1, L = [g(1, 2)|T0], gchain(N1, f(L, L), T).
   """
 
   setup_all do
@@ -91,6 +100,16 @@ defmodule PrologEx.ShareTest do
 
         assert {:ok, 1} =
                  quick(c, "dag(g(a), T), findall(T, true, [U]), T == U, compare(=, T, U)")
+
+        assert {:ok, 1} = quick(c, "B = #{@b}, mchain(40, [B], L), mchain(40, [B], M), L == M")
+
+        # Listen, deren Folgezellen einen flachen Kopf haben (ohne eigenen
+        # Memo-Eintrag; f(L, L) mit L als Variable ist selbst nicht im Memo)
+        assert {:ok, 1} = quick(c, "B = #{@b}, fchain(40, B, T), fchain(40, B, U), T == U")
+        assert {:ok, 1} = quick(c, "B = #{@b}, gchain(40, B, T), gchain(40, B, U), T == U")
+
+        assert {:ok, 1} =
+                 quick(c, "B = #{@b}, gchain(40, B, T), findall(T-B, true, [U-B]), T == U")
       end
 
       test "when(ground(_)), Fehlerterm mit DAG", c do
