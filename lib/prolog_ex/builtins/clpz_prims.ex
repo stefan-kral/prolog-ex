@@ -5092,117 +5092,136 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # maximale Paarung (augmentierende Pfade); {:ok, %{Variable => Wert}}
-  # oder :fail, wenn nicht jede Variable einen Wert bekommt
-  defp matching(doms, n) do
-    Enum.reduce_while(0..(n - 1)//1, {%{}, %{}}, fn i, {mv, mval} ->
-      case augment(i, doms, mv, mval, MapSet.new()) do
-        {:ok, mv, mval, _} -> {:cont, {mv, mval}}
-        {:none, _} -> {:halt, :fail}
-      end
-    end)
-    |> case do
-      :fail -> :fail
-      {mv, _} -> {:ok, mv}
+  # oder :fail, wenn nicht jede Variable einen Wert bekommt.
+  # (Mengen hier als Maps mit is_map_key, Schleifen als direkte Rekursion:
+  # MapSet, Access und reduce_while-Closures kosteten bei vielen Variablen
+  # über die Hälfte der Zeit; Reihenfolge und Ergebnis unverändert)
+  defp matching(doms, n), do: matching(0, n, doms, %{}, %{})
+
+  defp matching(i, n, _doms, mv, _mval) when i >= n, do: {:ok, mv}
+
+  defp matching(i, n, doms, mv, mval) do
+    case augment(elem(doms, i), i, doms, mv, mval, %{}) do
+      {:ok, mv, mval, _seen} -> matching(i + 1, n, doms, mv, mval)
+      {:none, _seen} -> :fail
     end
   end
 
-  defp augment(i, doms, mv, mval, seen) do
-    Enum.reduce_while(elem(doms, i), {:none, seen}, fn val, {:none, seen} ->
-      if MapSet.member?(seen, val) do
-        {:cont, {:none, seen}}
-      else
-        seen = MapSet.put(seen, val)
+  # augmentierender Pfad ab Variable i über ihre Werte; seen: besuchte Werte
+  defp augment([], _i, _doms, _mv, _mval, seen), do: {:none, seen}
 
-        case Map.fetch(mval, val) do
-          :error ->
-            {:halt, {:ok, Map.put(mv, i, val), Map.put(mval, val, i), seen}}
+  defp augment([val | vals], i, doms, mv, mval, seen) do
+    if is_map_key(seen, val) do
+      augment(vals, i, doms, mv, mval, seen)
+    else
+      seen = Map.put(seen, val, true)
 
-          {:ok, j} ->
-            case augment(j, doms, mv, mval, seen) do
-              {:ok, mv, mval, _seen} ->
-                {:halt, {:ok, Map.put(mv, i, val), Map.put(mval, val, i), seen}}
+      case mval do
+        %{^val => j} ->
+          case augment(elem(doms, j), j, doms, mv, mval, seen) do
+            {:ok, mv, mval, _seen} -> {:ok, Map.put(mv, i, val), Map.put(mval, val, i), seen}
+            {:none, seen} -> augment(vals, i, doms, mv, mval, seen)
+          end
 
-              {:none, seen} ->
-                {:cont, {:none, seen}}
-            end
-        end
+        _ ->
+          {:ok, Map.put(mv, i, val), Map.put(mval, val, i), seen}
       end
-    end)
+    end
   end
 
   defp removable(left, doms, mv, values) do
     n = length(left)
-    matched = MapSet.new(Map.values(mv))
-    # Variablen je Wert
+    matched = Map.new(mv, fn {_i, val} -> {val, true} end)
+
+    # Variablen je Wert, aufsteigend (von hinten her vorangestellt)
     adj =
-      Enum.reduce(0..(n - 1)//1, %{}, fn i, acc ->
+      Enum.reduce((n - 1)..0//-1, %{}, fn i, acc ->
         Enum.reduce(elem(doms, i), acc, fn val, acc -> Map.update(acc, val, [i], &[i | &1]) end)
       end)
 
     # gerichteter Graph: gepaart Variable → Wert, sonst Wert → Variable
     succ = fn
-      {:v, i} -> [{:n, Map.fetch!(mv, i)}]
-      {:n, val} -> for j <- Enum.reverse(Map.get(adj, val, [])), mv[j] != val, do: {:v, j}
+      {:v, i} -> [{:n, :erlang.map_get(i, mv)}]
+      {:n, val} -> for j <- Map.get(adj, val, []), Map.get(mv, j) != val, do: {:v, j}
     end
 
-    free = for val <- values, not MapSet.member?(matched, val), do: {:n, val}
-    reach = reach(free, succ, MapSet.new(free))
+    free = for val <- values, not is_map_key(matched, val), do: {:n, val}
+    reach = reach(free, succ, Map.new(free, &{&1, true}))
     comp = tarjan(Enum.map(0..(n - 1)//1, &{:v, &1}), succ)
 
     for {{v, ns}, i} <- Enum.with_index(left),
+        mi <- [Map.get(mv, i)],
         val <- Enum.reverse(ns),
-        mv[i] != val,
-        not MapSet.member?(reach, {:n, val}),
-        comp[{:v, i}] != comp[{:n, val}],
+        mi != val,
+        not is_map_key(reach, {:n, val}),
+        Map.get(comp, {:v, i}) != Map.get(comp, {:n, val}),
         do: {v, val}
   end
 
+  # erreichbare Knoten (Map als Menge)
   defp reach([], _succ, seen), do: seen
 
   defp reach([x | xs], succ, seen) do
-    new = for y <- succ.(x), not MapSet.member?(seen, y), do: y
-    reach(new ++ xs, succ, Enum.reduce(new, seen, &MapSet.put(&2, &1)))
+    {new, seen} = unseen(succ.(x), seen, [])
+    reach(new ++ xs, succ, seen)
+  end
+
+  defp unseen([], seen, acc), do: {:lists.reverse(acc), seen}
+
+  defp unseen([y | ys], seen, acc) do
+    if is_map_key(seen, y),
+      do: unseen(ys, seen, acc),
+      else: unseen(ys, Map.put(seen, y, true), [y | acc])
   end
 
   # starke Zusammenhangskomponenten (Tarjan): %{Knoten => Komponente}
   defp tarjan(roots, succ) do
-    st = %{index: 0, idx: %{}, low: %{}, stack: [], on: MapSet.new(), comp: %{}}
+    st = %{index: 0, idx: %{}, low: %{}, stack: [], on: %{}, comp: %{}}
 
     Enum.reduce(roots, st, fn v, st ->
-      if Map.has_key?(st.idx, v), do: st, else: strong(v, succ, st)
+      if is_map_key(st.idx, v), do: st, else: strong(v, succ, st)
     end).comp
   end
 
   defp strong(v, succ, st) do
+    i = st.index
+
     st = %{
       st
-      | idx: Map.put(st.idx, v, st.index),
-        low: Map.put(st.low, v, st.index),
-        index: st.index + 1,
+      | idx: Map.put(st.idx, v, i),
+        low: Map.put(st.low, v, i),
+        index: i + 1,
         stack: [v | st.stack],
-        on: MapSet.put(st.on, v)
+        on: Map.put(st.on, v, true)
     }
 
+    st = strong_succ(succ.(v), v, succ, st)
+    if :erlang.map_get(v, st.low) == i, do: pop_comp(v, i, st), else: st
+  end
+
+  defp strong_succ([], _v, _succ, st), do: st
+
+  defp strong_succ([w | ws], v, succ, st) do
     st =
-      Enum.reduce(succ.(v), st, fn w, st ->
-        cond do
-          not Map.has_key?(st.idx, w) ->
-            st = strong(w, succ, st)
-            %{st | low: Map.put(st.low, v, min(st.low[v], st.low[w]))}
+      cond do
+        not is_map_key(st.idx, w) ->
+          st = strong(w, succ, st)
+          low = min(:erlang.map_get(v, st.low), :erlang.map_get(w, st.low))
+          %{st | low: Map.put(st.low, v, low)}
 
-          MapSet.member?(st.on, w) ->
-            %{st | low: Map.put(st.low, v, min(st.low[v], st.idx[w]))}
+        is_map_key(st.on, w) ->
+          low = min(:erlang.map_get(v, st.low), :erlang.map_get(w, st.idx))
+          %{st | low: Map.put(st.low, v, low)}
 
-          true ->
-            st
-        end
-      end)
+        true ->
+          st
+      end
 
-    if st.low[v] == st.idx[v], do: pop_comp(v, st.idx[v], st), else: st
+    strong_succ(ws, v, succ, st)
   end
 
   defp pop_comp(v, c, %{stack: [w | rest]} = st) do
-    st = %{st | stack: rest, on: MapSet.delete(st.on, w), comp: Map.put(st.comp, w, c)}
+    st = %{st | stack: rest, on: Map.delete(st.on, w), comp: Map.put(st.comp, w, c)}
     if w == v, do: st, else: pop_comp(v, c, st)
   end
 

@@ -1327,6 +1327,18 @@ Domänen nahe 0 bleibt eine Bitmengen-Darstellung (`0b101000`, verschoben
 als `shifted_dombits(3, 0b101)`) vorgemerkt; sie passte hinter dieselbe
 API.
 
+**Paarung in `all_distinct` ohne MapSet und Access.** Die Propagation von
+`all_distinct/1` sucht eine maximale Paarung (augmentierende Pfade) und
+streicht dann Werte, die weder von einem freien Wert aus erreichbar noch
+mit ihrer Variablen in einer starken Zusammenhangskomponente sind
+(Tarjan). Die Mengen darin sind jetzt Maps mit `is_map_key` statt
+`MapSet`, Zugriffe `Map.get` statt `mv[j]` (das Access-Protokoll allein
+kostete 12 % der Gesamtzeit), die Schleifen direkte Rekursion statt
+`reduce_while` mit Closure je Wert; Reihenfolge und Ergebnis sind
+unverändert. holes(30)/holes(40): Reduktionen −49 %/−55 %, Laufzeit
+holes(50) 1,16–1,33 → 0,84–0,87 s, holes(60) 2,5–2,7 → 1,85–1,88 s;
+die übrigen Beispiele unberührt.
+
 Bisher in Elixir:
 
   * die Domänen (`domain_remove/3`, Schnitt, Vereinigung, Differenz,
