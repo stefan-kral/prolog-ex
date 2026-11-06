@@ -121,9 +121,10 @@ defmodule PrologEx.ListPredsTest do
       assert all(s("call_nth", [s(",", [s("p", [@x]), a("!")]), @n])) == ["N = 1, X = 1"]
     end
 
-    test "Fehler" do
-      error(s("call_nth", [a("true"), 0]))
+    test "Fehler; die 0-te Lösung gibt es nicht (wie Scryer und SWI)" do
+      error(s("call_nth", [a("true"), -1]))
       error(s("call_nth", [a("true"), a("a")]))
+      assert all(s("call_nth", [a("true"), 0])) == []
     end
 
     test "countall über call_nth (Anzahl = Nummer der angehängten Alternative - 1)" do

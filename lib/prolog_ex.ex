@@ -1683,9 +1683,11 @@ defmodule PrologEx do
     do: step({:struct, "findall", [t, g, l, []]}, cutb, mod, rest, st)
 
   defp step({:struct, "findall", [t, g, l, tail]}, _cutb, mod, rest, st) do
-    # ISO 8.10.1.3: die Ergebnisliste muss eine (Teil-)Liste sein – vorab
+    # ISO 8.10.1.3: die Ergebnisliste muss eine (Teil-)Liste sein – vorab;
+    # bei findall/4 ebenso der Rest (wie Scryer und SWI)
     case guarded(fn ->
            partial_list!(l, st.subst)
+           partial_list!(tail, st.subst)
            collect(run(sub_machine(t, body!(g, st.subst), mod, st)), :infinity, [])
          end) do
       {:ok, {items, :done}} ->
@@ -2215,8 +2217,12 @@ defmodule PrologEx do
       k when is_integer(k) and k >= 1 ->
         call_nth(g, n, cutb, mod, rest, st)
 
+      # wie Scryer und SWI: die 0-te Lösung gibt es nicht, negativ ist ein Fehler
+      0 ->
+        backtrack(st)
+
       k when is_integer(k) ->
-        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_one", k) end)
+        throw_error(st, fn -> PrologEx.Error.domain!("not_less_than_zero", k) end)
 
       other ->
         throw_error(st, fn -> PrologEx.Error.type!("integer", other) end)
@@ -4082,21 +4088,192 @@ defmodule PrologEx do
   defp emit(:done), do: nil
 
   defp emit({:sol, st}) do
-    ans =
-      Map.new(st.answer, fn {n, t} ->
-        {n, t |> resolve(st.subst) |> PrologEx.Builtins.Mutables.show(st.subst)}
-      end)
+    # zyklische Terme (nur ohne Occurs-Check möglich): resolve/2 liefe
+    # endlos – resolve_answer/2 bricht ab (:cyclic), dann wie SWI X = f(X)
+    # bzw. _A = [b|_A] als Gleichung
+    {ans, eqs, cyc} =
+      try do
+        {Map.new(st.answer, fn {n, t} ->
+           {n, t |> resolve_answer(st.subst) |> PrologEx.Builtins.Mutables.show(st.subst)}
+         end), [], MapSet.new()}
+      catch
+        :cyclic ->
+          cyc = cycle_vars(Enum.map(st.answer, &elem(&1, 1)), st.subst)
+          {ans, eqs} = cyclic_answer(st, cyc)
+          {ans, eqs, cyc}
+      end
 
     # Restziele (freeze, dif, when) der in der Antwort vorkommenden
-    # attributierten Variablen, wie im SWI/SICStus-Toplevel
+    # attributierten Variablen, wie im SWI/SICStus-Toplevel – nicht bei
+    # zyklischen Antworten (das Sammeln liefe durch den Zyklus)
+    res = if MapSet.size(cyc) == 0, do: residual_goals(Map.values(ans), st), else: []
+
     ans =
-      case residual_goals(Map.values(ans), st) do
+      case eqs ++ res do
         [] -> ans
         goals -> Map.put(ans, "$residual", goals)
       end
 
     if st.height > 0, do: {{ans, true}, {:retry, st}}, else: {{ans, false}, :halt}
   end
+
+  # resolve/2 mit Zähler: wie viele Bindungen der aktuelle Pfad durchläuft.
+  # In einem endlichen Term höchstens so viele, wie es gibt (map_size der
+  # Substitution ist eine obere Schranke) – mehr heißt Zyklus: throw(:cyclic).
+  # Kostet je Knoten nur einen Vergleich.
+  @doc false
+  def resolve_answer(t, subst) do
+    {r, _memo} = resolve_b(t, subst, %{}, 0, Store.size(subst))
+    r
+  end
+
+  defp resolve_b(t, subst, memo, d, lim) do
+    w = Store.walk(t, subst)
+    d = if w !== t and is_tuple(t) and elem(t, 0) == :var, do: d + 1, else: d
+    if d > lim, do: throw(:cyclic)
+
+    case w do
+      {:struct, f, args} = st ->
+        case PrologEx.Share.get(memo, st) do
+          {:ok, r} ->
+            {r, memo}
+
+          :error ->
+            {args2, memo} = resolve_b_args(args, subst, memo, d, lim)
+            r = {:struct, f, args2}
+            {r, PrologEx.Share.put(memo, st, r)}
+        end
+
+      [h | tl] = l when is_tuple(h) or is_list(h) ->
+        case PrologEx.Share.get(memo, l) do
+          {:ok, r} ->
+            {r, memo}
+
+          :error ->
+            {h2, memo} = resolve_b(h, subst, memo, d, lim)
+            {t2, memo} = resolve_b(tl, subst, memo, d, lim)
+            r = [h2 | t2]
+            {r, PrologEx.Share.put(memo, l, r)}
+        end
+
+      [h | tl] ->
+        {t2, memo} = resolve_b(tl, subst, memo, d, lim)
+        {[h | t2], memo}
+
+      t when is_marked(t) ->
+        {unmark(t), memo}
+
+      other ->
+        {other, memo}
+    end
+  end
+
+  defp resolve_b_args([], _subst, memo, _d, _lim), do: {[], memo}
+
+  defp resolve_b_args([a | as], subst, memo, d, lim) do
+    {a, memo} = resolve_b(a, subst, memo, d, lim)
+    {as, memo} = resolve_b_args(as, subst, memo, d, lim)
+    {[a | as], memo}
+  end
+
+  # Variablen, über die ein Zyklus läuft: eine gebundene Variable, die beim
+  # Ablaufen auf ihrem eigenen Pfad wieder erscheint. Linear: vollständig
+  # abgelaufene Variablen und (PrologEx.Share) Teilterme nur einmal.
+  @doc false
+  def cycle_vars(terms, s) do
+    {_seen, c} = Enum.reduce(terms, {%{}, []}, &cyc(&1, s, &2))
+    MapSet.new(c)
+  end
+
+  # seen: Variable => :path (auf dem Pfad) | :done, Teilterme über Share
+  defp cyc({:var, _} = x, s, {seen, c} = acc) do
+    case Store.binding(s, x) do
+      :error ->
+        acc
+
+      {:ok, t} ->
+        case seen do
+          %{^x => :done} ->
+            acc
+
+          %{^x => :path} ->
+            {seen, [x | c]}
+
+          _ ->
+            {seen, c} = cyc(t, s, {Map.put(seen, x, :path), c})
+            {Map.put(seen, x, :done), c}
+        end
+    end
+  end
+
+  defp cyc({:struct, _, args} = t, s, {seen, _c} = acc) do
+    case PrologEx.Share.get(seen, t) do
+      {:ok, _} ->
+        acc
+
+      :error ->
+        {seen, c} = cyc_args(args, s, acc)
+        {PrologEx.Share.put(seen, t, true), c}
+    end
+  end
+
+  defp cyc([h | t], s, acc), do: cyc(t, s, cyc(h, s, acc))
+  defp cyc(_, _s, acc), do: acc
+
+  defp cyc_args([], _s, acc), do: acc
+  defp cyc_args([a | as], s, acc), do: cyc_args(as, s, cyc(a, s, acc))
+
+  # Antwort mit Zyklen: jede Zyklusvariable bleibt beim Auflösen stehen
+  # (endlich); X = f(X) zeigt die Bindung einer Anfragevariablen, die übrigen
+  # Zyklusvariablen bekommen eine Gleichung V = ... als Restziel
+  defp cyclic_answer(st, cyc) do
+    s = st.subst
+
+    ans =
+      Map.new(st.answer, fn {n, t} ->
+        {n, t |> resolve_top(s, cyc) |> PrologEx.Builtins.Mutables.show(s)}
+      end)
+
+    shown = MapSet.new(for {_n, {:var, _} = v} <- st.answer, do: v)
+
+    eqs =
+      for v <- Enum.sort(cyc),
+          not MapSet.member?(shown, v),
+          do: mk("=", [v, resolve_top(v, s, cyc)])
+
+    {ans, eqs}
+  end
+
+  defp resolve_top({:var, _} = v, s, cyc) do
+    case Store.binding(s, v) do
+      {:ok, t} ->
+        if MapSet.member?(cyc, v), do: resolve_cyc(t, s, cyc), else: resolve_top(t, s, cyc)
+
+      :error ->
+        v
+    end
+  end
+
+  defp resolve_top(t, s, cyc), do: resolve_cyc(t, s, cyc)
+
+  # wie resolve/2, aber an Zyklusvariablen anhalten (ohne Memo: selten)
+  defp resolve_cyc({:var, _} = v, s, cyc) do
+    if MapSet.member?(cyc, v) do
+      v
+    else
+      case Store.binding(s, v) do
+        {:ok, t} -> resolve_cyc(t, s, cyc)
+        :error -> v
+      end
+    end
+  end
+
+  defp resolve_cyc({:struct, f, args}, s, cyc),
+    do: {:struct, f, Enum.map(args, &resolve_cyc(&1, s, cyc))}
+
+  defp resolve_cyc([h | t], s, cyc), do: [resolve_cyc(h, s, cyc) | resolve_cyc(t, s, cyc)]
+  defp resolve_cyc(t, _s, _cyc) when is_marked(t), do: unmark(t)
+  defp resolve_cyc(t, _s, _cyc), do: t
 
   # Restziele über '$residuals'/2 (eingebaute Bedingungen,
   # attribute_goal/2 und attribute_goals//1 der Attributmodule, vorher

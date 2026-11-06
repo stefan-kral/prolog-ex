@@ -250,10 +250,19 @@ defmodule PrologEx.Builtins.Atoms do
           do: [{:unify, [{x, a(binary_part(a3, 0, byte_size(a3) - byte_size(a2)))}]}],
           else: []
 
+      # atom_concat(A, A, Z): nur die Mitte, deterministisch
+      same_var?(deref(x), deref(y)) ->
+        cps = String.codepoints(a3)
+        {h1, h2} = Enum.split(cps, div(length(cps), 2))
+        if h1 == h2, do: [{:unify, [{x, a(Enum.join(h1))}]}], else: []
+
       true ->
         splits(a3, 0, x, y)
     end
   end
+
+  defp same_var?({:var, v}, {:var, w}), do: v == w
+  defp same_var?(_, _), do: false
 
   # alle Zerlegungen an Zeichengrenzen, ab Byte-Position i
   defp splits(name, i, x, y) do

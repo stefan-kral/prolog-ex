@@ -72,6 +72,15 @@ defmodule PrologEx.Builtins.Order do
     items = proper_list!(l, s)
     check_partial_list!(sorted, s)
 
+    # ISO Kor. 2: jedes Element von Sorted ist Variable oder Paar
+    for e <- Lists.items_prefix(sorted, s) do
+      case PrologEx.unmark_top(PrologEx.Store.walk(e, s)) do
+        {:var, _} -> :ok
+        {:struct, "-", [_, _]} -> :ok
+        other -> PrologEx.Error.type!("pair", PrologEx.resolve(other, s))
+      end
+    end
+
     keyed =
       Enum.map(items, fn item ->
         case PrologEx.unmark_top(PrologEx.Store.walk(item, s)) do

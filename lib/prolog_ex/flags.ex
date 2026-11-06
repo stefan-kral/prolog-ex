@@ -40,7 +40,10 @@ defmodule PrologEx.Flags do
     # library(clpz): Restziele lesbar (X #> 1 statt X in 2..sup, X #< Y
     # statt X #=< Y + -1) oder genau wie Scryer
     "clpz_residuals" => {:compact, [:compact, :scryer]},
-    "version" => {1, :read_only}
+    "version" => {1, :read_only},
+    # wie SWI (swi(9, 3, 0, [])): Funktor = Dialekt, dann Major, Minor,
+    # Patch, Extra
+    "version_data" => {{:struct, "prolog_ex", [0, 1, 0, []]}, :read_only}
   }
 
   # Standardwerte als Prolog-Terme, einmal beim Übersetzen (sonst baute

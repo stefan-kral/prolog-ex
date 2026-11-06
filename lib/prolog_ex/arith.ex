@@ -238,7 +238,14 @@ defmodule PrologEx.Arith do
   defp eval1("\\", x), do: Bitwise.bnot(int!(x))
   defp eval1("msb", x), do: msb(positive!(int!(x)))
   defp eval1("lsb", x), do: lsb(positive!(int!(x)))
-  defp eval1("popcount", x), do: popcount(nonneg!(int!(x)))
+
+  defp eval1("popcount", x) do
+    case int!(x) do
+      n when n >= 0 -> popcount(n)
+      n -> Error.domain!("not_less_than_zero", n)
+    end
+  end
+
   defp eval1("succ", x), do: nonneg!(int!(x)) + 1
 
   defp eval1("random", x) do

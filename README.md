@@ -124,6 +124,25 @@ Antwort mit Seiteneffekt wird nie vorausgerechnet. Flag `answer_chunk`:
 `auto` (Standard: eine Seite), `N` (höchstens N Antworten), `1` (einzeln wie
 früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 
+**Zyklische Antworten:** Ohne Occurs-Check (Flag `occurs_check` = `false`,
+Standard) macht `X = f(X)` einen zyklischen Term. Der Toplevel zeigt ihn
+wie SWI, statt endlos aufzulösen:
+
+```
+?- X = f(Y), Y = g(X).
+X = f(g(X)), Y = g(X).
+?- X = [a|_T], _T = [b|_T].
+X = [a|_T], _T=[b|_T].           % Zyklus über eine nicht gezeigte Variable
+```
+
+Erkannt wird das beim Auflösen der Antwort ohne Zusatzkosten: Auf einem
+Pfad durch einen endlichen Term liegen höchstens so viele Bindungen, wie
+es gibt; wird die Zahl überschritten, sucht eine zweite Runde die
+Variablen, über die Zyklen laufen, und hält dort an. Ein vorgeschaltetes
+`acyclic_term/1` hätte bei großen Antworten so viel gekostet wie
+`copy_term/2` (300 000 Elemente: 1,8 s, so viel wie der Aufbau). Restziele
+(`freeze`, `dif`, clpz) zeigt eine zyklische Antwort nicht.
+
 **Ctrl-C führt zu iex:** `bin/iprolog` startet iex mit `+Bc` – Ctrl-C
 unterbricht dann nur die laufende Anfrage (statt des BREAK-Menüs der BEAM),
 und man ist in iex. `repl` startet bzw. setzt den Toplevel fort, mit
@@ -2255,7 +2274,7 @@ exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
 `float_fractional_part/1` nehmen nur Floats – eine Ganzzahl ist
 `type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
 Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
-Float). Gesamt: 4 077 bestanden, 129 fehlgeschlagen, 206 übersprungen.
+Float). Gesamt: 4 093 bestanden, 113 fehlgeschlagen, 206 übersprungen.
 Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
 den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument
 weder Liste noch Teilliste ist (Logtalk: `type_error(list, L)`), und die
@@ -2266,7 +2285,16 @@ Werte von `variables/1`, `variable_names/1`, `singletons/1` werden bei
 (Klauselreferenzen, `evaluable_property/2`, `atomic_concat/3`, die
 logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
 Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
-Syntaxfehler) und `functor/3` mit Stelligkeit 10^45 (`resource_error`).
+Syntaxfehler), `functor/3` mit Stelligkeit 10^45 (`resource_error`),
+`portray/1` ohne Vorab-Deklaration als dynamic/multifile, `4/2` ist `2`
+(siehe Arithmetik) und `0 ^ -42` ist `zero_divisor`. Wie Logtalk und
+Scryer: `call_nth(G, 0)` scheitert, negativ ist
+`domain_error(not_less_than_zero, N)`; `setof/3` scheitert, wenn die
+Ergebnisvariable über eine freie Variable gebunden wird; `keysort/2` prüft
+die Elemente des Ergebnisses (`type_error(pair, E)`), `findall/4` den Rest;
+`atom_concat(A, A, Z)` ist deterministisch; bei `open/4` gilt von
+wiederholten Optionen die letzte; `set_stream_position/2` auch auf
+Schreibströmen; Flag `version_data` (`prolog_ex(0,1,0,[])`, wie SWI).
 
 ## Reader
 
@@ -2403,6 +2431,18 @@ reine Maschinenarbeit (Schleifen, Arithmetik, Klauselwahl) 9–18-mal,
 wo eingebaute Prädikate einen großen Teil tragen (findall, sort, Listen)
 nur 2–4-mal. tak und queens sind bei Scryer so kurz, dass ihre Faktoren
 grob sind.
+
+Mit `set_prolog_flag(occurs_check, error)` (Messung vom 6. 11. 2026,
+geometrische Mittel, Faktor gegenüber `false`):
+
+| | PrologEx | Scryer |
+|---|---|---|
+| Maschine (8 Programme) | 1,09 | 1,12 |
+| clpz (13 Programme) | 1,26 | 2,17 |
+| clpz, groß (100 Damen, holes(60), sieve(8000)) | 1,97 | 3,73 |
+
+Am teuersten ist 100 Damen mit `ff`: 709 → 3 157 ms (Scryer
+705 → 6 880 ms); holes(60) kostet nichts extra.
 
 Wohin die Zeit geht (Profil von nrev): knapp die Hälfte in Kopfabgleich
 und Rumpfaufbau der übersetzten Klauseln, gut ein Zehntel in `walk` und

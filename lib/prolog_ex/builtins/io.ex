@@ -152,7 +152,9 @@ defmodule PrologEx.Builtins.IO do
       when is_integer(c) and is_integer(l) and is_integer(lp) and is_integer(b) ->
         s = S.get(id)
 
-        unless s.kind == :file and s.reposition and s.mode == :read,
+        # lesend oder schreibend (nicht append: dort geht jedes Schreiben
+        # ans Ende); :file.position leert vorher den Schreibpuffer
+        unless s.kind == :file and s.reposition and s.mode in [:read, :write],
           do: Error.permission!("reposition", "stream", st)
 
         S.set_position(id, c, l, lp, b)
@@ -402,7 +404,8 @@ defmodule PrologEx.Builtins.IO do
       other -> Error.uninstantiation!(PrologEx.resolve(other, s))
     end
 
-    open_opts = Enum.map(options, &open_option!/1)
+    # mehrfach angegeben: die letzte Option gilt (Keyword.get nimmt die erste)
+    open_opts = options |> Enum.map(&open_option!/1) |> Enum.reverse()
 
     # Atom, oder Zeichen-/Codeliste ("datei" mit double_quotes=chars/codes,
     # wie Strings in SWI)

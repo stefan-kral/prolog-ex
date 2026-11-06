@@ -107,7 +107,16 @@ defmodule PrologEx.Builtins.Solutions do
 
     free = goal |> term_vars(s) |> Enum.reject(&MapSet.member?(bound, &1))
     l0 = fresh_var()
-    result = if set?, do: mk("sort", [l0, l]), else: mk("=", [l0, l])
+    # setof: erst in eine frische Variable sortieren, dann unifizieren – L
+    # kann inzwischen über eine freie Variable gebunden sein (setof(t,
+    # (L=2;L=1), L) scheitert, kein Typfehler von sort/2; wie Scryer)
+    result =
+      if set? do
+        l1 = fresh_var()
+        conj([mk("sort", [l0, l1]), mk("=", [l1, l])])
+      else
+        mk("=", [l0, l])
+      end
 
     case free do
       [] ->
