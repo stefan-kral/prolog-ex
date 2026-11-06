@@ -79,12 +79,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # die Domänenoperationen haben kein Original mehr, auf das sie
   # zurückfallen könnten, und clpz ruft sie nur mit Domänen (eine
   # ungebundene Domäne: instantiation_error wie bei jedem Builtin)
-  defp dom(t) do
-    case dom_pairs(w(t), []) do
-      {:ok, d} -> d
-      :error -> no_domain(t)
-    end
-  end
+  defp dom(t), do: dom_cached(t)
 
   defp no_domain(t) do
     case w(t) do
@@ -93,17 +88,20 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp dom_pairs([], acc), do: {:ok, Enum.reverse(acc)}
+  # Domänen-Term dekodieren und dabei prüfen, ob er kanonisch ist (ClpzDom.valid?:
+  # aufsteigend, Lücken zwischen den Intervallen, Punkte als Zahl, inf nur
+  # vorn, sup nur hinten): {:ok, d, kanonisch?} oder :error
+  defp dom_pairs_c([], acc, _last, c), do: {:ok, Enum.reverse(acc), c}
 
-  defp dom_pairs([h | tl], acc) do
+  defp dom_pairs_c([h | tl], acc, last, c) do
     case w(h) do
       i when is_integer(i) ->
-        dom_pairs(w(tl), [{i, i} | acc])
+        dom_pairs_c(w(tl), [{i, i} | acc], i, c and gap?(last, i))
 
       {tag, "..", [l, u]} when tag in [:struct, :gstruct] ->
         with lb when lb != nil <- tbound(l),
              ub when ub != nil <- tbound(u) do
-          dom_pairs(w(tl), [{lb, ub} | acc])
+          dom_pairs_c(w(tl), [{lb, ub} | acc], ub, c and gap?(last, lb) and span?(lb, ub))
         else
           _ -> :error
         end
@@ -113,7 +111,18 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp dom_pairs(_, _), do: :error
+  defp dom_pairs_c(_, _, _, _), do: :error
+
+  # vor dem ersten Intervall alles erlaubt; danach eine Lücke von mindestens 1
+  defp gap?(nil, _l), do: true
+  defp gap?(last, l) when is_integer(last) and is_integer(l), do: l > last + 1
+  defp gap?(_last, _l), do: false
+
+  # L..U kanonisch: L < U (ein Punkt steht als Zahl da)
+  defp span?(l, u) when is_integer(l) and is_integer(u), do: l < u
+  defp span?(:inf, u), do: u != :inf
+  defp span?(l, :sup), do: l != :sup
+  defp span?(_, _), do: false
 
   defp tbound(t) do
     case w(t) do
@@ -147,7 +156,65 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp ed(d), do: ClpzDom.to_term(d)
+  # Merkzettel der letzten Kodierungen und Dekodierungen [{Term, Domäne}]
+  # (nur kanonische Paare), erkannt an der physischen Identität des Terms
+  # (PrologEx.Share.same?/2, O(1)): Ein gefundener Eintrag ist garantiert
+  # die Domäne genau dieses Terms – gleich, was seither geschehen ist. So
+  # dekodiert fdget/2 eine eben kodierte Domäne nicht noch einmal, fdput/5
+  # erkennt, ob die neue Domäne aus der gespeicherten berechnet wurde, und
+  # put_dom/6 vergleicht zwei bekannte Domänen als Listen (=== in C, bei
+  # kanonischen Listen genau Mengengleichheit) statt mit ==.
+  @dec_key :clpz_decoded
+  @dec_max 8
+
+  defp dom_cached(t, insert \\ false) do
+    wt = w(t)
+
+    cache = Process.get(@dec_key, [])
+
+    case dec_find(cache, wt) do
+      nil ->
+        case dom_pairs_c(wt, [], nil, true) do
+          {:ok, d, canonical} ->
+            # nur kanonische Paare eintragen: [5..5] und [5] ergäben sonst
+            # dieselbe Liste, == unterscheidet sie aber
+            if insert and canonical,
+              do: Process.put(@dec_key, [{wt, d} | dec_take(cache, @dec_max - 1)])
+
+            d
+
+          :error ->
+            no_domain(t)
+        end
+
+      d ->
+        d
+    end
+  end
+
+  # ohne Merkzettel dekodieren
+  defp dom_plain(t) do
+    case dom_pairs_c(w(t), [], nil, true) do
+      {:ok, d, _} -> d
+      :error -> no_domain(t)
+    end
+  end
+
+  defp dec_find([{t0, d} | rest], t),
+    do: if(PrologEx.Share.same?(t0, t), do: d, else: dec_find(rest, t))
+
+  defp dec_find([], _t), do: nil
+
+  defp dec_take(_, 0), do: []
+  defp dec_take([e | rest], n), do: [e | dec_take(rest, n - 1)]
+  defp dec_take([], _n), do: []
+
+  # kodieren; jede Kodierung kommt in den Merkzettel (siehe dom_cached/1)
+  defp ed(d) do
+    t = ClpzDom.to_term(d)
+    Process.put(@dec_key, [{t, d} | dec_take(Process.get(@dec_key, []), @dec_max - 1)])
+    t
+  end
 
   # das Intervall l..u als Domäne (leer, wenn l > u)
   defp iv(l, u), do: ClpzDom.interval(l, u)
@@ -1810,7 +1877,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
               when tag in [:struct, :gstruct] ->
                 s = put_clpz(s, v, [left, right, spread, dom, ps, qx])
 
-                if PrologEx.Order.equal?(old_dom, dom, s),
+                if dom_same?(old_dom, dom, s),
                   do: s,
                   else: changed(v, left, right, spread, old_dom, dom, ps, qx, q, s)
 
@@ -1824,6 +1891,18 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       _ ->
         s
+    end
+  end
+
+  # OldDom == Dom: beide im Merkzettel, dann als Listen (exakt, siehe dort)
+  defp dom_same?(old, new, s) do
+    cache = Process.get(@dec_key, [])
+
+    with d0 when d0 != nil <- dec_find(cache, ws(old, s)),
+         d1 when d1 != nil <- dec_find(cache, ws(new, s)) do
+      d0 === d1
+    else
+      _ -> PrologEx.Order.equal?(old, new, s)
     end
   end
 
@@ -2323,9 +2402,21 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # fd_get/3 einer Variablen: {Domäne (dekodiert), Ps}
+  # (trägt die Dekodierung in den Merkzettel ein: ein fdput/5 derselben
+  # Variablen erkennt die Domäne dann wieder)
   defp fdget(v, s) do
     case fd_get(v, s) do
-      {d, ps} -> {dom(d), ps}
+      {d, ps} -> {dom_cached(d, true), ps}
+      :default -> {ClpzDom.all(), no_props()}
+      :fail -> throw(:fallback)
+    end
+  end
+
+  # nur lesen (Ps verworfen, kein fdput folgt): nichts eintragen, das
+  # verdrängte nur Einträge, die gebraucht werden
+  defp fdget_ro(v, s) do
+    case fd_get(v, s) do
+      {d, ps} -> {dom_plain(d), ps}
       :default -> {ClpzDom.all(), no_props()}
       :fail -> throw(:fallback)
     end
@@ -2333,7 +2424,39 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # fd_put//3 mit einer dekodierten Domäne
   defp fdput(_v, _d, _ps, _q, :fail), do: :fail
-  defp fdput(v, d, ps, q, s), do: put_terminating(v, ed(d), ps, q, s)
+
+  defp fdput(v, d, ps, q, s) do
+    case fdput_known(v, d, ps, q, s) do
+      :unknown -> put_terminating(v, ed(d), ps, q, s)
+      r -> r
+    end
+  end
+
+  # Ist die gespeicherte Domäne (physisch) eine, die fdget dekodiert hat, so
+  # entscheidet d === d0 exakt (beide kanonisch), ob sich etwas geändert hat
+  # – put_dom/6 ohne die neue Domäne zu kodieren und mit == zu vergleichen.
+  # Gleich: das Attribut wie im Original neu (Ps vom Aufrufer), mit dem
+  # alten Term. Leer, Einzelwert, ohne Attribut, unbekannt: put_terminating.
+  defp fdput_known(_v, [], _ps, _q, _s), do: :unknown
+  defp fdput_known(_v, [{x, x}], _ps, _q, _s) when is_integer(x), do: :unknown
+
+  defp fdput_known(v, d, ps, q, s) do
+    with {:var, _} = vv <- PrologEx.Store.walk(v, s),
+         [attr] <- att(vv, s, "clpz", 1),
+         {tag, "clpz_attr", [left, right, spread, old_dom, _old_ps, qx]}
+         when tag in [:struct, :gstruct] <- ws(attr, s),
+         d0 when d0 != nil <- dec_find(Process.get(@dec_key, []), ws(old_dom, s)) do
+      if d === d0 do
+        put_clpz(s, vv, [left, right, spread, old_dom, ps, qx])
+      else
+        dom = ed(d)
+        s = put_clpz(s, vv, [left, right, spread, dom, ps, qx])
+        changed(vv, left, right, spread, old_dom, dom, ps, qx, q, s)
+      end
+    else
+      _ -> :unknown
+    end
+  end
 
   # Schritte nacheinander, :fail bricht ab
   defp seq(:fail, _f), do: :fail
@@ -2403,8 +2526,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
         if a == b do
           :fail
         else
-          {ad, _} = fdget(a, s)
-          {bd, _} = fdget(b, s)
+          {ad, _} = fdget_ro(a, s)
+          {bd, _} = fdget_ro(b, s)
 
           cond do
             lt(sup_d(ad), inf_d(bd)) -> kill(st, s)
@@ -2769,7 +2892,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       is_integer(z) ->
         {xd, xps} = fdget(x, s)
         {xl, xu} = {inf_dec(xd), sup_dec(xd)}
-        {yd, _} = fdget(y, s)
+        {yd, _} = fdget_ro(y, s)
         {yl, yu} = {inf_dec(yd), sup_dec(yd)}
 
         {nxl, nxu} =
@@ -2783,9 +2906,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
         s |> kill_then(st) |> bind(z0, 1)
 
       true ->
-        {xd, _} = fdget(x, s)
+        {xd, _} = fdget_ro(x, s)
         {xl, xu} = {inf_dec(xd), sup_dec(xd)}
-        {yd, _} = fdget(y, s)
+        {yd, _} = fdget_ro(y, s)
         {zd, zps} = fdget(z, s)
         nzu = bmax(babs(xl), xu)
 
@@ -2837,8 +2960,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       true ->
         {zd, zps} = fdget(z, s)
-        {yd, _} = fdget(y, s)
-        {xd, _} = fdget(x, s)
+        {yd, _} = fdget_ro(y, s)
+        {xd, _} = fdget_ro(x, s)
         {yinf, ysup} = {inf_dec(yd), sup_dec(yd)}
         {xinf, xsup} = {inf_dec(xd), sup_dec(xd)}
         m = bmax(babs(yinf), ysup)
@@ -2995,7 +3118,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       {:var, _} = n ->
         case val(v0, s) do
           {:var, _} = v ->
-            {nd, _} = fdget(n, s)
+            {nd, _} = fdget_ro(n, s)
             {vd, vps} = fdget(v, s)
 
             # integers_remaining/5: Vereinigung der Domänen der möglichen
@@ -3123,7 +3246,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         |> seq(fn s ->
           # die Domäne von X nach fd_put (ein einzelner Wert wird nicht
           # abgelegt, wie im Original)
-          {xd2, _} = fdget(x, s)
+          {xd2, _} = fdget_ro(x, s)
           xinf = inf_dec(xd2)
 
           if is_integer(xinf) do
@@ -3229,7 +3352,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       v ->
         b = val(b0, s)
         if b == 0 or b == 1, do: throw(:fallback)
-        {vd, _} = fdget(v, s)
+        {vd, _} = fdget_ro(v, s)
 
         case isect(vd, dom) do
           nil -> s |> kill_then(st) |> bind(b0, 0)
@@ -3377,7 +3500,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       true ->
         {ad, aps} = fdget(a, s)
         {al, au} = {inf_dec(ad), sup_dec(ad)}
-        {bd, _} = fdget(b, s)
+        {bd, _} = fdget_ro(b, s)
         {bl, bu} = {inf_dec(bd), sup_dec(bd)}
 
         cond do
@@ -3485,7 +3608,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       true ->
         {xd, xps} = fdget(x, s)
-        {yd, _} = fdget(y, s)
+        {yd, _} = fdget_ro(y, s)
 
         case isect(xd, union!(yd, negate(yd))) do
           nil ->
@@ -3529,7 +3652,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
             s |> kill_then(st) |> goal(mk("#>=", [y0, x0]), q)
 
           true ->
-            {yd, _} = fdget(y, s)
+            {yd, _} = fdget_ro(y, s)
 
             cond do
               gt(inf_dec(yd), x) ->
@@ -3555,8 +3678,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       true ->
         {zd, zps} = fdget(z, s)
-        {xd, _} = fdget(x, s)
-        {yd, _} = fdget(y, s)
+        {xd, _} = fdget_ro(x, s)
+        {yd, _} = fdget_ro(y, s)
 
         cond do
           gt(inf_dec(yd), sup_dec(xd)) ->
@@ -3599,7 +3722,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
             s |> kill_then(st) |> goal(mk("#=<", [y0, x0]), q)
 
           true ->
-            {yd, _} = fdget(y, s)
+            {yd, _} = fdget_ro(y, s)
 
             cond do
               lt(sup_dec(yd), x) ->
@@ -3625,8 +3748,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       true ->
         {zd, zps} = fdget(z, s)
-        {xd, _} = fdget(x, s)
-        {yd, _} = fdget(y, s)
+        {xd, _} = fdget_ro(x, s)
+        {yd, _} = fdget_ro(y, s)
 
         cond do
           lt(sup_dec(yd), inf_dec(xd)) ->
@@ -3664,7 +3787,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         s |> kill_then(st) |> bind(b0, if(x == y, do: t, else: f))
 
       is_integer(x) ->
-        {yd, _} = fdget(y, s)
+        {yd, _} = fdget_ro(y, s)
         if dcontains?(yd, x), do: s, else: s |> kill2(st, ps) |> bind(b0, f)
 
       is_integer(y) ->
@@ -3674,8 +3797,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
         s |> kill_then(st) |> bind(b0, t)
 
       true ->
-        {xd, _} = fdget(x, s)
-        {yd, _} = fdget(y, s)
+        {xd, _} = fdget_ro(x, s)
+        {yd, _} = fdget_ro(y, s)
 
         if gt(inf_dec(xd), sup_dec(yd)) or gt(inf_dec(yd), sup_dec(xd)),
           do: s |> kill2(st, ps) |> bind(b0, f),
@@ -3707,7 +3830,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         end
 
       true ->
-        {yd, _} = fdget(y, s)
+        {yd, _} = fdget_ro(y, s)
         {zd, zps} = fdget(z, s)
 
         s =
@@ -3721,7 +3844,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           end
 
         seq(s, fn s ->
-          {zd2, _} = fdget(z, s)
+          {zd2, _} = fdget_ro(z, s)
           zmax = sup_dec(zd2)
 
           if x > 0 and is_integer(zmax) and zmax > 0 do
@@ -3747,7 +3870,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           s |> kill_then(st) |> bind(x0, r)
       end
     else
-      {xd, _} = fdget(x, s)
+      {xd, _} = fdget_ro(x, s)
       nxl = inf_dec(xd)
 
       with true <- is_integer(nxl) and nxl > 1 and z > 1,
@@ -3800,7 +3923,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       end
 
     seq(s, fn s ->
-      {xd, _} = fdget(x, s)
+      {xd, _} = fdget_ro(x, s)
       {xl, xu} = {inf_dec(xd), sup_dec(xd)}
       {zd, zps} = fdget(z, s)
       {zl, zu} = {inf_dec(zd), sup_dec(zd)}
@@ -3880,9 +4003,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # die übrigen Fälle: X, Y > 0 nach unten beschränkt
   defp exp_rest(x, y, z, q, s) do
     with true <- var?(x) and var?(y) and var?(z),
-         {xd, _} = fdget(x, s),
+         {xd, _} = fdget_ro(x, s),
          true <- gt(inf_dec(xd), 0),
-         {yd, _} = fdget(y, s),
+         {yd, _} = fdget_ro(y, s),
          true <- gt(inf_dec(yd), 0),
          nzl when is_integer(nzl) <- exp(inf_dec(xd), inf_dec(yd)) do
       {zd, zps} = fdget(z, s)
@@ -4039,7 +4162,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
                 i - occ1
 
               {:var, _} = v ->
-                case inf_dec(elem(fdget(v, s), 0)) do
+                case inf_dec(elem(fdget_ro(v, s), 0)) do
                   ninf when is_integer(ninf) -> ninf - occ1
                   _ -> throw(:fallback)
                 end
@@ -4071,7 +4194,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       Enum.reduce(vs, {0, []}, fn v, {min, os} ->
         case val(v, s) do
           {:var, _} = x ->
-            if dcontains?(elem(fdget(x, s), 0), key), do: {min, [x | os]}, else: {min, os}
+            if dcontains?(elem(fdget_ro(x, s), 0), key), do: {min, [x | os]}, else: {min, os}
 
           i when is_integer(i) ->
             if i == key, do: {min + 1, os}, else: {min, os}
@@ -4141,14 +4264,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp element_dom(e, s) do
     case val(e, s) do
       i when is_integer(i) -> iv(i, i)
-      {:var, _} = v -> elem(fdget(v, s), 0)
+      {:var, _} = v -> elem(fdget_ro(v, s), 0)
       _ -> throw(:fallback)
     end
   end
 
   # endliche Schranken einer Variablen: {L, U} (nil, wenn unendlich)
   defp ibounds(v, s) do
-    {d, _} = fdget(v, s)
+    {d, _} = fdget_ro(v, s)
     {int_or_nil(inf_dec(d)), int_or_nil(sup_dec(d))}
   end
 
@@ -4541,7 +4664,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         s |> kill_then(st) |> bind(b0, if(x >= y, do: 1, else: 0))
 
       is_integer(x) ->
-        {yd, _} = fdget(y, s)
+        {yd, _} = fdget_ro(y, s)
 
         cond do
           geq(x, sup_dec(yd)) -> s |> kill2(st, ps) |> bind(b0, 1)
@@ -4550,7 +4673,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         end
 
       is_integer(y) ->
-        {xd, _} = fdget(x, s)
+        {xd, _} = fdget_ro(x, s)
 
         cond do
           geq(inf_dec(xd), y) -> s |> kill2(st, ps) |> bind(b0, 1)
@@ -4562,8 +4685,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
         s |> kill2(st, ps) |> bind(b0, 1)
 
       true ->
-        {xd, _} = fdget(x, s)
-        {yd, _} = fdget(y, s)
+        {xd, _} = fdget_ro(x, s)
+        {yd, _} = fdget_ro(y, s)
 
         cond do
           geq(inf_dec(xd), sup_dec(yd)) -> s |> kill2(st, ps) |> bind(b0, 1)
@@ -4587,7 +4710,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # ptimes, X bekannt: Z ∩ X·Y, dann Y ∩ Z/X
   defp times_x(x, y, z, q, s) do
-    {yd, _} = fdget(y, s)
+    {yd, _} = fdget_ro(y, s)
     {zd, zps} = fdget(z, s)
 
     case isect(zd, dexpand(yd, x)) do
@@ -4608,7 +4731,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp times_z(x, y, z, st, q, s) do
     {xd, xps} = fdget(x, s)
     {xl, xu} = {inf_dec(xd), sup_dec(xd)}
-    {yd, _} = fdget(y, s)
+    {yd, _} = fdget_ro(y, s)
     {yl, yu} = {inf_dec(yd), sup_dec(yd)}
     {nxl, nxu} = min_max_factor(z, z, yl, yu, xl, xu)
 
@@ -4637,9 +4760,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp times_bounds(x, y, z, st, q, s) do
     {xd, xps} = fdget(x, s)
     {xl, xu} = {inf_dec(xd), sup_dec(xd)}
-    {yd, _} = fdget(y, s)
+    {yd, _} = fdget_ro(y, s)
     {yl, yu} = {inf_dec(yd), sup_dec(yd)}
-    {zd, _} = fdget(z, s)
+    {zd, _} = fdget_ro(z, s)
     {zl, zu} = {inf_dec(zd), sup_dec(zd)}
 
     cond do
@@ -4795,7 +4918,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Domäne ZD1 (bei einem einzelnen Wert legt fd_put sie nicht ab)
   defp plus_x(x, y, z, q, s) do
     {zd, zps} = fdget(z, s)
-    {yd, _} = fdget(y, s)
+    {yd, _} = fdget_ro(y, s)
 
     case isect(zd, shift(yd, x)) do
       nil ->
@@ -4819,7 +4942,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # pplus, Z bekannt: Y ∩ (Z - X), dann X ∩ (Z - Y)
   defp plus_z(x, y, z, q, s) do
-    {xd, _} = fdget(x, s)
+    {xd, _} = fdget_ro(x, s)
     {yd, yps} = fdget(y, s)
 
     case isect(yd, shift(negate(xd), z)) do
@@ -4846,9 +4969,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp plus_bounds(x, y, z, q, s) do
     {xd, xps} = fdget(x, s)
     {xl, xu} = {inf_dec(xd), sup_dec(xd)}
-    {yd0, _} = fdget(y, s)
+    {yd0, _} = fdget_ro(y, s)
     {yl, yu} = {inf_dec(yd0), sup_dec(yd0)}
-    {zd0, _} = fdget(z, s)
+    {zd0, _} = fdget_ro(z, s)
     {zl, zu} = {inf_dec(zd0), sup_dec(zd0)}
     nxl = bmax(xl, minus(zl, yu))
     nxu = bmin(xu, minus(zu, yl))
@@ -4920,7 +5043,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp sum_finite(cvs, s) do
     {infs, sups, inf, sup} =
       Enum.reduce(cvs, {[], [], 0, 0}, fn {c, v}, {infs, sups, inf0, sup0} ->
-        {d, _} = fdget(v, s)
+        {d, _} = fdget_ro(v, s)
         {inf1, sup1} = {inf_dec(d), sup_dec(d)}
 
         {inf2a, sup2a, infs, sups} =
@@ -5073,7 +5196,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       for v <- list_items(vs, s),
           var?(PrologEx.Store.walk(v, s)),
           v = PrologEx.Store.walk(v, s),
-          {d, _} = fdget(v, s),
+          {d, _} = fdget_ro(v, s),
           {:ok, ns} <- [ClpzDom.to_list(d)],
           do: {v, ns}
 
@@ -5249,7 +5372,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         ns =
           case val(v, s) do
             {:var, _} = var ->
-              {d, _} = fdget(var, s)
+              {d, _} = fdget_ro(var, s)
 
               case ClpzDom.to_list(d) do
                 {:ok, ns} -> ns

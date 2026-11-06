@@ -1339,6 +1339,25 @@ Domänen nahe 0 bleibt eine Bitmengen-Darstellung (`0b101000`, verschoben
 als `shifted_dombits(3, 0b101)`) vorgemerkt; sie passte hinter dieselbe
 API.
 
+**Merkzettel für kodierte Domänen; `OldDom == Dom` ohne Termvergleich.**
+Jede Kodierung einer Domäne (Liste → Term) und jedes Dekodieren in
+`fdget` vermerkt das Paar (Term, Liste) in einem Merkzettel mit 4 Plätzen;
+erkannt wird ein Term an seiner physischen Identität (`:erts_debug.same`,
+O(1)) – ein gefundener Eintrag ist also garantiert die Liste genau dieses
+Terms. Nur kanonische Paare kommen hinein (sonst ergäben `[5..5]` und
+`[5]` dieselbe Liste). Damit: `fdput` erkennt, ob die gespeicherte Domäne
+die ist, aus der die neue berechnet wurde, und entscheidet „geändert“ per
+`===` auf den kanonischen Listen – unverändert: das Attribut neu ohne
+Kodieren und ohne `==`; verändert: direkt zur Terminierungslogik.
+`put_terminating` vergleicht zwei bekannte Domänen als Listen statt mit
+`==` auf den Termen (bei `X #\= N` aus Prolog, sieve: gleich bis zur
+Löschstelle, also Hunderte Intervalle je Vergleich). Und eine eben
+kodierte Domäne wird nicht noch einmal dekodiert. Lesende Zugriffe (`Ps`
+verworfen) tragen nichts ein und schlagen nicht nach – sonst kostete es
+bei vielen Variablen ohne Treffer (holes). Reduktionen sieve(2000) −72 %,
+Pythagoras −16 %, Sechseck −6 %, n_queens −4 %, übrige ±0,4 %; Laufzeit
+(6 Runden, Median) sieve(5000) −44 %, Pythagoras −6 %, holes(50) −5 %.
+
 **`cumulative/2` bei fester Dauer: ein reifiziertes `in/2` je Zeitscheibe.**
 Triskas Zerlegung legt für jede Aufgabe und jeden Zeitpunkt T des
 Horizonts `((T #>= Start) #/\ (T #< End)) #<==> B` an: zwei reifizierte
