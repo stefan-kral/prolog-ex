@@ -48,6 +48,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Random,
     PrologEx.Builtins.Atts,
     PrologEx.Builtins.Atoms,
+    PrologEx.Builtins.Swi,
     PrologEx.Builtins.Blackboard,
     PrologEx.Builtins.Gensym,
     PrologEx.Builtins.Mutables,
@@ -115,7 +116,11 @@ defmodule PrologEx.Builtins do
                     term_attvars/2 findnsols/4 findnsols/5 call_with_depth_limit/3
                     exists_file/1 exists_directory/1 delete_file/1 fast_term_serialized/2
                     time/1 statistics/0 style_check/1 expand_goal/2 dcg_translate_rule/2
-                    strip_module/3 upcase_atom/2 downcase_atom/2)}
+                    strip_module/3 upcase_atom/2 downcase_atom/2 writeln/1 writeln/2 tab/1
+                    tab/2 with_output_to/2 select/4 selectchk/3 selectchk/4 flatten/2
+                    predsort/3 sort/4 code_type/2 nb_setval/2 nb_getval/2 b_setval/2
+                    b_getval/2 nb_current/2 term_variables/3 string/1 garbage_collect/0
+                    get_time/1)}
               ],
               k <- keys,
               into: %{} do

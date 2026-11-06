@@ -159,6 +159,18 @@ defmodule PrologEx.Builtins.Blackboard do
   end
 
   @doc false
+  # Atomnamen der Schlüssel von mod (global und backtrackbar), sortiert
+  def keys(mod, s) do
+    global = PrologEx.current_db() |> Map.get(:blackboard, %{}) |> Map.keys()
+    local = s |> Store.get(@b_key, %{}) |> Map.keys()
+
+    for {^mod, {:atom, name}} <- global ++ local, uniq: true do
+      name
+    end
+    |> Enum.sort()
+  end
+
+  @doc false
   def b_put(s, mod, name, v) do
     k = {mod, {:atom, name}}
     Store.update(s, @b_key, %{k => v}, &Map.put(&1, k, v))

@@ -50,8 +50,14 @@ defmodule PrologEx.Builtins.Format do
     format(PIO.current_out!(:text), f, args, subst())
   end
 
+  # format/3 nimmt wie SWI auch eine Senke: atom(A), chars(Cs), chars(Cs,
+  # Rest), codes(Cs), codes(Cs, Rest) (siehe with_output_to/2)
   defbuiltin "format", [stream, f, args], protected: false do
-    format(PIO.output!(deref(stream), :text), f, args, subst())
+    st = deref(stream)
+
+    if PrologEx.Builtins.Swi.sink?(PrologEx.unmark_top(st)),
+      do: PrologEx.Builtins.Swi.format_to_sink(st, f, args, subst()),
+      else: format(PIO.output!(st, :text), f, args, subst())
   end
 
   @doc false
