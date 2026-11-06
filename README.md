@@ -1215,18 +1215,23 @@ X in 0..4, Y^2#=X, Y in -2..2.
 D = 0..2\/4..5, X in 0..2\/4..5.
 ```
 
-Nur zwei Formen schreibt PrologEx lesbarer (Flag `clpz_residuals`,
+Drei Formen schreibt PrologEx lesbarer (Flag `clpz_residuals`,
 Voreinstellung `compact`): eine halboffene Domäne als Vergleich mit einer
-Zahl und `X #=< Y + C` als `#<` oder `#=<` – jeweils mit der betragsmäßig
-kleineren Konstante (`X #> 1` statt `X #>= 2`, aber `X #=< 2` statt
-`X #< 3`):
+Zahl, `X #=< Y + C` und lineare Summen (`L #=< R`) als `#<` oder `#=<` –
+jeweils mit der betragsmäßig kleineren Konstante (`X #> 1` statt
+`X #>= 2`, aber `X #=< 2` statt `X #< 3`); steht in einer Summe eine Zahl
+allein, kommt sie nach rechts:
 
 ```prolog
 ?- A #> 1, A #< B, C #< 3.
 A#>1, A#<B, B#>2, C#=<2.          % Scryer: A in 2..sup, A#=<B+ -1, B in 3..sup, C in inf..2
 ?- X #=< Y - 3.
 X#<Y-2.                          % Scryer: X#=<Y+ -3
+?- 2*X+3*Y #> 5, X+Y #< Z.
+X+Y#<Z, 2*X+3*Y#>5.              % Scryer: X+Y+1#=<Z, 6#=<2*X+3*Y
 ```
+
+`#=` und `#\=` über Summen bleiben wie bei Scryer.
 
 Andere Domänen (`X in 1..3`, `X in 1..3\/7..sup`) und alles mit
 `clpz:monotonic` bleiben wie bei Scryer; `set_prolog_flag(clpz_residuals,

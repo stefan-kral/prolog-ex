@@ -1,15 +1,28 @@
 defmodule PrologEx.ClpzResidualsTest do
   # Restziele von library(clpz): standardmäßig lesbar (Flag clpz_residuals =
   # compact) – halboffene Domänen als #>/#>=/#</#=<, X #=< Y + C als #< oder
-  # #=< mit der betragsmäßig kleineren Konstante; mit clpz_residuals =
-  # scryer genau wie Scryer
+  # #=< mit der betragsmäßig kleineren Konstante; lineare Summen ebenso,
+  # eine allein stehende Zahl rechts; mit clpz_residuals = scryer genau wie
+  # Scryer
   use ExUnit.Case, async: false
   alias PrologEx.{Reader, TableCase}
+
+  # Restziele einer Bedingung C (ohne Domänen gepostet) an frischen
+  # Variablen wieder posten: in der Box -3..3 dieselben Lösungen wie C
+  @program """
+  same(C, Vs, Gs, N) :-
+      copy_term(C-Vs, C1-Vs1), call(C1), copy_term(Vs1, Ws, Gs),
+      findall(Vs, (call(C), Vs ins -3..3, label(Vs)), A),
+      findall(Ws, (call(Gs), Ws ins -3..3, label(Ws)), B),
+      A == B, length(A, N).
+  """
 
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
     db = TableCase.db(r, ["clpz", "lists"])
+    PrologEx.put_db(db)
+    {db, []} = PrologEx.Consult.load(db, Reader.read_terms(r, @program))
     {:ok, reader: r, db: db, ops: Process.get(:prolog_ex_ops)}
   end
 
@@ -50,6 +63,53 @@ defmodule PrologEx.ClpzResidualsTest do
     end
   end
 
+  test "lineare Summen: Zahl allein rechts, kleinste Konstante", c do
+    for {q, want} <- [
+          {"2*X+Y #=< 5", "2*X+Y#=<5"},
+          {"2*X+Y #< 5", "2*X+Y#=<4"},
+          {"2*X+3*Y #> 5", "2*X+3*Y#>5"},
+          {"2*X+3*Y #>= 5", "2*X+3*Y#>4"},
+          {"2*X+Y #>= -3", "2*X+Y#>= -3"},
+          {"2*X+Y #>= 0", "2*X+Y#>=0"},
+          {"2*X+Y #< 0", "2*X+Y#<0"},
+          {"2*X+Y #< -5", "2*X+Y#< -5"},
+          {"2*X #< 3*Y", "2*X#<3*Y"},
+          {"2*X #=< 3*Y", "2*X#=<3*Y"},
+          {"X+Y #< Z", "X+Y#<Z"},
+          {"X - 2*Y #< -4", "X+4#<2*Y"},
+          {"X+Y+Z #< W+2", "X+Y+Z#=<W+1"},
+          {"X+Y+Z+3 #< W", "X+Y+Z+3#<W"}
+        ] do
+      assert res(c, q) == want, q
+    end
+  end
+
+  test "wieder gepostet: dieselben Lösungen", c do
+    for q <- [
+          "X #> 1",
+          "X #> -2",
+          "X #< 1",
+          "X #< -1",
+          "X #=< Y - 2",
+          "X #< Y + 2",
+          "2*X+3*Y #> 1",
+          "2*X+Y #>= -3",
+          "2*X+Y #< -1",
+          "2*X #< 3*Y",
+          "X - 2*Y #< -4",
+          "X+Y+Z #< W+2",
+          "X+Y #< Z - 1",
+          "X+Y+Z+1 #< W"
+        ] do
+      assert {:answers, [ans]} =
+               run(c, "C = (#{q}), term_variables(C, Vs), same(C, Vs, Gs, N)"),
+             q
+
+      assert ans =~ ~r/N = [1-9]/, q
+      refute ans =~ ~r/ in |\+ -/, q <> ": " <> ans
+    end
+  end
+
   test "mit clpz:monotonic bleibt in/2 (wie Scryer)", c do
     assert res(c, "assertz(clpz:monotonic), #X #> 1") == "X in 2..sup"
   end
@@ -79,6 +139,8 @@ defmodule PrologEx.ClpzResidualsTest do
     assert res(c, "X #> 1") =~ "X in 2..sup"
     assert res(c, "X #< 3") =~ "X in inf..2"
     assert res(c, "X #< Y") =~ "X#=<Y+ -1"
+    assert res(c, "2*X+3*Y #> 5") == "6#=<2*X+3*Y"
+    assert res(c, "X+Y #< Z") == "X+Y+1#=<Z"
   end
 
   test "Flag: Voreinstellung compact, andere Werte abgelehnt", c do

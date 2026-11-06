@@ -7858,6 +7858,28 @@ plus_const(Y, 0, Y) :- !.
 plus_const(Y, C, Y - N) :- C < 0, !, N is -C.
 plus_const(Y, C, Y + C).
 
+% Lineare Summe Left #=< Right (scalar_product_left_right/4: die Konstante
+% steht positiv auf einer Seite oder allein): steht eine Zahl allein, kommt
+% sie nach rechts (#>= bzw. #> statt #=< mit vertauschten Seiten); wie oben
+% die betragsmäßig kleinere Konstante (L+1 #=< R wird L #< R; L #=< R+K
+% mit K > 0 bleibt, denn L #< R+K+1 hätte die größere)
+residual_sp_leq(L, R, G) :-
+        (   compact_residuals -> compact_sp_leq(L, R, G)
+        ;   G = (L #=< R)
+        ).
+
+compact_sp_leq(L, R, G) :- integer(R), !,
+        R1 is R + 1,
+        (   abs(R1) < abs(R) -> G = (L #< R1) ; G = (L #=< R) ).
+compact_sp_leq(L, R, G) :- integer(L), !,
+        L1 is L - 1,
+        (   abs(L1) < abs(L) -> G = (R #> L1) ; G = (R #>= L) ).
+compact_sp_leq(L0 + K, R, G) :- integer(K), !,
+        K1 is K - 1,
+        plus_const(L0, K1, L),
+        G = (L #< R).
+compact_sp_leq(L, R, L #=< R).
+
 unwrap_with(_, V, V)           :- var(V), !.
 unwrap_with(Goal, #V0, V)    :- !, call(Goal, V0, V).
 unwrap_with(Goal, Term0, Term) :-
@@ -7893,8 +7915,9 @@ attribute_goal_(scalar_product_eq(Cs,Vs,C)) -->
         [Left #= Right],
         { scalar_product_left_right([-1|Cs], [C|Vs], Left, Right) }.
 attribute_goal_(scalar_product_leq(Cs,Vs,C)) -->
-        [Left #=< Right],
-        { scalar_product_left_right([-1|Cs], [C|Vs], Left, Right) }.
+        { scalar_product_left_right([-1|Cs], [C|Vs], Left, Right),
+          residual_sp_leq(Left, Right, G) },
+        [G].
 attribute_goal_(pdifferent(_,_,_,O))    --> original_goal(O).
 attribute_goal_(weak_distinct(_,_,_,O)) --> original_goal(O).
 attribute_goal_(pdistinct(Vs))          --> [all_distinct(Vs)].
