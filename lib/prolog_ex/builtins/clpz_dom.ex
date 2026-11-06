@@ -149,8 +149,17 @@ defmodule PrologEx.Builtins.ClpzDom do
   end
 
   @doc "Enthält die Domäne die Zahl x?"
-  def contains?(d, x) when is_integer(x) do
-    Enum.any?(d, fn {l, u} -> leq(l, x) and leq(x, u) end)
+  def contains?(d, x) when is_integer(x), do: contains_(d, x)
+
+  # (aufsteigend: hinter einem Intervall, das über x beginnt, kommt nichts mehr)
+  defp contains_([], _x), do: false
+
+  defp contains_([{l, u} | rest], x) do
+    cond do
+      lt(x, l) -> false
+      leq(x, u) -> true
+      true -> contains_(rest, x)
+    end
   end
 
   @doc "Genau ein Element? Dann {:ok, x}"
@@ -202,39 +211,70 @@ defmodule PrologEx.Builtins.ClpzDom do
 
   # --- Mengenoperationen -------------------------------------------------
 
+  # Die Liste ist aufsteigend: Die drei Operationen hier laufen nur bis zu
+  # der Stelle, die sich ändert, und übernehmen den Rest unverändert (statt
+  # ihn Intervall für Intervall zu kopieren). Kommt x nicht vor, ist das
+  # Ergebnis die Domäne selbst.
+
   @doc "Ohne die Zahl x"
   def remove(d, x) when is_integer(x) do
-    Enum.flat_map(d, fn {l, u} = iv ->
-      cond do
-        lt(x, l) or lt(u, x) -> [iv]
-        l == x and u == x -> []
-        l == x -> [{x + 1, u}]
-        u == x -> [{l, x - 1}]
-        true -> [{l, x - 1}, {x + 1, u}]
-      end
-    end)
+    case remove_(d, x) do
+      :same -> d
+      d1 -> d1
+    end
+  end
+
+  defp remove_([], _x), do: :same
+
+  defp remove_([{l, u} = iv | rest], x) do
+    cond do
+      lt(x, l) ->
+        :same
+
+      lt(u, x) ->
+        case remove_(rest, x) do
+          :same -> :same
+          rest -> [iv | rest]
+        end
+
+      l == x and u == x ->
+        rest
+
+      l == x ->
+        [{x + 1, u} | rest]
+
+      u == x ->
+        [{l, x - 1} | rest]
+
+      true ->
+        [{l, x - 1}, {x + 1, u} | rest]
+    end
   end
 
   @doc "Nur die Elemente =< g"
-  def remove_greater_than(d, g) when is_integer(g) do
-    Enum.flat_map(d, fn {l, u} ->
-      cond do
-        lt(g, l) -> []
-        leq(u, g) -> [{l, u}]
-        true -> [{l, g}]
-      end
-    end)
+  def remove_greater_than(d, g) when is_integer(g), do: rgt(d, g)
+
+  defp rgt([], _g), do: []
+
+  defp rgt([{l, u} = iv | rest], g) do
+    cond do
+      lt(g, l) -> []
+      leq(u, g) -> [iv | rgt(rest, g)]
+      true -> [{l, g}]
+    end
   end
 
   @doc "Nur die Elemente >= v"
-  def remove_smaller_than(d, v) when is_integer(v) do
-    Enum.flat_map(d, fn {l, u} ->
-      cond do
-        lt(u, v) -> []
-        leq(v, l) -> [{l, u}]
-        true -> [{v, u}]
-      end
-    end)
+  def remove_smaller_than(d, v) when is_integer(v), do: rst(d, v)
+
+  defp rst([], _v), do: []
+
+  defp rst([{l, u} | rest] = d, v) do
+    cond do
+      lt(u, v) -> rst(rest, v)
+      leq(v, l) -> d
+      true -> [{v, u} | rest]
+    end
   end
 
   @doc "Schnitt"

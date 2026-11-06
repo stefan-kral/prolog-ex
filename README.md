@@ -1322,7 +1322,12 @@ häufigsten Zugriffe ohne Dekodieren auf dem Term (Infimum, Supremum,
 Einzelwert-Test, `domain_contains/2` mit frühem Abbruch, die Spannweite
 aus erstem und letztem Intervall); ohne das kosteten Dekodieren und
 Prüfen 5–15 %. Die Operationen prüfen die Ordnung der Liste nicht mehr
-(nur `is_domain/1` tut das), sie vertrauen den Termen aus ClpzDom. Für dichte
+(nur `is_domain/1` tut das), sie vertrauen den Termen aus ClpzDom.
+Entfernen (`remove`, `remove_greater_than`, `remove_smaller_than`) und
+`contains?` laufen nur bis zur betroffenen Stelle und übernehmen den Rest
+der Liste unverändert; kommt der Wert nicht vor, ist das Ergebnis die
+Domäne selbst (sieve(2000) −2,5 % Reduktionen, Laufzeit gleich: dort
+kosten Dekodieren und Kodieren des Terms mehr). Für dichte
 Domänen nahe 0 bleibt eine Bitmengen-Darstellung (`0b101000`, verschoben
 als `shifted_dombits(3, 0b101)`) vorgemerkt; sie passte hinter dieselbe
 API.
