@@ -75,6 +75,62 @@ defmodule PrologEx.Arith do
   @ops2 ~w(* ** + - / // /\\ << >> \\/ ^ atan atan2 copysign div gcd log max min
            mod plus rem xor)
 
+  # Signaturen der auswertbaren Funktoren für evaluable_property/2:
+  # {Name, Stelligkeit} => [{Argumenttypen, Ergebnistyp}] mit den Typen
+  # integer, float, number. Wie hier gerechnet wird: / gibt eine Ganzzahl,
+  # wenn die Division aufgeht (number), round & Co. nehmen nur Floats.
+  @float1 ~w(acos acosh acot asin asinh atan atanh cos cosh cot exp log log2 log10 sin
+             sinh sqrt tan tanh)
+  @int1 ~w(\\ lsb msb popcount random succ)
+  @int2 ~w(// /\\ << >> \\/ div gcd mod rem xor)
+  @templates Map.merge(
+               %{
+                 {"pi", 0} => [{[], :float}],
+                 {"e", 0} => [{[], :float}],
+                 {"epsilon", 0} => [{[], :float}],
+                 {"max_tagged_integer", 0} => [{[], :integer}],
+                 {"min_tagged_integer", 0} => [{[], :integer}],
+                 {"random", 0} => [{[], :float}],
+                 {"random_float", 0} => [{[], :float}],
+                 {"cputime", 0} => [{[], :float}],
+                 {"realtime", 0} => [{[], :integer}],
+                 {"+", 1} => [{[:number], :number}],
+                 {"-", 1} => [{[:number], :number}],
+                 {"abs", 1} => [{[:number], :number}],
+                 {"sign", 1} => [{[:number], :number}],
+                 {"float", 1} => [{[:number], :float}],
+                 {"integer", 1} => [{[:number], :integer}],
+                 {"float_integer_part", 1} => [{[:float], :float}],
+                 {"float_fractional_part", 1} => [{[:float], :float}],
+                 {"ceiling", 1} => [{[:float], :integer}],
+                 {"floor", 1} => [{[:float], :integer}],
+                 {"round", 1} => [{[:float], :integer}],
+                 {"truncate", 1} => [{[:float], :integer}],
+                 {"random_float", 1} => [{[:number], :float}],
+                 {"atan", 2} => [{[:number, :number], :float}],
+                 {"atan2", 2} => [{[:number, :number], :float}],
+                 {"copysign", 2} => [{[:number, :number], :float}],
+                 {"log", 2} => [{[:number, :number], :float}]
+               },
+               Map.new(
+                 Enum.map(@float1, &{{&1, 1}, [{[:number], :float}]}) ++
+                   Enum.map(@int1, &{{&1, 1}, [{[:integer], :integer}]}) ++
+                   Enum.map(@int2, &{{&1, 2}, [{[:integer, :integer], :integer}]}) ++
+                   Enum.map(
+                     ~w(+ - * / ** ^ max min plus),
+                     &{{&1, 2}, [{[:number, :number], :number}]}
+                   )
+               )
+             )
+
+  # jede auswertbare Funktion hat eine Signatur (beim Übersetzen geprüft)
+  for {ops, n} <- [{@ops0, 0}, {@ops1, 1}, {@ops2, 2}], op <- ops do
+    unless Map.has_key?(@templates, {op, n}), do: raise("Signatur fehlt: #{op}/#{n}")
+  end
+
+  @doc "Signaturen eines auswertbaren Funktors (siehe @templates) oder nil"
+  def templates(name, arity), do: Map.get(@templates, {name, arity})
+
   @doc "Wert des arithmetischen Ausdrucks t unter der Substitution s"
   def eval(t, s) do
     ev(t, s)

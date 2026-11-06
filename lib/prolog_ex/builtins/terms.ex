@@ -15,6 +15,47 @@ defmodule PrologEx.Builtins.Terms do
     plus(x, y, z, subst())
   end
 
+  # evaluable_property(E, P) (Logtalks „Prolog commons“, library(iso_ext)):
+  # E ist ein auswertbarer Funktor (abs(_), pi); P ist built_in, static oder
+  # template(T, R) – etwa template(abs(number), number), template(pi, float),
+  # Typen integer, float, number (PrologEx.Arith). Andere gültige
+  # Eigenschaften (dynamic, foreign) treffen nie zu; unbekannter Funktor:
+  # scheitert
+  @eval_props ~w(built_in static dynamic foreign)
+
+  defbuiltin "evaluable_property", [e, p], nondet: true do
+    s = subst()
+
+    {name, arity} =
+      case PrologEx.unmark_top(Store.walk(e, s)) do
+        {:var, _} -> PrologEx.Error.instantiation!()
+        {:atom, n} -> {n, 0}
+        {:struct, n, args} -> {n, length(args)}
+        other -> PrologEx.Error.type!("callable", PrologEx.resolve(other, s))
+      end
+
+    case PrologEx.unmark_top(Store.walk(p, s)) do
+      {:var, _} -> :ok
+      {:atom, x} when x in @eval_props -> :ok
+      {:struct, "template", [_, _]} -> :ok
+      other -> PrologEx.Error.domain!("evaluable_property", PrologEx.resolve(other, s))
+    end
+
+    case PrologEx.Arith.templates(name, arity) do
+      nil ->
+        []
+
+      ts ->
+        templates =
+          for {args, ret} <- ts do
+            t = if args == [], do: a(name), else: mk(name, Enum.map(args, &a(Atom.to_string(&1))))
+            mk("template", [t, a(Atom.to_string(ret))])
+          end
+
+        for prop <- [a("built_in"), a("static") | templates], do: {:unify, [{p, prop}]}
+    end
+  end
+
   @doc false
   # plus/3 – auch direkt aus der Maschine (PrologEx: engine_step)
   def plus(x, y, z, s) do

@@ -181,6 +181,60 @@ defmodule PrologEx.Builtins.Atoms do
     end
   end
 
+  # ---------------------------------------------------------------------
+  # atomic_concat/3 (Logtalks „Prolog commons“, library(iso_ext)),
+  # upcase_atom/2, downcase_atom/2 (wie SWI, library(swi))
+  # ---------------------------------------------------------------------
+
+  # atomic_concat(A, B, C): C ist das Atom aus den Texten von A und B
+  # (deterministisch, nur in diese Richtung)
+  defbuiltin "atomic_concat", [x, y, res] do
+    s = subst()
+    t1 = atomic_arg!(x, s)
+    t2 = atomic_arg!(y, s)
+    result_atom!(res, s)
+    {:unify, [{res, a(t1 <> t2)}]}
+  end
+
+  # upcase_atom(Any, Upper): Text eines atomaren Terms in Großbuchstaben,
+  # als Atom. Wie SWI Zeichen für Zeichen (gleiche Länge): wo Unicode ein
+  # Zeichen auf mehrere abbildet (ß → SS), bleibt es (upcase_atom('Grüße',
+  # 'GRÜßE'))
+  defbuiltin "upcase_atom", [x, res] do
+    s = subst()
+    t = atomic_arg!(x, s)
+    result_atom!(res, s)
+    {:unify, [{res, a(map_chars(t, &String.upcase/1))}]}
+  end
+
+  defbuiltin "downcase_atom", [x, res] do
+    s = subst()
+    t = atomic_arg!(x, s)
+    result_atom!(res, s)
+    {:unify, [{res, a(map_chars(t, &String.downcase/1))}]}
+  end
+
+  defp map_chars(t, f) do
+    if ascii?(t) do
+      f.(t)
+    else
+      for <<c::utf8 <- t>>, into: "" do
+        m = f.(<<c::utf8>>)
+
+        if String.length(m) == 1 and byte_size(m) == byte_size(String.first(m)),
+          do: m,
+          else: <<c::utf8>>
+      end
+    end
+  end
+
+  defp atomic_arg!(x, s) do
+    case PrologEx.Store.walk(x, s) do
+      {:var, _} -> Error.instantiation!()
+      y -> if atomic?(y), do: atomic_text(y), else: Error.type!("atomic", PrologEx.resolve(y, s))
+    end
+  end
+
   # Ergebnis: ungebunden (nil) oder ein Atom (sein Name)
   defp result_atom!(res, s) do
     case PrologEx.Store.walk(res, s) do

@@ -23,8 +23,8 @@ defmodule PrologEx.LgtEdgeTest do
 
   @src ":- use_module(library(iso_ext)).\n:- use_module(library(lists)).\na(1). a(2).\n"
 
-  defp ask(c, q) do
-    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, @src))
+  defp ask(c, q, src \\ @src) do
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
     PrologEx.put_db(db)
     [{:term, g, _}] = Reader.read_terms(c.reader, q <> ".")
 
@@ -122,6 +122,123 @@ defmodule PrologEx.LgtEdgeTest do
     assert ask(c, "current_prolog_flag(version_data, V)") == [
              "V = prolog_ex(0,1,0,[])"
            ]
+  end
+
+  test "atomic_concat/3 (library(iso_ext))", c do
+    assert ask(c, "atomic_concat(a, 42, A)") == ["A = a42"]
+    assert ask(c, "atomic_concat(42, a, A)") == ["A = '42a'"]
+    assert ask(c, "atomic_concat('', '', A)") == ["A = ''"]
+    assert ask(c, "atomic_concat(a, 1.5, A)") == ["A = 'a1.5'"]
+    assert ask(c, "atomic_concat([], b, A)") == ["A = '[]b'"]
+    assert ask(c, "atomic_concat(a, b, ab)") == ["true"]
+    assert ask(c, "atomic_concat(a, b, ba)") == []
+    assert err(c, "atomic_concat(_, bar, _)") == ["E = instantiation_error"]
+    assert err(c, "atomic_concat(foo, _, _)") == ["E = instantiation_error"]
+    assert err(c, "atomic_concat(a(1), bar, _)") == ["E = type_error(atomic,a(1))"]
+    assert err(c, "atomic_concat(foo, a(1), _)") == ["E = type_error(atomic,a(1))"]
+    assert err(c, "atomic_concat(foo, bar, a(1))") == ["E = type_error(atom,a(1))"]
+    # deterministisch
+    assert ask(c, "call_cleanup(atomic_concat(a, b, X), Det = true)") == ["Det = true, X = ab"]
+    # nur mit library(iso_ext)
+    assert ask(c, "catch(atomic_concat(a, b, _), error(E, _), true)", "") ==
+             ["E = existence_error(procedure,atomic_concat/3)"]
+  end
+
+  test "evaluable_property/2 (library(iso_ext))", c do
+    assert ask(c, "findall(P, evaluable_property(abs(_), P), Ps)") ==
+             ["Ps = [built_in,static,template(abs(number),number)]"]
+
+    assert ask(c, "findall(P, evaluable_property(pi, P), Ps)") ==
+             ["Ps = [built_in,static,template(pi,float)]"]
+
+    for {e, t} <- [
+          {"_ // _", "template(integer//integer,integer)"},
+          {"\\ _", "template(\\integer,integer)"},
+          {"sin(_)", "template(sin(number),float)"},
+          {"round(_)", "template(round(float),integer)"},
+          {"float(_)", "template(float(number),float)"},
+          {"_ / _", "template(number/number,number)"},
+          {"atan2(_, _)", "template(atan2(number,number),float)"},
+          {"max_tagged_integer", "template(max_tagged_integer,integer)"}
+        ] do
+      assert ask(c, "evaluable_property(#{e}, template(T, R)), Tp = template(T, R)")
+             |> hd() =~ "Tp = #{t}",
+             e
+    end
+
+    assert ask(c, "evaluable_property(abs(_), dynamic)") == []
+    assert ask(c, "evaluable_property(abs(_), foreign)") == []
+    assert ask(c, "evaluable_property(foo(_), built_in)") == []
+    assert ask(c, "evaluable_property(abs(_, _), built_in)") == []
+    assert err(c, "evaluable_property(_, _)") == ["E = instantiation_error"]
+    assert err(c, "evaluable_property(1, _)") == ["E = type_error(callable,1)"]
+    assert err(c, "evaluable_property(abs(_), 1)") == ["E = domain_error(evaluable_property,1)"]
+
+    assert err(c, "evaluable_property(foo(_), foobar)") ==
+             ["E = domain_error(evaluable_property,foobar)"]
+  end
+
+  test "evaluable_property/2: jede auswertbare Funktion hat eine Signatur, die zutrifft", c do
+    # Stichprobe über is/2: Ergebnistyp passt zum Template
+    for e <- [
+          "abs(-3)",
+          "abs(-3.0)",
+          "sqrt(4)",
+          "7 // 2",
+          "pi",
+          "truncate(2.5)"
+        ] do
+      assert ask(
+               c,
+               "X is #{e}, evaluable_property(#{e}, template(_, R)), " <>
+                 "( R == number -> number(X) ; R == integer -> integer(X) ; float(X) )"
+             ) != [],
+             e
+    end
+  end
+
+  test "upcase_atom/2, downcase_atom/2 (library(swi), wie SWI)", c do
+    src = ":- use_module(library(swi)).\n"
+    assert ask(c, "upcase_atom(abc, X)", src) == ["X = 'ABC'"]
+    assert ask(c, "downcase_atom('ÄBC', X)", src) == ["X = 'äbc'"]
+    # Zeichen für Zeichen: ß bleibt (wie SWI)
+    assert ask(c, "upcase_atom('Grüße', X)", src) == ["X = 'GRÜßE'"]
+    assert ask(c, "upcase_atom(12, X)", src) == ["X = '12'"]
+    assert ask(c, "upcase_atom(a, 'A')", src) == ["true"]
+
+    assert ask(c, "catch(upcase_atom(_, _), error(E, _), true)", src) == [
+             "E = instantiation_error"
+           ]
+
+    assert ask(c, "catch(upcase_atom(f(x), _), error(E, _), true)", src) == [
+             "E = type_error(atomic,f(x))"
+           ]
+
+    assert ask(c, "catch(downcase_atom(a, f(x)), error(E, _), true)", src) == [
+             "E = type_error(atom,f(x))"
+           ]
+
+    # ohne Import nicht sichtbar
+    assert ask(c, "catch(upcase_atom(a, _), error(E, _), true)", "") ==
+             ["E = existence_error(procedure,upcase_atom/2)"]
+  end
+
+  test "phrase//2, phrase//3 (library(dcgs), wie Scryer)", c do
+    src = ":- use_module(library(dcgs)).\nab(X) --> [X], [b].\nxy(X, Y) --> [X, Y].\n"
+    assert ask(c, "phrase(phrase(seq, Xs), [1, 2])", src) == ["Xs = [1,2]"]
+    assert ask(c, "phrase(([x], phrase(ab, Y)), [x, 1, b])", src) == ["Y = 1"]
+    assert ask(c, "phrase(phrase(xy, A, B), [1, 2])", src) == ["A = 1, B = 2"]
+    assert ask(c, "phrase(phrase(seq, [1]), S0, S)", src) == ["S0 = [1|S]"]
+
+    assert ask(c, "catch(phrase(phrase(_, x), [], []), error(E, _), true)", src) ==
+             ["E = instantiation_error"]
+
+    assert ask(c, "catch(phrase(phrase(1, x), [], []), error(E, _), true)", src) ==
+             ["E = type_error(callable,1)"]
+
+    # ohne library(dcgs): wie die Norm
+    assert ask(c, "catch(phrase(phrase(phrase, []), L), error(E, _), true)", "") ==
+             ["E = existence_error(procedure,phrase/4)"]
   end
 
   test "zyklische Antworten (ohne Occurs-Check): wie SWI, keine Endlosschleife", c do

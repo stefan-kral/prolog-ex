@@ -59,7 +59,9 @@ defmodule PrologEx.NeumerkelPhraseTest do
     # \+ übersetzt erst bei der Ausführung: [a] scheitert vorher
     {"phrase(([a],\\+1),[])", :fails},
     {"phrase(([a],\\+1;[]),[])", true},
-    {"phrase(phrase(phrase,[]),L)", {:error, "existence_error(procedure,phrase/4)"}},
+    # Neumerkels Tabelle: existence_error(procedure,phrase/4) – hier ist
+    # library(dcgs) geladen, die wie Scryer phrase//2 hat (phrase([], L))
+    {"phrase(phrase(phrase,[]),L)", ["L = []"]},
     {"phrase(call([]),[])", {:error, "existence_error(procedure,[]/2)"}},
     {"L=[],phrase([a|L],[b])", :fails},
     {"L=[],phrase([a|L],[a])", ["L = []"]},

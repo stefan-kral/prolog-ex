@@ -107,7 +107,7 @@ defmodule PrologEx.Builtins do
   # der Übergang für das, was (noch) keine inhaltliche Heimat hat.
   @homes (for {lib, keys} <- [
                 {"iso_ext", ~w(forall/2 succ/2 setup_call_cleanup/3 call_nth/2 countall/2
-                    call_with_inference_limit/3)},
+                    call_with_inference_limit/3 atomic_concat/3 evaluable_property/2)},
                 {"between", ~w(between/3 repeat/1)},
                 {"fastrw", ~w(fast_read/1 fast_read/2 fast_write/1 fast_write/2)},
                 {"swi", ~w(ignore/1 not/1 *->/2 plus/3 atomic_list_concat/2 atomic_list_concat/3
@@ -115,7 +115,7 @@ defmodule PrologEx.Builtins do
                     term_attvars/2 findnsols/4 findnsols/5 call_with_depth_limit/3
                     exists_file/1 exists_directory/1 delete_file/1 fast_term_serialized/2
                     time/1 statistics/0 style_check/1 expand_goal/2 dcg_translate_rule/2
-                    strip_module/3)}
+                    strip_module/3 upcase_atom/2 downcase_atom/2)}
               ],
               k <- keys,
               into: %{} do

@@ -539,8 +539,10 @@ ist jeweils am Dateianfang vermerkt.
   (Prädikat im Modul des Aufrufers) und, aus SWI ergänzt,
   `transpose_pairs/2` (Paare getauscht, stabil nach dem neuen Schlüssel
   sortiert). `library(aggregate)` nutzt sie.
-* `library(dcgs)` bietet `seq//1`, `seqq//1` und `...//0`. `phrase/2,3`
-  und die DCG-Übersetzung bleiben die eingebauten.
+* `library(dcgs)` bietet `seq//1`, `seqq//1`, `...//0` und wie Scryer
+  `phrase//2,3` (`phrase/4,5`: `phrase(G, A)` als Nichtterminal ist G mit
+  dem zusätzlichen Argument A, etwa `phrase(seq, Xs)`). `phrase/2,3` und
+  die DCG-Übersetzung bleiben die eingebauten.
 * `append/2` (Liste von Listen) steht jetzt in `library(lists)`, wie in
   SWI und Scryer.
 * `library(format)` (Markus Triska, gemeinfrei) ist rein deklarativ:
@@ -2130,10 +2132,10 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
     | Bibliothek | Prädikate |
     |---|---|
-    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
-    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3` – und gibt alle obigen weiter |
+    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`) – und gibt alle obigen weiter |
 
     `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
     und nach in Bibliotheken, zu denen sie inhaltlich passen. Eigene
@@ -2274,7 +2276,7 @@ exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
 `float_fractional_part/1` nehmen nur Floats – eine Ganzzahl ist
 `type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
 Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
-Float). Gesamt: 4 093 bestanden, 113 fehlgeschlagen, 206 übersprungen.
+Float). Gesamt: 4 117 bestanden, 89 fehlgeschlagen, 206 übersprungen.
 Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
 den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument
 weder Liste noch Teilliste ist (Logtalk: `type_error(list, L)`), und die
@@ -2282,7 +2284,7 @@ Werte von `variables/1`, `variable_names/1`, `singletons/1` werden bei
 `read_term/2,3` erst nach dem Lesen unifiziert (Logtalk:
 `domain_error(read_option, O)`, `lgt_read_term_3_32` bis `_37`). Die
 übrigen Fehlschläge betreffen Logtalk-, ECLiPSe- und „commons“-Erweiterungen
-(Klauselreferenzen, `evaluable_property/2`, `atomic_concat/3`, die
+(Klauselreferenzen, die
 logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
 Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
 Syntaxfehler), `functor/3` mit Stelligkeit 10^45 (`resource_error`),
