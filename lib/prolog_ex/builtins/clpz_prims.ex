@@ -5081,14 +5081,31 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
     n = length(left)
     doms = left |> Enum.map(&elem(&1, 1)) |> List.to_tuple()
-    values = left |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
+    # Wert => Variablen (aufsteigend); die Schlüssel sind die vorkommenden Werte
+    adj = adjacency(n - 1, doms, %{})
 
-    with true <- n <= length(values),
+    with true <- n <= map_size(adj),
          {:ok, mv} <- matching(doms, n) do
-      removable(left, doms, mv, values)
+      removable(left, mv, adj)
     else
       _ -> :fail
     end
+  end
+
+  # (von hinten her vorangestellt, also aufsteigend; ohne Closure je Paar)
+  defp adjacency(i, _doms, acc) when i < 0, do: acc
+  defp adjacency(i, doms, acc), do: adjacency(i - 1, doms, adj_add(elem(doms, i), i, acc))
+
+  defp adj_add([], _i, acc), do: acc
+
+  defp adj_add([val | vals], i, acc) do
+    acc =
+      case acc do
+        %{^val => is} -> %{acc | val => [i | is]}
+        _ -> Map.put(acc, val, [i])
+      end
+
+    adj_add(vals, i, acc)
   end
 
   # maximale Paarung (augmentierende Pfade); {:ok, %{Variable => Wert}}
@@ -5129,15 +5146,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp removable(left, doms, mv, values) do
+  defp removable(left, mv, adj) do
     n = length(left)
     matched = Map.new(mv, fn {_i, val} -> {val, true} end)
-
-    # Variablen je Wert, aufsteigend (von hinten her vorangestellt)
-    adj =
-      Enum.reduce((n - 1)..0//-1, %{}, fn i, acc ->
-        Enum.reduce(elem(doms, i), acc, fn val, acc -> Map.update(acc, val, [i], &[i | &1]) end)
-      end)
 
     # gerichteter Graph: gepaart Variable → Wert, sonst Wert → Variable
     succ = fn
@@ -5145,7 +5156,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
       {:n, val} -> for j <- Map.get(adj, val, []), Map.get(mv, j) != val, do: {:v, j}
     end
 
-    free = for val <- values, not is_map_key(matched, val), do: {:n, val}
+    # (Reihenfolge gleichgültig: reach liefert eine Menge)
+    free = for {val, _} <- adj, not is_map_key(matched, val), do: {:n, val}
     reach = reach(free, succ, Map.new(free, &{&1, true}))
     comp = tarjan(Enum.map(0..(n - 1)//1, &{:v, &1}), succ)
 

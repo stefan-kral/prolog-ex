@@ -1342,7 +1342,10 @@ kostete 12 % der Gesamtzeit), die Schleifen direkte Rekursion statt
 `reduce_while` mit Closure je Wert; Reihenfolge und Ergebnis sind
 unverändert. holes(30)/holes(40): Reduktionen −49 %/−55 %, Laufzeit
 holes(50) 1,16–1,33 → 0,84–0,87 s, holes(60) 2,5–2,7 → 1,85–1,88 s;
-die übrigen Beispiele unberührt.
+die übrigen Beispiele unberührt. Danach noch die Adjazenz (Wert →
+Variablen) einmal und ohne Closure je Paar gebaut; ihre Schlüssel sind
+zugleich die vorkommenden Werte (vorher eigens mit `flat_map` + `uniq`
+gesammelt): Reduktionen holes −15 %, Laufzeit im Median −3 %.
 
 **Attribute schreiben ohne Aus- und Einpacken.** clpz schreibt seine
 Attribute über `Atts.put_one/4` (das Elixir-Gegenstück zu
