@@ -33,7 +33,8 @@ defmodule PrologEx.Builtins.IsoExt do
           ])
         ]),
         s("term_attvars", [t, vs]),
-        s("findall", [s("-", [t, l]), s("$residuals", [vs, l]), [s("-", [c, gs])]])
+        s("term_variables", [t, v("Qs")]),
+        s("findall", [s("-", [t, l]), s("$residuals", [vs, v("Qs"), l]), [s("-", [c, gs])]])
       ])
     ]
   end

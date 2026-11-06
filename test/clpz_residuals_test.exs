@@ -15,6 +15,13 @@ defmodule PrologEx.ClpzResidualsTest do
       findall(Vs, (call(C), Vs ins -3..3, label(Vs)), A),
       findall(Ws, (call(Gs), Ws ins -3..3, label(Ws)), B),
       A == B, length(A, N).
+
+  % ... und in den Restzielen keine Hilfsvariablen mehr
+  same_noaux(C, Vs, Gs, N) :-
+      same(C, Vs, Gs, N),
+      copy_term(C-Vs, C1-Vs1), call(C1), copy_term(Vs1, Ws, Gs1),
+      term_variables(Gs1, GVs),
+      \\+ ( member(V, GVs), \\+ ( member(W, Ws), W == V ) ).
   """
 
   setup_all do
@@ -110,6 +117,138 @@ defmodule PrologEx.ClpzResidualsTest do
     end
   end
 
+  test "Hilfsvariablen eingesetzt, Reifikation lesbar", c do
+    for {q, want} <- [
+          {"X #< Y #<==> B", "B in 0..1, X#<Y#<==>B"},
+          {"X #> 3 #<==> B", "B in 0..1, X#>3#<==>B"},
+          {"X in 0..3, B #<==> (0 #>= X)", "B in 0..1, X#=<0#<==>B, X in 0..3"},
+          {"X #> Y + 2 #<==> B", "B in 0..1, X#>Y+2#<==>B"},
+          {"X #\\= 3 #==> X #> Y", "X#\\=3#==>Y#<X"},
+          {"X #= 1 #\\/ Y #= 2", "X#=1#\\/Y#=2"},
+          {"#\\ (X #= 1 #/\\ Y #= 2)", "#\\ (X#=1#/\\Y#=2)"},
+          {"X #< Y #<==> (Z #> 0)", "Z#>0#<==>X#<Y"},
+          {"X #= Y*Z - 1", "X#=Y*Z-1"},
+          {"X #= abs(Y) - 2", "X#>= -2, X#=abs(Y)-2"},
+          {"X #= Y*Z", "Y*Z#=X"},
+          {"X #= Y*Z + 2", "X#=Y*Z+2"},
+          {"X #= abs(Y - Z) + 1", "X#>0, X#=abs(Y-Z)+1"},
+          {"X #= (Y - Z) * W", "X#=(Y-Z)*W"},
+          {"X #= Y mod 3 + 1", "X in 1..3, X#=Y mod 3+1"},
+          {"X #= max(Y, Z) - 1", "Z#=<X+1, Y#=<X+1, X#=max(Y,Z)-1"}
+        ] do
+      assert res(c, q) == want, q
+    end
+  end
+
+  test "Hilfsvariablen: wieder gepostet dieselben Lösungen, keine übrig", c do
+    for q <- [
+          "X #< Y #<==> B",
+          "X #> Y + 2 #<==> B",
+          "X #\\= 1 #==> X #> Y",
+          "X #= 1 #\\/ Y #= 2",
+          "#\\ (X #= 1 #/\\ Y #= 2)",
+          "X #< Y #<==> (Z #> 0)",
+          "X #= Y*Z - 1",
+          "X #= abs(Y) - 2",
+          "X #= Y*Z + 2",
+          "X #= abs(Y - Z) + 1",
+          "X #= max(Y, Z) - 1",
+          "X #= (Y - Z) * W",
+          "X #= Y mod 3 + 1",
+          "X #= Y*Z - W*V",
+          "X #< Y #<==> B, Y #> Z #<==> B"
+        ] do
+      assert {:answers, [ans]} =
+               run(c, "C = (#{q}), term_variables(C, Vs), same_noaux(C, Vs, Gs, N)"),
+             q
+
+      assert ans =~ ~r/N = [1-9]/, q
+    end
+  end
+
+  test "sichtbar bleibt, was in der Anfrage bzw. im kopierten Term steht", c do
+    # copy_term/3: Y und Z nicht im kopierten Term, aber ohne Definition
+    assert res(c, "X #= Y*Z - 1, copy_term(X, X1, Gs)") =~ "Gs = clpz:(X1#=_A*_B-1)"
+    # alle im Term: dieselbe Form wie im Toplevel
+    assert res(c, "X #= Y*Z - 1, copy_term([X,Y,Z], [A,B,C], Gs), Y = Y, Z = Z") =~
+             "Gs = clpz:(A#=B*C-1)"
+
+    # library(iso_ext): Liste
+    assert {:answers, [ans]} =
+             run(c, "use_module(library(iso_ext)), X #< Y #<==> B, copy_term([X,Y,B], V, Gs)")
+
+    assert ans =~ "Gs = [clpz:(_A#<_B#<==>_C),clpz:(_C in 0..1)], V = [_A,_B,_C]", ans
+  end
+
+  test "Nachlauf: Kreise und fremde Vorkommen", c do
+    # A #= B+1 und B #= A*2: nur eine der beiden wird eingesetzt
+    assert res(c, "clpz:'$post_residuals'([], [clpz:(A #= B+1), clpz:(B #= A*2)], Gs)") =~
+             ~r/^Gs = \[clpz:\(\w+#=\(\w+\+1\)\*2\)\]$/
+
+    # A auch in einem Ziel eines anderen Moduls: bleibt
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X], [clpz:(X+1 #= A), clpz:(A #= Y*Z), freeze(A, true)], Gs), " <>
+               "length(Gs, N)"
+           ) =~ "N = 3"
+
+    # nur eine Definition je Ziel (A #= B ist nicht zugleich die von B)
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,Y], [clpz:(A #= B), clpz:(A #> X), clpz:(B #< Y)], Gs)"
+           ) == "Gs = [clpz:(B#>X),clpz:(B#<Y)]"
+
+    # A in der eigenen Definition: bleibt
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,Y], [clpz:(A*X #= A), clpz:(A #\\= Y)], Gs), length(Gs, N)"
+           ) =~
+             "N = 2"
+
+    # mehrere Verwendungen nur für einfache Ausdrücke (V oder V + C)
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,Y,Z,W], [clpz:(Y*Z #= A), clpz:(A #\\= X), clpz:(A #\\= W)], Gs), length(Gs, N)"
+           ) =~ "N = 3"
+
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,Y,W], [clpz:(Y+1 #= A), clpz:(A #\\= X), clpz:(A #\\= W)], Gs)"
+           ) == "Gs = [clpz:(Y+1#\\=X),clpz:(Y+1#\\=W)]"
+
+    # Wahrheitswert: nur als Operand von Verknüpfungen, Domäne genau 0..1
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,Y,Z,C], [clpz:(X #< Y #<==> A), clpz:(A + Z #= 1 #==> C)], Gs), length(Gs, N)"
+           ) =~ "N = 2"
+
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,Y,C], [clpz:(X #< Y #<==> A), clpz:(A in 0..2), clpz:(A #==> C)], Gs), length(Gs, N)"
+           ) =~ "N = 3"
+
+    # Domäne als Vergleich: verschoben (X + 1 #< 3 heißt X #=< 1)
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,Y], [clpz:(X+1 #= A), clpz:(A #< 3), clpz:(A #\\= Y)], Gs)"
+           ) ==
+             "Gs = [clpz:(X#=<1),clpz:(X+1#\\=Y)]"
+
+    # Konstanten auf beiden Seiten zusammengefasst
+    assert res(c, "clpz:'$post_residuals'([X,Y,Z], [clpz:(X+1 #= A), clpz:(Y*Z+3 #= A)], Gs)") ==
+             "Gs = [clpz:(X#=Y*Z+2)]"
+
+    # Duplikate weg, auch mehrfache
+    assert res(c, "clpz:'$post_residuals'([], [x, y, x, x], Gs)") == "Gs = [x,y]"
+
+    # sichtbar: bleibt
+    assert res(
+             c,
+             "clpz:'$post_residuals'([X,A], [clpz:(X+1 #= A), clpz:(A #= Y*Z)], Gs), length(Gs, N)"
+           ) =~
+             "N = 2"
+  end
+
   test "mit clpz:monotonic bleibt in/2 (wie Scryer)", c do
     assert res(c, "assertz(clpz:monotonic), #X #> 1") == "X in 2..sup"
   end
@@ -141,6 +280,8 @@ defmodule PrologEx.ClpzResidualsTest do
     assert res(c, "X #< Y") =~ "X#=<Y+ -1"
     assert res(c, "2*X+3*Y #> 5") == "6#=<2*X+3*Y"
     assert res(c, "X+Y #< Z") == "X+Y+1#=<Z"
+    assert res(c, "X #= Y*Z - 1") =~ "_A"
+    assert res(c, "X #> 3 #<==> B") =~ "X#>=4#<==>B"
   end
 
   test "Flag: Voreinstellung compact, andere Werte abgelehnt", c do

@@ -4117,7 +4117,7 @@ defmodule PrologEx do
         goal =
           mk(",", [
             mk("$res_project", [list(qvars), list(vars)]),
-            mk("$residuals", [list(vars), r])
+            mk("$residuals", [list(vars), list(qvars), r])
           ])
 
         sub = %{st | goals: [{goal, 0, "system"}], cps: [], height: 0, answer: [{"$r", r}]}

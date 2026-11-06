@@ -7880,6 +7880,363 @@ compact_sp_leq(L0 + K, R, G) :- integer(K), !,
         G = (L #< R).
 compact_sp_leq(L, R, L #=< R).
 
+% Nachlauf über alle Restziele ('$post_residuals'/3, vom System mit den
+% sichtbaren Variablen Vis aufgerufen: Anfrage bzw. kopierter Term). Eine
+% Hilfsvariable A (nicht sichtbar) mit einer Definition E #= A (oder
+% A #= E) wird eingesetzt, wenn sie sonst nur in höchstens einem Ziel
+% vorkommt und daneben höchstens in ihrer Domäne: aus X+1 #= _A,
+% Y*Z #= _A wird X #= Y*Z-1. Das ist gleichwertig, denn A ist nur
+% existenziell gebunden (es gibt A mit A = E und ... gdw ... mit E). Danach
+% lesbare Vergleiche in Reifikationen (X #>= 4 #<==> B wird X #> 3 #<==> B,
+% Y #>= X+1 wird X #< Y) und in den eingesetzten Zielen.
+
+'$post_residuals'(Vis, Gs0, Gs) :-
+        (   compact_residuals, \+ monotonic ->
+            eliminate_aux(Gs0, Vis, Gs1),
+            maplist(norm_reif_goal, Gs1, Gs2),
+            uniq_goals(Gs2, Gs)
+        ;   Gs = Gs0
+        ).
+
+% Einmal zählen, in welchen Zielen jede Variable vorkommt (keysort), dann
+% alle Hilfsvariablen auf einmal einsetzen. Eine Definition dient nur einer
+% Hilfsvariablen, und Ketten von Einsetzungen dürfen nicht im Kreis laufen
+% (sonst verschwänden beide Ziele: A in B's Definition, B in A's).
+eliminate_aux(Gs0, Vis, Gs) :-
+        Arr =.. [g|Gs0],
+        functor(Arr, _, N),
+        idx_list(1, N, Is),
+        foldl(goal_occ(Arr), Is, Ps0, []),
+        keysort(Ps0, Ps1),
+        group_vars(Ps1, Occ),
+        sort(Vis, VisS),
+        maplist(key_true, VisS, VisPs),
+        list_to_assoc(VisPs, VisA),
+        foldl(aux_candidate(Arr, VisA), Occ, Cands, []),
+        maplist(cand_key, Cands, CandPs0),
+        sort(CandPs0, CandPs),
+        list_to_assoc(CandPs, CandA),
+        empty_assoc(E0),
+        foldl(accept_aux(CandA), Cands, s(E0,E0,E0,E0), s(DefsA, SigA, DomA, UseA)),
+        (   empty_assoc(SigA) -> Gs = Gs0
+        ;   foldl(transform_goal(Arr, DefsA, SigA, DomA, UseA), Is, Gss, []),
+            append(Gss, Gs)
+        ).
+
+idx_list(I, N, L) :-
+        (   I > N -> L = []
+        ;   L = [I|L1], I1 is I + 1, idx_list(I1, N, L1)
+        ).
+
+goal_occ(Arr, I, Ps0, Ps) :-
+        arg(I, Arr, G),
+        term_variables(G, Vs),
+        foldl(var_idx(I), Vs, Ps0, Ps).
+
+var_idx(I, V, [V-I|Ps], Ps).
+
+group_vars([], []).
+group_vars([V-I|Ps0], [V-[I|Is]|Gs]) :-
+        same_var_idxs(Ps0, V, Is, Ps),
+        group_vars(Ps, Gs).
+
+same_var_idxs([W-I|Ps0], V, [I|Is], Ps) :- W == V, !, same_var_idxs(Ps0, V, Is, Ps).
+same_var_idxs(Ps, _, [], Ps).
+
+key_true(K, K-t).
+
+cand_key(cand(V,_,_,_,_), V-t).
+
+% cand(A, DefI, E, DomI, UseIs): A kommt nur in Zielen aus clpz vor –
+% einer Definition, höchstens einer Domäne und höchstens einer Verwendung;
+% mehreren nur, wenn E einfach ist (V oder V + C: kurz, auch mehrfach)
+aux_candidate(Arr, VisA, A-Is, Cs0, Cs) :-
+        (   \+ get_assoc(A, VisA, _),
+            Is = [_,_|_],
+            maplist(idx_goal(Arr), Is, IGs),
+            maplist(is_clpz_ig, IGs),
+            select_def(IGs, A, DefI, E, Others),
+            partition(is_dom_ig(A), Others, Doms, Uses),
+            opt_idx(Doms, DomI),
+            dom_fits(Doms, E),
+            (   Uses = [_,_|_] -> simple_expr(E) ; true ),
+            pairs_keys(Uses, UseIs) ->
+            Cs0 = [cand(A, DefI, E, DomI, UseIs)|Cs]
+        ;   Cs0 = Cs
+        ).
+
+simple_expr(E) :- linear_split(E, V, _), var(V).
+
+idx_goal(Arr, I, I-G) :- arg(I, Arr, G).
+
+is_clpz_ig(_-(clpz:_)).
+
+is_dom_ig(A, _-G) :- is_dom_goal(A, G).
+
+opt_idx([], 0).
+opt_idx([I-_], I).
+
+accept_aux(CandA, cand(A, DefI, E, DomI, UseIs), s(D0,S0,M0,U0), s(D,S,M,U)) :-
+        (   \+ get_assoc(DefI, D0, _),
+            dom_ok(DomI, E, CandA),
+            no_cycle(UseIs, DefI, D0) ->
+            put_assoc(DefI, D0, UseIs, D),
+            put_assoc(A, S0, E, S),
+            (   DomI =:= 0 -> M = M0 ; put_assoc(DomI, M0, A, M) ),
+            foldl(mark_use, UseIs, U0, U)
+        ;   D = D0, S = S0, M = M0, U = U0
+        ).
+
+mark_use(I, U0, U) :- put_assoc(I, U0, t, U).
+
+% eine Domäne mit in/2 nur für E = W + C (bei E #<==> A ist sie 0..1 und
+% entfällt); als Vergleich für jedes E
+dom_fits([], _).
+dom_fits([_-(clpz:G)], E) :-
+        (   G = (_ in _) -> ( nonvar(E), reif_or_cmp(E) -> true ; simple_expr(E) )
+        ;   true
+        ).
+
+% ... und W ist keine Hilfsvariable, die selbst eingesetzt wird
+dom_ok(0, _, _) :- !.
+dom_ok(_, E, _) :- nonvar(E), reif_or_cmp(E), !.
+dom_ok(_, E, CandA) :-
+        linear_split(E, W, _),
+        (   var(W) -> \+ get_assoc(W, CandA, _)
+        ;   true
+        ).
+
+% keine Verwendung führt (über eingesetzte Definitionen) zur eigenen
+no_cycle(Us, Own, Defs) :- maplist(no_cycle_(Own, Defs), Us).
+
+no_cycle_(Own, Defs, U) :-
+        U =\= Own,
+        (   get_assoc(U, Defs, Us) -> no_cycle(Us, Own, Defs)
+        ;   true
+        ).
+
+% nur Definitionen, Domänen und Verwendungen enthalten Hilfsvariablen;
+% eine Verwendung kann zugleich Definition einer weiteren sein (fällt weg)
+transform_goal(Arr, DefsA, SigA, DomA, UseA, I, [G1|T], T) :-
+        arg(I, Arr, G),
+        (   get_assoc(I, DefsA, _) -> G1 = []
+        ;   get_assoc(I, DomA, A) -> get_assoc(A, SigA, E), dom_goal(G, A, E, SigA, G1)
+        ;   \+ get_assoc(I, UseA, _) -> G1 = [G]
+        ;   subst_aux(SigA, G, G2),
+            (   G2 == G -> G1 = [G]
+            ;   G2 = clpz:U -> norm_subst_goal(U, U1), G1 = [clpz:U1]
+            ;   G1 = [G2]
+            )
+        ).
+
+dom_goal(clpz:(_ in D), _, E, _, G) :- !,
+        (   nonvar(E), reif_or_cmp(E) -> G = []          % D = 0..1
+        ;   linear_split(E, W, C),
+            (   var(W) -> drep_shift(D, C, D1), residual_in(W, D1, G0), G = [clpz:G0]
+            ;   G = [clpz:(E in D)]     % E ganzzahlig: nicht erreichbar
+            )
+        ).
+dom_goal(clpz:G0, _, _, SigA, Gs) :-
+        subst_aux(SigA, G0, G1),
+        norm_cmp(G1, G),
+        (   G = (abs(_) #>= 0) -> Gs = []     % folgt aus abs/1
+        ;   Gs = [clpz:G]
+        ).
+
+subst_aux(SigA, T0, T) :-
+        (   var(T0) -> ( get_assoc(T0, SigA, E) -> subst_aux(SigA, E, T) ; T = T0 )
+        ;   compound(T0) ->
+            T0 =.. [F|As0], maplist(subst_aux(SigA), As0, As), T =.. [F|As]
+        ;   T = T0
+        ).
+
+term_has_var(A, T) :- term_variables(T, Vs), member(V, Vs), V == A, !.
+
+is_clpz_goal(clpz:_).
+
+% die erste Definition E #= A oder A #= E (A nicht in E), oder eine
+% reifizierte Bedingung E #<==> A
+% Zuerst A allein auf einer Seite, sonst A + S #= R (so bleibt etwa
+% X + A #= B die Definition von B, nicht die von A); bei Rücksetzen die
+% nächste mögliche Definition
+select_def(IGs, A, I, E, Rest) :-
+        (   select_def(direct, IGs, A, I, E, Rest)
+        ;   select_def(sum, IGs, A, I, E, Rest)
+        ).
+
+select_def(How, [I-G|IGs], A, I, E, IGs) :-
+        G = clpz:Def,
+        def_expr(How, Def, A, E),
+        (   Def = (_ #<==> _) ->
+            E \= (_ in _), pairs_values(IGs, Gs), reif_def_ok(Def, A, Gs)
+        ;   true
+        ).
+select_def(How, [IG|IGs], A, Def, E, [IG|Rest]) :- select_def(How, IGs, A, Def, E, Rest).
+
+def_expr(direct, Def, A, E) :-
+        (   Def = (L #= R) -> true
+        ;   Def = (L #<==> R)
+        ),
+        (   R == A, \+ term_has_var(A, L) -> E = L
+        ;   L == A, \+ term_has_var(A, R) -> E = R
+        ).
+def_expr(sum, L #= R, A, E) :-
+        (   sum_with(L, A, S), \+ term_has_var(A, R) -> E = R - S
+        ;   sum_with(R, A, S), \+ term_has_var(A, L) -> E = L - S
+        ).
+
+% T = A + S oder S + A (A nicht in S): A + S #= R heißt A #= R - S
+sum_with(T, A, S) :-
+        nonvar(T), T = X + Y,
+        (   X == A, \+ term_has_var(A, Y) -> S = Y
+        ;   Y == A, \+ term_has_var(A, X) -> S = X
+        ).
+
+is_dom_goal(A, clpz:G) :-
+        (   G = (V in _) -> true
+        ;   G =.. [Op, V, K], cmp_op(Op), integer(K)
+        ),
+        V == A.
+
+cmp_op(#>=). cmp_op(#>). cmp_op(#=<). cmp_op(#<).
+
+% eine Bedingung (Vergleich oder Verknüpfung), kein arithmetischer Ausdruck
+reif_or_cmp(E) :-
+        (   reif_conn(E) -> true
+        ;   E =.. [Op, _, _], memberchk(Op, [(#=), (#\=), (#>=), (#>), (#=<), (#<)])
+        ).
+
+% E #<==> A: A ist ein Wahrheitswert; einsetzen nur, wenn A sonst
+% höchstens als 0..1 und als Operand von Verknüpfungen (#==> usw.) vorkommt
+reif_def_ok(_, A, Gs) :- maplist(bool_use(A), Gs).
+
+bool_use(A, clpz:(V in D)) :- V == A, !, D == 0..1.
+bool_use(A, clpz:G) :- reif_conn(G), bool_operand(A, G).
+
+bool_operand(A, T) :-
+        (   var(T) -> true
+        ;   reif_conn(T) -> T =.. [_|As], maplist(bool_operand(A), As)
+        ;   \+ term_has_var(A, T)
+        ).
+
+% Domänen um -C verschieben (V + C in D gdw V in D - C)
+drep_shift(D0, C, D) :-
+        (   integer(D0) -> D is D0 - C
+        ;   D0 == inf -> D = inf
+        ;   D0 == sup -> D = sup
+        ;   D0 = L0..U0 -> drep_shift(L0, C, L), drep_shift(U0, C, U), D = L..U
+        ;   D0 = D1 \/ D2 -> drep_shift(D1, C, E1), drep_shift(D2, C, E2), D = E1 \/ E2
+        ).
+
+% T = V + C mit ganzzahligem C (sonst C = 0)
+linear_split(T, V, C) :-
+        (   nonvar(T), T = V0 + C0, integer(C0) -> V = V0, C = C0
+        ;   nonvar(T), T = V0 - C0, integer(C0) -> V = V0, C is -C0
+        ;   V = T, C = 0
+        ).
+
+norm_subst_goal(G0, G) :-
+        (   G0 = (L #= R) -> norm_eq(L, R, G)
+        ;   norm_reif(G0, G)
+        ).
+
+% V + C #= E + D (V Variable) -> V #= E + (D - C)
+norm_eq(L, R, G) :-
+        (   eq_var_side(L, R, V, O) -> G = (V #= O)
+        ;   eq_var_side(R, L, V, O) -> G = (V #= O)
+        ;   var(R), nonvar(L) -> G = (R #= L)        % die Variable links
+        ;   G = (L #= R)
+        ).
+
+eq_var_side(S, O0, V, O) :-
+        linear_split(S, V, C), var(V), C =\= 0,
+        \+ integer(O0),
+        linear_split(O0, Ov, D),
+        K is D - C,
+        plus_const(Ov, K, O).
+
+norm_reif_goal(clpz:G0, clpz:G) :- !, norm_reif_top(G0, G).
+norm_reif_goal(G, G).
+
+norm_reif_top(G0, G) :-
+        (   reif_conn(G0) ->
+            norm_reif(G0, G1),
+            % C #<==> 1 ist C, C #<==> 0 ist #\ C
+            (   G1 = (C #<==> B), B == 1, nonvar(C) -> G = C
+            ;   G1 = (C #<==> B), B == 0, nonvar(C) -> G = (#\ C)
+            ;   G = G1
+            )
+        ;   G = G0
+        ).
+
+reif_conn(G) :-
+        compound(G),
+        functor(G, F, N),
+        memberchk(F/N, [(#<==>)/2, (#==>)/2, (#<==)/2, (#/\)/2, (#\/)/2,
+                        (#\)/2, (#\)/1]).
+
+norm_reif(G0, G) :-
+        (   var(G0) -> G = G0
+        ;   reif_conn(G0) ->
+            G0 =.. [F|As0], maplist(norm_reif, As0, As), G =.. [F|As]
+        ;   G0 =.. [Op, _, _], cmp_op(Op) -> norm_cmp(G0, G)
+        ;   G = G0
+        ).
+
+% Vergleich lesbar: allein stehende Zahl rechts, sonst die Konstante rechts
+% als #< bzw. #=< (die kleinere Variablen-Seite links), jeweils mit der
+% betragsmäßig kleineren Konstante
+norm_cmp(G0, G) :-
+        G0 =.. [Op, P, Q],
+        (   integer(P), integer(Q) -> G = G0
+        ;   integer(Q) -> linear_split(P, Pv, Pc), K is Q - Pc, cmp_const(Op, Pv, K, G)
+        ;   integer(P) -> linear_split(Q, Qv, Qc), K is P - Qc,
+            mirror(Op, Op1), cmp_const(Op1, Qv, K, G)
+        ;   linear_split(P, Pv, Pc), linear_split(Q, Qv, Qc),
+            (   Pc =:= 0, Qc =:= 0 -> G = G0
+            ;   K is Qc - Pc,
+                (   memberchk(Op, [(#>=), (#>)]) -> mirror(Op, Op1), Lv = Qv, Rv = Pv, K1 is -K
+                ;   Op1 = Op, Lv = Pv, Rv = Qv, K1 = K
+                ),
+                (   Op1 == (#<) -> K2 is K1 - 1 ; K2 = K1 ),
+                K3 is K2 + 1,
+                (   abs(K3) < abs(K2) -> K4 = K3, Op2 = (#<)
+                ;   K4 = K2, Op2 = (#=<)
+                ),
+                % negative Konstante: andersherum (X #> Y+2 statt Y #< X-2)
+                (   K4 < 0 -> mirror(Op2, Op3), K5 is -K4,
+                    plus_const(Lv, K5, L), G =.. [Op3, Rv, L]
+                ;   plus_const(Rv, K4, R), G =.. [Op2, Lv, R]
+                )
+            )
+        ).
+
+mirror(#>=, #=<). mirror(#>, #<). mirror(#=<, #>=). mirror(#<, #>).
+
+% V Op K als halboffene Domäne, wie residual_in/3
+cmp_const(#>=, V, K, G) :- compact_in(K..sup, V, G).
+cmp_const(#>, V, K, G)  :- L is K + 1, compact_in(L..sup, V, G).
+cmp_const(#=<, V, K, G) :- compact_in(inf..K, V, G).
+cmp_const(#<, V, K, G)  :- U is K - 1, compact_in(inf..U, V, G).
+
+% Duplikate (==) weg, die erste Stelle bleibt
+uniq_goals(Gs0, Gs) :-
+        length(Gs0, N), idx_list(1, N, Is),
+        pairs_keys_values(Ps0, Gs0, Is),
+        keysort(Ps0, Ps1),
+        first_of_runs(Ps1, Ps2),
+        transpose_pairs(Ps2, Ps3),
+        keysort(Ps3, Ps4),
+        pairs_values(Ps4, Gs).
+
+first_of_runs([], []).
+first_of_runs([G-I|Ps0], [G-I|Ps]) :-
+        drop_same(Ps0, G, Ps1),
+        first_of_runs(Ps1, Ps).
+
+drop_same([H-_|Ps0], G, Ps) :- H == G, !, drop_same(Ps0, G, Ps).
+drop_same(Ps, _, Ps).
+
 unwrap_with(_, V, V)           :- var(V), !.
 unwrap_with(Goal, #V0, V)    :- !, call(Goal, V0, V).
 unwrap_with(Goal, Term0, Term) :-

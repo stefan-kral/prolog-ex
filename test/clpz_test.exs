@@ -119,6 +119,10 @@ defmodule PrologEx.ClpzTest do
   end
 
   test "reifiziertes #>=: Grenzfälle der Schranken wie in Scryer", c do
+    # Restziele in Scryers Form (Flag-Werte gelten je Prozess)
+    PrologEx.Flags.set("clpz_residuals", PrologEx.a("scryer"))
+    on_exit(fn -> PrologEx.Flags.reset() end)
+
     for {q, expect} <- [
           {"X in 0..3, B #<==> (3 #>= X)", "B = 1, X in 0..3"},
           {"X in 0..3, B #<==> (0 #>= X)", "B in 0..1, 0#>=X#<==>B, X in 0..3"},

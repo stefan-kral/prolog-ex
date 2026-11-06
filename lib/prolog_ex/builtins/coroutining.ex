@@ -145,6 +145,19 @@ defmodule PrologEx.Builtins.Coroutining do
     end
   end
 
+  # Attributmodule mit '$post_residuals'/3 (PrologEx: Nachlauf über alle
+  # Restziele, etwa library(clpz) für Hilfsvariablen)
+  defbuiltin "$post_modules", [ms] do
+    db = db()
+
+    mods =
+      for m <- Map.get(db, :attr_modules, []),
+          Map.has_key?(db, {m, "$post_residuals", 3}),
+          do: a(m)
+
+    {:unify, [{ms, list(mods)}]}
+  end
+
   # Attributmodule mit project_attributes/2 (Scryer, SWI)
   defbuiltin "$project_modules", [ms] do
     db = db()
@@ -391,6 +404,22 @@ defmodule PrologEx.Builtins.Coroutining do
         s("$attr_goal_modules", [ms]),
         s("$res_vars", [vs, ms, g, []])
       ]),
+      # Restziele mit den sichtbaren Variablen Vis (Anfrage bzw. kopierter
+      # Term): danach M:'$post_residuals'(Vis, G0, G) der Attributmodule,
+      # die es haben (sie dürfen nur nicht sichtbare Variablen herausrechnen)
+      rule(s("$residuals", [vs, q, g]), [
+        s("$residuals", [vs, g0]),
+        s("$post_modules", [ms]),
+        s("$res_post", [ms, q, g0, g])
+      ]),
+      fact(s("$res_post", [[], w, g, g])),
+      rule(s("$res_post", [[m | ms], q, g0, g]), [
+        s(";", [
+          s("->", [s(":", [m, s("$post_residuals", [q, g0, g1])]), a("true")]),
+          s("=", [g1, g0])
+        ]),
+        s("$res_post", [ms, q, g1, g])
+      ]),
       fact(s("$res_vars", [[], w, g, g])),
       rule(s("$res_vars", [[v1 | vs], ms, g0, g]), [
         s("$susp_goals", [v1, l]),
@@ -457,7 +486,8 @@ defmodule PrologEx.Builtins.Coroutining do
       # dabei Attribute ab – das Original bleibt so unberührt (wie Scryer)
       rule(s("copy_term", [t, cp, b]), [
         s("term_attvars", [t, vs]),
-        s("findall", [s("-", [t, l]), s("$residuals", [vs, l]), [s("-", [cp, r])]]),
+        s("term_variables", [t, qs]),
+        s("findall", [s("-", [t, l]), s("$residuals", [vs, qs, l]), [s("-", [cp, r])]]),
         s("$list_conj", [r, b])
       ])
     ]

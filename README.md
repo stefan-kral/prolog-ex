@@ -1233,6 +1233,34 @@ X+Y#<Z, 2*X+3*Y#>5.              % Scryer: X+Y+1#=<Z, 6#=<2*X+3*Y
 
 `#=` und `#\=` über Summen bleiben wie bei Scryer.
 
+Dazu rechnet PrologEx Hilfsvariablen heraus, die clpz für Teilausdrücke
+und verschachtelte Reifikation anlegt, und schreibt Vergleiche in
+Reifikationen ebenso lesbar:
+
+```prolog
+?- X #= Y*Z - 1.
+X#=Y*Z-1.                        % Scryer: X+1#=_A, Y*Z#=_A
+?- X #< Y #<==> B.
+B in 0..1, X#<Y#<==>B.           % Scryer: B in 0..1, Y#>=_A#<==>B, X+1#=_A
+?- X #\= 3 #==> X #> Y.
+X#\=3#==>Y#<X.                   % Scryer: drei Hilfsvariablen, sechs Ziele
+?- X #= abs(Y - Z) + 1.
+X#>0, X#=abs(Y-Z)+1.
+```
+
+Eingesetzt wird eine Hilfsvariable A nur, wenn sie weder in der Anfrage
+noch im kopierten Term (`copy_term/3`) steht, eine Definition hat
+(`E #= A`, `A + S #= R` oder `E #<==> A`) und sonst nur in Zielen von
+clpz vorkommt: höchstens in einer Domäne (die auf E umgerechnet wird) und
+in einem weiteren Ziel, in mehreren nur bei einfachem E (`V`, `V + C`).
+Ein Wahrheitswert wird nur als Operand von `#==>` usw. ersetzt. Das ist
+gleichwertig, denn A ist nur existenziell gebunden;
+`test/clpz_residuals_test.exs` postet die Restziele wieder und vergleicht
+alle Lösungen. Was nicht passt (etwa `max/2`-Hilfsziele mit mehreren
+Verwendungen eines zusammengesetzten Ausdrucks), bleibt mit `_A` stehen.
+Der Nachlauf zählt die Vorkommen einmal sortiert und setzt alles in
+einem Durchgang ein (4000 Restziele: gut eine Sekunde).
+
 Andere Domänen (`X in 1..3`, `X in 1..3\/7..sup`) und alles mit
 `clpz:monotonic` bleiben wie bei Scryer; `set_prolog_flag(clpz_residuals,
 scryer)` stellt die Form Scryers ganz her (damit vergleicht
@@ -2041,7 +2069,10 @@ Wie Scryer und SWI gibt es auch die Hooks `attribute_goals//1` (Restziele
 als DCG; Ziele ohne Modul bekommen `M:` davor) und
 `project_attributes(QueryVars, AttrVars)`, den der Toplevel vor den
 Restzielen aufruft (etwa damit `library(clpb)` Hilfsvariablen
-herausrechnet). `copy_term/3` sammelt die Restziele in `findall/3`: Hooks,
+herausrechnet). Danach ruft PrologEx `M:'$post_residuals'(Vis, Gs0, Gs)`
+der Attributmodule, die es haben, mit allen Restzielen und den sichtbaren
+Variablen (Anfrage bzw. kopierter Term) – `library(clpz)` rechnet dort
+Hilfsvariablen heraus. `copy_term/3` sammelt die Restziele in `findall/3`: Hooks,
 die dabei Attribute abbauen (wie bei clpb), lassen das Original unberührt.
 
 ## Module
