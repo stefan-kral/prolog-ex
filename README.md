@@ -1339,6 +1339,19 @@ unverändert. holes(30)/holes(40): Reduktionen −49 %/−55 %, Laufzeit
 holes(50) 1,16–1,33 → 0,84–0,87 s, holes(60) 2,5–2,7 → 1,85–1,88 s;
 die übrigen Beispiele unberührt.
 
+**Attribute schreiben ohne Aus- und Einpacken.** clpz schreibt seine
+Attribute über `Atts.put_one/4` (das Elixir-Gegenstück zu
+`put_atts(V, +A)`; die Prolog-Builtins `get_atts/2`, `put_atts/2` liegen
+nur noch auf kalten Pfaden). Ein vorhandenes Attribut wird jetzt direkt in
+der gespeicherten Liste ersetzt (Schlüsselvergleich ohne Tupel je
+Element, der Rest hinter der Stelle bleibt, wie er ist); die Deklaration
+wird nur noch gelesen, wenn ein neues Attribut einsortiert wird, und die
+Variable nur einmal dereferenziert. Nebenbei: `update_attr/4` wertete die
+Änderungsfunktion für schon attributierte Variablen zweimal aus (der
+Default `%{module => fun.(nil)}` wurde vorab berechnet) – jetzt einmal.
+Reduktionen pyth −5,9 %, magic_hexagon −3,2 %, n_queens(30) −2,9 %,
+zebra −1,6 %; Laufzeit im Median pyth −7,5 %, magic_hexagon −4,5 %.
+
 Bisher in Elixir:
 
   * die Domänen (`domain_remove/3`, Schnitt, Vereinigung, Differenz,

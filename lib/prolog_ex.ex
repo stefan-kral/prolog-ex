@@ -198,9 +198,10 @@ defmodule PrologEx do
   def update_attr(subst, var, module, fun) do
     case Store.walk(var, subst) do
       {:var, {:attv, id}} ->
-        Store.update_attrs(subst, id, %{module => fun.(nil)}, fn attrs ->
-          Map.put(attrs, module, fun.(Map.get(attrs, module)))
-        end)
+        # fun genau einmal (ein Default %{module => fun.(nil)} würde vorab
+        # ausgewertet, auch wenn es schon Attribute gibt)
+        attrs = Store.attrs(subst, id)
+        Store.put_attrs(subst, id, Map.put(attrs, module, fun.(Map.get(attrs, module))))
 
       {:var, _} = v ->
         Store.attach(subst, v, attv_id(), %{module => fun.(nil)})

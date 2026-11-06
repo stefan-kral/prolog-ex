@@ -63,6 +63,50 @@ defmodule PrologEx.AttsTest do
     end
   end
 
+  describe "Atts.put_one/4 (Elixir-Seite, für clpz/clpb)" do
+    # ersetzt ein vorhandenes Attribut an seiner Stelle, sortiert ein neues
+    # nach der Deklaration ein, unterscheidet gleiche Namen verschiedener
+    # Stelligkeit
+    test "ersetzen, einsortieren, Stelligkeit", c do
+      text =
+        ":- module(arity, []).\n:- use_module(library(atts)).\n:- attribute a/2, b/1, a/1, c/0.\n"
+
+      {db, _} = Consult.load(PrologEx.current_db(), Reader.read_terms(c.reader, text))
+      PrologEx.put_db(db)
+
+      import PrologEx, only: [mk: 2, a: 1]
+      v = {:var, -424_242}
+
+      # (Vergleich ohne Ground-Markierung oben; die Argumente sind atomar)
+      norm = fn l -> Enum.map(l, &PrologEx.unmark_top/1) end
+
+      show = fn s ->
+        v |> PrologEx.get_attrs(s) |> Map.get("arity") |> PrologEx.resolve(s) |> norm.()
+      end
+
+      put = fn s, att -> PrologEx.Builtins.Atts.put_one(s, v, "arity", att) end
+
+      s = put.(PrologEx.Store.new(), mk("b", [a("x")]))
+      assert show.(s) == norm.([mk("b", [a("x")])])
+
+      s = put.(s, mk("a", [1]))
+      assert show.(s) == norm.([mk("b", [a("x")]), mk("a", [1])])
+
+      # a/2 steht in der Deklaration vor b/1
+      s = put.(s, mk("a", [a("p"), a("q")]))
+      assert show.(s) == norm.([mk("a", [a("p"), a("q")]), mk("b", [a("x")]), mk("a", [1])])
+
+      # a/1 ersetzen, a/2 bleibt
+      s = put.(s, mk("a", [2]))
+      assert show.(s) == norm.([mk("a", [a("p"), a("q")]), mk("b", [a("x")]), mk("a", [2])])
+
+      s = s |> put.(a("c")) |> put.(a("c"))
+
+      assert show.(s) ==
+               norm.([mk("a", [a("p"), a("q")]), mk("b", [a("x")]), mk("a", [2]), a("c")])
+    end
+  end
+
   describe "verify_attributes/3 (SICStus-Ablauf)" do
     test "alle Hooks sehen alle beteiligten Variablen ungebunden, Goals danach", c do
       assert out(c, "tag(X, x, Y), tag(Y, y, X), f(X, Y) = f(1, 2).") ==

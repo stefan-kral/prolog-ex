@@ -129,38 +129,56 @@ defmodule PrologEx.Builtins.Atts do
   # wie put_atts(V, +Att) im Modul mod; v ist eine (attributierte) Variable
   # Die Liste steht immer in Deklarationsreihenfolge (put_atts/2 und
   # put_one/4 sortieren, Entfernen behält die Reihenfolge): ein vorhandenes
-  # Attribut wird an seiner Stelle ersetzt, nur ein neues einsortiert
+  # Attribut wird an seiner Stelle ersetzt (direkt in der gespeicherten
+  # Liste, ohne sie aus- und wieder einzupacken), nur ein neues einsortiert
+  # – erst dann wird die Deklaration gebraucht. Ein walk, ein
+  # Schreibzugriff (update_attr/4).
   def put_one(s, v, mod, att) do
-    decl = declared!(mod)
-    k = PrologEx.Compiler.key(att)
-    items = v |> PrologEx.get_attrs(s) |> Map.get(mod, []) |> top_items()
+    {f, n} = PrologEx.Compiler.key(att)
 
-    case replace_key(items, k, att) do
-      {:ok, items} ->
-        PrologEx.put_attr(s, v, mod, list(items))
+    PrologEx.update_attr(s, v, mod, fn stored ->
+      stored = stored || []
 
-      :none ->
-        items
-        |> Enum.map(&{PrologEx.Compiler.key(&1), &1})
-        |> List.keystore(k, 0, {k, att})
-        |> Enum.sort_by(fn {k, _} -> Enum.find_index(decl, &(&1 == k)) end)
-        |> Enum.map(&elem(&1, 1))
-        |> then(&PrologEx.put_attr(s, v, mod, list(&1)))
-    end
-  end
-
-  defp replace_key([], _k, _att), do: :none
-
-  defp replace_key([h | t], k, att) do
-    if PrologEx.Compiler.key(h) == k do
-      {:ok, [att | t]}
-    else
-      case replace_key(t, k, att) do
-        {:ok, t} -> {:ok, [h | t]}
-        :none -> :none
+      case replace_key(stored, f, n, att) do
+        {:ok, l} -> l
+        :none -> insert_sorted(top_items(stored), {f, n}, att, declared!(mod))
       end
+    end)
+  end
+
+  defp insert_sorted(items, k, att, decl) do
+    items
+    |> Enum.map(&{PrologEx.Compiler.key(&1), &1})
+    |> List.keystore(k, 0, {k, att})
+    |> Enum.sort_by(fn {k, _} -> Enum.find_index(decl, &(&1 == k)) end)
+    |> Enum.map(&elem(&1, 1))
+    |> list()
+  end
+
+  # Attribut mit Schlüssel f/n in der (Prolog-)Liste l durch att ersetzen;
+  # der Rest hinter der Stelle bleibt, wie er ist
+  defp replace_key(l, f, n, att) do
+    case PrologEx.unmark_top(l) do
+      [h | t] ->
+        if key_is?(h, f, n) do
+          {:ok, PrologEx.cons(att, t)}
+        else
+          case replace_key(t, f, n, att) do
+            {:ok, t} -> {:ok, PrologEx.cons(h, t)}
+            :none -> :none
+          end
+        end
+
+      _ ->
+        :none
     end
   end
+
+  defp key_is?({tag, f, args}, f, n) when tag in [:struct, :gstruct], do: length(args) == n
+  defp key_is?({tag, _, _}, _f, _n) when tag in [:struct, :gstruct], do: false
+  defp key_is?({:atom, f}, f, n), do: n == 0
+  defp key_is?({:atom, _}, _f, _n), do: false
+  defp key_is?(h, f, n), do: PrologEx.Compiler.key(h) == {f, n}
 
   @doc false
   # wie put_atts(V, -name(_)) im Modul mod
