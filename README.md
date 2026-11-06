@@ -37,7 +37,11 @@ Ein Prolog-Kern in Elixir:
   Quelle. Ein DCG-Zahlenparser −10 % Reduktionen, die clpz-Beispiele
   −1 bis −4 %
 - explizite Ziel- und Choice-Point-Stacks mit Last-Call-Optimierung,
-  vorberechneter Index nach dem ersten Argument
+  vorberechneter Index nach dem ersten Argument. Der Zustand der Maschine
+  ist ein Struct mit ~25 Feldern; je Inferenz wird er genau einmal
+  aktualisiert (Choice Point, Variablenzähler, Ziele und Substitution in
+  einem Update statt in dreien, jedes eine Kopie) – nrev, loop, between
+  −3 bis −6 %, facts −10 %
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
 - Geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
   Knoten eines BDDs) bearbeitet jede Operation, die Terme abläuft, nur

@@ -323,7 +323,16 @@ defmodule PrologEx do
   @doc false
   def occurs_key, do: @occurs_key
 
-  def bind_checked(var, t, subst), do: bind_checked(var, t, subst, Process.get(@occurs_key))
+  def bind_checked(var, t, subst), do: bind_checked(var, t, subst, occurs_mode())
+
+  # Wert des Flags occurs_check: nil (false), true oder :error
+  @compile {:inline, occurs_mode: 0}
+  defp occurs_mode do
+    case :erlang.get(@occurs_key) do
+      :undefined -> nil
+      mode -> mode
+    end
+  end
 
   @doc false
   # mode: Wert des Flags occurs_check (nil = false, true, :error)
@@ -433,7 +442,7 @@ defmodule PrologEx do
     end
   end
 
-  def unify(x, y, subst), do: unify(x, y, subst, Process.get(@occurs_key))
+  def unify(x, y, subst), do: unify(x, y, subst, occurs_mode())
 
   @doc false
   # mode: siehe bind_checked/4
@@ -461,7 +470,7 @@ defmodule PrologEx do
 
   @doc "Probe für mehrere Paare (siehe unifiable?/3)"
   def unifiable_all?(pairs, subst) do
-    case unify_pairs(pairs, subst, Process.get(@occurs_key)) do
+    case unify_pairs(pairs, subst, occurs_mode()) do
       {:ok, _} ->
         Store.restore(subst)
         true
@@ -756,7 +765,14 @@ defmodule PrologEx do
   @db_key :prolog_ex_db
 
   @doc "Datenbank der laufenden Sitzung (nach assert/retract)"
-  def current_db, do: Process.get(@db_key, %{})
+  # (:erlang.get/1 direkt: Process.get/2 wäre zwei Aufrufe mehr, und das
+  # hier läuft bei jeder Inferenz)
+  def current_db do
+    case :erlang.get(@db_key) do
+      :undefined -> %{}
+      db -> db
+    end
+  end
 
   @doc false
   def put_db(db), do: Process.put(@db_key, db)
@@ -2554,16 +2570,18 @@ defmodule PrologEx do
   # Suspensionen gleich hier; sonst über das Ziel $wake (Hooks, $attv_redo).
   defp cont(st, s, goals) do
     case Store.take_wake(s) do
-      {ws, s} ->
-        attvs = Enum.reverse(ws)
+      {ws, s} -> woken(ws, s, goals, st)
+      :none -> run(%{st | goals: goals, subst: s})
+    end
+  end
 
-        case verify_modules(current_db()) do
-          [] -> wake_and_run(attvs, s, st, goals)
-          _ -> run(%{st | subst: s, goals: [{{:"$wake", attvs}, 0, "system"} | goals]})
-        end
+  # ws: die gebundenen attributierten Variablen (neueste vorn), s ohne Vermerk
+  defp woken(ws, s, goals, st) do
+    attvs = Enum.reverse(ws)
 
-      :none ->
-        run(%{st | goals: goals, subst: s})
+    case verify_modules(current_db()) do
+      [] -> wake_and_run(attvs, s, st, goals)
+      _ -> run(%{st | subst: s, goals: [{{:"$wake", attvs}, 0, "system"} | goals]})
     end
   end
 
@@ -2765,7 +2783,7 @@ defmodule PrologEx do
 
       # (werfen kann die Unifikation nur mit occurs_check=error)
       {:unify, pairs} ->
-        mode = Process.get(@occurs_key)
+        mode = occurs_mode()
 
         if mode == :error do
           case guarded(fn -> unify_pairs(pairs, st.subst, mode) end) do
@@ -3425,7 +3443,7 @@ defmodule PrologEx do
 
     # werfen kann die Kopfunifikation nur mit occurs_check=error: nur dann
     # der try-Block (samt Closure), sonst direkt
-    mode = Process.get(@occurs_key)
+    mode = occurs_mode()
 
     if mode == :error do
       case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var, mode) end) do
@@ -3447,17 +3465,33 @@ defmodule PrologEx do
         barrier = st.height
 
         # Letzte passende Klausel: kein Choice Point
-        st =
+        {cps, height} =
           if more == [],
-            do: st,
+            do: {st.cps, barrier},
             else:
-              push(
-                st,
-                {:clauses, goal, args, more, rest, mod, Store.snapshot(st.subst), st.answer}
-              )
+              {[
+                 {:clauses, goal, args, more, rest, mod, Store.snapshot(st.subst), st.answer}
+                 | st.cps
+               ], barrier + 1}
 
         goals = inst_goals(body, env, nv, barrier, mod, rest)
-        cont(%{st | next_var: nv + nfresh}, s1, goals)
+
+        # ein einziges Update des Zustands je Inferenz (statt push, next_var
+        # und cont nacheinander: jedes kopiert den ganzen Struct)
+        case Store.take_wake(s1) do
+          :none ->
+            run(%{
+              st
+              | cps: cps,
+                height: height,
+                next_var: nv + nfresh,
+                goals: goals,
+                subst: s1
+            })
+
+          {ws, s1} ->
+            woken(ws, s1, goals, %{st | cps: cps, height: height, next_var: nv + nfresh})
+        end
     end
   end
 
