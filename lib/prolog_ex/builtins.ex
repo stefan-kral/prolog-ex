@@ -110,7 +110,8 @@ defmodule PrologEx.Builtins do
   # der Übergang für das, was (noch) keine inhaltliche Heimat hat.
   @homes (for {lib, keys} <- [
                 {"iso_ext", ~w(forall/2 succ/2 setup_call_cleanup/3 call_nth/2 countall/2
-                    call_with_inference_limit/3 atomic_concat/3 evaluable_property/2)},
+                    call_with_inference_limit/3 atomic_concat/3 evaluable_property/2
+                    cached_is/2)},
                 {"between", ~w(between/3 repeat/1)},
                 {"fastrw", ~w(fast_read/1 fast_read/2 fast_write/1 fast_write/2)},
                 {"swi", ~w(ignore/1 not/1 *->/2 plus/3 atomic_list_concat/2 atomic_list_concat/3

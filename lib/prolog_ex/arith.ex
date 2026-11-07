@@ -158,6 +158,84 @@ defmodule PrologEx.Arith do
     end
   end
 
+  # --- cached_is/2 (library(iso_ext)) ------------------------------------
+  #
+  # Wie eval/2, aber ein geteilter Teilausdruck wird nur einmal ausgewertet:
+  # gemerkt je gebundener Variable und je Struktur (PrologEx.Share, also
+  # physisch gleiche Teilterme). So kostet X+X über 40 Stufen 40 Schritte
+  # statt 2^40. Reihenfolge und Fehler wie bei eval/2 (ein wiederholter
+  # Teilausdruck hätte beim ersten Mal denselben Fehler geworfen). Teilterme
+  # mit unreinen Funktionen (random, random_float, cputime, realtime) werden
+  # nicht gemerkt: sie liefern wie bei is/2 je Vorkommen einen neuen Wert.
+
+  # unrein: der Wert ändert sich von Aufruf zu Aufruf (auch: nicht falten,
+  # siehe unten)
+  @impure ~w(random random_float cputime realtime)
+
+  @doc "Wert von t wie eval/2, geteilte Teilausdrücke nur einmal"
+  def eval_cached(t, s) do
+    {v, _pure, _memo} = evc(t, s, %{})
+    v
+  rescue
+    ArithmeticError -> undefined()
+    SystemLimitError -> Error.resource!("memory")
+  end
+
+  # {Wert, rein?, Gedächtnis}
+  defp evc({:var, _} = x, s, memo) do
+    case memo do
+      %{^x => v} ->
+        {v, true, memo}
+
+      _ ->
+        case walk(x, s) do
+          {:var, _} ->
+            Error.instantiation!()
+
+          t ->
+            {v, pure, memo} = evc(t, s, memo)
+            {v, pure, if(pure, do: Map.put(memo, x, v), else: memo)}
+        end
+    end
+  end
+
+  defp evc(n, _s, memo) when is_number(n), do: {n, true, memo}
+
+  defp evc(t, s, memo) do
+    # Schlüssel fürs Gedächtnis ist t selbst (ein gstruct ist geteilt,
+    # seine entmarkierte Kopie wäre jedes Mal ein neues Tupel)
+    case unmark_top(t) do
+      {:struct, op, args}
+      when (op in @ops2 and length(args) == 2) or (op in @ops1 and length(args) == 1) ->
+        case PrologEx.Share.get(memo, t) do
+          {:ok, v} ->
+            {v, true, memo}
+
+          :error ->
+            {v, pure, memo} =
+              case args do
+                [x, y] ->
+                  {vx, px, memo} = evc(x, s, memo)
+                  {vy, py, memo} = evc(y, s, memo)
+                  {eval2(op, vx, vy), px and py, memo}
+
+                [x] ->
+                  {vx, px, memo} = evc(x, s, memo)
+                  {eval1(op, vx), px and op not in @impure, memo}
+              end
+
+            {v, pure, if(pure, do: PrologEx.Share.put(memo, t, v), else: memo)}
+        end
+
+      {:atom, name} ->
+        {eval0(name), name not in @impure, memo}
+
+      # alles andere (Liste [X], Fehler) wie eval/2
+      other ->
+        {ev(other, s), true, memo}
+    end
+  end
+
   # [X]: X; ist X ein Ein-Zeichen-Atom (z. B. "a" bei double_quotes=chars),
   # sein Zeichencode (wie SWI)
   defp ev_char(x, s) do
@@ -180,8 +258,7 @@ defmodule PrologEx.Arith do
   # Die Reihenfolge der Auswertung (links vor rechts, Tiefe zuerst) und
   # damit die Fehler sind dieselben wie bei eval/2.
 
-  # nicht falten (Wert ändert sich)
-  @impure ~w(random random_float cputime realtime)
+  # @impure (nicht falten, Wert ändert sich): oben bei cached_is/2
 
   @doc false
   def op?(name, 0), do: name in @ops0

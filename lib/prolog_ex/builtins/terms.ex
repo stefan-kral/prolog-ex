@@ -56,6 +56,12 @@ defmodule PrologEx.Builtins.Terms do
     end
   end
 
+  # cached_is(X, E) (library(iso_ext)): wie X is E, geteilte Teilausdrücke
+  # von E nur einmal ausgewertet (PrologEx.Arith.eval_cached/2)
+  defbuiltin "cached_is", [x, e] do
+    {:unify, [{x, PrologEx.Arith.eval_cached(e, subst())}]}
+  end
+
   @doc false
   # plus/3 – auch direkt aus der Maschine (PrologEx: engine_step)
   def plus(x, y, z, s) do
