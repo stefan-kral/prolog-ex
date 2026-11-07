@@ -136,9 +136,86 @@ defmodule PrologEx.Builtins.Expansion do
 
   @doc false
   def hook_modules(db, mod, name, arity) do
-    [mod, "user"]
-    |> Enum.uniq()
+    db
+    |> hook_candidates(mod)
     |> Enum.filter(&Map.has_key?(db, {&1, name, arity}))
+  end
+
+  @doc """
+  Module, deren Hooks gefragt werden, in dieser Reihenfolge: das
+  Quellmodul, `user`, dann die Bibliotheksmodule, die ihre Hooks mit
+  `'$expansion_hooks'/0` angemeldet haben (in der Reihenfolge der
+  Anmeldung). So können mehrere Bibliotheken `term_expansion/2` bzw.
+  `goal_expansion/2` in ihrem eigenen Modul definieren, ohne einander
+  `user:term_expansion/2` wegzunehmen (eine zweite Definition dort ersetzt
+  die erste).
+  """
+  def hook_candidates(db, mod),
+    do: Enum.uniq([mod, "user" | Map.get(db, :expansion_modules, [])])
+
+  # Direktive in einem Bibliotheksmodul: dessen term_expansion/2 und
+  # goal_expansion/2 gelten für alles, was danach geladen wird
+  defbuiltin "$expansion_hooks", [] do
+    m = context_module()
+
+    PrologEx.update_db(fn db ->
+      Map.update(db, :expansion_modules, [m], fn ms ->
+        if m in ms, do: ms, else: ms ++ [m]
+      end)
+    end)
+
+    :ok
+  end
+
+  # --- prolog_load_context/2 ---------------------------------------------------
+
+  @load_ctx :prolog_ex_load_context
+
+  @doc false
+  # Laden: Hooks und Direktiven laufen mit diesem Kontext (für
+  # prolog_load_context/2)
+  def with_load_context(ctx, fun) do
+    prev = Process.get(@load_ctx)
+    Process.put(@load_ctx, ctx)
+
+    try do
+      fun.()
+    after
+      if prev, do: Process.put(@load_ctx, prev), else: Process.delete(@load_ctx)
+    end
+  end
+
+  # wie SWI: module, source (die geladene Datei), file (bei include/1 die
+  # eingebundene), directory, dialect; außerhalb des Ladens scheitert es
+  defbuiltin "prolog_load_context", [key, value], nondet: true do
+    case Process.get(@load_ctx) do
+      nil ->
+        []
+
+      lc ->
+        entries =
+          [{"module", a(lc.module)}, {"dialect", a("prolog_ex")}] ++
+            if lc.source do
+              [
+                {"source", a(lc.source)},
+                {"file", a(lc.file || lc.source)},
+                {"directory", a(Path.dirname(lc.file || lc.source))}
+              ]
+            else
+              []
+            end
+
+        case deref(key) do
+          {:var, _} ->
+            for {k, v} <- entries, do: {:unify, [{key, a(k)}, {value, v}]}
+
+          {:atom, k} ->
+            for {^k, v} <- entries, do: {:unify, [{value, v}]}
+
+          other ->
+            PrologEx.Error.type!("atom", PrologEx.resolve(other, subst()))
+        end
+    end
   end
 
   defp meta_spec(db, mod, name, ar) do

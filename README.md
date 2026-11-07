@@ -2377,6 +2377,16 @@ goal_expansion(setze(X), true) :- X = 42.   % Bindungen gelten in der ganzen Kla
     Direktive, wiederholt bis kein Hook mehr greift (höchstens 50-mal);
     auch in `,` `;` `->` `\+` `M:G` und in Meta-Argumenten (`findall/3`,
     `forall/2`, `bagof/3` mit `^`, eigene `meta_predicate`).
+  * Bibliotheken: Ein Modul, das die Direktive `:- '$expansion_hooks'.`
+    enthält, meldet seine eigenen `term_expansion/2` und `goal_expansion/2`
+    an; sie gelten danach für alles, was geladen wird, nach Quellmodul und
+    `user` (in der Reihenfolge der Anmeldung). So stören sich mehrere
+    Bibliotheken nicht: Definieren zwei Dateien `user:term_expansion/2`,
+    ersetzt die zweite die erste.
+  * `prolog_load_context(?Key, ?Value)` beim Laden (in Hooks und
+    Direktiven): `module`, `dialect` (`prolog_ex`), `source` (die geladene
+    Datei), `file` (bei `include/1` die eingebundene), `directory`;
+    außerhalb des Ladens scheitert es.
   * `expand_term/2`, `expand_goal/2`, `dcg_translate_rule/2`.
   * Fehler in einem Hook werden gemeldet, der Term bleibt dann, wie er ist.
   * Anfragen im Toplevel werden ebenso expandiert (Hook in `user`; wie SWI,

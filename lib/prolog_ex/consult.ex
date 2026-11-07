@@ -66,6 +66,8 @@ defmodule PrologEx.Consult do
       # (include), zuletzt gesehenes Prädikat, alle gesehenen, gemeldete
       line: nil,
       src: nil,
+      # eingebundene Datei, voller Pfad (prolog_load_context(file, F))
+      incl: nil,
       # Prädikate mit Klauseln aus dem aktuellen gelesenen Term (nach
       # term_expansion können es mehrere sein) und aus dem davor
       group: MapSet.new(),
@@ -380,7 +382,8 @@ defmodule PrologEx.Consult do
   # ungeladen in pending, wird vorher geladen (damit er schon für den
   # nächsten Term gilt).
   defp hook?(st, name) do
-    keys = Enum.uniq([{st.module, name, 2}, {"user", name, 2}])
+    keys =
+      for m <- PrologEx.Builtins.Expansion.hook_candidates(st.db, st.module), do: {m, name, 2}
 
     st = if Enum.any?(keys, &MapSet.member?(st.dirty, &1)), do: flush(st), else: st
     {st, Enum.any?(keys, &Map.has_key?(st.db, &1))}
@@ -397,7 +400,9 @@ defmodule PrologEx.Consult do
 
     result =
       try do
-        case Enum.take(PrologEx.query(st.db, mk(helper, args ++ [out]), module: st.module), 1) do
+        case load_ctx(st, fn ->
+               Enum.take(PrologEx.query(st.db, mk(helper, args ++ [out]), module: st.module), 1)
+             end) do
           [ans] -> {:ok, Map.fetch!(ans, "$expansion")}
           [] -> {:ok, nil}
         end
@@ -411,6 +416,12 @@ defmodule PrologEx.Consult do
       {:ok, x} -> {st, x}
       {:error, m} -> {located(st, "Fehler", "in #{what}: #{m}"), nil}
     end
+  end
+
+  # prolog_load_context/2 für Hooks und Direktiven
+  defp load_ctx(st, fun) do
+    ctx = %{module: st.module, source: st.file, file: st.incl}
+    PrologEx.Builtins.Expansion.with_load_context(ctx, fun)
   end
 
   defp plain_item(t, st) do
@@ -604,8 +615,8 @@ defmodule PrologEx.Consult do
         outer = Process.put(:prolog_ex_load_dir, Path.dirname(Path.expand(path)))
 
         try do
-          st = Enum.reduce(items, %{st | src: Path.basename(path)}, &item/2)
-          %{st | src: nil}
+          st = Enum.reduce(items, %{st | src: Path.basename(path), incl: path}, &item/2)
+          %{st | src: nil, incl: nil}
         after
           Process.put(:prolog_ex_load_dir, outer)
         end
@@ -651,7 +662,7 @@ defmodule PrologEx.Consult do
   defp run_directive(g, st, what) do
     # Direktiven sehen und ändern die Datenbank (assert, use_module, ...)
     PrologEx.put_db(st.db)
-    result = Enum.take(PrologEx.query(st.db, g, module: st.module), 1)
+    result = load_ctx(st, fn -> Enum.take(PrologEx.query(st.db, g, module: st.module), 1) end)
     st = %{st | db: PrologEx.current_db()}
 
     case result do
