@@ -40,6 +40,9 @@ defmodule PrologEx.Flags do
     # library(clpz): Restziele lesbar (X #> 1 statt X in 2..sup, X #< Y
     # statt X #=< Y + -1) oder genau wie Scryer
     "clpz_residuals" => {:compact, [:compact, :scryer]},
+    # Speichergrenze je Anfrage (wie SWIs stack_limit, Bytes): wächst der
+    # Heap der Anfrage um mehr, resource_error(memory); unlimited: keine
+    "stack_limit" => {1_073_741_824, [:positive_integer, :unlimited]},
     "version" => {1, :read_only},
     # wie SWI (swi(9, 3, 0, [])): Funktor = Dialekt, dann Major, Minor,
     # Patch, Extra

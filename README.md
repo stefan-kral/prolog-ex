@@ -195,7 +195,7 @@ auch `once/1`, `->`, `\\+` – die offenen Choice Points abschneidet; beim
 Abbruch einer Anfrage im Toplevel nach der ersten Antwort läuft es noch nicht), `exists_file/1`, `exists_directory/1`, `delete_file/1` (wie SWI), `findnsols/4,5`, `countall/2`, `bagof/3`, `setof/3` (ISO;
 `V^G`; Gruppen nach Zeugen sortiert wie SICStus/SWI), `=@=/2`, `\=@=/2`, `arg/3`, `copy_term/2`,
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
-`occurs_check`, `clpz_residuals`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
+`occurs_check`, `clpz_residuals`, `stack_limit`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
 `current_predicate/1`, `assert/1` `asserta/1` `assertz/1` `retract/1`
 `retractall/1` `abolish/1` `dynamic/1`, `number_chars/2`, `number_codes/2` (ISO; Leerraum und Kommentare davor erlaubt, `0x`/`0o`/`0b`/`0'c`, Zifferngruppen),
 `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_chars/2`, `atom_codes/2`,
@@ -1964,16 +1964,48 @@ R = inference_limit_exceeded.
   * Was in einem eingebauten Prädikat (Elixir) geschieht, zählt als eine
     Inferenz und wird nicht unterbrochen.
 
+**Standardgrenze, Flag `stack_limit`** (wie SWI, Bytes, Voreinstellung
+1 GiB, oder `unlimited`): Jede Anfrage darf den Heap ihres Prozesses um
+höchstens so viel wachsen lassen, gemessen ab ihrem Start; die Grenze
+gilt nur, solange die Maschine dieser Anfrage läuft (auch beim
+Backtracking nach weiteren Antworten), und das Flag wirkt ab der nächsten
+Anfrage. So reißt eine endlose Rekursion nicht mehr die ganze VM mit:
+
+```
+?- p(X) :- p(X), p(X).   % (in einer Datei)
+?- p(a).
+Fehler: resource_error(memory)
+% Speichergrenze überschritten: stack_limit = 1.0 GiB (ändern: set_prolog_flag(stack_limit, Bytes) oder unlimited). Offene Ziele: 9704695, Choice Points: 0. Wahrscheinlich endlose Rekursion in p/1.
+```
+
+Der Fehlerterm trägt die Diagnose:
+`error(resource_error(memory), context(Quelle, memory(Bytes, Tiefe,
+ChoicePoints, Rekursion)))` mit Quelle `stack_limit` oder
+`call_with_memory_limit/2`, Tiefe = offene Ziele, Rekursion = `[N/A]`, wenn
+ein Prädikat die offenen Ziele beherrscht (unter den ersten 100 000
+mindestens 1000-mal und zur Hälfte), sonst `[]` – dann wachsen die Daten
+(`p(X) :- p(X+X)`), nicht der Stapel. Bei eingebauten Prädikaten, die
+vorab ablehnen: `memory(Bytes)`. Kosten: gemessen im Rauschen (der
+Inferenzzähler liefert beim Erhöhen gleich seinen Stand, die Prüfung ist
+ein Vergleich je Schritt und alle 1000 Inferenzen ein Blick auf den Heap).
+
+`assertz/1` und `asserta/1` zählen vorab die Baumgröße der Klausel (mit
+Gedächtnis, so teuer wie der geteilte Term; kleine Klauseln ohne): Das
+Übersetzen schreibt geteilte Teilterme als Baum aus (`X+X` über 40 Stufen
+wären 2^40 Knoten). Ab 10 000 Knoten prüfen sie vorab gegen die
+Speichergrenze, ohne Grenze gibt es ab 50 Mio. Knoten
+`resource_error(memory)` statt minutenlang zu rechnen.
+
 `call_with_memory_limit(G, Bytes)` (`library(iso_ext)`): `G` wie
 `once/1`; wächst der Heap des Prozesses, in dem die Anfrage läuft, dabei
 um mehr als `Bytes`, gibt es `error(resource_error(memory),
-call_with_memory_limit/2)` – fangbar, aber wie bei den Zeitgrenzen nicht
+context(call_with_memory_limit/2, memory(...)))` – fangbar, aber wie bei den Zeitgrenzen nicht
 verschluckbar: Fängt `G` die Ausnahme selbst, kommt sie am nächsten
 Prüfpunkt wieder, solange der Speicher über der Grenze bleibt.
 
 ```prolog
 ?- catch(call_with_memory_limit((length(L, 1000000), maplist(=(x), L)), 1000000), E, true).
-E = error(resource_error(memory),call_with_memory_limit/2).
+E = error(resource_error(memory),context(call_with_memory_limit/2,memory(1000000))).
 ```
 
   * Geprüft wird an denselben Prüfpunkten wie die Zeitgrenzen (alle 1000

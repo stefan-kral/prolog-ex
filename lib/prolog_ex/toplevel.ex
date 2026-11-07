@@ -255,7 +255,7 @@ defmodule PrologEx.Toplevel do
     rescue
       e in [RuntimeError, PrologEx.Error] ->
         IO.puts("Fehler: #{Exception.message(e)}")
-        if hint = home_hint(e), do: IO.puts(hint)
+        if hint = home_hint(e) || memory_hint(e), do: IO.puts(hint)
     end
 
     if mode != :goal, do: IO.puts("")
@@ -435,6 +435,57 @@ defmodule PrologEx.Toplevel do
   end
 
   defp home_hint(_), do: nil
+
+  # resource_error(memory) einer Speichergrenze: welche, wie tief, und ob
+  # eine endlose Rekursion wahrscheinlich ist
+  defp memory_hint(%PrologEx.Error{term: t}) do
+    with {_, "error", [{_, "resource_error", [{:atom, "memory"}]}, ctx]} <- PrologEx.unmark(t),
+         {_, "context", [where, {_, "memory", [bytes | rest]}]} <- ctx do
+      limit =
+        case where do
+          {:atom, "stack_limit"} ->
+            "stack_limit = #{bytes_text(bytes)} (ändern: set_prolog_flag(stack_limit, Bytes) oder unlimited)"
+
+          _ ->
+            "call_with_memory_limit/2 mit #{bytes_text(bytes)}"
+        end
+
+      detail =
+        case rest do
+          [depth, cps, rec] ->
+            what =
+              case prolog_list(rec) do
+                [pi] ->
+                  "Wahrscheinlich endlose Rekursion in #{PrologEx.Writer.format(pi, quoted: true)}."
+
+                _ ->
+                  if depth < 1000,
+                    do:
+                      "Der Stapel ist flach: es wachsen die Daten (große Terme, findall/3, assert/1, ...).",
+                    else: ""
+              end
+
+            " Offene Ziele: #{depth}, Choice Points: #{cps}. " <> what
+
+          _ ->
+            " Ein eingebautes Prädikat hätte auf einen Schlag mehr Speicher gebraucht."
+        end
+
+      "% Speichergrenze überschritten: " <> limit <> "." <> String.trim_trailing(detail)
+    else
+      _ -> nil
+    end
+  end
+
+  defp memory_hint(_), do: nil
+
+  defp bytes_text(b) when b >= 1_073_741_824,
+    do: :erlang.float_to_binary(b / 1_073_741_824, decimals: 1) <> " GiB"
+
+  defp bytes_text(b) when b >= 1_048_576,
+    do: :erlang.float_to_binary(b / 1_048_576, decimals: 1) <> " MiB"
+
+  defp bytes_text(b), do: "#{b} Bytes"
 
   defp strip_pi({_, ":", [_, pi]}), do: pi
   defp strip_pi(pi), do: pi

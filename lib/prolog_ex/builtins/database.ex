@@ -187,6 +187,13 @@ defmodule PrologEx.Builtins.Database do
 
     check_modifiable!(key)
 
+    # Übersetzen schreibt geteilte Teilterme als Baum aus (X+X über 40
+    # Stufen: 2^40 Knoten). Erst die Baumgröße zählen (mit Gedächtnis, so
+    # teuer wie der geteilte Term) und vorab gegen eine Speichergrenze
+    # prüfen; ohne Grenze ab 50 Mio. Knoten resource_error(memory) statt
+    # minutenlang zu rechnen
+    check_size!({:struct, ":-", [h, b]}, s)
+
     # Kopie mit frischen, lesbar benannten Variablen
     {_, "$clause", [head, body]} =
       PrologEx.copy_fresh({:struct, "$clause", [h, b]}, s) |> nice_vars()
@@ -214,6 +221,101 @@ defmodule PrologEx.Builtins.Database do
 
     PrologEx.put_db(db)
     :ok
+  end
+
+  @big_clause 10_000
+  @max_clause 50_000_000
+
+  defp check_size!(c, s) do
+    # fast immer klein: ohne Gedächtnis zählen, Abbruch bei @big_clause
+    if quick_size(c, s, @big_clause) < 0, do: check_big!(c, s), else: :ok
+  end
+
+  defp check_big!(c, s) do
+    {n, _} = tsize(c, s, %{})
+
+    if n > @big_clause do
+      # übersetzte Klausel etwa 4 Wörter je Knoten
+      PrologEx.reserve!(4 * n)
+
+      if n > @max_clause and not PrologEx.mem_limited?(),
+        do: PrologEx.Error.resource!("memory")
+    end
+
+    :ok
+  end
+
+  # Restbudget nach dem Zählen der Knoten (als Baum); negativ: zu groß
+  defp quick_size(_t, _s, b) when b < 0, do: b
+
+  defp quick_size({:var, _} = v, s, b) do
+    case PrologEx.Store.walk(v, s) do
+      {:var, _} -> b - 1
+      t -> quick_size(t, s, b)
+    end
+  end
+
+  defp quick_size({tag, _, args}, s, b) when tag in [:struct, :gstruct],
+    do: quick_all(args, s, b - 1)
+
+  defp quick_size([h | t], s, b), do: quick_size(t, s, quick_size(h, s, b - 1))
+  defp quick_size({:glist, items}, s, b), do: quick_all(items, s, b - 1)
+  defp quick_size(_, _s, b), do: b - 1
+
+  defp quick_all(_, _s, b) when b < 0, do: b
+  defp quick_all([], _s, b), do: b
+  defp quick_all([a | as], s, b), do: quick_all(as, s, quick_size(a, s, b))
+
+  # Zahl der Knoten als Baum; geteilte Teilterme (gebundene Variablen,
+  # physisch gleiche Strukturen) zählen nur einmal Arbeit
+  defp tsize({:var, _} = v, s, memo) do
+    case memo do
+      %{^v => n} ->
+        {n, memo}
+
+      _ ->
+        case PrologEx.Store.walk(v, s) do
+          {:var, _} ->
+            {1, memo}
+
+          t ->
+            {n, memo} = tsize(t, s, memo)
+            {n, Map.put(memo, v, n)}
+        end
+    end
+  end
+
+  defp tsize({tag, _, args} = t, s, memo) when tag in [:struct, :gstruct] do
+    case PrologEx.Share.get(memo, t) do
+      {:ok, n} ->
+        {n, memo}
+
+      :error ->
+        {n, memo} = tsize_all(args, s, {1, memo})
+        {n, PrologEx.Share.put(memo, t, n)}
+    end
+  end
+
+  defp tsize([_ | _] = l, s, memo), do: tsize_list(l, s, {0, memo})
+  defp tsize({:glist, items}, s, memo), do: tsize_all(items, s, {length(items), memo})
+  defp tsize(_, _s, memo), do: {1, memo}
+
+  defp tsize_all([], _s, acc), do: acc
+
+  defp tsize_all([a | as], s, {k, memo}) do
+    {n, memo} = tsize(a, s, memo)
+    tsize_all(as, s, {k + n, memo})
+  end
+
+  # Listenrücken ohne Rekursion (lange Listen)
+  defp tsize_list([h | t], s, {k, memo}) do
+    {n, memo} = tsize(h, s, memo)
+    tsize_list(t, s, {k + n + 1, memo})
+  end
+
+  defp tsize_list(t, s, {k, memo}) do
+    {n, memo} = tsize(t, s, memo)
+    {k + n, memo}
   end
 
   # (H :- B) oder H (Rumpf true), jeweils mit Modul: M:(H :- B) gilt ganz

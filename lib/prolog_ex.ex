@@ -1297,6 +1297,7 @@ defmodule PrologEx do
   @tcheck 1000
   @timers_key :prolog_ex_timers
   @time_ball {:atom, "time_limit_exceeded"}
+  @wordsize :erlang.system_info(:wordsize)
 
   # Speichergrenzen (call_with_memory_limit/2): Stapel [{id, Grenze in
   # Wörtern}] unter dem Schlüssel :mem in der Timer-Map des
@@ -1355,10 +1356,13 @@ defmodule PrologEx do
 
       [{goal, cutb, mod} | rest] ->
         goal = unmark_top(Store.walk(goal, st.subst))
-        count_inference(goal, st.icount)
+        n = count_inference(goal, st.icount)
 
-        # ohne aktive Inferenz- oder Zeitgrenze nur dieser eine Vergleich
-        if st.ilimit != nil and :counters.get(st.icount, 1) > st.ilimit,
+        # ohne aktive Grenze nur dieser eine Vergleich; mit Grenze (auch
+        # die Standard-Speichergrenze) einer mehr – den Zählerstand liefert
+        # das Erhöhen gleich mit. Ungezählte Schritte prüfen nicht (der
+        # Zähler steht still)
+        if st.ilimit != nil and n != nil and n > st.ilimit,
           do: limit_hit(goal, cutb, mod, rest, st),
           else: step(goal, cutb, mod, rest, st)
     end
@@ -1367,11 +1371,12 @@ defmodule PrologEx do
   # Inferenz = Aufruf eines Prädikats (wie SWI), auch eingebauter wie =/2
   # und is/2; nicht: Steuerkonstrukte und call/N (das gerufene Ziel zählt
   # selbst), interne Ziele der Maschine
-  defp count_inference({:struct, f, _}, _ref) when f in [",", ";", "->", ":", "call"], do: :ok
-  defp count_inference({:struct, _, _}, ref), do: :counters.add(ref, 1, 1)
-  defp count_inference({:atom, "!"}, _ref), do: :ok
-  defp count_inference({:atom, _}, ref), do: :counters.add(ref, 1, 1)
-  defp count_inference(_, _ref), do: :ok
+  # Ergebnis: der neue Zählerstand, nil für ungezählte Schritte
+  defp count_inference({:struct, f, _}, _ref) when f in [",", ";", "->", ":", "call"], do: nil
+  defp count_inference({:struct, _, _}, ref), do: :atomics.add_get(ref, 1, 1)
+  defp count_inference({:atom, "!"}, _ref), do: nil
+  defp count_inference({:atom, _}, ref), do: :atomics.add_get(ref, 1, 1)
+  defp count_inference(_, _ref), do: nil
 
   @icount_key :prolog_ex_inferences
 
@@ -1379,14 +1384,14 @@ defmodule PrologEx do
   def inferences do
     case Process.get(@icount_key) do
       nil -> 0
-      ref -> :counters.get(ref, 1)
+      ref -> :atomics.get(ref, 1)
     end
   end
 
   defp inference_counter do
     case Process.get(@icount_key) do
       nil ->
-        ref = :counters.new(1, [])
+        ref = :atomics.new(1, signed: true)
         Process.put(@icount_key, ref)
         ref
 
@@ -2034,8 +2039,8 @@ defmodule PrologEx do
   # call_with_memory_limit/2 (library(iso_ext)): Grenze auf den Stapel
   # (setup_call_cleanup sorgt für das Entfernen) und bald prüfen
   defp step({:struct, "$mlimit_add", [id, words]}, _cutb, _mod, rest, st) do
-    limit = heap_words() + Store.walk(words, st.subst)
-    put_mlimits([{Store.walk(id, st.subst), limit} | mlimits()])
+    w = Store.walk(words, st.subst)
+    put_mlimits([{Store.walk(id, st.subst), heap_words() + w, w * @wordsize} | mlimits()])
     run(%{check_soon(rearm(st)) | goals: rest})
   end
 
@@ -2335,7 +2340,7 @@ defmodule PrologEx do
       n when is_integer(n) and n >= 0 ->
         id = make_ref()
         h = st.height
-        st = add_ilimit(st, id, :counters.get(st.icount, 1) + n)
+        st = add_ilimit(st, id, :atomics.get(st.icount, 1) + n)
         st = push(st, {:ilimit, id, r, rest, mod, Store.snapshot(st.subst), st.answer})
         run_body(g, h + 1, mod, [{{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest], st)
 
@@ -3212,14 +3217,14 @@ defmodule PrologEx do
 
   defp rearm(st) do
     timed =
-      if st.tlimits != [] or timer_set?(st) or mlimits() != [],
-        do: :counters.get(st.icount, 1) + @tcheck
+      if st.tlimits != [] or timer_set?(st) or mem_active?(),
+        do: :atomics.get(st.icount, 1) + @tcheck
 
     %{st | ilimit: min_limit(min_ilimit(st.ilimits), timed)}
   end
 
   # beim nächsten gezählten Schritt prüfen
-  defp check_soon(st), do: %{st | ilimit: min_limit(st.ilimit, :counters.get(st.icount, 1))}
+  defp check_soon(st), do: %{st | ilimit: min_limit(st.ilimit, :atomics.get(st.icount, 1))}
 
   defp min_limit(nil, b), do: b
   defp min_limit(a, nil), do: a
@@ -3241,7 +3246,7 @@ defmodule PrologEx do
   # Prüfpunkt erreicht: echte Inferenzgrenze überschritten, abgelaufene
   # Zeitgrenze oder weiter (mit neuem Prüfpunkt)
   defp limit_hit(goal, cutb, mod, rest, st) do
-    n = :counters.get(st.icount, 1)
+    n = :atomics.get(st.icount, 1)
 
     if Enum.any?(st.ilimits, fn {_, l} -> n > l end) do
       throw_ball({:atom, "inference_limit_exceeded"}, st)
@@ -3252,9 +3257,10 @@ defmodule PrologEx do
 
           # Speichergrenze: wie Zeitgrenzen nicht verschluckbar – fängt G
           # die Ausnahme selbst, kommt sie am nächsten Prüfpunkt wieder
-          if mem_exceeded?(0),
-            do: throw_ball(mem_ball(), st),
-            else: step(goal, cutb, mod, rest, st)
+          case mem_check(0) do
+            nil -> step(goal, cutb, mod, rest, st)
+            info -> throw_ball(mem_ball(info, st), st)
+          end
 
         st ->
           throw_ball(@time_ball, st)
@@ -3285,48 +3291,154 @@ defmodule PrologEx do
     end
   end
 
+  # Speichergrenzen in der Timer-Map: :mem – Stapel [{id, Grenze in Wörtern
+  # (absolut), Bytes}] von call_with_memory_limit/2; :qmem – {Grenze, Bytes}
+  # der Standardgrenze (Flag stack_limit) der Anfrage, die gerade läuft
   defp mlimits, do: Map.get(timers(), :mem, [])
 
   defp put_mlimits([]), do: Process.put(@timers_key, Map.delete(timers(), :mem))
   defp put_mlimits(ls), do: Process.put(@timers_key, Map.put(timers(), :mem, ls))
+
+  defp mem_active? do
+    m = timers()
+    Map.has_key?(m, :mem) or Map.has_key?(m, :qmem)
+  end
 
   defp heap_words do
     {:total_heap_size, w} = Process.info(self(), :total_heap_size)
     w
   end
 
-  defp mem_ball,
-    do:
-      mk("error", [
-        mk("resource_error", [{:atom, "memory"}]),
-        mk("/", [{:atom, "call_with_memory_limit"}, 2])
-      ])
+  # nil, oder {Quelle, Bytes} der engsten Grenze, die der Heap mit `extra`
+  # Wörtern mehr reißen würde – erst nach einer Speicherbereinigung, damit
+  # Müll nicht zählt
+  defp mem_check(extra) do
+    m = timers()
 
-  # würde der Heap mit `extra` Wörtern mehr die engste Grenze reißen? Erst
-  # nach einer Speicherbereinigung, damit Müll nicht zählt
-  @doc false
-  def mem_exceeded?(extra) do
-    case mlimits() do
+    limits =
+      for({_, l, b} <- Map.get(m, :mem, []), do: {l, {:call_with_memory_limit, b}}) ++
+        case Map.get(m, :qmem) do
+          nil -> []
+          {l, b} -> [{l, {:stack_limit, b}}]
+        end
+
+    case limits do
       [] ->
-        false
+        nil
 
-      ls ->
-        limit = ls |> Enum.map(&elem(&1, 1)) |> Enum.min()
+      _ ->
+        {lim, info} = Enum.min_by(limits, &elem(&1, 0))
 
-        heap_words() + extra > limit and
-          (:erlang.garbage_collect() and heap_words() + extra > limit)
+        if heap_words() + extra > lim and
+             (:erlang.garbage_collect() and heap_words() + extra > lim),
+           do: info
+    end
+  end
+
+  # error(resource_error(memory), context(Quelle, memory(Bytes, Tiefe,
+  # ChoicePoints, Rekursion))): Quelle call_with_memory_limit/2 oder
+  # stack_limit; Tiefe = offene Ziele, Rekursion = [N/A], wenn ein Prädikat
+  # die offenen Ziele beherrscht (wahrscheinlich endlose Rekursion), sonst
+  # []. Ohne Maschinenzustand (reserve!/1 in Builtins): memory(Bytes).
+  defp mem_ball({src, bytes}, st) do
+    where =
+      case src do
+        :call_with_memory_limit -> mk("/", [{:atom, "call_with_memory_limit"}, 2])
+        :stack_limit -> {:atom, "stack_limit"}
+      end
+
+    details =
+      case st do
+        nil ->
+          mk("memory", [bytes])
+
+        st ->
+          {depth, rec} = goal_profile(st.goals)
+          mk("memory", [bytes, depth, st.height, list(rec)])
+      end
+
+    mk("error", [
+      mk("resource_error", [{:atom, "memory"}]),
+      mk("context", [where, details])
+    ])
+  end
+
+  # Zahl der offenen Ziele und das Prädikat, das sie beherrscht (unter den
+  # ersten 100 000 mindestens 1000-mal und zur Hälfte)
+  defp goal_profile(goals) do
+    {n, counts} =
+      Enum.reduce(goals, {0, %{}}, fn g, {n, c} ->
+        if n < 100_000 do
+          k =
+            case g do
+              {{tag, f, args}, _, _} when tag in [:struct, :gstruct] -> {f, length(args)}
+              {{:atom, f}, _, _} -> {f, 0}
+              _ -> nil
+            end
+
+          {n + 1, if(k, do: Map.update(c, k, 1, &(&1 + 1)), else: c)}
+        else
+          {n + 1, c}
+        end
+      end)
+
+    depth = if n < 100_000, do: n, else: length(goals)
+
+    rec =
+      case Enum.max_by(counts, &elem(&1, 1), fn -> nil end) do
+        {{f, a}, k} when k >= 1000 and 2 * k >= min(n, 100_000) ->
+          [mk("/", [{:atom, f}, a])]
+
+        _ ->
+          []
+      end
+
+    {depth, rec}
+  end
+
+  @doc false
+  # Standardgrenze (Flag stack_limit) für eine Anfrage: {Grenze, Bytes} ab
+  # dem jetzigen Heap, oder nil (unlimited)
+  def query_mem_limit do
+    case PrologEx.Flags.get("stack_limit") do
+      b when is_integer(b) -> {heap_words() + div(b + @wordsize - 1, @wordsize), b}
+      _ -> nil
+    end
+  end
+
+  # f mit der Standardgrenze q der Anfrage ausführen (sie gilt nur, solange
+  # deren Maschine läuft); danach gilt wieder die vorige
+  defp with_query_limit(nil, f), do: f.()
+
+  defp with_query_limit(q, f) do
+    prev = Map.get(timers(), :qmem)
+    Process.put(@timers_key, Map.put(timers(), :qmem, q))
+
+    try do
+      f.()
+    after
+      Process.put(
+        @timers_key,
+        if(prev, do: Map.put(timers(), :qmem, prev), else: Map.delete(timers(), :qmem))
+      )
     end
   end
 
   @doc """
   Für eingebaute Prädikate, die auf einen Schlag viel anlegen (length/2 mit
-  großem N, 2^N, ...): wirft resource_error(memory), wenn `words` weitere
-  Wörter eine Speichergrenze (call_with_memory_limit/2) reißen würden.
-  Ohne Grenze nur ein Blick ins Prozess-Dictionary.
+  großem N, 2^N, assertz/1 mit großem Term, ...): wirft
+  resource_error(memory), wenn `words` weitere Wörter eine Speichergrenze
+  (Flag stack_limit, call_with_memory_limit/2) reißen würden.
   """
   def reserve!(words) do
-    if mem_exceeded?(words), do: PrologEx.Error.throw!(mem_ball()), else: :ok
+    case mem_check(words) do
+      nil -> :ok
+      info -> PrologEx.Error.throw!(mem_ball(info, nil))
+    end
   end
+
+  @doc "Gilt gerade eine Speichergrenze? (für Builtins mit Notbremse)"
+  def mem_limited?, do: mem_active?()
 
   defp drop_timer(qref) do
     case Process.get(@timers_key) do
@@ -3369,7 +3481,7 @@ defmodule PrologEx do
   # ist die Grenze dieses Rahmens aktiv und überschritten?
   defp ilimit_exceeded?(st, id) do
     case List.keyfind(st.ilimits, id, 0) do
-      {_, limit} -> :counters.get(st.icount, 1) > limit
+      {_, limit} -> :atomics.get(st.icount, 1) > limit
       nil -> false
     end
   end
@@ -3672,7 +3784,7 @@ defmodule PrologEx do
 
       # zurück in G: frische Grenze für die nächste Lösung
       {:ilimit_reenter, id, n} ->
-        backtrack(add_ilimit(st, id, :counters.get(st.icount, 1) + n))
+        backtrack(add_ilimit(st, id, :atomics.get(st.icount, 1) + n))
 
       # G von call_with_timeout erschöpft: Zeitgrenze weg
       {:tlimit, id, _on, _rest, _mod, _subst, _answer} ->
@@ -4123,6 +4235,9 @@ defmodule PrologEx do
 
     # set_timer/1: der Timer gilt bis zum Ende der Anfrage
     qref = start.qref
+    # Standardgrenze (Flag stack_limit): ab dem Heap beim Start, gilt nur,
+    # während die Maschine dieser Anfrage läuft
+    q = query_mem_limit()
 
     Stream.unfold({:start, start}, fn
       :halt ->
@@ -4131,10 +4246,14 @@ defmodule PrologEx do
 
       {:start, st} ->
         put_db(st.db)
-        st |> run() |> emit() |> query_done(qref)
+
+        with_query_limit(q, fn ->
+          st = if q, do: rearm(st), else: st
+          st |> run() |> emit() |> query_done(qref)
+        end)
 
       {:retry, st} ->
-        st |> backtrack() |> emit() |> query_done(qref)
+        with_query_limit(q, fn -> st |> backtrack() |> emit() |> query_done(qref) end)
     end)
   end
 

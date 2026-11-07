@@ -25,7 +25,11 @@ defmodule PrologEx.MemoryLimitTest do
 
   # 10 MB
   @lim 10_000_000
-  @mem "E = error(resource_error(memory),call_with_memory_limit/2)"
+  # error(resource_error(memory), context(call_with_memory_limit/2, memory(...)))
+  defp mem!(res, msg \\ "") do
+    assert [a] = res, msg
+    assert a =~ "E = error(resource_error(memory),context(call_with_memory_limit/2,memory(", msg
+  end
 
   defp ask(c, q, src \\ @src) do
     {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
@@ -49,12 +53,10 @@ defmodule PrologEx.MemoryLimitTest do
   end
 
   test "über der Grenze: resource_error(memory)", c do
-    assert catching(c, "call_with_memory_limit((mk(200000, L), length(L, _)), #{@lim})") ==
-             [@mem]
+    assert catching(c, "call_with_memory_limit((mk(200000, L), length(L, _)), #{@lim})") |> mem!()
 
     # findall sammelt in einer Unter-Maschine: auch sie wird geprüft
-    assert catching(c, "call_with_memory_limit(findall(L, mk(200000, L), _), #{@lim})") ==
-             [@mem]
+    assert catching(c, "call_with_memory_limit(findall(L, mk(200000, L), _), #{@lim})") |> mem!()
   end
 
   test "Müll zählt nicht: unerreichbare Daten räumt die Bereinigung weg", c do
@@ -66,7 +68,8 @@ defmodule PrologEx.MemoryLimitTest do
              c,
              "call_with_memory_limit((mk(200000, L), catch(length(L, _), _, true), " <>
                "between(1, 5000, _), fail ; true), #{@lim})"
-           ) == [@mem]
+           )
+           |> mem!()
   end
 
   test "danach ist die Grenze weg (Ausgang, Fehlschlag, Ausnahme)", c do
@@ -88,13 +91,15 @@ defmodule PrologEx.MemoryLimitTest do
              c,
              "call_with_memory_limit(call_with_memory_limit((mk(200000, L), length(L, _)), " <>
                "1000000000), #{@lim})"
-           ) == [@mem]
+           )
+           |> mem!()
 
     assert catching(
              c,
              "call_with_memory_limit(call_with_memory_limit((mk(200000, L), length(L, _)), " <>
                "#{@lim}), 1000000000)"
-           ) == [@mem]
+           )
+           |> mem!()
   end
 
   test "große Einzelanforderungen vorab", c do
@@ -107,7 +112,7 @@ defmodule PrologEx.MemoryLimitTest do
           "_ is 3 ** 100000000",
           "_ is 1 << 1000000000"
         ] do
-      assert catching(c, "call_with_memory_limit(#{g}, #{@lim})") == [@mem], g
+      assert catching(c, "call_with_memory_limit(#{g}, #{@lim})") |> mem!(g)
     end
 
     # klein genug: geht
