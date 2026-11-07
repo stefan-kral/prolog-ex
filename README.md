@@ -1932,7 +1932,7 @@ der Check selbst wurde dabei sogar schneller (eigene Rekursion über die
 Argumente statt `Enum.any?`, rund 10 % bei langen Listen). Ohne
 Occurs-Check kostet das Zählen nichts.
 
-## Ressourcen begrenzen: `call_with_inference_limit/3`, `call_with_depth_limit/3`
+## Ressourcen begrenzen: `call_with_inference_limit/3`, `call_with_depth_limit/3`, `library(rlimit)`
 
 Wie SWI und Scryer (`library(iso_ext)`; `call_with_depth_limit/3`:
 `library(swi)`): `call_with_inference_limit(G, L, R)` ruft `G` mit
@@ -1959,6 +1959,26 @@ R = inference_limit_exceeded.
     messbar; mit aktiver Grenze ebenso.
   * Was in einem eingebauten Prädikat (Elixir) geschieht, zählt als eine
     Inferenz und wird nicht unterbrochen.
+
+`library(rlimit)` wie SWI: `rlimit(+Resource, -Old, +New)` liest und setzt
+die weiche Grenze des Betriebssystems für den ganzen Prozess (`as`,
+`core`, `cpu`, `data`, `fsize`, `locks`, `memlock`, `mqueue`, `nofile`,
+`nproc`, `rss`, `stack`; Bytes bzw. Sekunden oder `unlimited`). Die BEAM
+kennt kein `setrlimit`; PrologEx ruft dafür das Linux-Werkzeug `prlimit`
+(util-linux) für die eigene PID auf – ohne es `existence_error(program,
+prlimit)`. Ungebundenes oder gleiches New liest nur: `rlimit(nofile, L,
+L)`. Über der harten Grenze: `permission_error(modify, rlimit, R)`.
+
+```prolog
+?- use_module(library(rlimit)), rlimit(core, Old, 4096).
+Old = 0.
+```
+
+Die Grenze gilt wie bei SWI für die ganze VM mit allen Anfragen.
+`nofile` und `fsize` zeigen sich als Fehler beim Öffnen bzw. Schreiben;
+reißt `as`, `data` oder `cpu`, beendet das Betriebssystem bzw. die
+Speicherverwaltung die ganze VM, ohne fangbare Ausnahme. Für Grenzen je
+Anfrage: `library(time)` (`call_with_time_limit/2`, siehe dort).
 
 `call_with_depth_limit(G, L, R)` wie SWI: Aufrufe tiefer als `L` Ebenen
 scheitern (für Iterative Deepening, zum Abfangen endloser Rekursion).

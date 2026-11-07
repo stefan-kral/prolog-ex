@@ -49,6 +49,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Atts,
     PrologEx.Builtins.Atoms,
     PrologEx.Builtins.Swi,
+    PrologEx.Builtins.Rlimit,
+    PrologEx.Builtins.Rlimit,
     PrologEx.Builtins.Blackboard,
     PrologEx.Builtins.Gensym,
     PrologEx.Builtins.Mutables,
