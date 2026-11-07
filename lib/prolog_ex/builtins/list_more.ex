@@ -18,13 +18,101 @@ defmodule PrologEx.Builtins.ListMore do
       (Neumerkel; `dif/2` in der Rekursion). In Elixir; dieselben Antworten
       wie die Prolog-Fassung in `library(memberd_pl)`.
 
-  Alle sind in Prolog definiert (Lösungen und ihre Reihenfolge wie bei
+  Dazu, nicht aus SICStus: `list_frequencies/2` und `list_runs/2`
+  (Häufigkeiten bzw. Läufe gleicher Elemente, gleich heißt `==/2`; in
+  Elixir, siehe unten).
+
+  Alle (aus SICStus) sind in Prolog definiert (Lösungen und ihre Reihenfolge wie bei
   SICStus). Schnellwege in Elixir, wenn eine der Listen schon fertig ist:
   one_longer/2, shorter_list/2 (Short fertig), keys_and_values/3 – dann
   deterministisch.
   """
   use PrologEx.Builtin, module: "lists"
   alias PrologEx.Builtins.Lists
+  alias PrologEx.Order
+
+  # ---------------------------------------------------------------------
+  # list_frequencies(+Liste, ?Häufigkeiten), list_runs(+Liste, ?Läufe)
+  # (PrologEx): gleich heißt ==/2.
+  #
+  #   list_frequencies([a,a,b,c,c,b,a,b], [a-3,b-3,c-2])
+  #     je verschiedenem Element E-Anzahl, in der Reihenfolge des ersten
+  #     Vorkommens (E ist dieses erste Vorkommen)
+  #   list_runs([a,a,b,c,c,b,a,b], [2-a,1-b,2-c,1-b,1-a,1-b])
+  #     je Lauf gleicher aufeinanderfolgender Elemente Anzahl-E
+  #
+  # Liste muss eine echte Liste sein (Teilliste: instantiation_error,
+  # sonst type_error(list, L)). Sortiert in O(n log n) über die
+  # Standardordnung (compare/3 gibt = genau bei ==/2).
+
+  defbuiltin "list_frequencies", [l, fs], protected: false do
+    s = subst()
+    items = proper_list!(l, s)
+
+    groups =
+      items
+      |> Enum.with_index()
+      |> Enum.sort(fn {a, i}, {b, j} ->
+        case Order.compare(a, b, s) do
+          :lt -> true
+          :gt -> false
+          :eq -> i <= j
+        end
+      end)
+      |> Enum.chunk_while(
+        nil,
+        fn
+          {x, i}, nil ->
+            {:cont, {x, i, 1}}
+
+          {x, i}, {y, j, n} = acc ->
+            if Order.compare(x, y, s) == :eq,
+              do: {:cont, {y, j, n + 1}},
+              else: {:cont, acc, {x, i, 1}}
+        end,
+        fn
+          nil -> {:cont, nil}
+          acc -> {:cont, acc, nil}
+        end
+      )
+      |> Enum.sort_by(&elem(&1, 1))
+
+    {:unify, [{fs, list(for({x, _, n} <- groups, do: mk("-", [x, n])))}]}
+  end
+
+  defbuiltin "list_runs", [l, rs], protected: false do
+    s = subst()
+    items = proper_list!(l, s)
+
+    runs =
+      Enum.chunk_while(
+        items,
+        nil,
+        fn
+          x, nil ->
+            {:cont, {x, 1}}
+
+          x, {y, n} = acc ->
+            if Order.compare(x, y, s) == :eq,
+              do: {:cont, {y, n + 1}},
+              else: {:cont, acc, {x, 1}}
+        end,
+        fn
+          nil -> {:cont, nil}
+          acc -> {:cont, acc, nil}
+        end
+      )
+
+    {:unify, [{rs, list(for({x, n} <- runs, do: mk("-", [n, x])))}]}
+  end
+
+  defp proper_list!(l, s) do
+    case Lists.skip_list(l, s) do
+      {_, []} -> Lists.items(l, s)
+      {_, {:var, _}} -> PrologEx.Error.instantiation!()
+      _ -> PrologEx.Error.type!("list", PrologEx.resolve(l, s))
+    end
+  end
 
   def meta do
     [

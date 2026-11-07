@@ -175,7 +175,11 @@ gleiche Werte und Fehler), Typprüfungen, `functor/3`, `=../2`, `append/3`, `len
 `same_length/2`, `'$skip_list'(Len, List, Rest)` (wie SWI: überspringt
 Len Zellen; Rest ist `[]`, eine Variable, ein anderer Term oder bei einer
 zyklischen Liste eine Zelle im Zyklus – Brents Zykluserkennung, terminiert
-immer; dieselbe Funktion liegt `length/2` und Co. zugrunde), aus SICStus' `library(lists)`: `same_length/3` (negatives N scheitert), `one_longer/2`,
+immer; dieselbe Funktion liegt `length/2` und Co. zugrunde), eigene:
+`list_frequencies(+L, ?F)` (`list_frequencies([a,a,b,c,c,b,a,b], [a-3,b-3,c-2])`,
+Reihenfolge des ersten Vorkommens) und `list_runs(+L, ?R)`
+(`list_runs([a,a,b,c,c,b,a,b], [2-a,1-b,2-c,1-b,1-a,1-b])`) – gleich heißt
+`==/2`, O(n log n), deterministisch; aus SICStus' `library(lists)`: `same_length/3` (negatives N scheitert), `one_longer/2`,
 `shorter_list/2`, `keys_and_values/3`, `transpose/2` (rechteckig, in beide
 Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
 `partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}),
