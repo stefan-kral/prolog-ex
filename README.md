@@ -2451,8 +2451,9 @@ Werte von `variables/1`, `variable_names/1`, `singletons/1` werden bei
 `read_term/2,3` erst nach dem Lesen unifiziert (Logtalk:
 `domain_error(read_option, O)`, `lgt_read_term_3_32` bis `_37`). Die
 übrigen Fehlschläge betreffen Logtalk-, ECLiPSe- und „commons“-Erweiterungen
-(Klauselreferenzen, die
-logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
+(Klauselreferenzen – `assertz/2`, `clause/3`, `erase/1`, `instance/2` –
+bewusst nicht: sie sind nicht portabel, und eindeutige Schlüsselargumente
+mit `retract/1` leisten dasselbe; die logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
 Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
 Syntaxfehler), `functor/3` mit Stelligkeit 10^45 (`resource_error`),
 `4/2` ist `2`
