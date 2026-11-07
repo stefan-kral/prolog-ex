@@ -50,7 +50,6 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Atoms,
     PrologEx.Builtins.Swi,
     PrologEx.Builtins.Rlimit,
-    PrologEx.Builtins.Rlimit,
     PrologEx.Builtins.Blackboard,
     PrologEx.Builtins.Gensym,
     PrologEx.Builtins.Mutables,
@@ -80,6 +79,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.ClpbPrims,
     PrologEx.Builtins.ClpzPrims,
     PrologEx.Builtins.Pcre,
+    PrologEx.Builtins.Memo,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt

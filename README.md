@@ -1848,6 +1848,56 @@ hier unverändert; die 400 Vergleichsanfragen weichen nur noch in 4 Fällen
 von Scryer ab (vorher 7): drei zusammengefasste `freeze`-Ziele und eine
 Reihenfolge in einer Summe.
 
+## Memoisierung: `library(memo)`
+
+Ein memoisiertes Prädikat rechnet jede Variante eines Aufrufs nur einmal
+ganz durch und liefert sie danach aus einer Tabelle. Anders als Tabling
+(`library(tabling)`) bleibt die Bedeutung die des normalen Prolog:
+dieselben Antworten in derselben Reihenfolge, Duplikate bleiben,
+Seiteneffekte laufen beim ersten Rechnen. Das Prädikat muss dafür auch
+ohne Memo terminieren – Memo spart nur Arbeit.
+
+```prolog
+:- use_module(library(memo)).
+:- memo fib/2.
+fib(0, 0).
+fib(1, 1).
+fib(N, F) :- N > 1, N1 is N-1, N2 is N-2, fib(N1, F1), fib(N2, F2), F is F1+F2.
+
+:- memo edit/3 as lru(10000).
+:- memo number//1 as [first, fifo(500)].
+```
+
+  * Optionen nach `as` (einzeln oder als Liste): `lru(N)` (höchstens N
+    Einträge, der am längsten nicht benutzte fällt), `fifo(N)` (der älteste
+    fällt), `first` (nur die erste Lösung rechnen und merken, wie
+    `once/1`), `reentrant` (siehe unten). Verdrängt werden nur fertige
+    Einträge; an der Bedeutung ändert eine Grenze nichts, nur an der
+    Laufzeit (ist sie kleiner als die Arbeitsmenge, wird neu gerechnet).
+  * Schlüssel ist die Variante des Aufrufs: `p(X, a)` und `p(Y, a)` teilen
+    sich einen Eintrag, `p(a, a)` nicht. Attributierte Variablen im Aufruf:
+    `representation_error(memo_attributed_variable)`.
+  * Eifrig: Der erste Aufruf einer Variante sammelt alle Antworten (wie
+    `findall/3`), erst dann wird gemerkt. Eine Ausnahme dabei (auch eine
+    Zeit- oder Speichergrenze) hinterlässt nichts.
+  * Ruft sich eine Variante selbst auf, bevor sie fertig ist (auch über
+    andere Prädikate), wäre das in reinem Code eine Endlosschleife:
+    `permission_error(reenter, memo, N/A)` – hier ist eher `table/1`
+    gemeint. Mit `reentrant` rechnet der innere Aufruf wie normales Prolog
+    (für Code, der über globalen Zustand doch terminiert).
+  * Die Direktive steht vor den Klauseln (`Name/N` oder `Name//N`); diese
+    werden zu `'Name memo'/N`, `Name/N` ruft die Tabelle. Neu laden leert
+    die Tabelle. Hängt das Prädikat von dynamischen Prädikaten ab, veraltet
+    sie still, wenn diese sich ändern.
+  * `abolish_memo/0` (alle), `abolish_memo(:PI)`,
+    `memo_statistics(:PI, [entries(E), hits(H), misses(M), evictions(V)])`.
+  * Kosten: Programme ohne `:- memo` zahlen nichts, auch nicht beim Laden
+    – den Expansions-Hook gibt es nur, solange eine Datei mit `memo/1`
+    geladen wird. Ein Aufruf eines memoisierten Prädikats kostet Schlüssel
+    bilden und nachschlagen, linear in der Größe des Aufrufs (Listen als
+    Argument: deren Länge). Die Tabellen liegen im Prozess und überleben
+    die Anfragen der Sitzung.
+
 ## Globale Werte: `library(blackboard)`, `library(mutables)`
 
 Wie SICStus (dort eingebaut, hier nach `use_module`):
