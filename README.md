@@ -1962,8 +1962,9 @@ R = inference_limit_exceeded.
 
 `library(rlimit)` wie SWI: `rlimit(+Resource, -Old, +New)` liest und setzt
 die weiche Grenze des Betriebssystems für den ganzen Prozess (`as`,
-`core`, `cpu`, `data`, `fsize`, `locks`, `memlock`, `mqueue`, `nofile`,
-`nproc`, `rss`, `stack`; Bytes bzw. Sekunden oder `unlimited`). Die BEAM
+`core`, `cpu`, `data`, `fsize`, `locks`, `memlock`, `msgqueue`, `nice`,
+`nofile`, `nproc`, `rss`, `rtprio`, `rttime`, `sigpending`, `stack`; Bytes
+bzw. Sekunden oder `unlimited`). Die BEAM
 kennt kein `setrlimit`; PrologEx ruft dafür das Linux-Werkzeug `prlimit`
 (util-linux) für die eigene PID auf – ohne es `existence_error(program,
 prlimit)`. Ungebundenes oder gleiches New liest nur: `rlimit(nofile, L,
@@ -1975,8 +1976,10 @@ Old = 0.
 ```
 
 Die Grenze gilt wie bei SWI für die ganze VM mit allen Anfragen.
-`nofile` und `fsize` zeigen sich als Fehler beim Öffnen bzw. Schreiben;
-reißt `as`, `data` oder `cpu`, beendet das Betriebssystem bzw. die
+`nofile` zeigt sich als Fehler beim Öffnen (`permission_error`) – aber
+auch beim Laden von Modulen und bei `rlimit/3` selbst
+(`resource_error(file_descriptors)`), also vorher Ströme schließen. Reißt
+`as`, `data`, `cpu` oder `fsize`, beendet das Betriebssystem bzw. die
 Speicherverwaltung die ganze VM, ohne fangbare Ausnahme. Für Grenzen je
 Anfrage: `library(time)` (`call_with_time_limit/2`, siehe dort).
 
