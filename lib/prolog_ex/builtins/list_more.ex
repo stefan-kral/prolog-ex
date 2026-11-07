@@ -42,8 +42,9 @@ defmodule PrologEx.Builtins.ListMore do
   #     je Lauf gleicher aufeinanderfolgender Elemente Anzahl-E
   #
   # Liste muss eine echte Liste sein (Teilliste: instantiation_error,
-  # sonst type_error(list, L)). Sortiert in O(n log n) über die
-  # Standardordnung (compare/3 gibt = genau bei ==/2).
+  # sonst type_error(list, L)). list_runs/2: ein Durchgang, O(n);
+  # list_frequencies/2: stabil sortiert über die Standardordnung (compare/3
+  # gibt = genau bei ==/2), O(n log n).
 
   defbuiltin "list_frequencies", [l, fs], protected: false do
     s = subst()
