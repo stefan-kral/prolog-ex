@@ -548,7 +548,11 @@ ist jeweils am Dateianfang vermerkt.
 * `library(dcgs)` bietet `seq//1`, `seqq//1`, `...//0` und wie Scryer
   `phrase//2,3` (`phrase/4,5`: `phrase(G, A)` als Nichtterminal ist G mit
   dem zusätzlichen Argument A, etwa `phrase(seq, Xs)`). `phrase/2,3` und
-  die DCG-Übersetzung bleiben die eingebauten.
+  die DCG-Übersetzung bleiben die eingebauten. Dazu `call_dcg/3` wie SWI
+  (hier dasselbe wie `phrase/3`, das `S0` und `S` auch nicht als Listen
+  prüft).
+* `library(dcg/pcre)`: reguläre Ausdrücke als Nichtterminale, `re//1,2,3`
+  (siehe Reguläre Ausdrücke).
 * `library(dcg/high_order)` wie SWI: `sequence//2,3,5`, `optional//2`,
   `foreach//2,3` – sie geben die Elemente nur weiter, Zeichen oder Codes
   ist ihnen gleich. Wie SWI liest `sequence//3` einen Trenner am Ende mit
@@ -1146,6 +1150,53 @@ nichts in der Maschine; die Prädikate kommen erst mit `use_module`.
 `re:run` läuft wie ein langes eingebautes Ziel – Zeitgrenzen
 (`call_with_timeout`) greifen erst danach, `resource_error(match_limit)`
 schützt vor exponentiellem Backtracking.
+
+### In Grammatiken: `library(dcg/pcre)`
+
+`re(Regex)//`, `re(Regex, Sub)//` und `re(Regex, Sub, Optionen)//` suchen
+das Muster **verankert an der aktuellen Stelle** einer Zeichen- oder
+Codeliste und verbrauchen den Treffer. `Sub` und die Optionen sind die von
+`re_matchsub/4`; die Texte haben die Art der Liste.
+
+```
+:- use_module(library(dcg/pcre)).
+toks([T|Ts]) --> ws, tok(T), !, toks(Ts).
+toks([]) --> ws.
+ws --> re("\\s*").
+tok(num(N)) --> re("[0-9]+(\\.[0-9]+)?", [0-Cs|_]), { number_chars(N, Cs) }.
+tok(id(A))  --> re("[a-z_]\\w*", [0-A], [capture_type(atom)]).
+tok(op(A))  --> re("[-+*/=()]", [0-A], [capture_type(atom)]).
+
+?- phrase(toks(Ts), "x1 = 3.14 * (foo + 42)").
+Ts = [id(x1),op(=),num(3.14),op(*),op('('),id(foo),op(+),num(42),op(')')].
+```
+
+  * Deterministisch wie PCRE: genau der eine Treffer, den PCRE hier findet
+    (gierig, erste passende Alternative), kein Zurücksetzen auf kürzere.
+    Ein leerer Treffer verbraucht nichts.
+  * Subjekt ist der ganze Rest der Liste: `^` und `\A` passen an der
+    aktuellen Stelle, `$` und `\z` am Ende der Eingabe, ein Lookbehind
+    sieht nichts davor, `capture_type(range)` zählt ab hier.
+  * Der Rest muss deshalb bekannt sein. Eine faule Liste
+    (`phrase_from_file/2`, allgemein ein Ende, das mit `freeze/2` wartet)
+    liest der erste Aufruf zu Ende; ein offenes Ende ohne `freeze` ist
+    `instantiation_error`, ein anderes Ende oder eine zyklische Liste
+    `type_error(list, …)`.
+  * Kosten: Der Rest wird einmal in Text umgewandelt und mit seiner Liste
+    gemerkt; ein späterer Aufruf findet seine Stelle über die physische
+    Identität der Listenzelle, von der letzten Stelle aus vorwärts. Ein
+    Tokenizer über einer Liste aus `atom_chars/2`, einem String oder
+    `phrase_from_file/2` bleibt so linear (20 000 Treffer über 200 000
+    Zeichen: etwa 0,4 s). Weil gebundene Variablen der Liste nach dem
+    Zurücksetzen anders gebunden sein können, prüft jeder Aufruf die
+    Variablen im Rest – bei einer Liste, die Zelle für Zelle mit
+    Variablen entstand (etwa in einer `get_char/2`-Schleife), kostet ein
+    Aufruf deshalb O(Rest); `atom_chars/2` einmal darauf macht sie nativ.
+    PCRE prüft im Unicode-Modus bei jedem Lauf den ganzen Rest auf
+    gültiges UTF-8 (Erlangs `:re` kann das nicht abschalten); ist der Rest
+    ab der Stelle reines ASCII und das Muster auch, läuft die Regex ohne
+    Unicode-Modus – gleiches Ergebnis, ohne diese Prüfung. Steht weiter
+    hinten noch Nicht-ASCII, bleibt es bei etwa 0,4 ms je MB Rest.
 
 ## Boolesche Bedingungen: `library(clpb)`
 

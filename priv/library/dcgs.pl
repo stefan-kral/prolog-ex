@@ -25,6 +25,7 @@ to learn more about them.
            phrase/3,
            phrase//2,
            phrase//3,
+           call_dcg/3,
            seq//1,
            seqq//1,
            ... //0
@@ -35,6 +36,13 @@ to learn more about them.
 % G läuft im Modul des Aufrufers (wie Scryer)
 :- meta_predicate(phrase(3, ?, ?, ?)).
 :- meta_predicate(phrase(4, ?, ?, ?, ?)).
+:- meta_predicate(call_dcg(//, ?, ?)).
+
+%% call_dcg(:Body, ?S0, ?S) wie SWI: den DCG-Rumpf Body über S0/S
+%  aufrufen. Bei PrologEx dasselbe wie phrase/3 (das S0 und S ebenfalls
+%  nicht als Listen prüft).
+call_dcg(G, S0, S) :-
+        phrase(G, S0, S).
 
 %% seq(Seq)//
 %

@@ -247,16 +247,17 @@ defmodule PrologEx.Builtins.Pcre do
     end
   end
 
-  defp compile!(pat, copts) do
-    flags =
-      Enum.flat_map(copts, fn
-        {"newline", v} -> [{:newline, String.to_atom(v)}]
-        {"bsr", v} -> [String.to_atom("bsr_" <> v)]
-        {"capture_type", _} -> []
-        {n, _} -> [elem(Map.fetch!(@cbool, n), 1)]
-      end)
+  defp compile_flags(copts) do
+    Enum.flat_map(copts, fn
+      {"newline", v} -> [{:newline, String.to_atom(v)}]
+      {"bsr", v} -> [String.to_atom("bsr_" <> v)]
+      {"capture_type", _} -> []
+      {n, _} -> [elem(Map.fetch!(@cbool, n), 1)]
+    end)
+  end
 
-    case :re.compile(pat, [:unicode | flags]) do
+  defp compile!(pat, copts) do
+    case :re.compile(pat, [:unicode | compile_flags(copts)]) do
       {:ok, mp} ->
         {:namelist, names} = :re.inspect(mp, :namelist)
         auto? = not Enum.member?(copts, {"auto_capture", "false"})
@@ -620,8 +621,263 @@ defmodule PrologEx.Builtins.Pcre do
     {:unify, [{new, out(result, out_kind)}]}
   end
 
+  # --- re//1,2,3 (library(dcg/pcre)) ---------------------------------------------------
+  #
+  # '$re_dcg'(Re, Opts, S0, R): Re verankert am Anfang der Zeichen- oder
+  # Codeliste S0. R = match(Sub, S) mit S dem Rest nach dem Treffer; scheitert
+  # ohne Treffer; R = lazy(T), wenn die Liste in der ungebundenen Variablen T
+  # endet (der Prolog-Teil liest eine faule Liste dann zu Ende und fragt
+  # noch einmal).
+  #
+  # Subjekt ist immer der ganze Rest ab S0 (^ passt hier, ein Lookbehind
+  # sieht nichts davor). Damit ein Parser, der re//N oft über demselben
+  # langen Text aufruft, nicht jedes Mal den Rest umwandelt (quadratisch),
+  # merkt sich der Prozess den zuletzt umgewandelten Text: die Liste ab
+  # ihrem Anfang, den Text als Binary und die zuletzt benutzte Stelle. Eine
+  # Stelle wird an der physischen Identität ihrer Zelle erkannt
+  # (Share.same?/2); gesucht wird ab der letzten Stelle vorwärts, sonst vom
+  # Anfang. Ein Treffer liefert ein Teil-Binary ohne Kopie. Gültig ist der
+  # Text nur, solange jede beim Umwandeln durchlaufene gebundene Variable
+  # (Rest oder Element) noch denselben Wert hat – das wird bei jedem Zugriff
+  # geprüft (bei nativen Listen gibt es keine, bei faulen eine je Block).
+  # Der Cache ändert nie ein Ergebnis, nur die Kosten.
+
+  @dcg_key :prolog_ex_re_dcg
+
+  defbuiltin "$re_dcg", [re, opts, s0, r] do
+    s = subst()
+    {pat, copts, ropts} = regex!(re, opts, @match_flags, s)
+    entry = compiled(pat, copts)
+    start = PrologEx.Store.walk(s0, s)
+
+    case dcg_subject(start, s) do
+      {:lazy, v} ->
+        {:unify, [{r, mk("lazy", [v])}]}
+
+      {subject, kind, byte, ascii?} ->
+        ctype = ctype(ropts, entry)
+        entry = if ascii?, do: ascii_entry(pat, copts, entry), else: entry
+
+        case run!(subject, entry, ropts, [:anchored]) do
+          nil ->
+            :fail
+
+          [{0, len} | _] = idx ->
+            names =
+              if entry.names == [],
+                do: [],
+                else: name_indexes(subject, entry, ropts, [:anchored])
+
+            sub = pairs(subject, kind, idx, names, entry, ctype)
+            rest = dcg_advance(start, len, s)
+            dcg_cursor(rest, byte + len)
+            {:unify, [{r, mk("match", [sub, rest])}]}
+        end
+    end
+  end
+
+  # Im UTF-Modus prüft PCRE bei jedem Lauf das ganze Subjekt auf gültiges
+  # UTF-8 (:re kennt kein NO_UTF_CHECK) – O(Rest) je Aufruf. Ist der Rest
+  # reines ASCII und das Muster auch, läuft dieselbe Regex ohne UTF-Modus:
+  # auf ASCII-Text gleiches Ergebnis (Byte = Zeichen), ohne die Prüfung –
+  # mit Zufallstexten und -mustern gegen den UTF-Modus geprüft. Ein
+  # Nicht-ASCII-Muster bleibt beim UTF-Kompilat: ohne UTF bezöge sich ein
+  # Quantor nur auf das letzte Byte (ä{0}b, é?a verhalten sich anders);
+  # ebenso ein Muster, das ohne UTF nicht zu übersetzen geht.
+  # ascii_from: ab diesem Byte ist der gemerkte Text ASCII.
+  defp ascii_from(_bin, 0), do: 0
+
+  defp ascii_from(bin, i) do
+    if :binary.at(bin, i - 1) < 128, do: ascii_from(bin, i - 1), else: i
+  end
+
+  # das Kompilat ohne UTF-Modus (gemerkt; nur für ein ASCII-Muster, sonst
+  # bleibt es beim UTF-Kompilat)
+  defp ascii_entry(pat, copts, entry) do
+    cache = Process.get(@cache_key, %{})
+    key = {:ascii, pat, copts}
+
+    mp =
+      case Map.fetch(cache, key) do
+        {:ok, mp} ->
+          mp
+
+        :error ->
+          mp = if ascii?(pat), do: compile_ascii(pat, copts), else: nil
+          cache = if map_size(cache) >= @cache_max, do: %{}, else: cache
+          Process.put(@cache_key, Map.put(cache, key, mp))
+          mp
+      end
+
+    if mp, do: %{entry | mp: mp}, else: entry
+  end
+
+  defp ascii?(<<c, r::binary>>) when c < 128, do: ascii?(r)
+  defp ascii?(<<>>), do: true
+  defp ascii?(_), do: false
+
+  defp compile_ascii(pat, copts) do
+    case :re.compile(pat, compile_flags(copts)) do
+      {:ok, mp} -> mp
+      _ -> nil
+    end
+  end
+
+  # {Rest-Binary, Art, Byte-Versatz im gemerkten Text, Rest ASCII?} | {:lazy, Var}
+  defp dcg_subject(start, s) do
+    with %{} = c <- Process.get(@dcg_key),
+         {:ok, byte} <- dcg_find(c, start),
+         true <- dcg_valid?(c.vars, byte, s) do
+      dcg_cursor(start, byte)
+      {binary_part(c.bin, byte, byte_size(c.bin) - byte), c.kind, byte, byte >= c.ascii_from}
+    else
+      _ -> dcg_build(start, s)
+    end
+  end
+
+  # Nur der Text ab der Stelle zählt: geprüft werden die Variablen dahinter
+  # (vars: {Byte, Variable, Wert}, die hinterste zuerst)
+  defp dcg_valid?([{b, raw, val} | more], byte, s) when b >= byte,
+    do: PrologEx.Share.same?(PrologEx.Store.walk(raw, s), val) and dcg_valid?(more, byte, s)
+
+  defp dcg_valid?(_, _byte, _s), do: true
+
+  defp dcg_key({:glist, l}), do: l
+  defp dcg_key(t), do: t
+
+  # Die Stelle in der gemerkten Kette (über die gemerkten Werte, nicht die
+  # aktuellen Bindungen: so ist der Versatz der im gemerkten Text); ab der
+  # letzten Stelle vorwärts, sonst vom Anfang
+  defp dcg_find(c, target) do
+    k = dcg_key(target)
+    {cur, cbyte} = c.cur
+
+    with :error <- dcg_scan(cur, cbyte, k, c.vmap),
+         do: dcg_scan(c.start, 0, k, c.vmap)
+  end
+
+  defp dcg_scan(t, byte, k, vmap) do
+    if PrologEx.Share.same?(dcg_key(t), k) do
+      {:ok, byte}
+    else
+      case dcg_next(t, &dcg_old(&1, vmap)) do
+        {e, nxt} -> dcg_scan(nxt, byte + dcg_width(e), k, vmap)
+        :end -> :error
+      end
+    end
+  end
+
+  # der gemerkte Wert einer Variablen (nur Variablen nachschlagen: ein
+  # Map-Schlüssel wird gehasht, eine lange Liste wäre O(n))
+  defp dcg_old({:var, _} = v, vmap), do: Map.get(vmap, v, v)
+  defp dcg_old(t, _vmap), do: t
+
+  # Zelle -> {Element, nächste Zelle} (beide dereferenziert) | :end
+  defp dcg_next({:glist, [h]}, _deref), do: {h, []}
+  defp dcg_next({:glist, [h | t]}, _deref), do: {h, {:glist, t}}
+  defp dcg_next([h | t], deref), do: {deref.(h), deref.(t)}
+  defp dcg_next(_, _deref), do: :end
+
+  defp dcg_width({:atom, c}), do: byte_size(c)
+  defp dcg_width(c) when is_integer(c), do: byte_size(<<c::utf8>>)
+
+  defp dcg_cursor(t, byte) do
+    case Process.get(@dcg_key) do
+      %{} = c -> Process.put(@dcg_key, %{c | cur: {t, byte}})
+      nil -> :ok
+    end
+  end
+
+  # len Bytes weiter: die Zelle danach (ein gültiger Term: [], eine
+  # Zelle, {:glist, _})
+  defp dcg_advance(t, 0, _s), do: t
+
+  defp dcg_advance(t, len, s) do
+    {e, nxt} = dcg_next(t, &PrologEx.Store.walk(&1, s))
+    dcg_advance(nxt, len - dcg_width(e), s)
+  end
+
+  # neu umwandeln; merkt sich das Ergebnis
+  defp dcg_build(start, s) do
+    case Lists.skip_list(start, s) do
+      {_, {:var, _} = v} ->
+        {:lazy, v}
+
+      {_, []} ->
+        {iodata, vars, kind} = dcg_collect(start, s, [], 0, [], nil)
+        bin = IO.iodata_to_binary(iodata)
+        kind = kind || default_kind()
+        vmap = Map.new(vars, fn {_, raw, val} -> {raw, val} end)
+        ascii_from = ascii_from(bin, byte_size(bin))
+
+        c = %{
+          start: start,
+          bin: bin,
+          kind: kind,
+          vars: vars,
+          vmap: vmap,
+          cur: {start, 0},
+          ascii_from: ascii_from
+        }
+
+        Process.put(@dcg_key, c)
+        {bin, kind, 0, ascii_from == 0}
+
+      # zyklisch: im Fehler nur die erste Zelle mit offenem Rest (der Term
+      # selbst wäre unendlich, auch beim Kopieren des Balls)
+      {_, [_ | _]} ->
+        {h, _} = dcg_next(start, &PrologEx.Store.walk(&1, s))
+        Error.type!("list", [PrologEx.resolve(h, s) | fresh_var()])
+
+      # keine Liste oder Teilliste mit anderem Ende
+      _ ->
+        Error.type!("list", PrologEx.resolve(start, s))
+    end
+  end
+
+  defp dcg_collect([], _s, acc, _byte, vars, kind), do: {Enum.reverse(acc), vars, kind}
+
+  defp dcg_collect({:glist, l}, s, acc, _byte, vars, kind) do
+    kind = Enum.reduce(l, kind, &dcg_kind!(&1, &2, {:glist, l}, s))
+    {Enum.reverse(acc, Enum.map(l, &dcg_text/1)), vars, kind}
+  end
+
+  defp dcg_collect([h | t], s, acc, byte, vars, kind) do
+    {e, vars} = dcg_walk(h, byte, s, vars)
+    if match?({:var, _}, e), do: Error.instantiation!()
+    kind = dcg_kind!(e, kind, [h | t], s)
+    txt = dcg_text(e)
+    byte = byte + byte_size(txt)
+    {nxt, vars} = dcg_walk(t, byte, s, vars)
+    dcg_collect(nxt, s, [txt | acc], byte, vars, kind)
+  end
+
+  # dereferenzieren und gebundene Variablen mit Stelle und Wert merken
+  defp dcg_walk({:var, _} = raw, byte, s, vars) do
+    case PrologEx.Store.walk(raw, s) do
+      {:var, _} = v -> {v, vars}
+      val -> {val, [{byte, raw, val} | vars]}
+    end
+  end
+
+  defp dcg_walk(t, _byte, _s, vars), do: {t, vars}
+
+  defp dcg_kind!({:atom, _} = e, k, l, s) when k in [nil, :chars] do
+    if char?(e), do: :chars, else: Error.type!("text", PrologEx.resolve(l, s))
+  end
+
+  defp dcg_kind!(e, k, l, s) when k in [nil, :codes] do
+    if code?(e), do: :codes, else: Error.type!("text", PrologEx.resolve(l, s))
+  end
+
+  defp dcg_kind!(_e, _k, l, s), do: Error.type!("text", PrologEx.resolve(l, s))
+
+  defp dcg_text({:atom, c}), do: c
+  defp dcg_text(c), do: <<c::utf8>>
+
   defbuiltin "$re_flush", [] do
     Process.delete(@cache_key)
+    Process.delete(@dcg_key)
     :ok
   end
 
