@@ -217,6 +217,8 @@ defmodule PrologEx.Builtins.Terms do
             PrologEx.Error.resource!("memory")
 
           true ->
+            # groß: vorab gegen eine Speichergrenze (Argument + Variable)
+            if ar > 10_000, do: PrologEx.reserve!(5 * ar)
             {:unify, [{t, mk(atom_name(n), Enum.map(1..ar, fn _ -> fresh_var() end))}]}
         end
 

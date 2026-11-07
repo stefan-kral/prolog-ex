@@ -1298,6 +1298,13 @@ defmodule PrologEx do
   @timers_key :prolog_ex_timers
   @time_ball {:atom, "time_limit_exceeded"}
 
+  # Speichergrenzen (call_with_memory_limit/2): Stapel [{id, Grenze in
+  # Wörtern}] unter dem Schlüssel :mem in der Timer-Map des
+  # Prozess-Dictionarys – eine Anfrage je Prozess, auch ihre
+  # Unter-Maschinen und reserve!/1 in eingebauten Prädikaten sehen ihn; und
+  # resync/1 nach Unter-Maschinen braucht keinen zweiten Blick. Geprüft an
+  # denselben Prüfpunkten wie die Zeitgrenzen.
+
   defstruct goals: [],
             subst: Store.new(),
             cps: [],
@@ -2022,6 +2029,19 @@ defmodule PrologEx do
       {_, d} when d <= now -> throw_ball(@time_ball, check_soon(st))
       found -> tlimit_exit(found, now, id, mode, us, h, rest, st)
     end
+  end
+
+  # call_with_memory_limit/2 (library(iso_ext)): Grenze auf den Stapel
+  # (setup_call_cleanup sorgt für das Entfernen) und bald prüfen
+  defp step({:struct, "$mlimit_add", [id, words]}, _cutb, _mod, rest, st) do
+    limit = heap_words() + Store.walk(words, st.subst)
+    put_mlimits([{Store.walk(id, st.subst), limit} | mlimits()])
+    run(%{check_soon(rearm(st)) | goals: rest})
+  end
+
+  defp step({:struct, "$mlimit_remove", [id]}, _cutb, _mod, rest, st) do
+    put_mlimits(List.keydelete(mlimits(), Store.walk(id, st.subst), 0))
+    run(%{rearm(st) | goals: rest})
   end
 
   # set_timer/1: ein Timer je Anfrage (ein neuer ersetzt ihn), bis zum Ende
@@ -3191,7 +3211,9 @@ defmodule PrologEx do
   # früher Prüfpunkt kostet nur einen Blick auf sie.
 
   defp rearm(st) do
-    timed = if st.tlimits != [] or timer_set?(st), do: :counters.get(st.icount, 1) + @tcheck
+    timed =
+      if st.tlimits != [] or timer_set?(st) or mlimits() != [],
+        do: :counters.get(st.icount, 1) + @tcheck
 
     %{st | ilimit: min_limit(min_ilimit(st.ilimits), timed)}
   end
@@ -3225,8 +3247,17 @@ defmodule PrologEx do
       throw_ball({:atom, "inference_limit_exceeded"}, st)
     else
       case timer_expired(st) do
-        nil -> step(goal, cutb, mod, rest, rearm(st))
-        st -> throw_ball(@time_ball, st)
+        nil ->
+          st = rearm(st)
+
+          # Speichergrenze: wie Zeitgrenzen nicht verschluckbar – fängt G
+          # die Ausnahme selbst, kommt sie am nächsten Prüfpunkt wieder
+          if mem_exceeded?(0),
+            do: throw_ball(mem_ball(), st),
+            else: step(goal, cutb, mod, rest, st)
+
+        st ->
+          throw_ball(@time_ball, st)
       end
     end
   end
@@ -3252,6 +3283,49 @@ defmodule PrologEx do
       true ->
         nil
     end
+  end
+
+  defp mlimits, do: Map.get(timers(), :mem, [])
+
+  defp put_mlimits([]), do: Process.put(@timers_key, Map.delete(timers(), :mem))
+  defp put_mlimits(ls), do: Process.put(@timers_key, Map.put(timers(), :mem, ls))
+
+  defp heap_words do
+    {:total_heap_size, w} = Process.info(self(), :total_heap_size)
+    w
+  end
+
+  defp mem_ball,
+    do:
+      mk("error", [
+        mk("resource_error", [{:atom, "memory"}]),
+        mk("/", [{:atom, "call_with_memory_limit"}, 2])
+      ])
+
+  # würde der Heap mit `extra` Wörtern mehr die engste Grenze reißen? Erst
+  # nach einer Speicherbereinigung, damit Müll nicht zählt
+  @doc false
+  def mem_exceeded?(extra) do
+    case mlimits() do
+      [] ->
+        false
+
+      ls ->
+        limit = ls |> Enum.map(&elem(&1, 1)) |> Enum.min()
+
+        heap_words() + extra > limit and
+          (:erlang.garbage_collect() and heap_words() + extra > limit)
+    end
+  end
+
+  @doc """
+  Für eingebaute Prädikate, die auf einen Schlag viel anlegen (length/2 mit
+  großem N, 2^N, ...): wirft resource_error(memory), wenn `words` weitere
+  Wörter eine Speichergrenze (call_with_memory_limit/2) reißen würden.
+  Ohne Grenze nur ein Blick ins Prozess-Dictionary.
+  """
+  def reserve!(words) do
+    if mem_exceeded?(words), do: PrologEx.Error.throw!(mem_ball()), else: :ok
   end
 
   defp drop_timer(qref) do

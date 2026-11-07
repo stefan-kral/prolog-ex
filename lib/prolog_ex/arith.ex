@@ -317,6 +317,19 @@ defmodule PrologEx.Arith do
   # --- zweistellig ----------------------------------------------------------
 
   # Ganzzahlen laufen nicht über: ohne overflow/1 (schneller)
+  # Ganzzahlpotenz; groß (über 2^65536): vorab gegen eine Speichergrenze
+  defp ipow(x, y) do
+    if abs(x) > 1 do
+      b = bits(x) * y
+      if b > 65_536, do: PrologEx.reserve!(div(b, 64) + 2)
+    end
+
+    Integer.pow(x, y)
+  end
+
+  defp bits(0), do: 0
+  defp bits(x), do: x |> abs() |> :binary.encode_unsigned() |> byte_size() |> Kernel.*(8)
+
   defp eval2("+", x, y) when is_integer(x) and is_integer(y), do: x + y
   defp eval2("-", x, y) when is_integer(x) and is_integer(y), do: x - y
   defp eval2("*", x, y) when is_integer(x) and is_integer(y), do: x * y
@@ -341,11 +354,17 @@ defmodule PrologEx.Arith do
   defp eval2("min", x, y), do: if(y < x, do: y, else: x)
   defp eval2("max", x, y), do: if(y > x, do: y, else: x)
 
-  defp eval2("**", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: Integer.pow(x, y)
+  defp eval2("**", x, y) when is_integer(x) and is_integer(y) and y >= 0 and y <= 1024,
+    do: Integer.pow(x, y)
+
+  defp eval2("**", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: ipow(x, y)
   defp eval2("**", x, y) when x == 0 and y < 0, do: zero_divisor()
   defp eval2("**", x, y), do: pow(x, y)
 
-  defp eval2("^", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: Integer.pow(x, y)
+  defp eval2("^", x, y) when is_integer(x) and is_integer(y) and y >= 0 and y <= 1024,
+    do: Integer.pow(x, y)
+
+  defp eval2("^", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: ipow(x, y)
 
   defp eval2("^", x, y) when is_integer(x) and is_integer(y) do
     cond do
@@ -360,7 +379,17 @@ defmodule PrologEx.Arith do
   defp eval2("^", x, y), do: pow(x, y)
 
   defp eval2(">>", x, y), do: Bitwise.bsr(int!(x), int!(y))
-  defp eval2("<<", x, y), do: Bitwise.bsl(int!(x), int!(y))
+
+  defp eval2("<<", x, y) when is_integer(x) and is_integer(y) and y <= 65_536,
+    do: Bitwise.bsl(x, y)
+
+  defp eval2("<<", x, y) do
+    {x, y} = {int!(x), int!(y)}
+    # groß: vorab gegen eine Speichergrenze (Bits / 64 Wörter)
+    if y > 65_536, do: PrologEx.reserve!(div(bits(x) + y, 64) + 2)
+    Bitwise.bsl(x, y)
+  end
+
   defp eval2("/\\", x, y), do: Bitwise.band(int!(x), int!(y))
   defp eval2("\\/", x, y), do: Bitwise.bor(int!(x), int!(y))
   defp eval2("xor", x, y), do: Bitwise.bxor(int!(x), int!(y))

@@ -1960,6 +1960,34 @@ R = inference_limit_exceeded.
   * Was in einem eingebauten Prädikat (Elixir) geschieht, zählt als eine
     Inferenz und wird nicht unterbrochen.
 
+`call_with_memory_limit(G, Bytes)` (`library(iso_ext)`): `G` wie
+`once/1`; wächst der Heap des Prozesses, in dem die Anfrage läuft, dabei
+um mehr als `Bytes`, gibt es `error(resource_error(memory),
+call_with_memory_limit/2)` – fangbar, aber wie bei den Zeitgrenzen nicht
+verschluckbar: Fängt `G` die Ausnahme selbst, kommt sie am nächsten
+Prüfpunkt wieder, solange der Speicher über der Grenze bleibt.
+
+```prolog
+?- catch(call_with_memory_limit((length(L, 1000000), maplist(=(x), L)), 1000000), E, true).
+E = error(resource_error(memory),call_with_memory_limit/2).
+```
+
+  * Geprüft wird an denselben Prüfpunkten wie die Zeitgrenzen (alle 1000
+    Inferenzen, `Process.info(self(), :total_heap_size)`, etwa 1 µs); vor
+    einem Wurf räumt eine Speicherbereinigung Müll weg, damit nur Lebendes
+    zählt. Gezählt wird der Zuwachs gegenüber dem Eintritt. Ohne Grenze
+    kostet das nichts zusätzlich (gemessen: nrev, tak, queens, clpz im
+    Rauschen).
+  * Eingebaute Prädikate, die aus kleiner Eingabe auf einen Schlag viel
+    anlegen, prüfen vorab (`PrologEx.reserve!/1`): `length/2` und
+    `numlist/3,5` ab 10 000 Elementen, `functor/3` ab Stelligkeit 10 000,
+    `^`, `**` und `<<` ab 2^65536. Ohne Grenze ist das ein Vergleich und,
+    bei so großen Werten, ein Blick ins Prozess-Dictionary. Alle anderen
+    legen höchstens ein Vielfaches ihrer Eingabe an; das fängt der nächste
+    Prüfpunkt.
+  * Nicht gezählt: große Binaries außerhalb des Heaps (lange Atomnamen,
+    Stromtexte) und andere Prozesse.
+
 `library(rlimit)` wie SWI: `rlimit(+Resource, -Old, +New)` liest und setzt
 die weiche Grenze des Betriebssystems für den ganzen Prozess (`as`,
 `core`, `cpu`, `data`, `fsize`, `locks`, `memlock`, `msgqueue`, `nice`,
@@ -2178,7 +2206,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
     | Bibliothek | Prädikate |
     |---|---|
-    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); `call_with_memory_limit/2` (siehe Ressourcen begrenzen); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1` – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])` |

@@ -79,10 +79,18 @@ defmodule PrologEx.Builtins.Between do
 
         cond do
           # ein Element ist keine Zahl: die Unifikation scheitert ohnehin
-          :bad in [first, second] -> :fail
-          not is_integer(l) -> Error.instantiation!()
-          n >= 2 and not is_integer(stp) -> Error.instantiation!()
-          true -> unify_all(lower, step, upper, len, list, l, stp, n)
+          :bad in [first, second] ->
+            :fail
+
+          not is_integer(l) ->
+            Error.instantiation!()
+
+          n >= 2 and not is_integer(stp) ->
+            Error.instantiation!()
+
+          true ->
+            if n > 10_000, do: PrologEx.reserve!(5 * n)
+            unify_all(lower, step, upper, len, list, l, stp, n)
         end
     end
   end

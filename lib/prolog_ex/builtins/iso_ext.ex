@@ -11,11 +11,45 @@ defmodule PrologEx.Builtins.IsoExt do
   """
   use PrologEx.Builtin, module: "iso_ext"
 
+  # call_with_memory_limit(G, Bytes): Bytes prüfen, in Wörter umrechnen,
+  # eindeutige Kennung für den Rahmen
+  defbuiltin "$mlimit_words", [bytes, id, words] do
+    case deref(bytes) do
+      {:var, _} ->
+        PrologEx.Error.instantiation!()
+
+      b when is_integer(b) and b > 0 ->
+        w = div(b + :erlang.system_info(:wordsize) - 1, :erlang.system_info(:wordsize))
+        {:unify, [{id, System.unique_integer([:positive])}, {words, w}]}
+
+      b when is_integer(b) ->
+        PrologEx.Error.domain!("positive_integer", b)
+
+      other ->
+        PrologEx.Error.type!("integer", resolve(other))
+    end
+  end
+
+  def meta, do: [{"iso_ext", "call_with_memory_limit", [0, "+"]}]
+
   def library do
     import PrologEx, only: [s: 2, v: 1, a: 1, rule: 2]
     [t, c, gs, vs, l, r] = [v("T"), v("C"), v("Gs"), v("Vs"), v("L"), v("R")]
+    [g, b, id, w] = [v("G"), v("B"), v("Id"), v("W")]
 
     [
+      # call_with_memory_limit(G, Bytes): G wie once/1; wächst der Heap des
+      # Prozesses dabei um mehr als Bytes (nach Speicherbereinigung),
+      # resource_error(memory). Geprüft alle 1000 Inferenzen wie die
+      # Zeitgrenzen; große Einzelanforderungen (length/2, 2^N, ...) vorab.
+      rule(s("call_with_memory_limit", [g, b]), [
+        s("$mlimit_words", [b, id, w]),
+        s("setup_call_cleanup", [
+          s("$mlimit_add", [id, w]),
+          s("once", [g]),
+          s("$mlimit_remove", [id])
+        ])
+      ]),
       # copy_term/2 kopiert Attribute ohnehin nicht mit (wie copy_term_nat)
       rule(s("copy_term_nat", [t, c]), [s("copy_term", [t, c])]),
       # copy_term(T, Copy, Gs) wie Scryer (und SWI): Gs ist eine Liste von

@@ -238,13 +238,28 @@ defmodule PrologEx.Builtins.Lists do
 
   defp reverse_from(t, _a, _b), do: t
 
+  # ab dieser Größe prüfen eingebaute Prädikate vorab gegen eine
+  # Speichergrenze (call_with_memory_limit/2); darunter reicht der nächste
+  # Prüfpunkt der Maschine
+  @big 10_000
+
   defbuiltin "numlist", [lo, hi, l], protected: false do
     case {deref(lo), deref(hi)} do
-      {a, b} when is_integer(a) and is_integer(b) and a > b -> :fail
-      {a, b} when is_integer(a) and is_integer(b) -> {:unify, [{l, {:glist, Enum.to_list(a..b)}}]}
-      {{:var, _}, _} -> PrologEx.Error.instantiation!()
-      {_, {:var, _}} -> PrologEx.Error.instantiation!()
-      {a, b} -> PrologEx.Error.type!("integer", if(is_integer(a), do: b, else: a))
+      {a, b} when is_integer(a) and is_integer(b) and a > b ->
+        :fail
+
+      {a, b} when is_integer(a) and is_integer(b) ->
+        if b - a > @big, do: PrologEx.reserve!(2 * (b - a + 1))
+        {:unify, [{l, {:glist, Enum.to_list(a..b)}}]}
+
+      {{:var, _}, _} ->
+        PrologEx.Error.instantiation!()
+
+      {_, {:var, _}} ->
+        PrologEx.Error.instantiation!()
+
+      {a, b} ->
+        PrologEx.Error.type!("integer", if(is_integer(a), do: b, else: a))
     end
   end
 
@@ -646,5 +661,10 @@ defmodule PrologEx.Builtins.Lists do
   defp int_arg(other), do: PrologEx.Error.type!("integer", other)
 
   defp fresh_list(0), do: []
-  defp fresh_list(k), do: Enum.map(1..k, fn _ -> fresh_var() end)
+
+  defp fresh_list(k) do
+    # groß: vorab gegen eine Speichergrenze (Zelle + Variable ≈ 5 Wörter)
+    if k > @big, do: PrologEx.reserve!(5 * k)
+    Enum.map(1..k, fn _ -> fresh_var() end)
+  end
 end
