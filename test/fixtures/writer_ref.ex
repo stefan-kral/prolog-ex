@@ -279,6 +279,10 @@ defmodule PrologEx.WriterRef do
   defp symbol?(_), do: false
 
   defp alnum?(c) when c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c == ?_, do: true
+
+  defp alnum?(c) when is_integer(c) and c > 127,
+    do: String.match?(<<c::utf8>>, ~r/^[\p{L}\p{N}\p{M}]$/u)
+
   defp alnum?(_), do: false
 
   defp digit?(c) when is_integer(c) and c in ?0..?9, do: true
@@ -298,40 +302,10 @@ defmodule PrologEx.WriterRef do
   def atom(name, _o),
     do: if(needs_quotes?(name), do: "'" <> escape_text(name, ?') <> "'", else: name)
 
-  @graphic ~c"#$&*+-./:<=>?@^~\\"
+  # Hochkommas wie im Writer (Unicode-Regeln des Lesers)
+  def needs_quotes?(name), do: PrologEx.Writer.needs_quotes?(name)
 
-  @doc "Muss das Atom in writeq-Ausgabe gequotet werden?"
-  def needs_quotes?(name) do
-    cond do
-      name in ["[]", "{}", "!", ";"] -> false
-      name == "" -> true
-      letter_atom?(name) -> false
-      graphic_atom?(name) -> false
-      true -> true
-    end
-  end
-
-  # klein beginnend, dann Buchstaben, Ziffern, _ (Bytes: Nicht-ASCII nie)
-  defp letter_atom?(<<c, rest::binary>>) when c in ?a..?z, do: alnum_bytes?(rest)
-  defp letter_atom?(_), do: false
-
-  defp alnum_bytes?(<<c, rest::binary>>)
-       when c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c == ?_,
-       do: alnum_bytes?(rest)
-
-  defp alnum_bytes?(<<>>), do: true
-  defp alnum_bytes?(_), do: false
-
-  # nur Symbolzeichen; "." allein und Kommentaranfänge brauchen Hochkommas
-  defp graphic_atom?(name),
-    do: name != "." and not String.starts_with?(name, "/*") and graphic_bytes?(name)
-
-  defp graphic_bytes?(<<c, rest::binary>>) when c in @graphic, do: graphic_bytes?(rest)
-  defp graphic_bytes?(<<>>), do: true
-  defp graphic_bytes?(_), do: false
-
-  # Nur ASCII ungequotet: der gprolog-Reader liest Nicht-ASCII nur in
-  # Hochkommas (SWI würde 'äb' ohne schreiben)
+  # alphanumerische Operatoren: nur ASCII
   defp lower?(c), do: is_integer(c) and c in ?a..?z
 
   defp escape_text(text, q), do: text |> escape(q) |> IO.iodata_to_binary()

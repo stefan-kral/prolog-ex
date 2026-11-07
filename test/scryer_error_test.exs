@@ -59,10 +59,10 @@ defmodule PrologEx.ScryerErrorTest do
            ]
 
     assert err(c, "must_be(octet_chars, [a, 'ā'])") ==
-             ["C = must_be/2, E = domain_error(octet_character,'ā')"]
+             ["C = must_be/2, E = domain_error(octet_character,ā)"]
 
     assert err(c, "must_be(octet_character, 'ā')") ==
-             ["C = must_be/2, E = domain_error(octet_character,'ā')"]
+             ["C = must_be/2, E = domain_error(octet_character,ā)"]
 
     assert err(c, "must_be(not_less_than_zero, -1)") ==
              ["C = must_be/2, E = domain_error(not_less_than_zero,-1)"]
@@ -87,7 +87,7 @@ defmodule PrologEx.ScryerErrorTest do
     assert err(c, "can_be(chars, [a, 1|_])") == ["C = can_be/2, E = type_error(character,1)"]
 
     assert err(c, "can_be(octet_chars, [a, 'ā'|_])") ==
-             ["C = can_be/2, E = domain_error(octet_character,'ā')"]
+             ["C = can_be/2, E = domain_error(octet_character,ā)"]
 
     assert err(c, "can_be(not_less_than_zero, -2)") ==
              ["C = can_be/2, E = domain_error(not_less_than_zero,-2)"]

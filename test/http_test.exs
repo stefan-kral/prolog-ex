@@ -210,7 +210,7 @@ defmodule PrologEx.HttpTest do
     assert String.ends_with?(out, <<0, 255, 10, 65>>)
 
     form = ~s|, method(post), data("a=1&b=x+y%C3%A4"), request_headers(['content-type'("CT")])|
-    expected = {200, ~s|'[[a]-[\\'1\\'],[b]-[x,\\' \\',y,\\'ä\\']]'|}
+    expected = {200, ~s|'[[a]-[\\'1\\'],[b]-[x,\\' \\',y,ä]]'|}
 
     assert req(c, srv, "/form", String.replace(form, "CT", "application/x-www-form-urlencoded")) ==
              expected
@@ -226,7 +226,7 @@ defmodule PrologEx.HttpTest do
     # Schlüssel und Werte als Zeichenlisten, + und %XX (UTF-8) dekodiert;
     # ohne "=" ein leerer Wert
     assert req(c, srv, "/query?a=1&b=x+y%C3%A4&c") ==
-             {200, ~s|'[[a]-[\\'1\\'],[b]-[x,\\' \\',y,\\'ä\\'],[c]-[]]'|}
+             {200, ~s|'[[a]-[\\'1\\'],[b]-[x,\\' \\',y,ä],[c]-[]]'|}
 
     # anderer Content-Type: kein Formular, der Handler scheitert (500,
     # danach endet der Server)

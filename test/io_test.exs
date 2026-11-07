@@ -146,7 +146,7 @@ defmodule PrologEx.IOTest do
                "open('z.txt', read, S), get_char(S, A), peek_char(S, B), get_char(S, B2), get_code(S, C), peek_code(S, D), line_count(S, L), line_position(S, LP), character_count(S, N), close(S)."
              ) ==
                [
-                 "A = a, B = 'ä', B2 = 'ä', C = 10, D = 98, L = 2, LP = 0, N = 3, S = '$stream'(3)"
+                 "A = a, B = ä, B2 = ä, C = 10, D = 98, L = 2, LP = 0, N = 3, S = '$stream'(3)"
                ]
 
       ok(

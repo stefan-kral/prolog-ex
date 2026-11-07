@@ -282,7 +282,8 @@ A b und 'A b'
   * Die Ausgabe entsteht ganz im Speicher: ein Fehler unterwegs schreibt
     nichts. Formatfehler sind `domain_error(format, Grund)`.
   * `~p` und `print/1,2` fragen ein benutzerdefiniertes `portray/1` für
-    jeden Teilterm.
+    jeden Teilterm. `user:portray/1` ist wie in SWI vordeklariert
+    (`dynamic`, `multifile`): ohne Klauseln scheitert ein Aufruf nur.
 
 ## Grammatiken über Dateien: `library(pio)`
 
@@ -707,7 +708,11 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     einer Zahl, Leerzeichen, wo Zeichen sonst zu einem Token verschmölzen
     (`1- -1`, `a- -b`, `N+\\ \\X^G`).
   * `writeq`/`print` quoten Atome (`'1'`, `'hello world'`, `'.'`), `write`
-    nicht; `write_canonical` schreibt ohne Operatoren (`+(1,2)`), auch Listen
+    nicht. Nicht-ASCII gilt wie beim Lesen: ein Atom aus Buchstaben, das
+    mit einem Kleinbuchstaben oder einem Buchstaben ohne Groß-/Kleinschreibung
+    beginnt, bleibt ohne Hochkommas (`αβγ`, `äb`, `中文`, `x²`), ein
+    Großbuchstabe am Anfang wäre eine Variable (`'Γβα'`, `'Äb'`) – wie SWI
+    und Scryer; `write_canonical` schreibt ohne Operatoren (`+(1,2)`), auch Listen
     und `{}` funktional wie ISO 8.14.2.4 verlangt: `'.'(1,'.'(2,[]))`, `{}(a)`.
   * `'$VAR'(N)` erscheint als `A`, `B`, …, `Z`, `A1`, … (außer bei
     `write_canonical`).
@@ -2387,7 +2392,7 @@ exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
 `float_fractional_part/1` nehmen nur Floats – eine Ganzzahl ist
 `type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
 Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
-Float). Gesamt: 4 117 bestanden, 89 fehlgeschlagen, 206 übersprungen.
+Float). Gesamt: 4 121 bestanden, 85 fehlgeschlagen, 206 übersprungen.
 Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
 den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument
 weder Liste noch Teilliste ist (Logtalk: `type_error(list, L)`), und die
@@ -2399,7 +2404,7 @@ Werte von `variables/1`, `variable_names/1`, `singletons/1` werden bei
 logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
 Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
 Syntaxfehler), `functor/3` mit Stelligkeit 10^45 (`resource_error`),
-`portray/1` ohne Vorab-Deklaration als dynamic/multifile, `4/2` ist `2`
+`4/2` ist `2`
 (siehe Arithmetik) und `0 ^ -42` ist `zero_divisor`. Wie Logtalk und
 Scryer: `call_nth(G, 0)` scheitert, negativ ist
 `domain_error(not_less_than_zero, N)`; `setof/3` scheitert, wenn die

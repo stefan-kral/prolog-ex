@@ -400,6 +400,8 @@ defmodule PrologEx.Writer do
   defp symbol?(_), do: false
 
   defp alnum?(c) when c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c == ?_, do: true
+  # Nicht-ASCII-Buchstaben kleben wie ASCII (αβ mod γ)
+  defp alnum?(c) when is_integer(c) and c > 127, do: ualnum?(c)
   defp alnum?(_), do: false
 
   defp digit?(c) when is_integer(c) and c in ?0..?9, do: true
@@ -432,16 +434,29 @@ defmodule PrologEx.Writer do
     end
   end
 
-  # klein beginnend, dann Buchstaben, Ziffern, _ (Bytes: Nicht-ASCII nie)
+  # klein beginnend, dann Buchstaben, Ziffern, _ – genau wie der Leser
+  # (PrologEx.Parser): Nicht-ASCII beginnt ein Atom mit einem Buchstaben,
+  # der kein Groß-/Titelbuchstabe ist (\p{L} ohne \p{Lu}, \p{Lt}), und
+  # setzt es mit \p{L}, \p{N}, \p{M} fort: writeq('αβγ') ergibt αβγ,
+  # writeq('Γβα') bleibt gequotet (wie SWI und Scryer)
   defp letter_atom?(<<c, rest::binary>>) when c in ?a..?z, do: alnum_bytes?(rest)
+
+  defp letter_atom?(<<c::utf8, rest::binary>>) when c > 127,
+    do: String.match?(<<c::utf8>>, ~r/^[\p{Ll}\p{Lm}\p{Lo}]$/u) and alnum_bytes?(rest)
+
   defp letter_atom?(_), do: false
 
   defp alnum_bytes?(<<c, rest::binary>>)
        when c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c == ?_,
        do: alnum_bytes?(rest)
 
+  defp alnum_bytes?(<<c::utf8, rest::binary>>) when c > 127,
+    do: ualnum?(c) and alnum_bytes?(rest)
+
   defp alnum_bytes?(<<>>), do: true
   defp alnum_bytes?(_), do: false
+
+  defp ualnum?(c), do: String.match?(<<c::utf8>>, ~r/^[\p{L}\p{N}\p{M}]$/u)
 
   # nur Symbolzeichen; "." allein und Kommentaranfänge brauchen Hochkommas
   defp graphic_atom?(name),
@@ -451,8 +466,7 @@ defmodule PrologEx.Writer do
   defp graphic_bytes?(<<>>), do: true
   defp graphic_bytes?(_), do: false
 
-  # Nur ASCII ungequotet (ISO kennt nur diese Buchstaben; so liest jedes
-  # System den Text zurück – SWI und unser Reader auch 'äb' ohne)
+  # alphanumerische Operatoren: nur ASCII
   defp lower?(c), do: is_integer(c) and c in ?a..?z
 
   defp escape_text(text, q), do: text |> escape(q) |> IO.iodata_to_binary()

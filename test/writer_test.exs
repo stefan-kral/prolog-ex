@@ -39,7 +39,9 @@ defmodule PrologEx.WriterTest do
           {"it's", "'it\\\\'s'"},
           {"a\nb", "'a\\\\nb'"},
           {"/*", "'/*'"},
-          {"äb", "'äb'"},
+          {"äb", "äb"},
+          {"Äb", "'Äb'"},
+          {"ä b", "'ä b'"},
           {"a-b", "'a-b'"}
         ] do
       assert q(a(n)) == out |> String.replace("\\\\", "\\"), n

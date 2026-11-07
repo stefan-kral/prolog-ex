@@ -78,19 +78,19 @@ defmodule PrologEx.GensymTest do
 
     # Standardordnung, wie sort/2 sie hat
     assert ask(c, "findall(B, current_gensym_base(B), L), msort(L, L)") ==
-             ["L = [[],b,z,'ä']"]
+             ["L = [[],b,z,ä]"]
 
     assert ask(c, "current_gensym_base(b)") == ["true"]
     assert ask(c, "current_gensym_base([])") == ["true"]
     assert ask(c, "current_gensym_base(nie)") == []
 
     assert ask(c, "reset_gensym(b), findall(B, current_gensym_base(B), L)") == [
-             "L = [[],z,'ä']"
+             "L = [[],z,ä]"
            ]
 
     # festgehalten beim Aufruf
     assert ask(c, "findall(B, (current_gensym_base(B), gensym(neu, _)), L)") ==
-             ["L = [[],z,'ä']"]
+             ["L = [[],z,ä]"]
 
     assert err(c, "current_gensym_base(1)") == ["E = type_error(atom,1)"]
     assert ask(c, "reset_gensym, current_gensym_base(_)") == []

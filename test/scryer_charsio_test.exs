@@ -169,7 +169,7 @@ defmodule PrologEx.ScryerCharsioTest do
     assert ask(c, ~s|chars_base64(X, "-w==", [charset(url)])|) == [~s|X = "û"|]
     assert ask(c, ~s|chars_base64(X, "+w==", [])|) == [~s|X = "û"|]
     assert ask(c, ~s|chars_base64(_, "%%", [])|) == []
-    assert err(c, ~s|chars_base64("ā", _, [])|) == ["E = domain_error(octet_character,'ā')"]
+    assert err(c, ~s|chars_base64("ā", _, [])|) == ["E = domain_error(octet_character,ā)"]
     assert err(c, ~s|chars_base64("a", _, [charset(x)])|) == ["E = domain_error(charset,x)"]
     assert err(c, ~s|chars_base64("a", _, [_])|) == ["E = instantiation_error"]
   end

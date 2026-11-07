@@ -50,7 +50,7 @@ defmodule PrologEx.SocketsTest do
            write(SS, 'zurück.'), nl(SS), flush_output(SS), read(C, U),
            close(C), close(SS), socket_server_close(S)
            """) == [
-             "C = <stream>, Cl = '127.0.0.1', S = <socket>, SS = <stream>, T = hallo, U = 'zurück'"
+             "C = <stream>, Cl = '127.0.0.1', S = <socket>, SS = <stream>, T = hallo, U = zurück"
            ]
   end
 
@@ -215,7 +215,7 @@ defmodule PrologEx.SocketsTest do
     assert ask(c, """
            socket_client_open(localhost:#{port}, C, []), write(C, 'grüß.'), nl(C),
            flush_output(C), read(C, T), get_char(C, N), get_char(C, E), close(C)
-           """) == ["C = <stream>, E = end_of_file, N = '\\n', T = 'echo_grüß'"]
+           """) == ["C = <stream>, E = end_of_file, N = '\\n', T = echo_grüß"]
   end
 
   defp recv_line(s, acc) do
@@ -333,7 +333,7 @@ defmodule PrologEx.SocketsTest do
            close(C), close(SS), S = '$socket'(N)
            """)
            |> Enum.map(&String.replace(&1, ~r/N = \d+/, "N = n")) == [
-             "C = <stream>, Cl = '', N = n, S = <socket>, SS = <stream>, T = hallo, U = 'zurück'"
+             "C = <stream>, Cl = '', N = n, S = <socket>, SS = <stream>, T = hallo, U = zurück"
            ]
 
     # die Datei bleibt, solange der Server offen ist

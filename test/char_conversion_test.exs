@@ -47,10 +47,10 @@ defmodule PrologEx.CharConversionTest do
   test "Tabelle: eintragen, ersetzen, mit In = Out entfernen; nur Paare In ≠ Out" do
     assert ask("findall(A-B, current_char_conversion(A, B), L)") == ["L = []"]
     assert ask("char_conversion('&', ','), char_conversion(ä, a)") == ["true"]
-    assert ask("findall(A-B, current_char_conversion(A, B), L)") == ["L = [& -(','),'ä'-a]"]
-    assert ask("current_char_conversion(X, a)") == ["X = 'ä'"]
+    assert ask("findall(A-B, current_char_conversion(A, B), L)") == ["L = [& -(','),ä-a]"]
+    assert ask("current_char_conversion(X, a)") == ["X = ä"]
     assert ask("current_char_conversion(b, X)") == []
-    assert ask("char_conversion(ä, ö), current_char_conversion(ä, X)") == ["X = 'ö'"]
+    assert ask("char_conversion(ä, ö), current_char_conversion(ä, X)") == ["X = ö"]
 
     assert ask("char_conversion(ä, ä), findall(A, current_char_conversion(A, _), L)") == [
              "L = \"&\""

@@ -62,7 +62,7 @@ defmodule PrologEx.AtomPredsTest do
                ]
 
       assert ask(c, "atom_concat(X, Y, 'ä€').") ==
-               ["X = '', Y = 'ä€'", "X = 'ä', Y = '€'", "X = 'ä€', Y = ''"]
+               ["X = '', Y = 'ä€'", "X = ä, Y = '€'", "X = 'ä€', Y = ''"]
 
       assert ask(c, "findall(X, atom_concat(X, Y, ''), L).") == ["L = ['']"]
     end

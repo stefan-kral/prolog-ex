@@ -2545,6 +2545,11 @@ defmodule PrologEx do
 
       :none ->
         case PrologEx.Flags.get("unknown") do
+          _ when mod == "user" and name == "portray" and arity == 1 ->
+            # vordeklarierter Haken (dynamic, multifile): ohne Klauseln
+            # scheitert er nur
+            backtrack(st)
+
           {:atom, "fail"} ->
             backtrack(st)
 

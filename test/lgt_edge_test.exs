@@ -65,7 +65,7 @@ defmodule PrologEx.LgtEdgeTest do
     assert ask(c, "atom_concat(A, A, abab)") == ["A = ab"]
     assert ask(c, "atom_concat(A, A, abba)") == []
     assert ask(c, "atom_concat(A, A, '')") == ["A = ''"]
-    assert ask(c, "atom_concat(A, A, 'äöäö')") == ["A = 'äö'"]
+    assert ask(c, "atom_concat(A, A, 'äöäö')") == ["A = äö"]
     # deterministisch: keine weitere Lösung, kein Choice Point
     assert ask(c, "call_cleanup(atom_concat(A, A, aaaa), Det = true)") == ["A = aa, Det = true"]
     # verschiedene Variablen: alle Zerlegungen
@@ -200,7 +200,7 @@ defmodule PrologEx.LgtEdgeTest do
   test "upcase_atom/2, downcase_atom/2 (library(swi), wie SWI)", c do
     src = ":- use_module(library(swi)).\n"
     assert ask(c, "upcase_atom(abc, X)", src) == ["X = 'ABC'"]
-    assert ask(c, "downcase_atom('ÄBC', X)", src) == ["X = 'äbc'"]
+    assert ask(c, "downcase_atom('ÄBC', X)", src) == ["X = äbc"]
     # Zeichen für Zeichen: ß bleibt (wie SWI)
     assert ask(c, "upcase_atom('Grüße', X)", src) == ["X = 'GRÜßE'"]
     assert ask(c, "upcase_atom(12, X)", src) == ["X = '12'"]

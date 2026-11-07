@@ -148,7 +148,7 @@ defmodule PrologEx.Builtins.Modules do
 
         decl =
           for kind <- [:multifile, :discontiguous],
-              PrologEx.has_property?(db, key, kind),
+              PrologEx.has_property?(db, key, kind) or (kind == :multifile and hook?(key)),
               do: a(Atom.to_string(kind))
 
         clauses = [mk("number_of_clauses", [length(PrologEx.pred_entries(pred))])]
@@ -165,13 +165,31 @@ defmodule PrologEx.Builtins.Modules do
 
       :none ->
         cond do
-          PrologEx.Builtins.system?({n, ar}) -> built_in.()
+          # vordeklarierter Haken wie in SWI: user:portray/1 ist dynamic
+          # und multifile, auch ohne Klauseln
+          hook?({m, n, ar}) ->
+            [
+              a("defined"),
+              a("interpreted"),
+              a("dynamic"),
+              a("multifile"),
+              mk("number_of_clauses", [0])
+            ]
+
+          PrologEx.Builtins.system?({n, ar}) ->
+            built_in.()
+
           # Steuerkonstrukte der Maschine (, ; -> ...)
-          PrologEx.Builtins.Expansion.builtin_meta(n, ar) != nil -> built_in.()
-          true -> []
+          PrologEx.Builtins.Expansion.builtin_meta(n, ar) != nil ->
+            built_in.()
+
+          true ->
+            []
         end
     end
   end
+
+  defp hook?(key), do: key == {"user", "portray", 1}
 
   defp exported?(db, m, n, ar) do
     case Map.fetch(db, {:module, m}) do
