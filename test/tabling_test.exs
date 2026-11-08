@@ -76,6 +76,12 @@ defmodule PrologEx.TablingTest do
   k(0).
   m(X) :- k(Y), X is Y + 10, X < 40.
 
+  % ein grundiertes Mitglied, das in späteren Runden nur noch nachgezogen wird
+  :- table k3/1, g3/0.
+  k3(X) :- findall(Y, k3(Y), L), length(L, N), N < 2, g3, X = 1.
+  k3(0).
+  g3 :- k3(_).
+
   % Mengen: Duplikate und Varianten
   :- table d/1.
   d(a). d(b). d(a).
@@ -181,6 +187,7 @@ defmodule PrologEx.TablingTest do
 
     assert ask(c, "set(X, x(X), S), set(X, y(X), T)") == ["S = [1,2,3,4,5], T = [2,3,4,5]"]
     assert ask(c, "set(X, k(X), S), set(X, m(X), T)") == ["S = [0,10], T = [10,20]"]
+    assert ask(c, "set(X, k3(X), S)") == ["S = [0,1]"]
 
     # dieselben Mengen, wenn zuerst die innere Komponente gerufen wird
     assert ask(c, "set(X, c1(X), T), set(X, b1(X), U), set(X, a1(X), S), length(S, 19)")

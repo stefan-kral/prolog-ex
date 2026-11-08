@@ -184,7 +184,8 @@ defmodule PrologEx.Builtins.Tabling do
 
       x ->
         put_state(put_entry(st, %{x | stamp: st.round}))
-        {:struct, "t", [spec2, g2, i2]} = PrologEx.copy_fresh(x.goal, %{})
+        # (ein grundiertes Ziel ist markiert)
+        {:struct, "t", [spec2, g2, i2]} = PrologEx.unmark_top(PrologEx.copy_fresh(x.goal, %{}))
         {:unify, [{m, x.id}, {spec, spec2}, {g, g2}, {i, i2}]}
     end
   end
