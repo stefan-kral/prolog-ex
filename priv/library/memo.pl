@@ -51,34 +51,19 @@
 :- use_module(library(error)).
 :- use_module(library(iso_ext), [forall/2]).
 :- use_module(library(apply), [foldl/4]).
+:- use_module(library(tabling/wrapper), [wrap_declare/6, directive_module/2, pis/3]).
 
 :- meta_predicate(abolish_memo(:)).
 :- meta_predicate(memo_statistics(:, -)).
 
-% Hooks werden erst gebraucht, wenn eine Datei memo/1 benutzt: term_expansion/2
-% gibt es nur, solange eine solche Datei geladen wird (sonst kostet das Laden
-% anderer Dateien nichts)
-:- '$expansion_hooks'.
-
-% '$memo_decl'(Modul, Name, Stelligkeit, Innenname, Spec, Quelle)
-:- dynamic('$memo_decl'/6).
-% die Hülle Name/N ist in dieser Ladung schon erzeugt
-:- dynamic('$memo_emitted'/3).
-:- dynamic('$memo_hook_on'/0).
-
 %% memo(+Spec): nur als Direktive
 memo(Spec) :-
-    (   prolog_load_context(module, M)
-    ->  true
-    ;   throw(error(context_error(nodirective, memo(Spec)), (memo)/1))
-    ),
-    load_source(Src),
+    directive_module(memo(Spec), M),
     memo_spec(Spec, PIs, Opts),
-    forall(member(N/A, PIs), declare(M, N, A, Opts, Src)),
-    hook_on.
-
-load_source(S) :-
-    (   prolog_load_context(source, S0) -> S = S0 ; S = user ).
+    forall(member(N/A, PIs),
+           (   wrap_declare(M, N, A, ' memo', (memo):'$memo_call', '$memo'(M, N, A, Opts)),
+               '$memo_abolish'(M:N/A)
+           )).
 
 memo_spec(Spec, _, _) :-
     var(Spec), !,
@@ -88,26 +73,6 @@ memo_spec((PIs0 as Os), PIs, Opts) :- !,
     options(Os, Opts).
 memo_spec(PIs0, PIs, opts(none, false, false)) :-
     pis(PIs0, PIs, []).
-
-pis(V, _, _) :-
-    var(V), !,
-    instantiation_error(V).
-pis((A, B), PIs0, PIs) :- !,
-    pis(A, PIs0, PIs1),
-    pis(B, PIs1, PIs).
-pis([], PIs, PIs) :- !.
-pis([P|Ps], PIs0, PIs) :- !,
-    pis(P, PIs0, PIs1),
-    pis(Ps, PIs1, PIs).
-pis(N//A0, [N/A|PIs], PIs) :- !,
-    must_be(atom, N),
-    must_be(not_less_than_zero, A0),
-    A is A0 + 2.
-pis(N/A, [N/A|PIs], PIs) :- !,
-    must_be(atom, N),
-    must_be(not_less_than_zero, A).
-pis(P, _, _) :-
-    type_error(predicate_indicator, P).
 
 options(Os, _) :-
     var(Os), !,
@@ -133,70 +98,6 @@ positive(N) :-
     must_be(integer, N),
     (   N > 0 -> true ; domain_error(positive_integer, N) ).
 
-declare(M, N, A, Opts, Src) :-
-    atom_concat(N, ' memo', Impl),
-    retractall('$memo_decl'(M, N, A, _, _, _)),
-    assertz('$memo_decl'(M, N, A, Impl, '$memo'(M, N, A, Opts), Src)),
-    retractall('$memo_emitted'(M, N, A)),
-    '$memo_abolish'(M:N/A).
-
-hook_on :-
-    (   '$memo_hook_on'
-    ->  true
-    ;   assertz('$memo_hook_on'),
-        assertz((term_expansion(end_of_file, _) :- end_file, fail)),
-        assertz((term_expansion(T, Ts) :- rename(T, Ts)))
-    ).
-
-% am Ende einer Datei: ihre Deklarationen sind erledigt; ohne weitere den
-% Hook entfernen
-end_file :-
-    load_source(S),
-    retractall('$memo_decl'(_, _, _, _, _, S)),
-    (   '$memo_decl'(_, _, _, _, _, _)
-    ->  true
-    ;   retractall('$memo_hook_on'),
-        retractall('$memo_emitted'(_, _, _)),
-        abolish(term_expansion/2)
-    ).
-
-% Klauseln eines memoisierten Prädikats bekommen den Innennamen; vor der
-% ersten steht die Hülle
-rename(T, Ts) :-
-    nonvar(T),
-    clause_head(T, H, Extra),
-    callable(H),
-    prolog_load_context(module, M),
-    functor(H, N, A0),
-    A is A0 + Extra,
-    '$memo_decl'(M, N, A, Impl, Spec, _), !,
-    rename_head(T, Impl, T1),
-    (   '$memo_emitted'(M, N, A)
-    ->  Ts = T1
-    ;   assertz('$memo_emitted'(M, N, A)),
-        functor(Head, N, A),
-        Head =.. [_|Args],
-        Inner =.. [Impl|Args],
-        Ts = [(Head :- (memo):'$memo_call'(Spec, Head, M:Inner)), T1]
-    ).
-
-clause_head((:- _), _, _) :- !, fail.
-clause_head((?- _), _, _) :- !, fail.
-clause_head((H :- _), H, 0) :- !.
-clause_head((H --> _), H, 2) :- !.
-clause_head(H, H, 0).
-
-rename_head((H :- B), Impl, (H1 :- B)) :- !,
-    rename_term(H, Impl, H1).
-rename_head((H --> B), Impl, (H1 --> B)) :- !,
-    rename_term(H, Impl, H1).
-rename_head(H, Impl, H1) :-
-    rename_term(H, Impl, H1).
-
-rename_term(H, Impl, H1) :-
-    H =.. [_|Args],
-    H1 =.. [Impl|Args].
-
 % --- Aufruf --------------------------------------------------------------
 
 '$memo_call'(Spec, G, I) :-
@@ -204,12 +105,12 @@ rename_term(H, Impl, H1) :-
     memo_(R, Spec, G, I).
 
 memo_(answers(As), _, G, _) :-
-    answer(As, G).
+    table_wrapper:answer(As, G).
 memo_(miss(T), Spec, G, I) :-
     Spec = '$memo'(_, _, _, opts(_, First, _)),
     catch(collect(First, G, I, As), E, ('$memo_drop'(T), throw(E))),
     '$memo_store'(T, As),
-    answer(As, G).
+    table_wrapper:answer(As, G).
 memo_(running, Spec, G, I) :-
     Spec = '$memo'(_, N, A, opts(_, _, Re)),
     (   Re == true
@@ -222,15 +123,6 @@ collect(false, G, I, As) :-
     findall(G, I, As).
 collect(true, G, I, As) :-
     findall(G, once(I), As).
-
-% wie member/2, beim letzten Element ohne Wahlpunkt
-answer([A|As], G) :-
-    (   As == []
-    ->  G = A
-    ;   (   G = A
-        ;   answer(As, G)
-        )
-    ).
 
 % --- Verwaltung ----------------------------------------------------------
 

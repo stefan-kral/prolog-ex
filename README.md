@@ -1848,6 +1848,52 @@ hier unverändert; die 400 Vergleichsanfragen weichen nur noch in 4 Fällen
 von Scryer ab (vorher 7): drei zusammengefasste `freeze`-Ziele und eine
 Reihenfolge in einer Summe.
 
+## Tabling: `library(tabling)`
+
+Wie in Scryer Prolog: `:- table Name/N` (auch `Name//N`, mehrere mit
+Komma oder als Liste), `abolish_all_tables/0`, `start_tabling/2`, Operator
+`table`. Ein getabltes Prädikat terminiert auch bei Links- und
+Zyklenrekursion, solange jede Variante endlich viele Antworten hat:
+
+```prolog
+:- use_module(library(tabling)).
+:- table path/2.
+path(X, Y) :- path(X, Z), edge(Z, Y).
+path(X, Y) :- edge(X, Y).
+
+:- table expr//0.                % links-rekursive Grammatik
+expr --> expr, "+", term.
+expr --> term.
+```
+
+  * Die Antworten sind eine Menge: keine zwei Varianten, Reihenfolge die
+    des Findens (nicht festgelegt). Seiteneffekte in getablten Prädikaten
+    laufen unbestimmt oft.
+  * Umsetzung ohne Eingriff in die Maschine: Fixpunkt je stark
+    zusammenhängender Komponente (Tarjan). Eine neue Variante wird
+    ausgewertet; liest sie dabei eine noch unvollständige Tabelle, bekommt
+    sie deren bisherige Antworten. Der Anführer einer Komponente wiederholt
+    Runden (sich und jedes Mitglied neu auswerten), bis keine neue Antwort
+    mehr kommt. Eifrig: eine Variante ist vollständig, bevor ihre erste
+    Antwort zurückkommt – ein `once/1` des Aufrufers spart nichts, die
+    Tabelle ist danach aber fertig.
+  * Eine Ausnahme in einer Auswertung (auch Zeit- oder Speichergrenze)
+    verwirft die unvollständigen Tabellen; vollständige bleiben.
+  * Schlüssel wie bei `library(memo)` (Varianten; attributierte Variablen
+    im Aufruf: `representation_error`). Neu laden leert die Tabellen des
+    Prädikats; hängt es von dynamischen Prädikaten ab, veralten sie still:
+    `abolish_all_tables/0`.
+  * Geprüft gegen Scryer mit zufälligen Programmen (Links-, Rechts- und
+    doppelte Rekursion, verschränkte und geschachtelte Komponenten).
+  * Kosten: Programme ohne `:- table` zahlen nichts (der Hook lebt nur,
+    solange eine Datei mit `table/1` lädt). Jede Runde wertet die Komponente
+    ganz neu aus (naiv, nicht semi-naiv): Links-Rekursion über einem Ring
+    aus n Knoten braucht n Runden. Trotzdem schneller als Scryer
+    (`path/2` über einen Ring aus 50 Knoten, alle Paare: 0,27 s gegen
+    4,1 s; 100 Knoten: 2,3 s gegen 60 s).
+  * Nicht (noch nicht): Modi wie `path(_,_,min)`, `tnot/1`, Well-Founded
+    Semantics, inkrementelles Tabling.
+
 ## Memoisierung: `library(memo)`
 
 Ein memoisiertes Prädikat rechnet jede Variante eines Aufrufs nur einmal

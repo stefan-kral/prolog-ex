@@ -80,6 +80,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.ClpzPrims,
     PrologEx.Builtins.Pcre,
     PrologEx.Builtins.Memo,
+    PrologEx.Builtins.Tabling,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt

@@ -262,9 +262,39 @@ defmodule PrologEx.MemoTest do
   test "der Hook lebt nur, solange eine Datei mit memo/1 geladen wird", c do
     ask(c, "true")
     db = PrologEx.current_db()
-    refute Map.has_key?(db, {"memo", "term_expansion", 2})
+    refute Map.has_key?(db, {"table_wrapper", "term_expansion", 2})
     # danach geladene Klauseln eines gleichnamigen Prädikats bleiben unberührt
     {db, []} = PrologEx.Consult.load(db, Reader.read_terms(c.reader, "other(1).\nfib(x, y).\n"))
     assert run(c, db, "other(X)") == ["X = 1"]
+  end
+
+  test "zweimal geladen, während eine andere Datei mit Direktiven noch lädt", c do
+    dir = Path.join(System.tmp_dir!(), "px_memo_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+
+    try do
+      File.write!(
+        Path.join(dir, "sub.pl"),
+        ":- use_module(library(memo)).\n:- memo p/1.\np(1).\n"
+      )
+
+      File.write!(Path.join(dir, "main.pl"), """
+      :- use_module(library(memo)).
+      :- memo q/1.
+      q(1).
+      :- consult(sub).
+      :- consult(sub).
+      """)
+
+      PrologEx.put_db(%{})
+
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        {:ok, _} = PrologEx.Consult.load_file(Path.join(dir, "main.pl"))
+      end)
+
+      assert run(c, PrologEx.current_db(), "p(X), q(Y)") == ["X = 1, Y = 1"]
+    after
+      File.rm_rf!(dir)
+    end
   end
 end
