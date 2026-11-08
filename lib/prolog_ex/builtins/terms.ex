@@ -1,6 +1,7 @@
 defmodule PrologEx.Builtins.Terms do
   @moduledoc "Termaufbau und -zerlegung: functor/3, (=..)/2."
   use PrologEx.Builtin
+  require PrologEx.Cyclic
   alias PrologEx.Builtins.Core
   alias PrologEx.Store
 
@@ -125,6 +126,140 @@ defmodule PrologEx.Builtins.Terms do
   # bekannten (jede gebundene Variable wird so höchstens einmal besucht).
   defbuiltin "acyclic_term", [t] do
     acyclic?(t, subst())
+  end
+
+  # --- library(terms): term_hash/2,4, term_size/2 (wie SWI) ---------------
+
+  # term_hash(T, H): ist T ground, H ein Hashwert (0..2^27-1, über
+  # Sitzungen und Rechner gleich: :erlang.phash2/1 einer kanonischen Form);
+  # sonst bleibt H ungebunden. T == U ergibt denselben Wert, auch für
+  # zyklische Terme (dann aus den ersten @hash_nodes Knoten der Abwicklung,
+  # in Breitensuche).
+  defbuiltin "term_hash", [t, h] do
+    s = subst()
+
+    case hash_canon(t, s, :inf) do
+      :nonground -> :ok
+      c -> {:unify, [{h, :erlang.phash2(c)}]}
+    end
+  end
+
+  # term_hash(T, Tiefe, Bereich, H): nur bis Tiefe (1: Funktor bzw.
+  # atomarer Wert, 2: dazu die Argumente, ...; 0: nichts), H in
+  # 0..Bereich-1; ungebunden, wenn T bis Tiefe nicht ground ist
+  defbuiltin "term_hash", [t, depth, range, h] do
+    s = subst()
+    d = int_arg!(deref(depth))
+    r = int_arg!(deref(range))
+    if d < 0, do: PrologEx.Error.domain!("not_less_than_zero", d)
+    if r < 1 or r > 2_147_483_647, do: PrologEx.Error.domain!("hash_range", r)
+
+    case hash_canon(t, s, d) do
+      :nonground -> :ok
+      c -> {:unify, [{h, :erlang.phash2(c, r)}]}
+    end
+  end
+
+  # term_size(T, N): Speicherzellen wie SWI – ein zusammengesetzter Term
+  # f(A1, ..., An) 1 + n Zellen plus die seiner Argumente (eine Listenzelle
+  # also 3), Atome, kleine Zahlen und Variablen 0. Was über dieselbe
+  # gebundene Variable geteilt ist, zählt einmal (auch Zyklen: endlich).
+  defbuiltin "term_size", [t, n] do
+    {size, _memo} = tsize(t, subst(), %{})
+    {:unify, [{n, size}]}
+  end
+
+  @hash_nodes 1000
+
+  defp int_arg!(n) when is_integer(n), do: n
+  defp int_arg!({:var, _}), do: PrologEx.Error.instantiation!()
+  defp int_arg!(other), do: PrologEx.Error.type!("integer", other)
+
+  defp hash_canon(t, s, depth) do
+    canon(t, s, depth, 0)
+  catch
+    :nonground ->
+      :nonground
+
+    # zyklisch (nur bei unbeschränkter Tiefe): die Abwicklung in
+    # Breitensuche, die ersten @hash_nodes Knoten – gleiche rationale
+    # Bäume haben gleiche Abwicklungen
+    :"$cyclic" ->
+      if PrologEx.Builtins.Order.variables(t, s) == [],
+        do: {:cyclic, bfs(:queue.from_list([t]), s, @hash_nodes, [])},
+        else: :nonground
+  end
+
+  # kanonische Form: atomar wie es ist, zusammengesetzt {Name, Stelligkeit,
+  # Argumente} (Listen als '.'/2, ohne Markierungen); :cut jenseits der Tiefe
+  defp canon(_t, _s, 0, _d), do: :cut
+
+  defp canon(t0, s, depth, d) do
+    t = Store.walk(t0, s)
+    d = PrologEx.Cyclic.step(t, t0, d, s)
+
+    case tnode(t) do
+      :var -> throw(:nonground)
+      {:atomic, a} -> a
+      {f, args} -> {f, length(args), Enum.map(args, &canon(&1, s, dec(depth), d))}
+    end
+  end
+
+  defp dec(:inf), do: :inf
+  defp dec(n), do: n - 1
+
+  defp bfs(q, s, budget, acc) do
+    case {budget, :queue.out(q)} do
+      {0, _} ->
+        Enum.reverse(acc)
+
+      {_, {:empty, _}} ->
+        Enum.reverse(acc)
+
+      {_, {{:value, t}, q}} ->
+        case tnode(Store.walk(t, s)) do
+          {:atomic, a} ->
+            bfs(q, s, budget - 1, [a | acc])
+
+          {f, args} ->
+            bfs(:queue.join(q, :queue.from_list(args)), s, budget - 1, [{f, length(args)} | acc])
+        end
+    end
+  end
+
+  defp tnode({:var, _}), do: :var
+  defp tnode([h | t]), do: {".", [h, t]}
+  defp tnode({:glist, [h | t]}), do: {".", [h, glist_rest(t)]}
+  defp tnode({tag, f, args}) when tag in [:struct, :gstruct], do: {f, args}
+  defp tnode(a), do: {:atomic, a}
+
+  defp glist_rest([_ | _] = t), do: {:glist, t}
+  defp glist_rest(t), do: t
+
+  defp tsize({:var, _} = v, s, memo) do
+    case memo do
+      %{^v => _} ->
+        {0, memo}
+
+      _ ->
+        case Store.binding(s, v) do
+          {:ok, t} -> tsize(t, s, Map.put(memo, v, true))
+          :error -> {0, memo}
+        end
+    end
+  end
+
+  defp tsize(t, s, memo) do
+    case tnode(t) do
+      {f, args} when is_binary(f) ->
+        Enum.reduce(args, {1 + length(args), memo}, fn a, {n, memo} ->
+          {k, memo} = tsize(a, s, memo)
+          {n + k, memo}
+        end)
+
+      _ ->
+        {0, memo}
+    end
   end
 
   # cyclic_term(T) wie SWI (Heimat library(swi)): T ist ein rationaler

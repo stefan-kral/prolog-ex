@@ -25,7 +25,7 @@ defmodule PrologEx.Builtins do
       Prädikate außer `$...`-Hilfsprädikaten. Sichtbar nur nach `use_module(library(...))`
       (kein Autoload, wie SICStus). Eigene Definitionen im importierenden
       Modul gehen vor.
-    * Heimat-Bibliotheken (`@homes`: `iso_ext`, `between`, `fastrw`, `swi`)
+    * Heimat-Bibliotheken (`@homes`: `iso_ext`, `between`, `terms`, `fastrw`, `swi`)
       – Builtins in `system`, die weder ISO noch SICStus eingebaut haben:
       sie liegen in `system`, sichtbar aber nur nach Import der Heimat
       (die sie aus `system` weitergibt), in Bibliotheksmodulen des Systems
@@ -116,6 +116,7 @@ defmodule PrologEx.Builtins do
                     call_with_inference_limit/3 atomic_concat/3 evaluable_property/2
                     cached_is/2)},
                 {"between", ~w(between/3 repeat/1)},
+                {"terms", ~w(term_hash/2 term_hash/4 term_size/2)},
                 {"fastrw", ~w(fast_read/1 fast_read/2 fast_write/1 fast_write/2)},
                 {"swi", ~w(ignore/1 not/1 *->/2 plus/3 atomic_list_concat/2 atomic_list_concat/3
                     atom_number/2 term_to_atom/2 read_term_from_atom/3 =@=/2 \\=@=/2
@@ -369,8 +370,9 @@ defmodule PrologEx.Builtins do
       ),
     # wie SICStus' library(fastrw) (die Prädikate sind eingebaut, wie in SWI)
     "fastrw" => @home_reexports["fastrw"],
-    # wie Scryers library(terms) und library(freeze) (eingebaut)
-    "terms" => %{{"numbervars", 3} => "system"},
+    # wie Scryers library(terms) (eingebaut), dazu term_hash/2,4 und
+    # term_size/2 wie SWI
+    "terms" => Map.put(@home_reexports["terms"], {"numbervars", 3}, "system"),
     "freeze" => %{{"freeze", 2} => "system"},
     # wie SICStus' library(between)
     "between" => %{

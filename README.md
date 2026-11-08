@@ -671,8 +671,17 @@ ist jeweils am Dateianfang vermerkt.
 * `library(debug)` (BSD-Lizenz, unverändert): `* G` (Ziel
   wegverallgemeinern), `$ G` und `$- G` (Aufruf und Ausnahmen mit
   `portray_clause/1` zeigen).
-* `library(terms)` und `library(freeze)` geben wie in Scryer
-  `numbervars/3` und `freeze/2` weiter (eingebaut).
+* `library(freeze)` gibt wie in Scryer `freeze/2` weiter (eingebaut).
+* `library(terms)`: wie in Scryer `numbervars/3`, dazu wie SWI
+  - `term_hash(+T, -H)`: ist T ground, ein Hashwert in 0..2²⁷-1 (über
+    Sitzungen und Rechner gleich, `:erlang.phash2/1` einer kanonischen
+    Form); sonst bleibt H ungebunden. Gleiche Terme (`==`) geben denselben
+    Wert, auch zyklische (dann aus den ersten 1000 Knoten der Abwicklung).
+  - `term_hash(+T, +Tiefe, +Bereich, -H)`: nur bis Tiefe (1: Funktor bzw.
+    atomarer Wert, 2: dazu die Argumente, ...), H in 0..Bereich-1.
+  - `term_size(+T, -N)`: Zellen wie SWI – `f(A1, ..., An)` belegt 1 + n
+    plus die Argumente (eine Listenzelle 3), Atome, kleine Zahlen und
+    Variablen 0; was über dieselbe Variable geteilt ist, zählt einmal.
 * `library(varnumbers)` (wie SICStus/SWI; `numbervars/3` selbst ist
   eingebaut): `numbervars/1`, `max_var_number(+T, +Start, -Max)`,
   `varnumbers/2,3` (Umkehrung von `numbervars/3`: jedes `'$VAR'(N)` mit
@@ -2535,7 +2544,9 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     `library(blackboard)`, `library(mutables)`, `library(lambda)`,
     `library(lambda_pl)`, `library(si)`, `library(gensym)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
-    `current_module/1`, `strip_module/3`, `predicate_property/2` (wie
+    `current_module/1` (Bibliotheken in Elixir erst, wenn aus ihnen
+    importiert wurde, wie in SWI ohne Autoload), `strip_module/3`,
+    `predicate_property/2` (wie
     SICStus: `built_in`, `static`, `dynamic`, `defined`, `compiled`,
     `interpreted`, `exported`, `imported_from/1`, `meta_predicate/1`,
     `multifile`, `discontiguous`, `number_of_clauses/1`; ohne Kopf

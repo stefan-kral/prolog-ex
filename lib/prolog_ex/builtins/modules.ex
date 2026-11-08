@@ -310,6 +310,14 @@ defmodule PrologEx.Builtins.Modules do
         end
       end)
 
+    # die Bibliothek (und woraus sie weitergibt) gilt nun als geladen:
+    # current_module/1, predicate_property(M:K, P) mit ungebundenem M
+    used =
+      for {n, ar} <- keys, PrologEx.Builtins.exports(lib), reduce: [lib] do
+        acc -> [PrologEx.Builtins.source(lib, n, ar) | acc]
+      end
+
+    db = Enum.reduce(used, db, &PrologEx.mark_library_used(&2, &1))
     PrologEx.put_db(db)
     PrologEx.LoadLog.imported(ctx, lib, new, ops)
   end
@@ -339,10 +347,14 @@ defmodule PrologEx.Builtins.Modules do
 
   defp qualified(m, {n, ar}), do: mk(":", [a(m), PrologEx.Error.indicator(n, ar)])
 
+  # user, system, die geladenen Moduldateien und die Bibliotheken in
+  # Elixir, aus denen schon importiert wurde (nicht alle, die es gibt: sonst
+  # sähe library(assoc) geladen aus, ohne dass jemand sie benutzt)
   defp modules do
     db = PrologEx.current_db()
     loaded = for {:module, m} <- Map.keys(db), do: m
-    (["user", "system"] ++ PrologEx.Builtins.library_modules() ++ loaded) |> Enum.uniq()
+    libs = for m <- PrologEx.Builtins.library_modules(), PrologEx.library_used?(db, m), do: m
+    (["user", "system"] ++ libs ++ loaded) |> Enum.uniq()
   end
 
   # --- Dateinamen --------------------------------------------------------

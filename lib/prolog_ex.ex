@@ -1089,6 +1089,7 @@ defmodule PrologEx do
   """
   def use_library(db, lib, into \\ "user") do
     exports = PrologEx.Builtins.exports(lib) || raise ArgumentError, "keine Bibliothek: #{lib}"
+    db = mark_library_used(db, lib)
 
     Enum.reduce(exports, db, fn {n, a}, db ->
       if Map.has_key?(db, {into, n, a}),
@@ -1096,6 +1097,14 @@ defmodule PrologEx do
         else: Map.put(db, {:import, into, n, a}, PrologEx.Builtins.source(lib, n, a))
     end)
   end
+
+  @doc false
+  # eine Bibliothek in Elixir, aus der importiert wurde (current_module/1)
+  def mark_library_used(db, "system"), do: db
+  def mark_library_used(db, lib), do: Map.put(db, {:library_used, lib}, true)
+
+  @doc false
+  def library_used?(db, lib), do: Map.has_key?(db, {:library_used, lib})
 
   # lokal oder importiert
   defp visible(db, mod, name, arity) do
