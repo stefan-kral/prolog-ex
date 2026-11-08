@@ -173,7 +173,7 @@ defmodule PrologEx.Builtins.Format do
   defp directive(?W, _n, rest, args, st, s) do
     {t, args} = next(args)
     {opts, args} = next(args)
-    text = Writer.format(PrologEx.resolve(t, s), Core.write_options(opts, s))
+    text = Writer.format(PrologEx.resolve_out(t, s), Core.write_options(opts, s))
     run(rest, args, emit(st, text), s)
   end
 
@@ -288,12 +288,12 @@ defmodule PrologEx.Builtins.Format do
 
   # --- Hilfen ---------------------------------------------------------------
 
-  defp write_text(?w, t, s), do: Writer.format(PrologEx.resolve(t, s), numbervars: true)
-  defp write_text(?q, t, s), do: Writer.format(PrologEx.resolve(t, s), Core.writeq_opts())
+  defp write_text(?w, t, s), do: Writer.format(PrologEx.resolve_out(t, s), numbervars: true)
+  defp write_text(?q, t, s), do: Writer.format(PrologEx.resolve_out(t, s), Core.writeq_opts())
   defp write_text(?p, t, s), do: Core.print_text(t, s)
 
   defp write_text(?k, t, s),
-    do: Writer.format(PrologEx.resolve(t, s), quoted: true, ignore_ops: true)
+    do: Writer.format(PrologEx.resolve_out(t, s), quoted: true, ignore_ops: true)
 
   # Ausdruck auswerten; muss eine Ganzzahl ergeben
   defp int!(t, s) do

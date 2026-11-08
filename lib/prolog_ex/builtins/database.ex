@@ -268,8 +268,13 @@ defmodule PrologEx.Builtins.Database do
 
   # Zahl der Knoten als Baum; geteilte Teilterme (gebundene Variablen,
   # physisch gleiche Strukturen) zählen nur einmal Arbeit
+  # (eine Variable auf ihrem eigenen Pfad: ein Zyklus – eine Klausel kann
+  # ihn nicht darstellen)
   defp tsize({:var, _} = v, s, memo) do
     case memo do
+      %{^v => :path} ->
+        PrologEx.Cyclic.error!()
+
       %{^v => n} ->
         {n, memo}
 
@@ -279,7 +284,7 @@ defmodule PrologEx.Builtins.Database do
             {1, memo}
 
           t ->
-            {n, memo} = tsize(t, s, memo)
+            {n, memo} = tsize(t, s, Map.put(memo, v, :path))
             {n, Map.put(memo, v, n)}
         end
     end

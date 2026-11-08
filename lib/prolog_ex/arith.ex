@@ -133,7 +133,7 @@ defmodule PrologEx.Arith do
 
   @doc "Wert des arithmetischen Ausdrucks t unter der Substitution s"
   def eval(t, s) do
-    ev(t, s)
+    ev(t, s, 0)
   rescue
     # was die Prüfungen unten nicht abfangen (sollte nicht vorkommen)
     ArithmeticError -> undefined()
@@ -141,15 +141,24 @@ defmodule PrologEx.Arith do
     SystemLimitError -> Error.resource!("memory")
   end
 
-  defp ev(t, s) do
+  # d: Tiefe. Alle @deep Stufen prüfen, ob der Ausdruck zyklisch ist (X = X
+  # + 1): sonst liefe die Auswertung, bis der Speicher ausgeht
+  @deep 1_000_000
+  defp ev(t, s, d) when d >= @deep do
+    if PrologEx.Builtins.Terms.acyclic?(t, s),
+      do: ev(t, s, d - @deep),
+      else: Error.type!("acyclic_term", t)
+  end
+
+  defp ev(t, s, d) do
     case unmark_top(walk(t, s)) do
       n when is_number(n) -> n
       # erst der Funktor, dann die Argumente: X is foo(bar) gibt
       # type_error(evaluable, foo/1), nicht bar/0 (ISO 9.1.1)
-      {:struct, op, [x, y]} when op in @ops2 -> eval2(op, ev(x, s), ev(y, s))
-      {:struct, op, [x]} when op in @ops1 -> eval1(op, ev(x, s))
+      {:struct, op, [x, y]} when op in @ops2 -> eval2(op, ev(x, s, d + 1), ev(y, s, d + 1))
+      {:struct, op, [x]} when op in @ops1 -> eval1(op, ev(x, s, d + 1))
       {:atom, name} -> eval0(name)
-      [x] -> ev_char(x, s)
+      [x] -> ev_char(x, s, d)
       {:var, _} -> Error.instantiation!()
       {:struct, f, args} -> Error.type!("evaluable", Error.indicator(f, length(args)))
       [] -> Error.type!("evaluable", Error.indicator("[]", 0))
@@ -182,8 +191,12 @@ defmodule PrologEx.Arith do
   end
 
   # {Wert, rein?, Gedächtnis}
+  # (:path: x liegt auf dem aktuellen Pfad – ein zyklischer Ausdruck)
   defp evc({:var, _} = x, s, memo) do
     case memo do
+      %{^x => :path} ->
+        Error.type!("acyclic_term", x)
+
       %{^x => v} ->
         {v, true, memo}
 
@@ -193,8 +206,8 @@ defmodule PrologEx.Arith do
             Error.instantiation!()
 
           t ->
-            {v, pure, memo} = evc(t, s, memo)
-            {v, pure, if(pure, do: Map.put(memo, x, v), else: memo)}
+            {v, pure, memo} = evc(t, s, Map.put(memo, x, :path))
+            {v, pure, if(pure, do: Map.put(memo, x, v), else: Map.delete(memo, x))}
         end
     end
   end
@@ -232,16 +245,16 @@ defmodule PrologEx.Arith do
 
       # alles andere (Liste [X], Fehler) wie eval/2
       other ->
-        {ev(other, s), true, memo}
+        {ev(other, s, 0), true, memo}
     end
   end
 
   # [X]: X; ist X ein Ein-Zeichen-Atom (z. B. "a" bei double_quotes=chars),
   # sein Zeichencode (wie SWI)
-  defp ev_char(x, s) do
+  defp ev_char(x, s, d) do
     case walk(x, s) do
       {:atom, <<c::utf8>>} -> c
-      _ -> ev(x, s)
+      _ -> ev(x, s, d + 1)
     end
   end
 
@@ -283,7 +296,7 @@ defmodule PrologEx.Arith do
   defp rn({:leaf, i}, l, s) do
     case walk(elem(l, i), s) do
       n when is_number(n) -> n
-      t -> ev(t, s)
+      t -> ev(t, s, 0)
     end
   end
 

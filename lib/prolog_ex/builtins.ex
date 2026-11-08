@@ -126,7 +126,7 @@ defmodule PrologEx.Builtins do
                     tab/2 with_output_to/2 select/4 selectchk/3 selectchk/4 flatten/2
                     predsort/3 sort/4 code_type/2 nb_setval/2 nb_getval/2 b_setval/2
                     b_getval/2 nb_current/2 term_variables/3 string/1 garbage_collect/0
-                    get_time/1)}
+                    get_time/1 cyclic_term/1)}
               ],
               k <- keys,
               into: %{} do

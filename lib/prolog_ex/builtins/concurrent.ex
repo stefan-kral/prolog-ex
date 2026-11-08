@@ -29,7 +29,8 @@ defmodule PrologEx.Builtins.Concurrent do
 
   Ergebnisse kommen als aufgelöste Kopien zurück (Nachrichten; geteilte
   Teilbäume werden dabei ausgerollt). Attributierte Variablen in Jobs oder
-  Ergebnissen: `representation_error(concurrent_attributed_variable)`.
+  Ergebnissen: `representation_error(concurrent_attributed_variable)`,
+  zyklische Ergebnisse: `representation_error(cyclic_term)`.
   """
   use PrologEx.Builtin
   alias PrologEx.Error
@@ -262,7 +263,7 @@ defmodule PrologEx.Builtins.Concurrent do
     body =
       mk("catch", [
         mk(";", [
-          mk("->", [goal, limit_check(lr, mk("=", [out, mk("ok", [l])]))]),
+          mk("->", [goal, limit_check(lr, acyclic_check(l, mk("=", [out, mk("ok", [l])])))]),
           mk("=", [out, mk("ok", [[]])])
         ]),
         e,
@@ -299,6 +300,14 @@ defmodule PrologEx.Builtins.Concurrent do
       ]),
       then
     ])
+  end
+
+  # Ergebnisse reisen als aufgelöste Terme: ein Zyklus ginge verloren
+  defp acyclic_check(l, then) do
+    cyc =
+      mk("error", [mk("representation_error", [a("cyclic_term")]), fresh_var()])
+
+    mk(";", [mk("->", [mk("acyclic_term", [l]), then]), mk("throw", [cyc])])
   end
 
   defp now_us, do: System.monotonic_time(:microsecond)

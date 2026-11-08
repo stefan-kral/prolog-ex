@@ -124,9 +124,9 @@ Antwort mit Seiteneffekt wird nie vorausgerechnet. Flag `answer_chunk`:
 `auto` (Standard: eine Seite), `N` (höchstens N Antworten), `1` (einzeln wie
 früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 
-**Zyklische Antworten:** Ohne Occurs-Check (Flag `occurs_check` = `false`,
-Standard) macht `X = f(X)` einen zyklischen Term. Der Toplevel zeigt ihn
-wie SWI, statt endlos aufzulösen:
+**Zyklische Terme (rationale Bäume):** Ohne Occurs-Check (Flag
+`occurs_check` = `false`, Standard) macht `X = f(X)` einen zyklischen Term.
+Der Toplevel zeigt ihn wie SWI, statt endlos aufzulösen:
 
 ```
 ?- X = f(Y), Y = g(X).
@@ -135,13 +135,37 @@ X = f(g(X)), Y = g(X).
 X = [a|_T], _T=[b|_T].           % Zyklus über eine nicht gezeigte Variable
 ```
 
-Erkannt wird das beim Auflösen der Antwort ohne Zusatzkosten: Auf einem
-Pfad durch einen endlichen Term liegen höchstens so viele Bindungen, wie
-es gibt; wird die Zahl überschritten, sucht eine zweite Runde die
-Variablen, über die Zyklen laufen, und hält dort an. Ein vorgeschaltetes
-`acyclic_term/1` hätte bei großen Antworten so viel gekostet wie
-`copy_term/2` (300 000 Elemente: 1,8 s, so viel wie der Aufbau). Restziele
-(`freeze`, `dif`, clpz) zeigt eine zyklische Antwort nicht.
+Was mit zyklischen Termen geht (wie SWI):
+
+* **Unifizieren** (`A = f(A), B = f(f(B)), A = B` gelingt), **Vergleichen**
+  (`==`, `compare/3`, `sort`/`msort`/`keysort`, Standardordnung koinduktiv:
+  ein Paar, das gerade schon verglichen wird, gilt als gleich), `dif/2`,
+  `subsumes_term/2`, `ground/1`, `term_variables/2`, `numbervars/3`.
+* **Kopieren mit Zyklus:** `copy_term/2`, `findall/3,4`, `findnsols`,
+  `bagof`/`setof`, `throw/1`–`catch/3` (auch aus `findall` heraus).
+* **Ausgabe** (`write`, `print`, `writeq`, `format`, `write_term`, ...) wie
+  SWI als `@(Vorlage, Gleichungen)`: `A = f(A), write(g(A))` schreibt
+  `@(g(_S1),[_S1=f(_S1)])`.
+* `cyclic_term/1` (library(swi)), `acyclic_term/1`; `length/2` einer
+  zyklischen Liste: `type_error(list, L)`.
+* **Fehler statt Endlosschleife,** wo das Ergebnis keinen Zyklus darstellen
+  kann: `assertz` u. a. `representation_error(cyclic_term)`, Arithmetik
+  (`X = X + 1, Y is X`) `type_error(acyclic_term, _)`. Die Kompaktierung
+  der Bindungen behält lebende Zyklen.
+
+Erkannt wird ein Zyklus ohne Vorab-Prüfung: Ein Durchlauf zählt auf dem
+aktuellen Pfad, wie oft er über eine Bindung ging. In einem endlichen Term
+liegt jede Bindung höchstens einmal auf einem Pfad (zwei Terme
+nebeneinander: zweimal); mehr, als die Substitution Einträge hat, heißt
+Zyklus. Dann rechnet eine zyklenfeste Fassung von vorn (Modul
+`PrologEx.Cyclic`), die nur zyklische Terme bezahlen. Endliche Terme zahlen
+je Bindung auf dem Pfad einen Vergleich: gemessen (A/B gegen den Stand
+davor) unter 1 % bei üblichen Programmen; reines Unifizieren bzw. Kopieren
+langer, über Bindungen gebauter Listen +4 bis +7 %. Ein vorgeschaltetes
+`acyclic_term/1` hätte so viel gekostet wie `copy_term/2`. Restziele
+(`freeze`, `dif`, clpz) zeigt der Toplevel bei einer zyklischen Antwort
+nicht; `library(concurrent)` nimmt keine Zyklen
+(`representation_error(cyclic_term)`).
 
 **Ctrl-C führt zu iex:** `bin/iprolog` startet iex mit `+Bc` – Ctrl-C
 unterbricht dann nur die laufende Anfrage (statt des BREAK-Menüs der BEAM),
@@ -2362,7 +2386,8 @@ beendet werden, ohne etwas halb getan zu haben.
 * **Ergebnisse** kommen als Kopien zurück und werden nach Index unifiziert.
   Geteilte Teilbäume werden dabei ausgerollt (große DAG-Terme werden teuer).
   Attributierte Variablen (`dif`, `freeze`, clpz …) in Zielen oder
-  Ergebnissen: `representation_error(concurrent_attributed_variable)`.
+  Ergebnissen: `representation_error(concurrent_attributed_variable)`,
+  zyklische Terme: `representation_error(cyclic_term)`.
 * Teilen Ziele Variablen, rechnet jedes auf seiner Kopie; erst das
   Zusammenführen prüft, ob es passt.
 * Kein memo/tabling in den Kindern (das sind Seiteneffekte).

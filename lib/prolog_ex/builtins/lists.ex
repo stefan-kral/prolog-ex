@@ -367,6 +367,10 @@ defmodule PrologEx.Builtins.Lists do
             []
         end
 
+      # eine zyklische Liste (skip_list/2 hält in ihrem Zyklus): wie SWI
+      [_ | _] ->
+        PrologEx.Error.type!("list", l)
+
       _ ->
         []
     end

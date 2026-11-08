@@ -6,6 +6,7 @@ defmodule PrologEx.Builtins.Order do
   use PrologEx.Builtin
   alias PrologEx.Order
   alias PrologEx.Builtins.Lists
+  require PrologEx.Cyclic
 
   defbuiltin "==", [x, y] do
     Order.equal?(x, y, subst())
@@ -115,22 +116,36 @@ defmodule PrologEx.Builtins.Order do
 
   @doc false
   def variables(t, s) do
-    {acc, _seen} = vars(t, s, {[], %{}})
+    {acc, _seen} = vars(t, s, {[], %{}}, 0)
     Enum.reverse(acc)
+  catch
+    # ein Zyklus (d in vars/4): von vorn, gebundene Variablen nur einmal
+    :"$cyclic" ->
+      {acc, _seen} = vars_c(t, s, {[], %{}})
+      Enum.reverse(acc)
   end
 
   @doc "Die erste Variable des Terms (in Reihenfolge des Auftretens) oder nil"
   def first_var(t, s) do
-    case first_var(t, s, %{}) do
+    case first_var(t, s, %{}, 0) do
       {:found, v} -> v
       _memo -> nil
     end
+  catch
+    :"$cyclic" ->
+      case variables(t, s) do
+        [v | _] -> v
+        [] -> nil
+      end
   end
 
   # {:found, V} oder das Memo der schon als variablenfrei bekannten
   # Teilterme (PrologEx.Share)
-  defp first_var(t, s, memo) do
-    case PrologEx.Store.walk(t, s) do
+  defp first_var(t0, s, memo, d) do
+    t = PrologEx.Store.walk(t0, s)
+    d = PrologEx.Cyclic.step(t, t0, d, s)
+
+    case t do
       {:var, _} = v ->
         {:found, v}
 
@@ -140,16 +155,16 @@ defmodule PrologEx.Builtins.Order do
             memo
 
           :error ->
-            case first_var_in(args, s, memo) do
+            case first_var_in(args, s, memo, d) do
               {:found, _} = r -> r
               memo -> PrologEx.Share.put(memo, st, true)
             end
         end
 
       [h | tl] ->
-        case first_var(h, s, memo) do
+        case first_var(h, s, memo, d) do
           {:found, _} = r -> r
-          memo -> first_var(tl, s, memo)
+          memo -> first_var(tl, s, memo, d)
         end
 
       _ ->
@@ -157,19 +172,23 @@ defmodule PrologEx.Builtins.Order do
     end
   end
 
-  defp first_var_in([], _s, memo), do: memo
+  defp first_var_in([], _s, memo, _d), do: memo
 
-  defp first_var_in([a | as], s, memo) do
-    case first_var(a, s, memo) do
+  defp first_var_in([a | as], s, memo, d) do
+    case first_var(a, s, memo, d) do
       {:found, _} = r -> r
-      memo -> first_var_in(as, s, memo)
+      memo -> first_var_in(as, s, memo, d)
     end
   end
 
   # seen: gesehene Variablen und (PrologEx.Share) schon abgelaufene
   # Teilterme – ein geteilter Teilterm bringt beim zweiten Mal nichts Neues
-  defp vars(t, s, {acc, seen} = st) do
-    case PrologEx.Store.walk(t, s) do
+  # d: Bindungen auf dem Pfad (PrologEx.Cyclic)
+  defp vars(t0, s, {acc, seen} = st, d) do
+    t = PrologEx.Store.walk(t0, s)
+    d = PrologEx.Cyclic.step(t, t0, d, s)
+
+    case t do
       {:var, _} = v ->
         if Map.has_key?(seen, v), do: st, else: {[v | acc], Map.put(seen, v, true)}
 
@@ -179,7 +198,7 @@ defmodule PrologEx.Builtins.Order do
             st
 
           :error ->
-            {acc, seen} = Enum.reduce(args, st, &vars(&1, s, &2))
+            {acc, seen} = Enum.reduce(args, st, &vars(&1, s, &2, d))
             {acc, PrologEx.Share.put(seen, t, true)}
         end
 
@@ -189,17 +208,35 @@ defmodule PrologEx.Builtins.Order do
             st
 
           :error ->
-            {acc, seen} = vars(tl, s, vars(h, s, st))
+            {acc, seen} = vars(tl, s, vars(h, s, st, d), d)
             {acc, PrologEx.Share.put(seen, l, true)}
         end
 
       [h | tl] ->
-        vars(tl, s, vars(h, s, st))
+        vars(tl, s, vars(h, s, st, d), d)
 
       _atomic_or_marked_ground ->
         st
     end
   end
+
+  # zyklenfest: jede gebundene Variable nur einmal ablaufen
+  defp vars_c({:var, _} = v, s, {acc, seen} = st) do
+    case Map.has_key?(seen, v) do
+      true ->
+        st
+
+      false ->
+        case PrologEx.Store.binding(s, v) do
+          {:ok, t} -> vars_c(t, s, {acc, Map.put(seen, v, true)})
+          :error -> {[v | acc], Map.put(seen, v, true)}
+        end
+    end
+  end
+
+  defp vars_c({:struct, _, args}, s, st), do: Enum.reduce(args, st, &vars_c(&1, s, &2))
+  defp vars_c([h | tl], s, st), do: vars_c(tl, s, vars_c(h, s, st))
+  defp vars_c(_, _s, st), do: st
 
   # Ergebnis: neue lokale Bindungen oder :error
   defp match(g, sp, s, frozen, m) do

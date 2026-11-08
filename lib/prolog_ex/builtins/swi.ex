@@ -21,7 +21,8 @@ defmodule PrologEx.Builtins.Swi do
       `b_getval`: `existence_error(variable, K)`.
     * `term_variables/3` (mit Rest), `string/1` (PrologEx kennt keine
       Strings: scheitert immer), `garbage_collect/0` (tut nichts),
-      `get_time/1` (Sekunden seit 1970 als Float).
+      `get_time/1` (Sekunden seit 1970 als Float), `cyclic_term/1`
+      (in `PrologEx.Builtins.Terms`).
   """
   use PrologEx.Builtin
   alias PrologEx.Builtins.{Blackboard, Charsio, IO, Lists}
@@ -31,13 +32,18 @@ defmodule PrologEx.Builtins.Swi do
   # --- Ausgabe ---------------------------------------------------------------
 
   defbuiltin "writeln", [x] do
-    IO.out(PrologEx.Writer.format(resolve(x), numbervars: true) <> "\n")
+    IO.out(PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), numbervars: true) <> "\n")
     :ok
   end
 
   defbuiltin "writeln", [stream, x] do
     id = IO.output!(deref(stream), :text)
-    S.put_text(id, PrologEx.Writer.format(resolve(x), numbervars: true) <> "\n")
+
+    S.put_text(
+      id,
+      PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), numbervars: true) <> "\n"
+    )
+
     :ok
   end
 

@@ -142,7 +142,10 @@ defmodule PrologEx.Builtins.Core do
   # write/1, print/1, writeq/1, write_canonical/1, write_term/2 (ISO 8.14.2):
   # Operator-Schreibweise wie gprolog, siehe PrologEx.Writer
   defbuiltin "write", [x] do
-    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), numbervars: true))
+    PrologEx.Builtins.IO.out(
+      PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), numbervars: true)
+    )
+
     :ok
   end
 
@@ -152,17 +155,26 @@ defmodule PrologEx.Builtins.Core do
   end
 
   defbuiltin "writeq", [x] do
-    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), writeq_opts()))
+    PrologEx.Builtins.IO.out(
+      PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), writeq_opts())
+    )
+
     :ok
   end
 
   defbuiltin "write_canonical", [x] do
-    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), quoted: true, ignore_ops: true))
+    PrologEx.Builtins.IO.out(
+      PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), quoted: true, ignore_ops: true)
+    )
+
     :ok
   end
 
   defbuiltin "write_term", [x, opts] do
-    PrologEx.Builtins.IO.out(PrologEx.Writer.format(resolve(x), write_options(opts, subst())))
+    PrologEx.Builtins.IO.out(
+      PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), write_options(opts, subst()))
+    )
+
     :ok
   end
 
@@ -177,7 +189,7 @@ defmodule PrologEx.Builtins.Core do
         do: [{:portray, &portray/1} | writeq_opts()],
         else: writeq_opts()
 
-    PrologEx.Writer.format(PrologEx.resolve(t, s), opts)
+    PrologEx.Writer.format(PrologEx.resolve_out(t, s), opts)
   end
 
   # user:portray(T) als Unteranfrage, Ausgabe in einen Speicher-Stream

@@ -29,39 +29,60 @@ defmodule PrologEx.Order do
   verglichen (Memo nach den ersten Strukturen).
   """
   def compare(a, b, subst) do
-    {r, _memo} = c(walk(a, subst), walk(b, subst), subst, %{})
+    {r, _memo} = c(walk(a, subst), walk(b, subst), subst, %{}, 0)
     r
+  catch
+    # ein Zyklus (siehe cm/5): zyklenfest von vorn
+    :"$cyclic" -> PrologEx.Cyclic.compare(a, b, subst)
   end
 
   # mit Memo (PrologEx.Share): geteilte Teilterme-Paare (zwei DAGs) nur
-  # einmal vergleichen; physisch derselbe Teilterm ist sofort :eq
-  defp cm(a, b, subst, m), do: c(walk(a, subst), walk(b, subst), subst, m)
+  # einmal vergleichen; physisch derselbe Teilterm ist sofort :eq.
+  # d: an wie vielen Stellen des Pfads eine Seite über eine Bindung lief;
+  # mehr als doppelt so oft, wie es Bindungen gibt, heißt Zyklus
+  defp cm(a0, b0, subst, m, d) do
+    a = walk(a0, subst)
+    b = walk(b0, subst)
+    c(a, b, subst, m, cyc_step(a, a0, b, b0, d, subst))
+  end
 
   @st [:struct, :gstruct]
 
+  # Zähler der Bindungen auf dem Pfad (siehe PrologEx.Cyclic): +1, wenn eine
+  # Seite über eine Bindung lief; mehr als 2 × Einträge: Zyklus
+  @compile {:inline, cyc_step: 6}
+  defp cyc_step(a, a0, b, b0, d, subst) do
+    if a === a0 and b === b0 do
+      d
+    else
+      d = d + 1
+      if d > 2 * map_size(subst), do: throw(:"$cyclic"), else: d
+    end
+  end
+
   # Variable < Zahl < Atom < zusammengesetzt
-  defp c({:var, x}, {:var, y}, _, m), do: {var_cmp(x, y), m}
-  defp c({:var, _}, _, _, m), do: {:lt, m}
-  defp c(_, {:var, _}, _, m), do: {:gt, m}
-  defp c(x, y, _, m) when is_integer(x) and is_integer(y), do: {cmp(x, y), m}
-  defp c(x, y, _, m) when is_float(x) and is_float(y), do: {cmp(x, y), m}
+  defp c({:var, x}, {:var, y}, _, m, _d), do: {var_cmp(x, y), m}
+  defp c({:var, _}, _, _, m, _d), do: {:lt, m}
+  defp c(_, {:var, _}, _, m, _d), do: {:gt, m}
+  defp c(x, y, _, m, _d) when is_integer(x) and is_integer(y), do: {cmp(x, y), m}
+  defp c(x, y, _, m, _d) when is_float(x) and is_float(y), do: {cmp(x, y), m}
   # ISO: Float vor Integer, unabhängig vom Wert
-  defp c(x, y, _, m) when is_float(x) and is_integer(y), do: {:lt, m}
-  defp c(x, y, _, m) when is_integer(x) and is_float(y), do: {:gt, m}
-  defp c(x, _, _, m) when is_number(x), do: {:lt, m}
-  defp c(_, y, _, m) when is_number(y), do: {:gt, m}
-  defp c({:atom, x}, {:atom, y}, _, m), do: {cmp(x, y), m}
-  defp c([], [], _, m), do: {:eq, m}
-  defp c([], {:atom, y}, _, m), do: {cmp("[]", y), m}
-  defp c({:atom, x}, [], _, m), do: {cmp(x, "[]"), m}
-  defp c({:atom, _}, _, _, m), do: {:lt, m}
-  defp c([], _, _, m), do: {:lt, m}
-  defp c(_, {:atom, _}, _, m), do: {:gt, m}
-  defp c(_, [], _, m), do: {:gt, m}
+  defp c(x, y, _, m, _d) when is_float(x) and is_integer(y), do: {:lt, m}
+  defp c(x, y, _, m, _d) when is_integer(x) and is_float(y), do: {:gt, m}
+  defp c(x, _, _, m, _d) when is_number(x), do: {:lt, m}
+  defp c(_, y, _, m, _d) when is_number(y), do: {:gt, m}
+  defp c({:atom, x}, {:atom, y}, _, m, _d), do: {cmp(x, y), m}
+  defp c([], [], _, m, _d), do: {:eq, m}
+  defp c([], {:atom, y}, _, m, _d), do: {cmp("[]", y), m}
+  defp c({:atom, x}, [], _, m, _d), do: {cmp(x, "[]"), m}
+  defp c({:atom, _}, _, _, m, _d), do: {:lt, m}
+  defp c([], _, _, m, _d), do: {:lt, m}
+  defp c(_, {:atom, _}, _, m, _d), do: {:gt, m}
+  defp c(_, [], _, m, _d), do: {:gt, m}
 
   # zusammengesetzt: Stelligkeit, Name, Argumente; Listen sind '.'/2.
   # Markierungen ({:gstruct, ...}, {:glist, ...}) direkt, ohne unmark_top
-  defp c(x, y, subst, m) do
+  defp c(x, y, subst, m, d) do
     cond do
       PrologEx.Share.same?(x, y) ->
         {:eq, m}
@@ -72,36 +93,36 @@ defmodule PrologEx.Order do
             {r, m}
 
           :error ->
-            {r, m} = c_compound(x, y, subst, m)
+            {r, m} = c_compound(x, y, subst, m, d)
             {r, PrologEx.Share.put2(m, x, y, r)}
         end
     end
   end
 
-  defp c_compound({:glist, l}, y, subst, m), do: c(l, y, subst, m)
-  defp c_compound(x, {:glist, l}, subst, m), do: c(x, l, subst, m)
+  defp c_compound({:glist, l}, y, subst, m, d), do: c(l, y, subst, m, d)
+  defp c_compound(x, {:glist, l}, subst, m, d), do: c(x, l, subst, m, d)
 
-  defp c_compound([x | xs], [y | ys], subst, m) do
-    case cm(x, y, subst, m) do
-      {:eq, m} -> cm(xs, ys, subst, m)
+  defp c_compound([x | xs], [y | ys], subst, m, d) do
+    case cm(x, y, subst, m, d) do
+      {:eq, m} -> cm(xs, ys, subst, m, d)
       other -> other
     end
   end
 
-  defp c_compound({tx, f, xs}, {ty, g, ys}, subst, m) when tx in @st and ty in @st,
-    do: c_struct(f, xs, g, ys, subst, m)
+  defp c_compound({tx, f, xs}, {ty, g, ys}, subst, m, d) when tx in @st and ty in @st,
+    do: c_struct(f, xs, g, ys, subst, m, d)
 
-  defp c_compound({tx, f, xs}, [y | ys], subst, m) when tx in @st,
-    do: c_struct(f, xs, ".", [y, ys], subst, m)
+  defp c_compound({tx, f, xs}, [y | ys], subst, m, d) when tx in @st,
+    do: c_struct(f, xs, ".", [y, ys], subst, m, d)
 
-  defp c_compound([x | xs], {ty, g, ys}, subst, m) when ty in @st,
-    do: c_struct(".", [x, xs], g, ys, subst, m)
+  defp c_compound([x | xs], {ty, g, ys}, subst, m, d) when ty in @st,
+    do: c_struct(".", [x, xs], g, ys, subst, m, d)
 
-  defp c_struct(f, xs, g, ys, subst, m) do
+  defp c_struct(f, xs, g, ys, subst, m, d) do
     case cmp(length(xs), length(ys)) do
       :eq ->
         case cmp(f, g) do
-          :eq -> c_args(xs, ys, subst, m)
+          :eq -> c_args(xs, ys, subst, m, d)
           other -> {other, m}
         end
 
@@ -111,11 +132,11 @@ defmodule PrologEx.Order do
   end
 
   # letztes Argument per Tail Call
-  defp c_args([x], [y], subst, m), do: cm(x, y, subst, m)
+  defp c_args([x], [y], subst, m, d), do: cm(x, y, subst, m, d)
 
-  defp c_args([x | xs], [y | ys], subst, m) do
-    case cm(x, y, subst, m) do
-      {:eq, m} -> c_args(xs, ys, subst, m)
+  defp c_args([x | xs], [y | ys], subst, m, d) do
+    case cm(x, y, subst, m, d) do
+      {:eq, m} -> c_args(xs, ys, subst, m, d)
       other -> other
     end
   end
@@ -140,56 +161,61 @@ defmodule PrologEx.Order do
     cond do
       # atomar: === (strikt: 1 und 1.0 sind verschieden), sonst wie
       # compare/3 (-0.0 und 0.0 sind gleich)
-      not is_tuple(a) and not is_list(a) -> a === b or elem(eq(a, b, subst, %{}), 0)
+      not is_tuple(a) and not is_list(a) -> a === b or elem(eq(a, b, subst, %{}, 0), 0)
       PrologEx.Share.same?(a, b) -> true
-      true -> a |> eq(b, subst, %{}) |> elem(0)
+      true -> a |> eq(b, subst, %{}, 0) |> elem(0)
     end
+  catch
+    # ein Zyklus (d in same/5): zyklenfest von vorn
+    :"$cyclic" -> PrologEx.Cyclic.compare(a, b, subst) == :eq
   end
 
   # Markierungen nicht aufheben (unmark_top baute jedes Mal ein neues Tupel,
   # und das Memo erkennt Teilterme an ihrer Identität): eq/4 nimmt
   # {:struct, ...} und {:gstruct, ...} gleich, {:glist, l} wie l
-  defp same(a, b, subst, m) do
-    a = walk(a, subst)
-    b = walk(b, subst)
+  defp same(a0, b0, subst, m, d) do
+    a = walk(a0, subst)
+    b = walk(b0, subst)
+    d = cyc_step(a, a0, b, b0, d, subst)
 
     if (is_tuple(a) or is_list(a)) and PrologEx.Share.same?(a, b),
       do: {true, m},
-      else: eq(a, b, subst, m)
+      else: eq(a, b, subst, m, d)
   end
 
   # der Rest einer Liste (siehe eq/4 für Listen)
-  defp same_tail(a, b, subst, m) do
-    a = walk(a, subst)
-    b = walk(b, subst)
+  defp same_tail(a0, b0, subst, m, d) do
+    a = walk(a0, subst)
+    b = walk(b0, subst)
+    d = cyc_step(a, a0, b, b0, d, subst)
 
     if (is_tuple(a) or is_list(a)) and PrologEx.Share.same?(a, b),
       do: {true, m},
-      else: eq_tail(a, b, subst, m)
+      else: eq_tail(a, b, subst, m, d)
   end
 
-  defp eq_tail({:glist, l}, b, subst, m), do: eq_tail(l, b, subst, m)
-  defp eq_tail(a, {:glist, l}, subst, m), do: eq_tail(a, l, subst, m)
+  defp eq_tail({:glist, l}, b, subst, m, d), do: eq_tail(l, b, subst, m, d)
+  defp eq_tail(a, {:glist, l}, subst, m, d), do: eq_tail(a, l, subst, m, d)
 
-  defp eq_tail([x | xs] = a, [y | ys] = b, subst, m) do
+  defp eq_tail([x | xs] = a, [y | ys] = b, subst, m, d) do
     if flat_head?(x) do
-      case same(x, y, subst, m) do
-        {true, m} -> same_tail(xs, ys, subst, m)
+      case same(x, y, subst, m, d) do
+        {true, m} -> same_tail(xs, ys, subst, m, d)
         other -> other
       end
     else
-      eq(a, b, subst, m)
+      eq(a, b, subst, m, d)
     end
   end
 
-  defp eq_tail(a, b, subst, m), do: eq(a, b, subst, m)
+  defp eq_tail(a, b, subst, m, d), do: eq(a, b, subst, m, d)
 
   # zusammengesetzte Paare mit Memo (PrologEx.Share); Blätter billig
-  defp eq({:glist, l}, b, subst, m), do: eq(l, b, subst, m)
-  defp eq(a, {:glist, l}, subst, m), do: eq(a, l, subst, m)
+  defp eq({:glist, l}, b, subst, m, d), do: eq(l, b, subst, m, d)
+  defp eq(a, {:glist, l}, subst, m, d), do: eq(a, l, subst, m, d)
 
-  defp eq({ta, f, xs} = a, {tb, f, ys} = b, subst, m) when ta in @st and tb in @st,
-    do: eq_memo(a, b, m, fn m -> eq_args(xs, ys, subst, m) end)
+  defp eq({ta, f, xs} = a, {tb, f, ys} = b, subst, m, d) when ta in @st and tb in @st,
+    do: eq_memo(a, b, m, fn m -> eq_args(xs, ys, subst, m, d) end)
 
   # Listen: die erste Zelle mit Memo (sie kann über ein Argument, einen
   # Kopf oder eine Variable von mehreren Stellen her erreicht werden – f(L, L)
@@ -198,22 +224,22 @@ defmodule PrologEx.Order do
   # Zelle verzweigt nicht, jede Verzweigung darüber ist gemerkt, der
   # Mehraufwand also höchstens polynomiell. Lange Listen aus Zahlen oder
   # L..U (clpz-Domänen) zahlen so einen Memo-Eintrag statt einen je Zelle.
-  defp eq([x | xs] = a, [y | ys] = b, subst, m) do
+  defp eq([x | xs] = a, [y | ys] = b, subst, m, d) do
     eq_memo(a, b, m, fn m ->
-      case same(x, y, subst, m) do
-        {true, m} -> same_tail(xs, ys, subst, m)
+      case same(x, y, subst, m, d) do
+        {true, m} -> same_tail(xs, ys, subst, m, d)
         other -> other
       end
     end)
   end
 
-  defp eq({:var, v}, {:var, w}, _, m), do: {v === w, m}
-  defp eq({:var, _}, _, _, m), do: {false, m}
-  defp eq(_, {:var, _}, _, m), do: {false, m}
-  defp eq({:atom, x}, {:atom, y}, _, m), do: {x === y, m}
-  defp eq(x, y, _, m) when is_integer(x) and is_integer(y), do: {x === y, m}
-  defp eq([], [], _, m), do: {true, m}
-  defp eq(x, y, subst, m), do: {compare(x, y, subst) == :eq, m}
+  defp eq({:var, v}, {:var, w}, _, m, _d), do: {v === w, m}
+  defp eq({:var, _}, _, _, m, _d), do: {false, m}
+  defp eq(_, {:var, _}, _, m, _d), do: {false, m}
+  defp eq({:atom, x}, {:atom, y}, _, m, _d), do: {x === y, m}
+  defp eq(x, y, _, m, _d) when is_integer(x) and is_integer(y), do: {x === y, m}
+  defp eq([], [], _, m, _d), do: {true, m}
+  defp eq(x, y, subst, m, _d), do: {compare(x, y, subst) == :eq, m}
 
   # flach: atomar oder eine Struktur mit lauter atomaren Argumenten
   # (Variablen zählen nicht als atomar – gebunden könnten sie verzweigen)
@@ -240,16 +266,16 @@ defmodule PrologEx.Order do
     end
   end
 
-  defp eq_args([x], [y], subst, m), do: same(x, y, subst, m)
+  defp eq_args([x], [y], subst, m, d), do: same(x, y, subst, m, d)
 
-  defp eq_args([x | xs], [y | ys], subst, m) do
-    case same(x, y, subst, m) do
-      {true, m} -> eq_args(xs, ys, subst, m)
+  defp eq_args([x | xs], [y | ys], subst, m, d) do
+    case same(x, y, subst, m, d) do
+      {true, m} -> eq_args(xs, ys, subst, m, d)
       other -> other
     end
   end
 
-  defp eq_args(_, _, _, m), do: {false, m}
+  defp eq_args(_, _, _, m, _d), do: {false, m}
 
   @doc """
   Sind a und b Varianten (gleich bis auf eine eineindeutige Umbenennung der
@@ -496,11 +522,18 @@ defmodule PrologEx.Order do
   # Struktur zeigen: dann der volle Schlüssel)
   defp key_leaf_or(a, subst) do
     case walk(a, subst) do
-      {tag, _, _} when tag in [:struct, :gstruct] -> key(a, subst)
-      [_ | _] -> key(a, subst)
-      {:glist, _} -> key(a, subst)
+      {tag, _, _} when tag in [:struct, :gstruct] -> sort_key_full(a, subst)
+      [_ | _] -> sort_key_full(a, subst)
+      {:glist, _} -> sort_key_full(a, subst)
       other -> key_leaf(other)
     end
+  end
+
+  # (ein Zyklus: über compare/3 sortieren, siehe budget_key/2)
+  defp sort_key_full(t, subst) do
+    t |> key(subst, %{}, 0) |> elem(0)
+  catch
+    :"$cyclic" -> throw(:shared)
   end
 
   defp budget_key(t, subst) do
@@ -509,7 +542,15 @@ defmodule PrologEx.Order do
     key_b(t, subst, ref)
   catch
     :big ->
-      {k, m} = key(t, subst, %{})
+      # (ein Zyklus: dann sortieren die Aufrufer über compare/3, das ihn
+      # verträgt – wie bei geteilten Teiltermen)
+      {k, m} =
+        try do
+          key(t, subst, %{}, 0)
+        catch
+          :"$cyclic" -> throw(:shared)
+        end
+
       if shared?(m), do: throw(:shared), else: k
   end
 
@@ -571,20 +612,28 @@ defmodule PrologEx.Order do
   defp dedup_keyed([]), do: []
 
   @doc "Sortierschlüssel eines Terms (siehe oben)."
-  def key(t, subst), do: t |> key(subst, %{}) |> elem(0)
+  def key(t, subst) do
+    t |> key(subst, %{}, 0) |> elem(0)
+  catch
+    # ein Schlüssel kann keinen Zyklus darstellen
+    :"$cyclic" -> PrologEx.Cyclic.error!()
+  end
 
   # mit Memo (PrologEx.Share): ein geteilter Teilterm bekommt seinen
   # Schlüssel nur einmal; ein Treffer setzt :"$shared" (dann sortiert
   # do_sort/3 über compare/3)
-  defp key(t, subst, m) do
-    case walk(t, subst) do
+  defp key(t0, subst, m, d) do
+    t = walk(t0, subst)
+    d = cyc_step(t, t0, nil, nil, d, subst)
+
+    case t do
       {tag, f, args} = st when tag in [:struct, :gstruct] ->
         case PrologEx.Share.get(m, st) do
           {:ok, k} ->
             {k, Map.put(m, :"$shared", true)}
 
           :error ->
-            {ks, m} = Enum.map_reduce(args, m, &key(&1, subst, &2))
+            {ks, m} = Enum.map_reduce(args, m, &key(&1, subst, &2, d))
             k = {3, length(args), f, List.to_tuple(ks)}
             {k, PrologEx.Share.put(m, st, k)}
         end
@@ -596,27 +645,27 @@ defmodule PrologEx.Order do
 
           :error ->
             {:cons, h, t} = uncons(l)
-            {kh, m} = key(h, subst, m)
-            {kt, m} = key(t, subst, m)
+            {kh, m} = key(h, subst, m, d)
+            {kt, m} = key(t, subst, m, d)
             k = {3, 2, ".", {kh, kt}}
             {k, PrologEx.Share.put(m, l, k)}
         end
 
       l when is_list(l) and l != [] ->
-        list_key(l, subst, m)
+        list_key(l, subst, m, d)
 
       {:glist, _} = l ->
-        list_key(l, subst, m)
+        list_key(l, subst, m, d)
 
       other ->
         {key_leaf(other), m}
     end
   end
 
-  defp list_key(l, subst, m) do
+  defp list_key(l, subst, m, d) do
     {:cons, h, t} = uncons(l)
-    {kh, m} = key(h, subst, m)
-    {kt, m} = key(t, subst, m)
+    {kh, m} = key(h, subst, m, d)
+    {kt, m} = key(t, subst, m, d)
     {{3, 2, ".", {kh, kt}}, m}
   end
 

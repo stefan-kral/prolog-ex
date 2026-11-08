@@ -127,6 +127,12 @@ defmodule PrologEx.Builtins.Terms do
     acyclic?(t, subst())
   end
 
+  # cyclic_term(T) wie SWI (Heimat library(swi)): T ist ein rationaler
+  # Baum, der nicht endlich ist
+  defbuiltin "cyclic_term", [t] do
+    not acyclic?(t, subst())
+  end
+
   @doc false
   # auch für Bibliotheken in Elixir (clpb)
   def acyclic?(t, s), do: acyclic(t, s, MapSet.new(), %{}) != :cyclic
@@ -312,12 +318,18 @@ defmodule PrologEx.Builtins.Terms do
   # eine attributierte C unifiziert wie bisher (die Kopie wird an sie
   # gebunden, ohne zu wecken)
   def copy_term(t, c, s) do
-    copy = PrologEx.copy_fresh(t, s)
+    case PrologEx.copy_cyclic(t, s) do
+      {copy, []} ->
+        case PrologEx.Store.walk(c, s) do
+          {:var, {:attv, _}} -> {:unify, [{c, copy}]}
+          {:var, _} = v -> {:subst, PrologEx.Store.bind(v, copy, s)}
+          _ -> {:unify, [{c, copy}]}
+        end
 
-    case PrologEx.Store.walk(c, s) do
-      {:var, {:attv, _}} -> {:unify, [{c, copy}]}
-      {:var, _} = v -> {:subst, PrologEx.Store.bind(v, copy, s)}
-      _ -> {:unify, [{c, copy}]}
+      # ein zyklischer Term: dazu die Gleichungen der Kopie (frische
+      # Variablen) binden
+      {copy, eqs} ->
+        {:unify, eqs ++ [{c, copy}]}
     end
   end
 

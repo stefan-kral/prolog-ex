@@ -36,7 +36,8 @@
    eigene, und erst das Zusammenführen prüft, ob es passt – bei abhängigen,
    nichtdeterministischen Zielen kann das Ergebnis vom sequentiellen
    abweichen. Attributierte Variablen in Zielen oder Ergebnissen:
-   representation_error(concurrent_attributed_variable).
+   representation_error(concurrent_attributed_variable); zyklische Terme:
+   representation_error(cyclic_term).
 */
 
 :- module(concurrent, [concurrent/3,

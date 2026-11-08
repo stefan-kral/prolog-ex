@@ -119,7 +119,7 @@ defmodule PrologEx.Builtins.Charsio do
   # '$write_term_chars'(T, Optionen, Cs): wie write_term/2, als Zeichen
   defbuiltin "$write_term_chars", [t, opts, cs] do
     o = PrologEx.Builtins.Core.write_options(opts, subst())
-    text = PrologEx.Writer.format(resolve(t), o)
+    text = PrologEx.Writer.format(PrologEx.resolve_out(t, subst()), o)
     {:unify, [{cs, chars(text)}]}
   end
 

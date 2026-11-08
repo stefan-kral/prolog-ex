@@ -565,7 +565,7 @@ defmodule PrologEx.Builtins.Coroutining do
   die Variablen, deren Bindung die Frage entscheiden kann.
   """
   def unifier(x, y, s) do
-    case uni(x, y, s, {%{}, []}) do
+    case uni_c(x, y, s) do
       :error ->
         :different
 
@@ -587,6 +587,18 @@ defmodule PrologEx.Builtins.Coroutining do
     end
   end
 
+  defp uni_c(x, y, s) do
+    uni(x, y, s, {%{}, []}, 0)
+  catch
+    # ein Zyklus (d in uni/5): mit der zyklenfesten Unifikation der
+    # Maschine; die Paare sind dann ihre neuen Bindungen
+    :"$cyclic" ->
+      case PrologEx.unify(x, y, s) do
+        {:ok, s2} -> {:ok, {%{}, s |> PrologEx.Store.new_bindings(s2) |> Enum.reverse()}}
+        :error -> :error
+      end
+  end
+
   # acc = {Bindungen, Paare in Reihenfolge (umgekehrt)}
   defp w(t, s, {m, _} = acc) do
     case PrologEx.Store.walk(t, s) do
@@ -606,9 +618,18 @@ defmodule PrologEx.Builtins.Coroutining do
   # Paar-Memo (PrologEx.Share) in der Bindungs-Map: geteilte Teilterme
   # (zwei DAGs) nur einmal abgleichen; kein === auf zusammengesetzten
   # Termen (liefe auf zwei verschiedenen DAGs Pfad für Pfad)
-  defp uni(x, y, s, acc) do
-    x = w(x, s, acc)
-    y = w(y, s, acc)
+  # d: wie oft eine Seite auf dem Pfad über eine Bindung lief (PrologEx.Cyclic)
+  defp uni(x0, y0, s, {m, _} = acc, d) do
+    x = w(x0, s, acc)
+    y = w(y0, s, acc)
+
+    d =
+      if x === x0 and y === y0 do
+        d
+      else
+        d = d + 1
+        if d > 2 * (map_size(s) + map_size(m)), do: throw(:"$cyclic"), else: d
+      end
 
     cond do
       not is_tuple(x) and not is_list(x) and x === y -> {:ok, acc}
@@ -617,40 +638,40 @@ defmodule PrologEx.Builtins.Coroutining do
       match?({:var, _}, x) -> {:ok, put_pair(acc, x, y)}
       match?({:var, _}, y) -> {:ok, put_pair(acc, y, x)}
       PrologEx.Share.same?(x, y) -> {:ok, acc}
-      true -> uni_memo(x, y, s, acc)
+      true -> uni_memo(x, y, s, acc, d)
     end
   end
 
-  defp uni_memo(x, y, s, {m, _} = acc) do
+  defp uni_memo(x, y, s, {m, _} = acc, d) do
     case PrologEx.Share.get2(m, x, y) do
       {:ok, _} ->
         {:ok, acc}
 
       :error ->
-        case uni_struct(PrologEx.unmark_top(x), PrologEx.unmark_top(y), s, acc) do
+        case uni_struct(PrologEx.unmark_top(x), PrologEx.unmark_top(y), s, acc, d) do
           {:ok, {m, l}} -> {:ok, {PrologEx.Share.put2(m, x, y, true), l}}
           :error -> :error
         end
     end
   end
 
-  defp uni_struct({:struct, f, xs}, {:struct, f, ys}, s, acc) when length(xs) == length(ys),
-    do: uni_args(xs, ys, s, acc)
+  defp uni_struct({:struct, f, xs}, {:struct, f, ys}, s, acc, d) when length(xs) == length(ys),
+    do: uni_args(xs, ys, s, acc, d)
 
-  defp uni_struct([xh | xt], [yh | yt], s, acc) do
-    case uni(xh, yh, s, acc) do
-      {:ok, acc} -> uni(xt, yt, s, acc)
+  defp uni_struct([xh | xt], [yh | yt], s, acc, d) do
+    case uni(xh, yh, s, acc, d) do
+      {:ok, acc} -> uni(xt, yt, s, acc, d)
       :error -> :error
     end
   end
 
-  defp uni_struct(_, _, _, _), do: :error
+  defp uni_struct(_, _, _, _, _), do: :error
 
-  defp uni_args([], [], _s, acc), do: {:ok, acc}
+  defp uni_args([], [], _s, acc, _d), do: {:ok, acc}
 
-  defp uni_args([x | xs], [y | ys], s, acc) do
-    case uni(x, y, s, acc) do
-      {:ok, acc} -> uni_args(xs, ys, s, acc)
+  defp uni_args([x | xs], [y | ys], s, acc, d) do
+    case uni(x, y, s, acc, d) do
+      {:ok, acc} -> uni_args(xs, ys, s, acc, d)
       :error -> :error
     end
   end

@@ -240,13 +240,29 @@ defmodule PrologEx do
   über Attribute erreichbaren (wie SWI term_attvars/2).
   """
   def term_attvars(t, subst) do
-    {acc, _} = attvars(t, subst, {[], %{}})
+    {acc, _} = attvars(t, subst, {[], %{}}, 0)
     Enum.reverse(acc)
+  catch
+    # ein Zyklus (d: Bindungen auf dem Pfad, PrologEx.Cyclic): von vorn,
+    # gebundene Variablen nur einmal
+    :"$cyclic" ->
+      {acc, _} = attvars_c(t, subst, {[], %{}})
+      Enum.reverse(acc)
   end
 
   # seen: gesehene Variablen und (PrologEx.Share) schon abgelaufene Teilterme
-  defp attvars(t, subst, {acc, seen} = st) do
-    case Store.walk(t, subst) do
+  defp attvars(t0, subst, {acc, seen} = st, d) do
+    t = Store.walk(t0, subst)
+
+    d =
+      if t === t0 do
+        d
+      else
+        d = d + 1
+        if d > map_size(subst), do: throw(:"$cyclic"), else: d
+      end
+
+    case t do
       {:var, {:attv, id}} = v ->
         if Map.has_key?(seen, v) do
           st
@@ -255,7 +271,7 @@ defmodule PrologEx do
 
           subst
           |> Store.attrs(id)
-          |> Enum.reduce(st, fn {_m, a}, st -> attvars(a, subst, st) end)
+          |> Enum.reduce(st, fn {_m, a}, st -> attvars(a, subst, st, 0) end)
         end
 
       {:struct, _, args} = t ->
@@ -264,7 +280,7 @@ defmodule PrologEx do
             st
 
           :error ->
-            {acc, seen} = attvars_args(args, subst, st)
+            {acc, seen} = attvars_args(args, subst, st, d)
             {acc, PrologEx.Share.put(seen, t, true)}
         end
 
@@ -274,20 +290,50 @@ defmodule PrologEx do
             st
 
           :error ->
-            {acc, seen} = attvars(tl, subst, attvars(h, subst, st))
+            {acc, seen} = attvars(tl, subst, attvars(h, subst, st, d), d)
             {acc, PrologEx.Share.put(seen, l, true)}
         end
 
       [h | tl] ->
-        attvars(tl, subst, attvars(h, subst, st))
+        attvars(tl, subst, attvars(h, subst, st, d), d)
 
       _ ->
         st
     end
   end
 
-  defp attvars_args([], _subst, st), do: st
-  defp attvars_args([a | as], subst, st), do: attvars_args(as, subst, attvars(a, subst, st))
+  defp attvars_args([], _subst, st, _d), do: st
+
+  defp attvars_args([a | as], subst, st, d),
+    do: attvars_args(as, subst, attvars(a, subst, st, d), d)
+
+  # zyklenfest: jede gebundene Variable nur einmal ablaufen
+  defp attvars_c({:var, _} = v, subst, {acc, seen} = st) do
+    if Map.has_key?(seen, v) do
+      st
+    else
+      case {Store.binding(subst, v), v} do
+        {{:ok, t}, _} ->
+          attvars_c(t, subst, {acc, Map.put(seen, v, true)})
+
+        {:error, {:var, {:attv, id}}} ->
+          subst
+          |> Store.attrs(id)
+          |> Enum.reduce({[v | acc], Map.put(seen, v, true)}, fn {_m, a}, st ->
+            attvars_c(a, subst, st)
+          end)
+
+        {:error, _} ->
+          {acc, Map.put(seen, v, true)}
+      end
+    end
+  end
+
+  defp attvars_c({:struct, _, args}, subst, st),
+    do: Enum.reduce(args, st, &attvars_c(&1, subst, &2))
+
+  defp attvars_c([h | tl], subst, st), do: attvars_c(tl, subst, attvars_c(h, subst, st))
+  defp attvars_c(_, _subst, st), do: st
 
   @doc "Aktive Suspensionen einer Variablen (Done ungebunden oder ohne Done)"
   def suspensions(var, subst) do
@@ -448,10 +494,17 @@ defmodule PrologEx do
   @doc false
   # mode: siehe bind_checked/4
   def unify(x, y, subst, mode) do
-    case u(x, y, subst, mode, %{}) do
+    case u(x, y, subst, mode, %{}, 0) do
       {:ok, s, _m} -> {:ok, s}
       :error -> :error
     end
+  catch
+    # ein Zyklus (siehe u/6): noch einmal von vorn, zyklenfest
+    :"$cyclic" ->
+      case u_cyc(x, y, subst, mode, MapSet.new()) do
+        {:ok, s, _seen} -> {:ok, s}
+        :error -> :error
+      end
   end
 
   @doc """
@@ -498,9 +551,23 @@ defmodule PrologEx do
   # einmal unifiziert (Unifikation ist idempotent). Kein === auf
   # zusammengesetzten Termen: auf zwei verschiedenen DAGs liefe es (in C)
   # Pfad für Pfad; physisch derselbe Term genügt (same?/2, O(1)).
-  defp u(x, y, subst, mode, m) do
-    x = Store.walk(x, subst)
-    y = Store.walk(y, subst)
+  #
+  # c: an wie vielen Stellen des aktuellen Pfads x oder y über eine Bindung
+  # lief. In endlichen Termen höchstens doppelt so oft, wie die Substitution
+  # Einträge hat (je Seite jede Bindung einmal); mehr heißt Zyklus
+  # (rationaler Baum): throw(:"$cyclic"), unify/4 rechnet dann mit u_cyc/5.
+  # Kostet je Bindung auf dem Pfad einen Vergleich.
+  defp u(x0, y0, subst, mode, m, c) do
+    x = Store.walk(x0, subst)
+    y = Store.walk(y0, subst)
+
+    c =
+      if x === x0 and y === y0 do
+        c
+      else
+        c = c + 1
+        if c > 2 * map_size(subst), do: throw(:"$cyclic"), else: c
+      end
 
     cond do
       # strikt: 1 und 1.0 sind verschiedene Terme (Elixirs == hält sie für gleich)
@@ -534,7 +601,7 @@ defmodule PrologEx do
             {:ok, subst, m}
 
           :error ->
-            case unify_struct(x, y, subst, mode, m) do
+            case unify_struct(x, y, subst, mode, m, c) do
               {:ok, s, m} -> {:ok, s, PrologEx.Share.put2(m, x, y, true)}
               :error -> :error
             end
@@ -557,45 +624,115 @@ defmodule PrologEx do
   defp var_age(_), do: :infinity
 
   # Zwei markierte (ground) Terme: gleich in der Standardordnung oder nicht
-  defp unify_struct(x, y, subst, _mode, m) when is_marked(x) and is_marked(y) do
+  defp unify_struct(x, y, subst, _mode, m, _c) when is_marked(x) and is_marked(y) do
     if PrologEx.Order.equal?(x, y, subst), do: {:ok, subst, m}, else: :error
   end
 
-  defp unify_struct({t1, f, xs}, {t2, f, ys}, subst, mode, m)
+  defp unify_struct({t1, f, xs}, {t2, f, ys}, subst, mode, m, c)
        when t1 in [:struct, :gstruct] and t2 in [:struct, :gstruct] and
               length(xs) == length(ys),
-       do: unify_args(xs, ys, subst, mode, m)
+       do: unify_args(xs, ys, subst, mode, m, c)
 
-  defp unify_struct({:glist, [x | xs]}, [y | ys], subst, mode, m) do
-    case u(x, y, subst, mode, m) do
-      {:ok, s, m} -> u(glist_tail(xs), ys, s, mode, m)
+  defp unify_struct({:glist, [x | xs]}, [y | ys], subst, mode, m, c) do
+    case u(x, y, subst, mode, m, c) do
+      {:ok, s, m} -> u(glist_tail(xs), ys, s, mode, m, c)
       :error -> :error
     end
   end
 
-  defp unify_struct([x | xs], {:glist, [y | ys]}, subst, mode, m) do
-    case u(x, y, subst, mode, m) do
-      {:ok, s, m} -> u(xs, glist_tail(ys), s, mode, m)
+  defp unify_struct([x | xs], {:glist, [y | ys]}, subst, mode, m, c) do
+    case u(x, y, subst, mode, m, c) do
+      {:ok, s, m} -> u(xs, glist_tail(ys), s, mode, m, c)
       :error -> :error
     end
   end
 
   # Listen: Kopf unifizieren, dann per Tail Call mit dem Rest weiter –
   # keine Rekursionstiefe entlang der Liste.
-  defp unify_struct([x | xs], [y | ys], subst, mode, m) do
-    case u(x, y, subst, mode, m) do
-      {:ok, s, m} -> u(xs, ys, s, mode, m)
+  defp unify_struct([x | xs], [y | ys], subst, mode, m, c) do
+    case u(x, y, subst, mode, m, c) do
+      {:ok, s, m} -> u(xs, ys, s, mode, m, c)
       :error -> :error
     end
   end
 
-  defp unify_struct(_, _, _, _, _), do: :error
+  defp unify_struct(_, _, _, _, _, _), do: :error
 
-  defp unify_args([], [], subst, _mode, m), do: {:ok, subst, m}
+  defp unify_args([], [], subst, _mode, m, _c), do: {:ok, subst, m}
 
-  defp unify_args([x | xs], [y | ys], subst, mode, m) do
-    case u(x, y, subst, mode, m) do
-      {:ok, s, m} -> unify_args(xs, ys, s, mode, m)
+  defp unify_args([x | xs], [y | ys], subst, mode, m, c) do
+    case u(x, y, subst, mode, m, c) do
+      {:ok, s, m} -> unify_args(xs, ys, s, mode, m, c)
+      :error -> :error
+    end
+  end
+
+  # Zyklenfeste Unifikation (rationale Bäume), nur nach throw(:"$cyclic")
+  # in u/6: koinduktiv – ein Paar zusammengesetzter Terme, das schon
+  # unifiziert wird oder wurde, gilt als unifiziert. Ein Zyklus läuft immer
+  # über eine Variable; Schlüssel eines Paars ist darum je Seite die letzte
+  # Variable, über die sie lief (ohne eine: der Term selbst).
+  defp u_cyc(x0, y0, subst, mode, seen) do
+    {x, vx} = PrologEx.Cyclic.walk_last(x0, subst, nil)
+    {y, vy} = PrologEx.Cyclic.walk_last(y0, subst, nil)
+
+    cond do
+      not is_tuple(x) and not is_list(x) and x === y ->
+        {:ok, subst, seen}
+
+      match?({:var, _}, x) and x === y ->
+        {:ok, subst, seen}
+
+      match?({:atom, _}, x) and x === y ->
+        {:ok, subst, seen}
+
+      match?({:var, _}, x) and match?({:var, _}, y) ->
+        {v, t} = if younger?(x, y), do: {x, y}, else: {y, x}
+        with {:ok, s} <- bind_checked(v, t, subst, mode), do: {:ok, s, seen}
+
+      match?({:var, _}, x) ->
+        with {:ok, s} <- bind_checked(x, y, subst, mode), do: {:ok, s, seen}
+
+      match?({:var, _}, y) ->
+        with {:ok, s} <- bind_checked(y, x, subst, mode), do: {:ok, s, seen}
+
+      vx == nil and vy == nil ->
+        u_cyc_struct(x, y, subst, mode, seen)
+
+      true ->
+        key = {vx || x, vy || y}
+
+        if MapSet.member?(seen, key),
+          do: {:ok, subst, seen},
+          else: u_cyc_struct(x, y, subst, mode, MapSet.put(seen, key))
+    end
+  end
+
+  defp u_cyc_struct(x, y, subst, _mode, seen) when is_marked(x) and is_marked(y) do
+    if PrologEx.Order.equal?(x, y, subst), do: {:ok, subst, seen}, else: :error
+  end
+
+  defp u_cyc_struct({t1, f, xs}, {t2, f, ys}, subst, mode, seen)
+       when t1 in [:struct, :gstruct] and t2 in [:struct, :gstruct] and
+              length(xs) == length(ys),
+       do: u_cyc_args(xs, ys, subst, mode, seen)
+
+  defp u_cyc_struct({:glist, [x | xs]}, [y | ys], subst, mode, seen),
+    do: u_cyc_args([x, glist_tail(xs)], [y, ys], subst, mode, seen)
+
+  defp u_cyc_struct([x | xs], {:glist, [y | ys]}, subst, mode, seen),
+    do: u_cyc_args([x, xs], [y, glist_tail(ys)], subst, mode, seen)
+
+  defp u_cyc_struct([x | xs], [y | ys], subst, mode, seen),
+    do: u_cyc_args([x, xs], [y, ys], subst, mode, seen)
+
+  defp u_cyc_struct(_, _, _, _, _), do: :error
+
+  defp u_cyc_args([], [], subst, _mode, seen), do: {:ok, subst, seen}
+
+  defp u_cyc_args([x | xs], [y | ys], subst, mode, seen) do
+    case u_cyc(x, y, subst, mode, seen) do
+      {:ok, s, seen} -> u_cyc_args(xs, ys, s, mode, seen)
       :error -> :error
     end
   end
@@ -604,19 +741,38 @@ defmodule PrologEx do
   # Geteilte Teilterme werden nur einmal aufgelöst (PrologEx.Share) und
   # bleiben im Ergebnis geteilt.
   def resolve(t, subst) do
-    {r, _memo} = resolve(t, subst, %{})
+    {r, _memo} = resolve(t, subst, %{}, 0)
     r
+  catch
+    # ein Zyklus (d: Bindungen auf dem Pfad, PrologEx.Cyclic): ein
+    # aufgelöster Term kann ihn nicht darstellen
+    :"$cyclic" -> PrologEx.Cyclic.error!()
   end
 
-  defp resolve(t, subst, memo) do
-    case Store.walk(t, subst) do
+  # (gezählt wird nur an gebundenen Variablen)
+  defp resolve({:var, _} = v, subst, memo, d) do
+    case Store.walk(v, subst) do
+      {:var, _} = free ->
+        {free, memo}
+
+      t ->
+        d = d + 1
+        if d > map_size(subst), do: throw(:"$cyclic")
+        resolve_nv(t, subst, memo, d)
+    end
+  end
+
+  defp resolve(t, subst, memo, d), do: resolve_nv(t, subst, memo, d)
+
+  defp resolve_nv(t, subst, memo, d) do
+    case t do
       {:struct, f, args} = st ->
         case PrologEx.Share.get(memo, st) do
           {:ok, r} ->
             {r, memo}
 
           :error ->
-            {args2, memo} = resolve_args(args, subst, memo)
+            {args2, memo} = resolve_args(args, subst, memo, d)
             r = {:struct, f, args2}
             {r, PrologEx.Share.put(memo, st, r)}
         end
@@ -628,14 +784,14 @@ defmodule PrologEx do
             {r, memo}
 
           :error ->
-            {h2, memo} = resolve(h, subst, memo)
-            {t2, memo} = resolve(tl, subst, memo)
+            {h2, memo} = resolve(h, subst, memo, d)
+            {t2, memo} = resolve(tl, subst, memo, d)
             r = [h2 | t2]
             {r, PrologEx.Share.put(memo, l, r)}
         end
 
       [h | tl] ->
-        {t2, memo} = resolve(tl, subst, memo)
+        {t2, memo} = resolve(tl, subst, memo, d)
         {[h | t2], memo}
 
       t when is_marked(t) ->
@@ -646,13 +802,45 @@ defmodule PrologEx do
     end
   end
 
-  defp resolve_args([], _subst, memo), do: {[], memo}
+  defp resolve_args([], _subst, memo, _d), do: {[], memo}
 
-  defp resolve_args([a | as], subst, memo) do
-    {a, memo} = resolve(a, subst, memo)
-    {as, memo} = resolve_args(as, subst, memo)
+  defp resolve_args([a | as], subst, memo, d) do
+    {a, memo} = resolve(a, subst, memo, d)
+    {as, memo} = resolve_args(as, subst, memo, d)
     {[a | as], memo}
   end
+
+  @doc """
+  `resolve/2` für Ausgaben (write/1, format/2, ...): ein zyklischer Term
+  wird wie in SWI zu `@(Vorlage, [_S1 = Wert, ...])` – je Variable, über
+  die ein Zyklus läuft, eine Gleichung.
+  """
+  def resolve_out(t, subst) do
+    {r, _memo} = resolve(t, subst, %{}, 0)
+    r
+  catch
+    :"$cyclic" ->
+      cyc = Enum.sort(cycle_vars([t], subst))
+      set = MapSet.new(cyc)
+      names = Map.new(Enum.with_index(cyc, 1), fn {v, i} -> {v, {:var, "_S#{i}"}} end)
+      ren = &rename_vars(&1, names)
+
+      eqs =
+        for v <- cyc do
+          {:ok, b} = Store.binding(subst, v)
+          mk("=", [names[v], ren.(resolve_cyc(b, subst, set))])
+        end
+
+      mk("@", [ren.(resolve_cyc(t, subst, set)), list(eqs)])
+  end
+
+  defp rename_vars({:var, _} = v, names), do: Map.get(names, v, v)
+
+  defp rename_vars({:struct, f, args}, names),
+    do: {:struct, f, Enum.map(args, &rename_vars(&1, names))}
+
+  defp rename_vars([h | t], names), do: [rename_vars(h, names) | rename_vars(t, names)]
+  defp rename_vars(t, _names), do: t
 
   @doc """
   Kopie eines Terms mit frischen Variablen (gleiche Variablen bleiben
@@ -660,9 +848,29 @@ defmodule PrologEx do
   gewordene Teile werden markiert.
   """
   def copy_fresh(t, subst) do
-    {c, _map} = copy(t, subst, %{})
+    {c, _map} = copy(t, subst, %{}, 0)
     c
+  catch
+    # ein Zyklus: eine Kopie ohne Bindungen kann ihn nicht darstellen
+    # (copy_term/2, findall/3, throw/1: copy_cyclic/2)
+    :"$cyclic" -> PrologEx.Cyclic.error!()
   end
+
+  @doc """
+  Wie `copy_fresh/2`, verträgt aber Zyklen: `{kopie, []}` oder, bei einem
+  zyklischen Term, `{kopie, gleichungen}` – frische Variablen V mit ihren
+  Werten `{V, Wert}`, die der Empfänger bindet (`bind_eqs/2`), wo die Kopie
+  ankommt (PrologEx.Cyclic.copy/2).
+  """
+  def copy_cyclic(t, subst) do
+    {c, _map} = copy(t, subst, %{}, 0)
+    {c, []}
+  catch
+    :"$cyclic" -> PrologEx.Cyclic.copy(t, subst)
+  end
+
+  @doc "Die Gleichungen einer zyklischen Kopie binden (frische Variablen)"
+  def bind_eqs(eqs, s), do: Enum.reduce(eqs, s, fn {v, t}, s -> Store.bind(v, t, s) end)
 
   @doc """
   Wie `copy_fresh/2`, aber die Variablen von `keep` bleiben dieselben
@@ -670,12 +878,17 @@ defmodule PrologEx do
   """
   def copy_fresh(t, subst, keep) do
     map = keep |> PrologEx.Builtins.Order.variables(subst) |> Map.new(&{&1, &1})
-    {c, _map} = copy(t, subst, map)
+    {c, _map} = copy(t, subst, map, 0)
     c
+  catch
+    :"$cyclic" -> PrologEx.Cyclic.error!()
   end
 
-  defp copy(t, subst, map) do
-    case Store.walk(t, subst) do
+  # d: Bindungen auf dem Pfad (siehe PrologEx.Cyclic)
+  # (gezählt wird nur, wo eine Variable gebunden ist: die übrigen Knoten
+  # zahlen nichts)
+  defp copy({:var, _} = v, subst, map, d) do
+    case Store.walk(v, subst) do
       {:var, _} = var ->
         case Map.fetch(map, var) do
           {:ok, fresh} ->
@@ -686,6 +899,17 @@ defmodule PrologEx do
             {fresh, Map.put(map, var, fresh)}
         end
 
+      t ->
+        d = d + 1
+        if d > map_size(subst), do: throw(:"$cyclic")
+        copy_nv(t, subst, map, d)
+    end
+  end
+
+  defp copy(t, subst, map, d), do: copy_nv(t, subst, map, d)
+
+  defp copy_nv(t, subst, map, d) do
+    case t do
       m when is_marked(m) ->
         {m, map}
 
@@ -696,7 +920,7 @@ defmodule PrologEx do
             {c, map}
 
           :error ->
-            {args, map} = copy_args(args, subst, map)
+            {args, map} = copy_args(args, subst, map, d)
             c = mk_struct(f, args)
             {c, PrologEx.Share.put(map, st, c)}
         end
@@ -707,15 +931,15 @@ defmodule PrologEx do
             {c, map}
 
           :error ->
-            {h, map} = copy(h, subst, map)
-            {tl, map} = copy(tl, subst, map)
+            {h, map} = copy(h, subst, map, d)
+            {tl, map} = copy(tl, subst, map, d)
             c = cons(h, tl)
             {c, PrologEx.Share.put(map, l, c)}
         end
 
       [h | tl] ->
-        {h, map} = copy(h, subst, map)
-        {tl, map} = copy(tl, subst, map)
+        {h, map} = copy(h, subst, map, d)
+        {tl, map} = copy(tl, subst, map, d)
         {cons(h, tl), map}
 
       atomic ->
@@ -724,11 +948,11 @@ defmodule PrologEx do
   end
 
   # Argumente kopieren (eigene Rekursion statt Enum.map_reduce mit Closure)
-  defp copy_args([], _subst, map), do: {[], map}
+  defp copy_args([], _subst, map, _d), do: {[], map}
 
-  defp copy_args([a | as], subst, map) do
-    {a, map} = copy(a, subst, map)
-    {as, map} = copy_args(as, subst, map)
+  defp copy_args([a | as], subst, map, d) do
+    {a, map} = copy(a, subst, map, d)
+    {as, map} = copy_args(as, subst, map, d)
     {[a | as], map}
   end
 
@@ -1704,8 +1928,8 @@ defmodule PrologEx do
            partial_list!(tail, st.subst)
            collect(run(sub_machine(t, body!(g, st.subst), mod, st)), :infinity, [])
          end) do
-      {:ok, {items, :done}} ->
-        case unify(l, list(items, tail), st.subst) do
+      {:ok, {items, :done, eqs}} ->
+        case unify(l, list(items, tail), bind_eqs(eqs, st.subst)) do
           {:ok, s} -> cont(resync(st), s, rest)
           :error -> backtrack(st)
         end
@@ -3615,19 +3839,27 @@ defmodule PrologEx do
   end
 
   # Lösungen einsammeln: höchstens n (oder :infinity). Ergebnis
-  # {kopien, :done} oder {kopien, {:more, zustand}} zum Fortsetzen.
-  defp collect(result, n, acc), do: collect(result, n, acc, 0)
+  # {kopien, :done, gl} oder {kopien, {:more, zustand}, gl} zum Fortsetzen;
+  # gl: Gleichungen zyklischer Kopien (copy_cyclic/2), meist [] – der
+  # Empfänger bindet sie (bind_eqs/2)
+  defp collect(result, n, acc), do: collect(result, n, acc, 0, [])
 
-  defp collect(:done, _n, acc, _k), do: {Enum.reverse(acc), :done}
+  defp collect(:done, _n, acc, _k, eqs), do: {Enum.reverse(acc), :done, eqs}
 
-  defp collect({:sol, s}, n, acc, k) do
+  defp collect({:sol, s}, n, acc, k, eqs) do
     [{_, t}] = s.answer
-    acc = [copy_fresh(t, s.subst) | acc]
+
+    {acc, eqs} =
+      case copy_cyclic(t, s.subst) do
+        {c, []} -> {[c | acc], eqs}
+        {c, e} -> {[c | acc], e ++ eqs}
+      end
+
     k = k + 1
 
     if n != :infinity and k >= n,
-      do: {Enum.reverse(acc), {:more, s}},
-      else: collect(backtrack(s), n, acc, k)
+      do: {Enum.reverse(acc), {:more, s}, eqs},
+      else: collect(backtrack(s), n, acc, k, eqs)
   end
 
   defp fold(:done, _spec, acc), do: acc
@@ -3641,8 +3873,8 @@ defmodule PrologEx do
   defp count(:done, k), do: k
   defp count({:sol, s}, k), do: count(backtrack(s), k + 1)
 
-  # collected: {kopien, :done | {:more, unter_maschine}} (siehe collect/3)
-  defp findnsols_chunk({items, cont}, k, l, tail, rest, st) do
+  # collected: {kopien, :done | {:more, unter_maschine}, gleichungen} (siehe collect/3)
+  defp findnsols_chunk({items, cont, eqs}, k, l, tail, rest, st) do
     st =
       case cont do
         # Rahmen von setup_call_cleanup/3 in der aufbewahrten Teilberechnung:
@@ -3655,7 +3887,7 @@ defmodule PrologEx do
           st
       end
 
-    case unify(l, list(items, tail), st.subst) do
+    case unify(l, list(items, tail), bind_eqs(eqs, st.subst)) do
       {:ok, s} -> cont(st, s, rest)
       :error -> backtrack(st)
     end
@@ -3906,10 +4138,23 @@ defmodule PrologEx do
   # catch/3-Rahmen suchen, dessen Catcher passt. Alles darüber wird
   # verworfen; der Rahmen selbst auch. Ohne passenden Rahmen geht die
   # Ausnahme an den Aufrufer (Toplevel, umgebende Unter-Maschine).
+  # Der Ball wird kopiert; ein zyklischer reist als {:"$cyc", Kopie,
+  # Gleichungen} (copy_cyclic/2), gebunden wird erst, wo er ankommt
+  # (land_ball/2)
   defp throw_ball(ball, st) do
-    ball = copy_fresh(ball, st.subst)
+    {ball, s} = land_ball(ball, st.subst)
+
+    ball =
+      case copy_cyclic(ball, s) do
+        {c, []} -> c
+        {c, eqs} -> {:"$cyc", c, eqs}
+      end
+
     unwind(ball, st.cps, st.height, st)
   end
+
+  defp land_ball({:"$cyc", t, eqs}, s), do: {t, bind_eqs(eqs, s)}
+  defp land_ball(ball, s), do: {ball, s}
 
   defp unwind(ball, [], _h, _st), do: PrologEx.Error.throw!(ball)
 
@@ -3917,7 +4162,9 @@ defmodule PrologEx do
     if MapSet.member?(st.catch_off, id) do
       unwind(ball, below, h - 1, st)
     else
-      case unify(c, ball, Store.restore(subst)) do
+      {b, s0} = land_ball(ball, Store.restore(subst))
+
+      case unify(c, b, s0) do
         {:ok, s} ->
           st = %{st | cps: below, height: h - 1, answer: answer}
           cont(st, s, [{r, h - 1, mod} | rest])
@@ -4001,9 +4248,22 @@ defmodule PrologEx do
   end
 
   defp compact_all(st) do
+    compact_all(st, %{})
+  catch
+    # ein zyklischer Term (rationaler Baum) lebt: noch einmal, wobei die
+    # Variablen, über die Zyklen laufen, gebunden stehen bleiben (der Zyklus
+    # bleibt so endlich darstellbar); ihre Bindungen kompaktiert
+    # close_cyc/3 mit
+    :"$cyclic" ->
+      cyc = st.subst |> Store.bound_vars() |> cycle_vars(st.subst)
+      compact_all(st, Map.new(cyc, &{&1, :cyc}))
+  end
+
+  # seed: Memo vorab – Zyklusvariable => :cyc
+  defp compact_all(st, seed) do
     # acc = {Memo, Größe, erreichte attributierte Variablen (Kennungen)}
     {goals, acc} =
-      Enum.map_reduce(st.goals, {%{}, 0, []}, fn {g, cutb, mod}, acc ->
+      Enum.map_reduce(st.goals, {seed, 0, []}, fn {g, cutb, mod}, acc ->
         {g, acc} = compact(g, st.subst, acc)
         {{g, cutb, mod}, acc}
       end)
@@ -4065,7 +4325,8 @@ defmodule PrologEx do
           []
       end
 
-    {attrs, size} = compact_attrs(root_attvs ++ keep, Store.new(), acc, st.subst)
+    {attrs, size, memo} = compact_attrs(root_attvs ++ keep, Store.new(), acc, st.subst)
+    {attrs, size} = close_cyc(attrs, {memo, size, []}, st.subst)
 
     # Ebene von call_with_depth_limit/3 mitnehmen
     attrs =
@@ -4107,7 +4368,7 @@ defmodule PrologEx do
 
   # Attribute der Variablen ids (und der in ihren Attributen erreichten)
   # kompaktieren; schon behandelte stehen in out
-  defp compact_attrs([], out, {_memo, size, _}, _subst), do: {out, size}
+  defp compact_attrs([], out, {memo, size, _}, _subst), do: {out, size, memo}
 
   defp compact_attrs([id | ids], out, acc, subst) do
     case not Store.has_attrs?(out, id) and Store.fetch_attrs(subst, id) do
@@ -4133,8 +4394,32 @@ defmodule PrologEx do
     end
   end
 
+  # erreichte Zyklusvariablen (unter :"$cyc" im Memo, siehe compact_all/1):
+  # sie bleiben gebunden, ihre Bindungen werden mitkompaktiert (und können
+  # weitere erreichen)
+  defp close_cyc(out, {memo, size, _}, subst) do
+    case Map.get(memo, :"$cyc", []) do
+      [] ->
+        {out, size}
+
+      vs ->
+        acc0 = {Map.put(memo, :"$cyc", []), size, []}
+
+        {out, acc} =
+          Enum.reduce(vs, {out, acc0}, fn v, {out, acc} ->
+            {:ok, t} = Store.binding(subst, v)
+            {t2, acc} = compact(t, subst, acc)
+            {Store.put(out, v, t2), acc}
+          end)
+
+        {_, _, attvs} = acc
+        {out, size, memo} = compact_attrs(attvs, out, acc, subst)
+        close_cyc(out, {memo, size, []}, subst)
+    end
+  end
+
   defp compact(t, subst, acc) do
-    {t2, acc, _changed, _ground} = compact3(t, subst, acc)
+    {t2, acc, _changed, _ground} = compact3(t, subst, acc, 0)
     {t2, acc}
   end
 
@@ -4154,18 +4439,23 @@ defmodule PrologEx do
 
   # Ergebnis: {Term, {memo, nicht_ground_größe}, verändert?, ground?}
   # Unveränderte Teilterme werden nicht kopiert, sondern geteilt.
-  defp compact3(t, _subst, acc) when is_marked(t), do: {t, acc, false, true}
+  defp compact3(t, _subst, acc, _d) when is_marked(t), do: {t, acc, false, true}
 
   # Markierung von call_nth/2: das Argument N kann eine Variable sein
-  defp compact3({:"$nth", ref, n, h}, subst, acc) do
-    {n2, acc, changed, _} = compact3(n, subst, acc)
+  defp compact3({:"$nth", ref, n, h}, subst, acc, d) do
+    {n2, acc, changed, _} = compact3(n, subst, acc, d)
     {{:"$nth", ref, n2, h}, acc, changed, false}
   end
 
-  defp compact3({:var, _} = var, subst, {memo, size, attvs} = acc) do
+  defp compact3({:var, _} = var, subst, {memo, size, attvs} = acc, d) do
     case Map.fetch(memo, var) do
       {:ok, {t, g}} ->
         {t, acc, t != var, g}
+
+      # Zyklusvariable (compact_all/1): bleibt stehen, einmal vormerken
+      {:ok, :cyc} ->
+        memo = memo |> Map.put(var, {var, false}) |> Map.update(:"$cyc", [var], &[var | &1])
+        {var, {memo, size, attvs}, false, false}
 
       :error ->
         case Store.walk(var, subst) do
@@ -4191,7 +4481,10 @@ defmodule PrologEx do
           # (atomare Werte und Variablen sind oben abgehandelt – die Memo-Map
           # bleibt klein, ihre Zugriffe billig)
           bound ->
-            {t, {memo, size, attvs}, _ch, g} = compact3(bound, subst, acc)
+            # (d: Bindungen auf dem Pfad, siehe PrologEx.Cyclic)
+            d = d + 1
+            if d > map_size(subst), do: throw(:"$cyclic")
+            {t, {memo, size, attvs}, _ch, g} = compact3(bound, subst, acc, d)
             {t, {Map.put(memo, var, {t, g}), size, attvs}, true, g}
         end
     end
@@ -4199,13 +4492,13 @@ defmodule PrologEx do
 
   # Geteilte Teilterme (ein DAG, etwa die Knoten eines BDDs) nur einmal
   # ablaufen (PrologEx.Share): ein Treffer liefert, was die Rechnung ergäbe.
-  defp compact3({:struct, f, args} = t, subst, {memo, _, _} = acc) do
+  defp compact3({:struct, f, args} = t, subst, {memo, _, _} = acc, d) do
     case PrologEx.Share.get(memo, t) do
       {:ok, {t2, changed, ground}} ->
         {t2, acc, changed, ground}
 
       :error ->
-        {t2, {memo, size, attvs}, changed, ground} = compact_struct(t, f, args, subst, acc)
+        {t2, {memo, size, attvs}, changed, ground} = compact_struct(t, f, args, subst, acc, d)
         {t2, {PrologEx.Share.put(memo, t, {t2, changed, ground}), size, attvs}, changed, ground}
     end
   end
@@ -4214,18 +4507,18 @@ defmodule PrologEx do
   # Rest-Variablen), dann von hinten neu aufbauen. Rekursion über den Rest
   # hieße einen Stack so tief wie die Liste – und jede GC durchsucht den
   # ganzen Stack (bei 400 000 Zellen ein Mehrfaches der eigentlichen Arbeit).
-  defp compact3([_ | _] = l, subst, acc) do
-    {spine, tail, acc} = compact_spine(l, subst, acc, [])
-    {t2, acc, ct, gt} = compact3(tail, subst, acc)
+  defp compact3([_ | _] = l, subst, acc, d) do
+    {spine, tail, acc, d} = compact_spine(l, subst, acc, [], d)
+    {t2, acc, ct, gt} = compact3(tail, subst, acc, d)
     compact_rebuild(spine, t2, acc, ct, gt)
   end
 
-  defp compact3(t, _subst, acc), do: {t, acc, false, true}
+  defp compact3(t, _subst, acc, _d), do: {t, acc, false, true}
 
-  defp compact_struct(t, f, args, subst, acc) do
+  defp compact_struct(t, f, args, subst, acc, d) do
     {args2, {acc, changed, ground}} =
       Enum.map_reduce(args, {acc, false, true}, fn arg, {acc, ch, gr} ->
-        {a2, acc, c, g} = compact3(arg, subst, acc)
+        {a2, acc, c, g} = compact3(arg, subst, acc, d)
         {a2, {acc, ch or c, gr and g}}
       end)
 
@@ -4240,26 +4533,28 @@ defmodule PrologEx do
 
   # Köpfe der Reihe nach kompaktieren; Einträge {:cell, zelle, h2, ch, gh}
   # oder {:link, var} (gebundene Rest-Variable, wird beim Aufbau memoisiert)
-  defp compact_spine([h | t] = l, subst, acc, spine) do
-    {h2, acc, ch, gh} = compact3(h, subst, acc)
+  defp compact_spine([h | t] = l, subst, acc, spine, d) do
+    {h2, acc, ch, gh} = compact3(h, subst, acc, d)
     spine = [{:cell, l, h2, ch, gh} | spine]
 
     case t do
       [_ | _] ->
-        compact_spine(t, subst, acc, spine)
+        compact_spine(t, subst, acc, spine, d)
 
       {:var, _} = var ->
         {memo, _, _} = acc
 
         with :error <- Map.fetch(memo, var),
              [_ | _] = next <- Store.walk(var, subst) do
-          compact_spine(next, subst, acc, [{:link, var} | spine])
+          d = d + 1
+          if d > map_size(subst), do: throw(:"$cyclic")
+          compact_spine(next, subst, acc, [{:link, var} | spine], d)
         else
-          _ -> {spine, t, acc}
+          _ -> {spine, t, acc, d}
         end
 
       _ ->
-        {spine, t, acc}
+        {spine, t, acc, d}
     end
   end
 

@@ -25,6 +25,8 @@ defmodule PrologEx.Error do
   @impl true
   def message(%__MODULE__{term: t}) do
     case t do
+      # ein zyklischer Ball (PrologEx.throw_ball/2): ohne seine Zyklen
+      {:"$cyc", t, _eqs} -> message(%__MODULE__{term: t}) <> " (zyklischer Term)"
       {tag, "error", [formal, _ctx]} when tag in [:struct, :gstruct] -> show(formal)
       other -> "unbehandelte Ausnahme: " <> show(other)
     end

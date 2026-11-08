@@ -115,6 +115,13 @@ defmodule PrologEx.Store do
   @doc "Kennungen aller attributierten Variablen, die Attribute haben"
   def attv_ids(s), do: for({:attrs, id} <- Map.keys(s), do: id)
 
+  @doc "Bindungen in `s2`, die es in `s1` nicht gab: `[{var, wert}]`"
+  def new_bindings(s1, s2),
+    do: for({{:var, _} = v, t} <- s2, not Map.has_key?(s1, v), do: {v, t})
+
+  @doc "Alle gebundenen Variablen (für Zyklen: PrologEx.Cyclic)"
+  def bound_vars(s), do: for({{:var, _} = v, _} <- s, do: v)
+
   @doc "Alle Attribute: Liste von `{id, attrs}`"
   def all_attrs(s), do: for({{:attrs, id}, attrs} <- s, do: {id, attrs})
 

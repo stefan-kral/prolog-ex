@@ -339,7 +339,7 @@ defmodule PrologEx.Builtins.IO do
   defbuiltin "term_to_atom", [t, atom] do
     case deref(atom) do
       {:var, _} ->
-        text = Writer.format(resolve(t), quoted: true, ignore_ops: false)
+        text = Writer.format(PrologEx.resolve_out(t, subst()), quoted: true, ignore_ops: false)
         {:unify, [{atom, a(text)}]}
 
       at ->
@@ -379,7 +379,7 @@ defmodule PrologEx.Builtins.IO do
 
   defp write_to(stream, x, opts, s) do
     id = output!(PrologEx.Store.walk(stream, s), :text)
-    S.put_text(id, Writer.format(PrologEx.resolve(x, s), opts))
+    S.put_text(id, Writer.format(PrologEx.resolve_out(x, s), opts))
   end
 
   # --- open ---------------------------------------------------------------
