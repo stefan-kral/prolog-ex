@@ -12,7 +12,6 @@ defmodule PrologEx.LoadLogTest do
   setup c do
     Reader.put_current(c.reader)
     PrologEx.put_db(%{})
-    on_exit(fn -> PrologEx.Flags.set("verbose_load", {:atom, "silent"}) end)
     :ok
   end
 
@@ -24,8 +23,9 @@ defmodule PrologEx.LoadLogTest do
     end)
   end
 
-  test "silent (Vorgabe): nichts", c do
-    assert run(c, "use_module(library(pairs))") == ""
+  test "Vorgabe full; silent: nichts", c do
+    assert run(c, "current_prolog_flag(verbose_load, full)") == ""
+    assert run(c, "set_prolog_flag(verbose_load, silent), use_module(library(pairs))") == ""
   end
 
   test "normal: Laden und Zahl der Importe, geschachtelt eingerückt", c do

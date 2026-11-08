@@ -2625,7 +2625,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
 ### Was wohin importiert wird: Flag `verbose_load`
 
-Wie SWI (`silent` ist die Vorgabe). Mit `normal` meldet das Laden auf
+Werte wie SWI; Vorgabe hier `full` (SWI: `silent`), abschalten mit
+`set_prolog_flag(verbose_load, silent)`. Mit `normal` meldet das Laden auf
 stderr jede geladene Datei bzw. Bibliothek und je Import, wie viele
 Prädikate in welches Modul kamen. Mit `full` stehen die Prädikate und
 Operatoren einzeln dabei. Was eine Bibliothek beim Laden selbst importiert,

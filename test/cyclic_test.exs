@@ -112,6 +112,11 @@ defmodule PrologEx.CyclicTest do
     yes(c, "A = f(A, X), B = f(B, Y), dif(A, B), \\+ X = Y")
     yes(c, "A = f(A, X), B = f(B, Y), dif(A, B), X = 1, Y = 2")
     yes(c, "A = f(A), subsumes_term(f(_), A)")
+    yes(c, "A = f(A), B = f(B), subsumes_term(A, B)")
+    yes(c, "A = f(A), B = f(f(B)), subsumes_term(B, A)")
+    yes(c, "A = f(A, X), B = f(B, b), subsumes_term(A, B), var(X)")
+    yes(c, "A = f(A, b), B = f(B, X), \\+ subsumes_term(A, B), var(X)")
+    yes(c, "A = f(A), \\+ subsumes_term(A, f(a))")
     yes(c, "A = f(A), cyclic_term(A), \\+ acyclic_term(A), \\+ cyclic_term(f(_))")
   end
 

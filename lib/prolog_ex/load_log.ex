@@ -2,11 +2,12 @@ defmodule PrologEx.LoadLog do
   @moduledoc """
   Meldungen beim Laden (Flag `verbose_load`, Name wie SWI):
 
-    * `silent` (Vorgabe): keine
+    * `silent`: keine
     * `normal`: je geladener Datei/Bibliothek eine Zeile, je Import eine
       Zeile mit der Zahl der Prädikate:
       `% user ← lists: 26 Prädikate`
-    * `full`: dazu die importierten Prädikate (und Operatoren) einzeln
+    * `full` (Vorgabe; SWI: silent): dazu die importierten Prädikate (und
+      Operatoren) einzeln
 
   Auf stderr, als Kommentare (`% ...`), eingerückt nach Ladetiefe: was eine
   Bibliothek beim Laden selbst importiert, steht unter ihr.
@@ -15,8 +16,17 @@ defmodule PrologEx.LoadLog do
   @depth :prolog_ex_load_depth
 
   @doc "`:silent`, `:normal` oder `:full`"
+  # (nicht gesetzt: die Vorgabe des Flags, full – außer die Anwendung sagt
+  # anderes, etwa die Tests: Application-Umgebung :verbose_load)
   def level do
-    case PrologEx.Flags.get("verbose_load") do
+    value =
+      PrologEx.Flags.explicit("verbose_load") ||
+        case Application.get_env(:prolog_ex, :verbose_load) do
+          nil -> PrologEx.Flags.get("verbose_load")
+          v -> {:atom, Atom.to_string(v)}
+        end
+
+    case value do
       {:atom, "normal"} -> :normal
       {:atom, "full"} -> :full
       _ -> :silent

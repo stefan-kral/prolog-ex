@@ -108,8 +108,19 @@ defmodule PrologEx.Builtins.Order do
   # und es bleiben keine Bindungen zurück.
   defbuiltin "subsumes_term", [general, specific] do
     s = subst()
-    frozen = MapSet.new(variables(specific, s))
-    match(general, specific, s, frozen, %{}) != :error
+    vs = variables(specific, s)
+
+    try do
+      match(general, specific, s, MapSet.new(vs), %{}, 0) != :error
+    catch
+      # ein Zyklus (d in match/6): nach der Definition (ISO 8.2.4) mit der
+      # zyklenfesten Unifikation – G = S, ohne eine Variable von S zu binden
+      :"$cyclic" ->
+        case PrologEx.unify(general, specific, s) do
+          {:ok, s2} -> variables(vs, s2) == vs
+          :error -> false
+        end
+    end
   end
 
   # ---------------------------------------------------------------------
@@ -239,9 +250,18 @@ defmodule PrologEx.Builtins.Order do
   defp vars_c(_, _s, st), do: st
 
   # Ergebnis: neue lokale Bindungen oder :error
-  defp match(g, sp, s, frozen, m) do
-    g = PrologEx.Store.walk(g, s)
-    sp = PrologEx.Store.walk(sp, s)
+  # d: wie oft eine Seite auf dem Pfad über eine Bindung lief (PrologEx.Cyclic)
+  defp match(g0, sp0, s, frozen, m, d) do
+    g = PrologEx.Store.walk(g0, s)
+    sp = PrologEx.Store.walk(sp0, s)
+
+    d =
+      if g === g0 and sp === sp0 do
+        d
+      else
+        d = d + 1
+        if d > 2 * map_size(s), do: throw(:"$cyclic"), else: d
+      end
 
     case g do
       {:var, _} ->
@@ -273,33 +293,33 @@ defmodule PrologEx.Builtins.Order do
                     m
 
                   :error ->
-                    case match_nonvar(g, sp, s, frozen, m) do
+                    case match_nonvar(g, sp, s, frozen, m, d) do
                       :error -> :error
                       m -> PrologEx.Share.put2(m, g, sp, true)
                     end
                 end
 
               true ->
-                match_nonvar(g, sp, s, frozen, m)
+                match_nonvar(g, sp, s, frozen, m, d)
             end
         end
     end
   end
 
-  defp match_nonvar(g, sp, s, frozen, m) do
+  defp match_nonvar(g, sp, s, frozen, m, d) do
     case {parts(g), parts(sp)} do
-      {{f, ga}, {f, sa}} when length(ga) == length(sa) -> match_args(ga, sa, s, frozen, m)
+      {{f, ga}, {f, sa}} when length(ga) == length(sa) -> match_args(ga, sa, s, frozen, m, d)
       {{:atomic, x}, {:atomic, y}} -> if Order.equal?(x, y, s), do: m, else: :error
       _ -> :error
     end
   end
 
-  defp match_args([], [], _s, _frozen, m), do: m
+  defp match_args([], [], _s, _frozen, m, _d), do: m
 
-  defp match_args([g | gs], [x | xs], s, frozen, m) do
-    case match(g, x, s, frozen, m) do
+  defp match_args([g | gs], [x | xs], s, frozen, m, d) do
+    case match(g, x, s, frozen, m, d) do
       :error -> :error
-      m -> match_args(gs, xs, s, frozen, m)
+      m -> match_args(gs, xs, s, frozen, m, d)
     end
   end
 

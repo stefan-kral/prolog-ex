@@ -1,6 +1,10 @@
 # langsame Tests (Minuten): mix test --include slow
 ExUnit.start(exclude: [:slow])
 
+# keine Meldungen beim Laden (Flag verbose_load, Vorgabe full), außer ein
+# Test setzt das Flag
+Application.put_env(:prolog_ex, :verbose_load, :silent)
+
 # gprolog-Orakel für Aufzeichnungen (GPROLOG_RECORD=1), siehe tools/gprolog
 Code.require_file("../tools/gprolog/gprolog.ex", __DIR__)
 
