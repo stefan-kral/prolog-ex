@@ -9,16 +9,21 @@ defmodule PrologEx.Builtins.Tabling do
       bei `library(memo)`: `PrologEx.Builtins.Memo.variant_key/2`), mit den
       Antworten als Menge (Varianten) in der Reihenfolge des Findens.
     * Eine neue Tabelle kommt auf einen Stapel (Index, lowlink wie bei
-      Tarjan) und wird ausgewertet: alle Antworten der Klauseln sammeln
-      (findall im Prolog-Teil). Ruft die Auswertung eine Tabelle, die noch
-      unvollständig auf dem Stapel liegt, bekommt sie deren bisherige
-      Antworten, und ihr lowlink sinkt auf deren Index.
+      Tarjan) und wird ausgewertet: im ersten Lauf alle Antworten der
+      Klauseln sammeln und eintragen (findall im Prolog-Teil), in späteren
+      Läufen jede Antwort sofort eintragen. Ruft die Auswertung eine
+      Tabelle, die noch unvollständig auf dem Stapel liegt, liest sie deren
+      Antworten live ('$tbl_chunk': auch die, die während des Lesens
+      dazukommen – so schließt Links-Rekursion in einer Runde), und ihr
+      lowlink sinkt auf deren Index.
     * Ist danach lowlink = Index, ist die Tabelle Anführer ihrer Komponente
       (alles über ihr auf dem Stapel). Der Anführer wiederholt Runden: sich
       selbst und jedes Mitglied, das in dieser Runde noch nicht dran war,
-      neu auswerten – bis eine Runde keine neue Antwort bringt oder niemand
-      eine unvollständige Tabelle gelesen hat. Dann sind alle Tabellen der
-      Komponente vollständig und verlassen den Stapel.
+      neu auswerten – solange jemand eine Antwort verpasst hat: das Ende
+      einer Tabelle schon gelesen, als noch eine dazukam (mit Modi: eine
+      Tabelle überhaupt gelesen, bevor sich ein Wert verbesserte). Dann
+      sind alle Tabellen der Komponente vollständig und verlassen den
+      Stapel.
     * Sinkt der lowlink eines Anführers während seiner Runden doch noch
       (ein neuer Weg zu einer Tabelle weiter unten), gibt er die Führung ab:
       seine Komponente gehört dann zu der darunter, deren Anführer weiter
@@ -37,7 +42,7 @@ defmodule PrologEx.Builtins.Tabling do
 
   defp state do
     Process.get(@key) ||
-      %{tables: %{}, ids: %{}, next_id: 0, stack: [], frames: [], round: 0, adds: 0, snaps: 0}
+      %{tables: %{}, ids: %{}, next_id: 0, stack: [], frames: [], round: 0, missed: 0}
   end
 
   defp put_state(st), do: Process.put(@key, st)
@@ -45,8 +50,9 @@ defmodule PrologEx.Builtins.Tabling do
   defp entry(st, id), do: Map.fetch!(st.tables, Map.fetch!(st.ids, id))
   defp put_entry(st, e), do: put_in(st.tables[Map.fetch!(st.ids, e.id)], e)
 
-  # '$tbl_lookup'(+Spec, +G, +I, -R): R = complete(As), incomplete(As),
-  # evaluate(Id) (neu) oder reevaluate(Id) (in dieser Runde noch nicht dran)
+  # '$tbl_lookup'(+Spec, +G, +I, -R): R = complete(As), incomplete(Id)
+  # (live lesen: '$tbl_chunk'/4), evaluate(Id) (neu) oder reevaluate(Id) (in
+  # dieser Runde noch nicht dran)
   defbuiltin "$tbl_lookup", [spec, g, i, r] do
     s = subst()
     tkey = {pk!(spec, s), Memo.variant_key(g, s)}
@@ -63,9 +69,10 @@ defmodule PrologEx.Builtins.Tabling do
           put_state(put_entry(st, %{e | stamp: st.round}))
           {:unify, [{r, mk("reevaluate", [e.id])}]}
         else
-          st = depend(%{st | snaps: st.snaps + 1}, e.index)
+          st = depend(st, e.index)
           put_state(st)
-          {:unify, [{r, mk("incomplete", [retrieve(e)])}]}
+
+          {:unify, [{r, mk("incomplete", [e.id])}]}
         end
 
       _ ->
@@ -75,15 +82,21 @@ defmodule PrologEx.Builtins.Tabling do
         e = %{
           id: id,
           status: :incomplete,
-          answers: [],
+          # Antworten, die neueste zuerst (mit Modi: die Schlüssel, aset
+          # Schlüssel -> beste Antwort); aset ohne Modi: die Varianten
+          alist: [],
+          n: 0,
           aset: if(moded?(spec, s), do: %{}, else: MapSet.new()),
           index: index,
           lowlink: index,
           stamp: st.round,
           moded: moded?(spec, s),
           goal: PrologEx.copy_fresh(mk("t", [spec, g, i]), s),
-          round_adds: st.adds,
-          round_snaps: st.snaps
+          # in dieser Runde: hat jemand das Ende gelesen bzw. überhaupt
+          # gelesen (dann verpasst er, was jetzt noch dazukommt)
+          end_seen: false,
+          read_any: false,
+          round_missed: st.missed
         }
 
         put_state(%{
@@ -112,26 +125,97 @@ defmodule PrologEx.Builtins.Tabling do
     :ok
   end
 
-  # '$tbl_unframe'(+Id, +Antworten, -Anführer)
-  defbuiltin "$tbl_unframe", [id, answers, leader] do
+  # '$tbl_add'(+Id, +Antwort): sofort eintragen, wenn neu (wer die Tabelle
+  # gerade liest, sieht sie noch); '$tbl_add_all'(+Id, +Antworten): alle
+  defbuiltin "$tbl_add", [id, ans] do
     s = subst()
+    st = state()
+    e = entry(st, deref(id))
+
+    # schon da (der häufige Fall in späteren Runden): nichts ändern
+    unless MapSet.member?(e.aset, Memo.variant_key(ans, s)),
+      do: put_state(add_answers(st, e, [ans], s))
+
+    :ok
+  end
+
+  defbuiltin "$tbl_add_all", [id, answers] do
+    s = subst()
+    st = state()
+    put_state(add_answers(st, entry(st, deref(id)), PrologEx.Builtins.Lists.items(answers, s), s))
+    :ok
+  end
+
+  defp add_answers(st, e, answers, s) do
+    {e, added} =
+      Enum.reduce(answers, {e, 0}, fn ans, {e, added} ->
+        k = Memo.variant_key(ans, s)
+
+        if MapSet.member?(e.aset, k) do
+          {e, added}
+        else
+          e = %{
+            e
+            | aset: MapSet.put(e.aset, k),
+              alist: [store(ans, s) | e.alist],
+              n: e.n + 1
+          }
+
+          {e, added + 1}
+        end
+      end)
+
+    if added == 0 do
+      st
+    else
+      # wer das Ende schon gelesen hat, verpasst die neuen
+      missed = if e.end_seen, do: st.missed + 1, else: st.missed
+      put_entry(%{st | missed: missed}, e)
+    end
+  end
+
+  # '$tbl_chunk'(+Id, +I, -As, -I2): die Antworten ab Nummer I (ab 0), die es
+  # schon gibt, und die Nummer danach; scheitert, wenn es keine neuen gibt
+  # (auch bei einer verworfenen Tabelle)
+  defbuiltin "$tbl_chunk", [id, i, as, i2] do
+    st = state()
+
+    with {:ok, tkey} <- Map.fetch(st.ids, deref(id)),
+         {:ok, e} <- Map.fetch(st.tables, tkey) do
+      i = deref(i)
+      # (inzwischen vollständig: nur noch den Rest liefern)
+      incomplete? = e.status == :incomplete
+
+      cond do
+        i < e.n ->
+          if incomplete? and not e.read_any, do: put_state(put_entry(st, %{e | read_any: true}))
+          # die n - i neuesten, in der Reihenfolge des Findens
+          l = e.alist |> Enum.take(e.n - i) |> Enum.reverse() |> Enum.map(&one(stored(e, &1)))
+          {:unify, [{as, PrologEx.list(l)}, {i2, e.n}]}
+
+        incomplete? ->
+          # das Ende gelesen: was jetzt noch dazukommt, verpasst dieser Leser
+          put_state(put_entry(st, %{e | end_seen: true, read_any: true}))
+          :fail
+
+        true ->
+          :fail
+      end
+    else
+      _ -> :fail
+    end
+  end
+
+  # '$tbl_unframe'(+Id, -Anführer)
+  defbuiltin "$tbl_unframe", [id, leader] do
     id = deref(id)
     st = state()
     [^id | frames] = st.frames
     e = entry(st, id)
 
-    {e, added} =
-      Enum.reduce(PrologEx.Builtins.Lists.items(answers, s), {e, 0}, fn ans, {e, n} ->
-        k = Memo.variant_key(ans, s)
-
-        if MapSet.member?(e.aset, k),
-          do: {e, n},
-          else: {%{e | aset: MapSet.put(e.aset, k), answers: [store(ans, s) | e.answers]}, n + 1}
-      end)
-
     # der Aufrufer hängt von dieser Tabelle ab (liegt er tiefer im Stapel,
     # ändert das nichts)
-    put_state(depend(put_entry(%{st | frames: frames, adds: st.adds + added}, e), e.lowlink))
+    put_state(depend(%{st | frames: frames}, e.lowlink))
     {:unify, [{leader, a(if e.lowlink == e.index, do: "true", else: "false")}]}
   end
 
@@ -146,10 +230,23 @@ defmodule PrologEx.Builtins.Tabling do
         put_state(depend(st, e.lowlink))
         {:unify, [{res, a("merged")}]}
 
-      st.adds != e.round_adds and st.snaps != e.round_snaps ->
+      st.missed != e.round_missed ->
+        # jemand hat eine Antwort verpasst (das Ende einer Tabelle schon
+        # gelesen, als noch etwas dazukam): noch eine Runde
         round = st.round + 1
-        e = %{e | stamp: round, round_adds: st.adds, round_snaps: st.snaps}
-        put_state(put_entry(%{st | round: round}, e))
+        {members, _} = Enum.split_while(st.stack, &(&1 != e.id))
+
+        tables =
+          Enum.reduce(members, st.tables, fn mid, tables ->
+            Map.update!(
+              tables,
+              Map.fetch!(st.ids, mid),
+              &%{&1 | end_seen: false, read_any: false}
+            )
+          end)
+
+        e = %{e | stamp: round, round_missed: st.missed, end_seen: false, read_any: false}
+        put_state(put_entry(%{st | round: round, tables: tables}, e))
         {:unify, [{res, a("again")}]}
 
       true ->
@@ -190,11 +287,16 @@ defmodule PrologEx.Builtins.Tabling do
     end
   end
 
-  defbuiltin "$tbl_answers", [id, answers] do
+  # '$tbl_answers'(+Id, -R): R = complete(As) oder incomplete(Id)
+  defbuiltin "$tbl_answers", [id, r] do
     st = state()
     e = entry(st, deref(id))
-    if e.status == :incomplete, do: put_state(%{st | snaps: st.snaps + 1})
-    {:unify, [{answers, retrieve(e)}]}
+
+    if e.status == :incomplete do
+      {:unify, [{r, mk("incomplete", [e.id])}]}
+    else
+      {:unify, [{r, mk("complete", [retrieve(e)])}]}
+    end
   end
 
   # Ausnahme in der Auswertung von Id: Id und alles darüber verwerfen
@@ -297,9 +399,16 @@ defmodule PrologEx.Builtins.Tabling do
     st = state()
     e = entry(st, deref(id))
     k = Memo.variant_key(key, s)
-    order = if Map.has_key?(e.aset, k), do: e.answers, else: [k | e.answers]
-    e = %{e | aset: Map.put(e.aset, k, store(ans, s)), answers: order}
-    put_state(put_entry(%{st | adds: st.adds + 1}, e))
+
+    # neu: verpasst, wer das Ende schon gelesen hat; verbessert: wer die
+    # Tabelle überhaupt schon gelesen hat (er sah den alten Wert)
+    {e, miss?} =
+      if Map.has_key?(e.aset, k),
+        do: {e, e.read_any},
+        else: {%{e | alist: [k | e.alist], n: e.n + 1}, e.end_seen}
+
+    e = %{e | aset: Map.put(e.aset, k, store(ans, s))}
+    put_state(put_entry(%{st | missed: st.missed + if(miss?, do: 1, else: 0)}, e))
     :ok
   end
 
@@ -314,19 +423,16 @@ defmodule PrologEx.Builtins.Tabling do
     if PrologEx.Compiler.ground?(r), do: {:ground, PrologEx.mark(r)}, else: {:copy, r}
   end
 
-  # Modi: answers sind die Schlüssel (Indexargumente) in der Reihenfolge des
-  # ersten Findens, aset ordnet jedem die beste Antwort zu
-  defp retrieve(%{moded: true} = e) do
-    e.answers
+  # gespeicherte Antwort zu einem Eintrag von alist (mit Modi: die beste
+  # zum Schlüssel)
+  defp stored(%{moded: true} = e, k), do: Map.fetch!(e.aset, k)
+  defp stored(_e, a), do: a
+
+  defp retrieve(e) do
+    e.alist
     |> Enum.reverse()
-    |> Enum.map(&Map.fetch!(e.aset, &1))
-    |> materialize()
-  end
-
-  defp retrieve(e), do: e.answers |> Enum.reverse() |> materialize()
-
-  defp materialize(stored) do
-    stored |> Enum.map(&one/1) |> PrologEx.list()
+    |> Enum.map(&one(stored(e, &1)))
+    |> PrologEx.list()
   end
 
   defp one({:ground, t}), do: t

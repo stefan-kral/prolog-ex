@@ -12,7 +12,9 @@
    laufen unbestimmt oft.
 
    Umsetzung ohne Eingriff in die Maschine: Fixpunkt je stark
-   zusammenhängender Komponente (siehe PrologEx.Builtins.Tabling). Eifrig:
+   zusammenhängender Komponente (siehe PrologEx.Builtins.Tabling); eine
+   unvollständige Tabelle wird live gelesen (auch Antworten, die während des
+   Lesens dazukommen). Eifrig:
    eine Variante wird ganz durchgerechnet, bevor ihre erste Antwort kommt.
    Eine Ausnahme dabei verwirft die unvollständigen Tabellen.
 
@@ -168,43 +170,71 @@ start_tabling(M:Wrapper, Worker) :-
 
 tbl_(complete(As), _, G, _) :-
     table_wrapper:answer(As, G).
-tbl_(incomplete(As), _, G, _) :-
-    table_wrapper:answer(As, G).
+tbl_(incomplete(Id), _, G, _) :-
+    live(Id, 0, G).
 tbl_(evaluate(Id), Spec, G, I) :-
     catch(eval(Id, Spec, G, I), E, ('$tbl_abandon'(Id), throw(E))),
-    '$tbl_answers'(Id, As),
-    table_wrapper:answer(As, G).
+    '$tbl_answers'(Id, R),
+    answers(R, G).
 tbl_(reevaluate(Id), Spec, G, I) :-
-    catch(run(Id, Spec, G, I, _), E, ('$tbl_abandon'(Id), throw(E))),
-    '$tbl_answers'(Id, As),
-    table_wrapper:answer(As, G).
+    catch(run(live, Id, Spec, G, I, _), E, ('$tbl_abandon'(Id), throw(E))),
+    '$tbl_answers'(Id, R),
+    answers(R, G).
 
+answers(complete(As), G) :-
+    table_wrapper:answer(As, G).
+answers(incomplete(Id), G) :-
+    live(Id, 0, G).
+
+% eine unvollständige Tabelle live lesen: auch Antworten, die erst während
+% des Lesens dazukommen (so schließt etwa Links-Rekursion in einer Runde)
+live(Id, I, G) :-
+    '$tbl_chunk'(Id, I, As, I1),
+    (   member(G, As)
+    ;   live(Id, I1, G)
+    ).
+
+% der erste Lauf einer neuen Tabelle sammelt (findall, wie ohne Rekursion
+% am billigsten), weitere Läufe tragen jede Antwort sofort ein
 eval(Id, Spec, G, I) :-
-    run(Id, Spec, G, I, Leader),
+    run(bulk, Id, Spec, G, I, Leader),
     (   Leader == true -> lead(Id, Spec, G, I) ; true ).
 
-run(Id, Spec, G, I, Leader) :-
+% die Klauseln auswerten: bulk sammelt erst und trägt dann alles ein, live
+% trägt jede Antwort sofort ein (wer die Tabelle gerade liest, sieht sie)
+run(How, Id, Spec, G, I, Leader) :-
     '$tbl_frame'(Id),
-    findall(G, I, As),
     (   Spec = '$tbl'(_, _, _, mode(P, Mode))
-    ->  add_moded(As, Id, P, Mode),
-        '$tbl_unframe'(Id, [], Leader)
-    ;   '$tbl_unframe'(Id, As, Leader)
-    ).
+    ->  (   How == bulk
+        ->  findall(G, I, As),
+            add_moded_all(As, Id, P, Mode)
+        ;   (   call(I), add_moded(G, Id, P, Mode), fail ; true )
+        )
+    ;   How == bulk
+    ->  findall(G, I, As),
+        '$tbl_add_all'(Id, As)
+    ;   (   call(I), '$tbl_add'(Id, G), fail ; true )
+    ),
+    '$tbl_unframe'(Id, Leader).
+
+add_moded_all([], _, _, _).
+add_moded_all([A|As], Id, P, Mode) :-
+    add_moded(A, Id, P, Mode),
+    add_moded_all(As, Id, P, Mode).
 
 % Anführer: Mitglieder nachziehen, dann neue Runde oder fertig
 lead(Id, Spec, G, I) :-
     stale(Id),
     '$tbl_round'(Id, S),
     (   S == again
-    ->  run(Id, Spec, G, I, _),
+    ->  run(live, Id, Spec, G, I, _),
         lead(Id, Spec, G, I)
     ;   true
     ).
 
 stale(Id) :-
     (   '$tbl_next_stale'(Id, M, SM, GM, IM)
-    ->  run(M, SM, GM, IM, _),
+    ->  run(live, M, SM, GM, IM, _),
         stale(Id)
     ;   true
     ).
@@ -213,8 +243,7 @@ stale(Id) :-
 % Je Belegung der übrigen Argumente (Schlüssel) bleibt eine Antwort: die
 % beste nach dem Modus. Eine bessere ersetzt sie und zählt als Änderung.
 
-add_moded([], _, _, _).
-add_moded([A|As], Id, P, Mode) :-
+add_moded(A, Id, P, Mode) :-
     A =.. [F|Args],
     nth1(P, Args, V, Key),
     '$tbl_mget'(Id, Key, Old),
@@ -228,8 +257,7 @@ add_moded([A|As], Id, P, Mode) :-
         ;   true
         )
     ;   '$tbl_mput'(Id, Key, A)
-    ),
-    add_moded(As, Id, P, Mode).
+    ).
 
 % better(+Modus, +Alt, +Neu, -Wert): Neu verbessert Alt zu Wert
 better(min, O, N, N) :- compare(<, N, O).

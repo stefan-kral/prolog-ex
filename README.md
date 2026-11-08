@@ -1872,10 +1872,12 @@ expr --> term.
     laufen unbestimmt oft.
   * Umsetzung ohne Eingriff in die Maschine: Fixpunkt je stark
     zusammenhängender Komponente (Tarjan). Eine neue Variante wird
-    ausgewertet; liest sie dabei eine noch unvollständige Tabelle, bekommt
-    sie deren bisherige Antworten. Der Anführer einer Komponente wiederholt
-    Runden (sich und jedes Mitglied neu auswerten), bis keine neue Antwort
-    mehr kommt. Eifrig: eine Variante ist vollständig, bevor ihre erste
+    ausgewertet; liest sie dabei eine noch unvollständige Tabelle, liest
+    sie sie live – auch Antworten, die während des Lesens dazukommen (so
+    schließt Links-Rekursion in einer Runde). Der Anführer einer Komponente
+    wiederholt Runden (sich und jedes Mitglied neu auswerten), solange
+    jemand eine Antwort verpasst hat (das Ende einer Tabelle gelesen, bevor
+    noch eine dazukam). Eifrig: eine Variante ist vollständig, bevor ihre erste
     Antwort zurückkommt – ein `once/1` des Aufrufers spart nichts, die
     Tabelle ist danach aber fertig.
   * Eine Ausnahme in einer Auswertung (auch Zeit- oder Speichergrenze)
@@ -1889,11 +1891,14 @@ expr --> term.
     mit zufälligen gewichteten Graphen gegen die Suche über alle
     einfachen Pfade.
   * Kosten: Programme ohne `:- table` zahlen nichts (der Hook lebt nur,
-    solange eine Datei mit `table/1` lädt). Jede Runde wertet die Komponente
-    ganz neu aus (naiv, nicht semi-naiv): Links-Rekursion über einem Ring
-    aus n Knoten braucht n Runden. Trotzdem schneller als Scryer
-    (`path/2` über einen Ring aus 50 Knoten, alle Paare: 0,27 s gegen
-    4,1 s; 100 Knoten: 2,3 s gegen 60 s).
+    solange eine Datei mit `table/1` lädt). Links-Rekursion über einen
+    Ring aus n Knoten (alle Paare): n = 100 in 0,08 s, n = 150 in 0,16 s
+    (Scryer: 60 s für n = 100); kürzeste Wege mit `min` über 80 Knoten:
+    0,09 s. Ungünstig ist doppelte Rekursion über lange Ketten
+    (`tc(X,Y) :- tc(X,Z), tc(Z,Y)` über einem Ring): die Kette der
+    Tabellen `tc(k,_)` braucht etwa n Runden, und das Live-Lesen bringt
+    dort mehr doppelte Ableitungen (Ring aus 40: 0,7 s). Echte semi-naive
+    Auswertung gibt es nicht.
   * Modi wie SWI (über Scryer hinaus): `:- table path(_, _, min).` – je
     Belegung der übrigen Argumente bleibt eine Antwort, die beste:
     `min`, `max` (Standardordnung der Terme), `first` (die zuerst

@@ -323,4 +323,20 @@ defmodule PrologEx.TablingTest do
     assert ask(c, "catch(tnot(e(n1, n2)), error(E, _), true)") ==
              ["E = type_error(tabled_predicate,user:e/2)"]
   end
+
+  test "Links-Rekursion schließt in einer Runde (live lesen)", c do
+    # Ring aus 150 Knoten, alle Paare: naiv (Momentaufnahmen) 150 Runden,
+    # mehrere Sekunden; live lesen: zwei Läufe
+    src =
+      @src <>
+        ":- dynamic(ed/2).\n:- table lpath/2.\nlpath(X, Y) :- lpath(X, Z), ed(Z, Y).\n" <>
+        "lpath(X, Y) :- ed(X, Y).\n" <>
+        "ring(N) :- forall(between(1, N, I), (J is I mod N + 1, assertz(ed(I, J)))).\n"
+
+    {us, res} =
+      :timer.tc(fn -> ask(c, "ring(150), findall(X-Y, lpath(X, Y), _L), length(_L, N)", src) end)
+
+    assert hd(res) =~ "N = 22500"
+    assert us < 3_000_000, "#{us} µs"
+  end
 end
