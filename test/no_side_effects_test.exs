@@ -93,8 +93,9 @@ defmodule PrologEx.NoSideEffectsTest do
           {"nl", "io"},
           {"print(x)", "io"},
           {"format(\"~w\", [x])", "io"},
-          {"format(atom(_), \"~w\", [x])", "io"},
-          {"with_output_to(atom(_), true)", "io"},
+          {"format(user_output, \"~w\", [x])", "io"},
+          {"with_output_to(atom(_), write(user_error, x))", "io"},
+          {"with_output_to(atom(_), set_output(user_output))", "io"},
           {"get_char(_)", "io"},
           {"peek_char(_)", "io"},
           {"read_term(_, [])", "io"},
@@ -104,6 +105,8 @@ defmodule PrologEx.NoSideEffectsTest do
           {"time(true)", "io"},
           {"random(_)", "random"},
           {"random_between(1, 6, _)", "random"},
+          {"_ is random(6)", "random"},
+          {"_ is random_float", "random"},
           {"delete_file('/tmp/px_nse_none')", "external"},
           {"make_directory('/tmp/px_nse_dir')", "external"},
           {"halt", "external"},
@@ -153,10 +156,41 @@ defmodule PrologEx.NoSideEffectsTest do
           "findall(Y, member(Y, [1]), _)",
           "\\+ fail",
           "forall(member(Y, [1]), Y > 0)",
-          "setup_call_cleanup(true, true, true)"
+          "setup_call_cleanup(true, true, true)",
+          # Speicher-Streams, die der Bereich selbst öffnet und schließt
+          "format(atom(_), \"~w\", [x])",
+          "format(chars(_), \"~a~d\", [x, 1])",
+          "with_output_to(atom(_), true)",
+          "with_output_to(codes(_), (write(a), nl, print(b), format(\"~q\", ['C'])))",
+          "with_output_to(atom(_), (current_output(S), write(S, x)))"
         ] do
       assert ask(c, "cat((#{g}), K)") |> hd() =~ "K = none", g
     end
+  end
+
+  test "Ausgabe in eigene Speicher-Streams: format/3 in eine Senke, with_output_to/2", c do
+    assert ask(c, ~S|nse(format(atom(A), "~w-~a", [f(x), b]))|) == ["A = 'f(x)-b'"]
+
+    assert ask(c, ~S|nse(with_output_to(atom(A), (write(a), format("~d", [1]), nl)))|) ==
+             [~S|A = 'a1\n'|]
+
+    # ein innerer Bereich schreibt nicht in den Stream des äußeren
+    assert ask(c, "cat(with_output_to(atom(_), nse(write(x))), K)") == ["K = io"]
+    # ein Stream von draußen gehört nicht zum Bereich
+    assert ask(c, "with_output_to(atom(_), cat(write(x), K))") == ["K = io"]
+    # der Stream lebt nicht länger als with_output_to/2
+    assert ask(
+             c,
+             "nse(with_output_to(atom(_), current_output(S))), catch(write(S, x), error(E, _), true)"
+           )
+           |> hd() =~
+             "existence_error(stream"
+  end
+
+  test "portray/1 läuft im Bereich", c do
+    src = @src <> "portray(p(X)) :- write(pp(X)).\nportray(q(X)) :- assertz(f(X)).\n"
+    assert ask(c, "nse(format(atom(A), \"~p\", [g(p(1))]))", src) == ["A = 'g(pp(1))'"]
+    assert ask(c, "cat(format(atom(_), \"~p\", [q(1)]), K)", src) == ["K = database"]
   end
 
   test "Unter-Maschinen (findall, \\+, forall, aggregate) teilen den Bereich", c do

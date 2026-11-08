@@ -65,8 +65,8 @@ defmodule PrologEx.Effects do
   ist eine Funktion, die das Ziel (aufgelöst) liefert – erst im Fehlerfall
   gerechnet.
   """
-  def nse_check!(subst, cat, name, arity, goal) do
-    if is_map_key(subst, @nse) do
+  def nse_check!(subst, cat, name, arity, goal, args \\ nil) do
+    if is_map_key(subst, @nse) and not allowed?(cat, name, arity, args, subst) do
       import PrologEx, only: [mk: 2, a: 1]
 
       PrologEx.Error.throw!(
@@ -78,6 +78,64 @@ defmodule PrologEx.Effects do
     end
 
     :ok
+  end
+
+  # --- Ausnahmen: Wirkungen, die den Bereich nicht verlassen ---------------
+  #
+  # io: Schreiben in einen Speicher-Stream, den der Bereich selbst geöffnet
+  # hat und wieder schließt (with_output_to/2, format/3 in eine Senke) –
+  # nur auf derselben Tiefe, ein innerer Bereich darf nicht nach außen
+  # schreiben.
+  # random: in einem Kind von library(concurrent) gehört der Generator dem
+  # Kind (eigener Startwert, verschwindet mit ihm) – auf der Tiefe des
+  # Kinds (1).
+
+  @child :prolog_ex_conc_child
+
+  @doc "Den Prozess als Kind von library(concurrent) markieren"
+  def mark_child!, do: Process.put(@child, true)
+
+  @doc "Tiefe des Bereichs (0: keiner)"
+  def nse_depth(subst), do: Map.get(subst, @nse, 0)
+
+  @doc "Darf hier Zufall gezogen werden (der Generator ändert sich)?"
+  def random_ok?(subst),
+    do: not is_map_key(subst, @nse) or (Process.get(@child) == true and nse_depth(subst) == 1)
+
+  # Ausgabe auf den aktuellen Ausgabestream
+  @out_current MapSet.new(
+                 ~w(write/1 print/1 writeln/1 writeq/1 write_canonical/1 write_term/2 nl/0
+                    put_char/1 put_code/1 tab/1 format/1 format/2 flush_output/0)
+               )
+  # Ausgabe auf einen Stream im ersten Argument
+  @out_stream MapSet.new(~w(write/2 print/2 writeln/2 writeq/2 write_canonical/2 write_term/3 nl/1
+                   put_char/2 put_code/2 tab/2 format/3 flush_output/1))
+  # with_output_to/2 (öffnet und schließt seinen Speicher-Stream selbst)
+  @wot MapSet.new(~w($wot_sink/1 $wot_open/2 $wot_restore/2 $wot_close/3))
+
+  defp allowed?("random", _name, _arity, _args, subst), do: random_ok?(subst)
+
+  defp allowed?("io", name, arity, args, subst) do
+    pi = "#{name}/#{arity}"
+
+    cond do
+      MapSet.member?(@wot, pi) -> true
+      MapSet.member?(@out_current, pi) -> local?(PrologEx.Stream.current_output(), subst)
+      MapSet.member?(@out_stream, pi) and is_list(args) -> local_target?(hd(args), pi, subst)
+      true -> false
+    end
+  end
+
+  defp allowed?(_cat, _name, _arity, _args, _subst), do: false
+
+  defp local?(id, subst), do: PrologEx.Stream.nse_depth(id) == nse_depth(subst)
+
+  defp local_target?(t, pi, subst) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(t, subst)) do
+      {:struct, "$stream", [id]} when is_integer(id) -> local?(id, subst)
+      # format/3 in eine Senke (atom(A), chars(Cs), ...): eigener Stream
+      other -> pi == "format/3" and PrologEx.Builtins.Swi.sink?(other)
+    end
   end
 
   @doc "Code, der im Bereich registriert wird, im Bereich laufen lassen"

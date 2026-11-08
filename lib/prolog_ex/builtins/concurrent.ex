@@ -48,6 +48,9 @@ defmodule PrologEx.Builtins.Concurrent do
       end
 
     limits = {opt(deadline, s), opt(budget, s), opt(mem, s)}
+    # Zufall in den Kindern: Startwerte aus dem Generator des Aufrufers (im
+    # Bereich ohne Seiteneffekte nur angesehen, nicht weitergeschaltet)
+    Process.put(:conc_seed, PrologEx.Builtins.Random.split_base(PrologEx.Effects.random_ok?(s)))
 
     {:unify, [{r, run(jobs, mode, max, limits)}]}
   end
@@ -200,10 +203,14 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp spawn_child(ref, i, {:struct, "-", [t, g]}, mode, limits, state) do
     parent = self()
+    base = Process.get(:conc_seed)
 
     pid =
       spawn_link(fn ->
         Enum.each(state, fn {k, v} -> Process.put(k, v) end)
+        # eigener Generator; Zufall ist im Kind erlaubt (PrologEx.Effects)
+        PrologEx.Builtins.Random.seed_child(base, i)
+        PrologEx.Effects.mark_child!()
         res = child(t, g, mode, limits)
         send(parent, {:conc, ref, self(), i, res})
       end)

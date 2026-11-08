@@ -2336,12 +2336,19 @@ Super-strikt; die Kategorie steht im Kontext:
   * `state`: Flags, `op/3`, `char_conversion/2`, globale Variablen
     (`nb_setval/2`, auch `b_setval/2`), `bb_put/2` & Co., `gensym/2`.
   * `io`: jeder Stream-Verkehr – schreiben, **lesen** (es verbraucht
-    Eingabe), öffnen, schließen, `set_input/1`, auch Speicher-Streams
-    (`with_output_to/2`, `format(atom(A), ...)`), `print/1`, `time/1`,
-    `statistics/0`, `listing/1`.
+    Eingabe), öffnen, schließen, `set_input/1`, `print/1`, `time/1`,
+    `statistics/0`, `listing/1`. Ausnahme: Speicher-Streams, die der
+    Bereich selbst öffnet und wieder schließt – `format/3` in eine Senke
+    (`format(atom(A), ...)`, `chars(Cs)`, `codes(Cs)`) und
+    `with_output_to/2`; darin darf auf die aktuelle Ausgabe (bzw. diesen
+    Stream) geschrieben werden, auf andere Streams nicht. Ein innerer
+    Bereich schreibt nicht in den Stream eines äußeren. `portray/1` (bei
+    `print/1` und `~p`) läuft im Bereich.
   * `external`: Dateisystem ändern, Prozesse, Shell, Umgebung, Netz,
     `halt`.
-  * `random`: Zufall (er ändert den Zustand des Generators).
+  * `random`: Zufall (er ändert den Zustand des Generators), auch
+    `random/1` und `random_float` in Ausdrücken. Ausnahme: in den Kindern
+    von `library(concurrent)` (siehe dort).
   * `memo`, `tabling`: Aufrufe memoisierter und getablter Prädikate (sie
     schreiben in Tabellen).
 
@@ -2408,6 +2415,19 @@ beendet werden, ohne etwas halb getan zu haben.
 * Teilen Ziele Variablen, rechnet jedes auf seiner Kopie; erst das
   Zusammenführen prüft, ob es passt.
 * Kein memo/tabling in den Kindern (das sind Seiteneffekte).
+* **Zufall** ist in den Kindern erlaubt: jedes Kind hat einen eigenen
+  Generator, der mit ihm verschwindet. Die Startwerte kommen aus dem
+  Generator des Aufrufers (eine Zahl je Aufruf, Kind i bekommt Startwert
+  aus Zahl und i) – unabhängig vom Scheduler und nach
+  `set_random(seed(N))` reproduzierbar; zwei Aufrufe nacheinander geben
+  verschiedene Folgen. Hat die Sitzung noch keinen Generator, bleibt das
+  so (Startwerte zufällig). Im Bereich ohne Seiteneffekte wird der
+  Generator des Aufrufers nur angesehen, nicht weitergeschaltet; ein
+  innerer `call_with_no_side_effects/1` im Kind bleibt streng. Beispiel
+  für Neustarts: `first_solution(X, [G1, G2], [])` mit randomisierten
+  Suchen.
+* **Ausgabe in Text** (`format(atom(A), ...)`, `with_output_to/2`) geht
+  in den Kindern wie im Bereich ohne Seiteneffekte.
 * Unbenutzt kostet die Bibliothek nichts (nichts in der Maschine ändert sich).
 
 Zum Ausprobieren: `mix prolog examples/concurrent.pl -g main -q -g halt`.

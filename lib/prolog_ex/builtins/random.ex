@@ -25,6 +25,7 @@ defmodule PrologEx.Builtins.Random do
   deterministisch.
   """
   use PrologEx.Builtin, module: "random"
+  import Bitwise, only: [<<<: 2]
   alias PrologEx.Builtins.Lists
   alias PrologEx.Error
 
@@ -201,6 +202,31 @@ defmodule PrologEx.Builtins.Random do
     Process.put(@key, s)
     x
   end
+
+  @doc """
+  Startwerte für Kinder von library(concurrent): eine Zahl aus dem
+  Generator der Sitzung (mit `advance?` wird er dabei weitergeschaltet,
+  sonst nur angesehen). Kind i bekommt `child_seed(basis, i)`: unabhängig
+  vom Scheduler, je Kind eine eigene Folge, mit `set_random(seed(N))`
+  reproduzierbar. Hat die Sitzung noch keinen Generator (nie Zufall, nie
+  gesetzt), bleibt das so: die Kinder bekommen zufällige Startwerte, und
+  ein Programm ohne Zufall hat keine Wirkung.
+  """
+  def split_base(advance?) do
+    case Process.get(@key) do
+      nil ->
+        {x, _} = :rand.uniform_s(1 <<< 56, :rand.seed_s(:exsss))
+        x
+
+      st ->
+        {x, s} = :rand.uniform_s(1 <<< 56, st)
+        if advance?, do: Process.put(@key, s)
+        x
+    end
+  end
+
+  @doc "Generator des Kinds i (siehe split_base/1) einsetzen"
+  def seed_child(base, i), do: Process.put(@key, :rand.seed_s(:exsss, {base, i, 0x2545F491}))
 
   # gleichverteilt in 0..n-1 (auch für Bibliotheken in Elixir: clpb)
   @doc false

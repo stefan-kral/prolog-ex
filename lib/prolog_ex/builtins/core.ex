@@ -186,21 +186,28 @@ defmodule PrologEx.Builtins.Core do
   def print_text(t, s) do
     opts =
       if Map.has_key?(PrologEx.current_db(), {"user", "portray", 1}),
-        do: [{:portray, &portray/1} | writeq_opts()],
+        do: [{:portray, &portray(&1, PrologEx.Effects.nse?(s))} | writeq_opts()],
         else: writeq_opts()
 
     PrologEx.Writer.format(PrologEx.resolve_out(t, s), opts)
   end
 
-  # user:portray(T) als Unteranfrage, Ausgabe in einen Speicher-Stream
-  defp portray(t) do
+  # user:portray(T) als Unteranfrage, Ausgabe in einen Speicher-Stream.
+  # Im Bereich ohne Seiteneffekte läuft sie selbst in einem (eigene Anfrage,
+  # Tiefe 1), und ihr Speicher-Stream gehört diesem Bereich
+  defp portray(t, nse?) do
     alias PrologEx.Stream, as: S
-    id = S.open_memory_out()
+    id = S.open_memory_out(if nse?, do: 1)
     old = S.current_output()
     S.set_output(id)
 
     try do
       goal = PrologEx.mk(":", [a("user"), PrologEx.mk("portray", [t])])
+
+      goal =
+        if nse?,
+          do: PrologEx.mk(":", [a("system"), PrologEx.mk("$nse_call", [goal])]),
+          else: goal
 
       case PrologEx.current_db() |> PrologEx.query(goal) |> Enum.take(1) do
         [_] -> {:ok, S.memory_text(id)}

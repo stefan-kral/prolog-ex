@@ -44,7 +44,11 @@ defmodule PrologEx.Stream do
     bytes: 0,
     # library(pio): gelesene Blöcke der faulen Liste, Nr. => {Zeichen,
     # Zeile, Spalte am Anfang, Text}; verschwindet mit dem Stream
-    lazy: %{}
+    lazy: %{},
+    # Speicher-Stream, im Bereich ohne Seiteneffekte auf dieser Tiefe
+    # geöffnet (with_output_to/2, portray): dort darf hinein geschrieben
+    # werden (PrologEx.Effects)
+    nse_depth: nil
   ]
 
   # --- Tabelle --------------------------------------------------------------
@@ -114,6 +118,14 @@ defmodule PrologEx.Stream do
 
       s ->
         s
+    end
+  end
+
+  @doc "Tiefe, auf der der Stream im Bereich ohne Seiteneffekte geöffnet wurde (oder nil)"
+  def nse_depth(id) do
+    case Process.get({@key, id}) do
+      %__MODULE__{nse_depth: d} -> d
+      _ -> nil
     end
   end
 
@@ -499,10 +511,10 @@ defmodule PrologEx.Stream do
   Ausgabestream in den Speicher (für format/2 mit portray/1, später
   with_output_to/2): sammelt den Text; `memory_text/1` liefert ihn.
   """
-  def open_memory_out do
+  def open_memory_out(nse_depth \\ nil) do
     t = table()
     id = t.next
-    s = %__MODULE__{id: id, kind: :memory_out, mode: :write, buf: []}
+    s = %__MODULE__{id: id, kind: :memory_out, mode: :write, buf: [], nse_depth: nse_depth}
     Process.put({@key, id}, s)
     put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id)})
     id

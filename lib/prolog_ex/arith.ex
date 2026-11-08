@@ -156,8 +156,8 @@ defmodule PrologEx.Arith do
       # erst der Funktor, dann die Argumente: X is foo(bar) gibt
       # type_error(evaluable, foo/1), nicht bar/0 (ISO 9.1.1)
       {:struct, op, [x, y]} when op in @ops2 -> eval2(op, ev(x, s, d + 1), ev(y, s, d + 1))
-      {:struct, op, [x]} when op in @ops1 -> eval1(op, ev(x, s, d + 1))
-      {:atom, name} -> eval0(name)
+      {:struct, op, [x]} when op in @ops1 -> eval1(op, ev(x, s, d + 1), s)
+      {:atom, name} -> eval0(name, s)
       [x] -> ev_char(x, s, d)
       {:var, _} -> Error.instantiation!()
       {:struct, f, args} -> Error.type!("evaluable", Error.indicator(f, length(args)))
@@ -234,14 +234,14 @@ defmodule PrologEx.Arith do
 
                 [x] ->
                   {vx, px, memo} = evc(x, s, memo)
-                  {eval1(op, vx), px and op not in @impure, memo}
+                  {eval1(op, vx, s), px and op not in @impure, memo}
               end
 
             {v, pure, if(pure, do: PrologEx.Share.put(memo, t, v), else: memo)}
         end
 
       {:atom, name} ->
-        {eval0(name), name not in @impure, memo}
+        {eval0(name, s), name not in @impure, memo}
 
       # alles andere (Liste [X], Fehler) wie eval/2
       other ->
@@ -301,108 +301,109 @@ defmodule PrologEx.Arith do
   end
 
   defp rn({:op2, op, a, b}, l, s), do: eval2(op, rn(a, l, s), rn(b, l, s))
-  defp rn({:op1, op, a}, l, s), do: eval1(op, rn(a, l, s))
-  defp rn({:op0, name}, _l, _s), do: eval0(name)
+  defp rn({:op1, op, a}, l, s), do: eval1(op, rn(a, l, s), s)
+  defp rn({:op0, name}, _l, s), do: eval0(name, s)
 
   # --- Konstanten ---------------------------------------------------------
 
-  defp eval0("pi"), do: :math.pi()
-  defp eval0("e"), do: :math.exp(1)
-  defp eval0("epsilon"), do: 2.220446049250313e-16
-  defp eval0("max_tagged_integer"), do: @max_tagged
-  defp eval0("min_tagged_integer"), do: @min_tagged
-  defp eval0("random"), do: random_float()
-  defp eval0("random_float"), do: random_float()
-  defp eval0("cputime"), do: :erlang.statistics(:runtime) |> elem(0) |> Kernel./(1000)
-  defp eval0("realtime"), do: System.os_time(:second)
-  defp eval0("[]"), do: Error.type!("evaluable", Error.indicator("[]", 0))
-  defp eval0(name), do: Error.type!("evaluable", Error.indicator(name, 0))
+  defp eval0("pi", _s), do: :math.pi()
+  defp eval0("e", _s), do: :math.exp(1)
+  defp eval0("epsilon", _s), do: 2.220446049250313e-16
+  defp eval0("max_tagged_integer", _s), do: @max_tagged
+  defp eval0("min_tagged_integer", _s), do: @min_tagged
+  defp eval0("random", s), do: random_float(s)
+  defp eval0("random_float", s), do: random_float(s)
+  defp eval0("cputime", _s), do: :erlang.statistics(:runtime) |> elem(0) |> Kernel./(1000)
+  defp eval0("realtime", _s), do: System.os_time(:second)
+  defp eval0("[]", _s), do: Error.type!("evaluable", Error.indicator("[]", 0))
+  defp eval0(name, _s), do: Error.type!("evaluable", Error.indicator(name, 0))
 
   # --- einstellig -----------------------------------------------------------
 
-  defp eval1("-", x), do: -x
-  defp eval1("+", x), do: x
-  defp eval1("abs", x), do: abs(x)
-  defp eval1("sign", x) when is_integer(x), do: int_sign(x)
-  defp eval1("sign", x), do: int_sign(x) * 1.0
+  defp eval1("-", x, _s), do: -x
+  defp eval1("+", x, _s), do: x
+  defp eval1("abs", x, _s), do: abs(x)
+  defp eval1("sign", x, _s) when is_integer(x), do: int_sign(x)
+  defp eval1("sign", x, _s), do: int_sign(x) * 1.0
 
-  defp eval1("sqrt", x) when x < 0, do: undefined()
-  defp eval1("sqrt", x), do: :math.sqrt(float!(x))
-  defp eval1("sin", x), do: :math.sin(float!(x))
-  defp eval1("cos", x), do: :math.cos(float!(x))
-  defp eval1("tan", x), do: :math.tan(float!(x))
+  defp eval1("sqrt", x, _s) when x < 0, do: undefined()
+  defp eval1("sqrt", x, _s), do: :math.sqrt(float!(x))
+  defp eval1("sin", x, _s), do: :math.sin(float!(x))
+  defp eval1("cos", x, _s), do: :math.cos(float!(x))
+  defp eval1("tan", x, _s), do: :math.tan(float!(x))
 
-  defp eval1("cot", x) do
+  defp eval1("cot", x, _s) do
     t = :math.tan(float!(x))
     if t == 0, do: zero_divisor(), else: 1 / t
   end
 
-  defp eval1("asin", x) when x < -1 or x > 1, do: undefined()
-  defp eval1("asin", x), do: :math.asin(float!(x))
-  defp eval1("acos", x) when x < -1 or x > 1, do: undefined()
-  defp eval1("acos", x), do: :math.acos(float!(x))
-  defp eval1("atan", x), do: :math.atan(float!(x))
-  defp eval1("acot", x) when x == 0, do: :math.pi() / 2
-  defp eval1("acot", x), do: :math.atan(1 / float!(x))
-  defp eval1("sinh", x), do: overflow(fn -> :math.sinh(float!(x)) end)
-  defp eval1("cosh", x), do: overflow(fn -> :math.cosh(float!(x)) end)
-  defp eval1("tanh", x), do: :math.tanh(float!(x))
-  defp eval1("asinh", x), do: :math.asinh(float!(x))
-  defp eval1("acosh", x) when x < 1, do: undefined()
-  defp eval1("acosh", x), do: :math.acosh(float!(x))
-  defp eval1("atanh", x) when x <= -1 or x >= 1, do: undefined()
-  defp eval1("atanh", x), do: :math.atanh(float!(x))
-  defp eval1("exp", x), do: overflow(fn -> :math.exp(float!(x)) end)
-  defp eval1("log", x) when x <= 0, do: undefined()
-  defp eval1("log", x) when is_integer(x), do: int_log(x)
-  defp eval1("log", x), do: :math.log(x)
-  defp eval1("log10", x) when x <= 0, do: undefined()
+  defp eval1("asin", x, _s) when x < -1 or x > 1, do: undefined()
+  defp eval1("asin", x, _s), do: :math.asin(float!(x))
+  defp eval1("acos", x, _s) when x < -1 or x > 1, do: undefined()
+  defp eval1("acos", x, _s), do: :math.acos(float!(x))
+  defp eval1("atan", x, _s), do: :math.atan(float!(x))
+  defp eval1("acot", x, _s) when x == 0, do: :math.pi() / 2
+  defp eval1("acot", x, _s), do: :math.atan(1 / float!(x))
+  defp eval1("sinh", x, _s), do: overflow(fn -> :math.sinh(float!(x)) end)
+  defp eval1("cosh", x, _s), do: overflow(fn -> :math.cosh(float!(x)) end)
+  defp eval1("tanh", x, _s), do: :math.tanh(float!(x))
+  defp eval1("asinh", x, _s), do: :math.asinh(float!(x))
+  defp eval1("acosh", x, _s) when x < 1, do: undefined()
+  defp eval1("acosh", x, _s), do: :math.acosh(float!(x))
+  defp eval1("atanh", x, _s) when x <= -1 or x >= 1, do: undefined()
+  defp eval1("atanh", x, _s), do: :math.atanh(float!(x))
+  defp eval1("exp", x, _s), do: overflow(fn -> :math.exp(float!(x)) end)
+  defp eval1("log", x, _s) when x <= 0, do: undefined()
+  defp eval1("log", x, _s) when is_integer(x), do: int_log(x)
+  defp eval1("log", x, _s), do: :math.log(x)
+  defp eval1("log10", x, _s) when x <= 0, do: undefined()
   # kleine Ganzzahlen direkt (log10(1000) = 3.0), große über int_log
-  defp eval1("log10", x) when is_integer(x) and x < 1.0e300, do: :math.log10(x)
-  defp eval1("log10", x) when is_integer(x), do: int_log(x) / :math.log(10)
-  defp eval1("log10", x), do: :math.log10(x)
+  defp eval1("log10", x, _s) when is_integer(x) and x < 1.0e300, do: :math.log10(x)
+  defp eval1("log10", x, _s) when is_integer(x), do: int_log(x) / :math.log(10)
+  defp eval1("log10", x, _s), do: :math.log10(x)
 
-  defp eval1("log2", x) when x <= 0, do: undefined()
-  defp eval1("log2", x) when is_integer(x), do: int_log(x) / :math.log(2)
-  defp eval1("log2", x), do: :math.log2(x)
+  defp eval1("log2", x, _s) when x <= 0, do: undefined()
+  defp eval1("log2", x, _s) when is_integer(x), do: int_log(x) / :math.log(2)
+  defp eval1("log2", x, _s), do: :math.log2(x)
 
-  defp eval1("float", x), do: float!(x)
-  defp eval1("integer", x) when is_integer(x), do: x
-  defp eval1("integer", x), do: round(x)
+  defp eval1("float", x, _s), do: float!(x)
+  defp eval1("integer", x, _s) when is_integer(x), do: x
+  defp eval1("integer", x, _s), do: round(x)
   @float_only ~w(round floor ceiling truncate float_integer_part float_fractional_part)
 
   # ISO 9.1.1: Float → Float bzw. Float → Integer; ein Integer als
   # Argument ist type_error(float, X) (ISO 9.1.6, 9.3.x; SWI erlaubt ihn)
-  defp eval1(f, x) when is_integer(x) and f in @float_only, do: Error.type!("float", x)
-  defp eval1("float_integer_part", x), do: float!(trunc(x))
-  defp eval1("float_fractional_part", x), do: x - trunc(x)
-  defp eval1("truncate", x), do: trunc(x)
-  defp eval1("round", x), do: iso_round(x)
-  defp eval1("floor", x), do: floor(x)
-  defp eval1("ceiling", x), do: ceil(x)
+  defp eval1(f, x, _s) when is_integer(x) and f in @float_only, do: Error.type!("float", x)
+  defp eval1("float_integer_part", x, _s), do: float!(trunc(x))
+  defp eval1("float_fractional_part", x, _s), do: x - trunc(x)
+  defp eval1("truncate", x, _s), do: trunc(x)
+  defp eval1("round", x, _s), do: iso_round(x)
+  defp eval1("floor", x, _s), do: floor(x)
+  defp eval1("ceiling", x, _s), do: ceil(x)
 
-  defp eval1("\\", x), do: Bitwise.bnot(int!(x))
-  defp eval1("msb", x), do: msb(positive!(int!(x)))
-  defp eval1("lsb", x), do: lsb(positive!(int!(x)))
+  defp eval1("\\", x, _s), do: Bitwise.bnot(int!(x))
+  defp eval1("msb", x, _s), do: msb(positive!(int!(x)))
+  defp eval1("lsb", x, _s), do: lsb(positive!(int!(x)))
 
-  defp eval1("popcount", x) do
+  defp eval1("popcount", x, _s) do
     case int!(x) do
       n when n >= 0 -> popcount(n)
       n -> Error.domain!("not_less_than_zero", n)
     end
   end
 
-  defp eval1("succ", x), do: nonneg!(int!(x)) + 1
+  defp eval1("succ", x, _s), do: nonneg!(int!(x)) + 1
 
-  defp eval1("random", x) do
+  defp eval1("random", x, s) do
+    random_ok!(s, "random", 1)
     n = int!(x)
     if n <= 0, do: Error.domain!("positive_integer", n)
     PrologEx.Builtins.Random.draw(&:rand.uniform_s(n, &1)) - 1
   end
 
-  defp eval1("random_float", _x), do: random_float()
+  defp eval1("random_float", _x, s), do: random_float(s)
 
-  defp eval1(op, _), do: Error.type!("evaluable", Error.indicator(op, 1))
+  defp eval1(op, _, _s), do: Error.type!("evaluable", Error.indicator(op, 1))
 
   # --- zweistellig ----------------------------------------------------------
 
@@ -497,7 +498,7 @@ defmodule PrologEx.Arith do
 
   defp eval2("log", b, x) when b <= 0 or x <= 0, do: undefined()
   defp eval2("log", b, _x) when b == 1, do: zero_divisor()
-  defp eval2("log", b, x), do: eval1("log", x) / eval1("log", b)
+  defp eval2("log", b, x), do: eval1("log", x, nil) / eval1("log", b, nil)
 
   defp eval2("plus", x, y), do: eval2("+", x, y)
   defp eval2(op, _, _), do: Error.type!("evaluable", Error.indicator(op, 2))
@@ -585,5 +586,18 @@ defmodule PrologEx.Arith do
 
   defp popcount(x), do: x |> Integer.digits(2) |> Enum.sum()
 
-  defp random_float, do: PrologEx.Builtins.Random.draw(&:rand.uniform_real_s/1)
+  defp random_float(s) do
+    random_ok!(s, "random_float", 0)
+    PrologEx.Builtins.Random.draw(&:rand.uniform_real_s/1)
+  end
+
+  # Zufall ändert den Generator: im Bereich ohne Seiteneffekte ein Fehler
+  # (außer im Kind von library(concurrent))
+  defp random_ok!(nil, _name, _arity), do: :ok
+
+  defp random_ok!(s, name, arity) do
+    PrologEx.Effects.nse_check!(s, "random", name, arity, fn ->
+      PrologEx.mk("/", [PrologEx.a(name), arity])
+    end)
+  end
 end

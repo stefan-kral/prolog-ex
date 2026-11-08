@@ -21,7 +21,9 @@ defmodule PrologEx.ConcurrentTest do
   :- use_module(library(lambda)).
   :- use_module(library(time)).
   :- use_module(library(iso_ext)).
+  :- use_module(library(random)).
   :- dynamic(f/1).
+  rnd(_, X) :- random_between(1, 1000000000, X).
   sq(X, Y) :- Y is X * X.
   fib(0, 0).
   fib(1, 1).
@@ -175,6 +177,55 @@ defmodule PrologEx.ConcurrentTest do
   test "im Bereich ohne Seiteneffekte erlaubt (die Kinder sind es ohnehin)", c do
     assert ask(c, "call_with_no_side_effects(concurrent_maplist(sq, [2, 3], Ys))") ==
              ["Ys = [4,9]"]
+  end
+
+  test "Zufall in den Kindern: eigener Generator, reproduzierbar", c do
+    # mit festem Startwert: dieselben Zahlen, je Kind verschiedene
+    [a] =
+      ask(
+        c,
+        "set_random(seed(42)), concurrent_maplist(rnd, [a, b, c], L1), " <>
+          "set_random(seed(42)), concurrent_maplist(rnd, [a, b, c], L2), " <>
+          "L1 == L2, sort(L1, S), length(S, N)"
+      )
+
+    assert a =~ "N = 3"
+
+    # der Generator des Aufrufers wird weitergeschaltet: zwei Aufrufe nacheinander
+    # geben andere Zahlen
+    assert ask(
+             c,
+             "set_random(seed(1)), concurrent_maplist(rnd, [a], L1), " <>
+               "concurrent_maplist(rnd, [a], L2), L1 \\== L2"
+           )
+           |> length() == 1
+
+    # Zufall in Ausdrücken und mit Neustarts (der Erste gewinnt)
+    assert ask(
+             c,
+             ~S"concurrent_maplist(\_^X^(X is random(10)), [a, b], [P, Q]), integer(P), integer(Q)"
+           )
+           |> length() == 1
+
+    assert ask(c, "first_solution(X, [(repeat, random_between(1, 100, X), X > 90)], [])") |> hd() =~
+             ~r/X = (9[1-9]|100)/
+
+    # ein innerer Bereich im Kind bleibt streng
+    [e] =
+      ask(
+        c,
+        ~S"catch(concurrent_maplist(\_^call_with_no_side_effects(random(_)), [a]), error(E, _), true)"
+      )
+
+    assert e =~ "permission_error(perform,side_effect"
+    # außerhalb der Kinder bleibt Zufall im Bereich verboten
+    [e] = ask(c, "catch(call_with_no_side_effects(random(_)), error(E, _), true)")
+    assert e =~ "permission_error(perform,side_effect"
+  end
+
+  test "Ausgabe in eigene Speicher-Streams im Kind", c do
+    assert ask(c, ~S|concurrent_maplist(\X^A^format(atom(A), "<~w>", [X]), [a, b], As)|) ==
+             ["As = ['<a>','<b>']"]
   end
 
   test "parallel schneller als nacheinander (bei mehr als einem Scheduler)", c do

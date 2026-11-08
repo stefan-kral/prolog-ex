@@ -73,7 +73,9 @@ defmodule PrologEx.Builtins.Swi do
 
   defbuiltin "$wot_open", [old, id] do
     old_id = S.current_output()
-    new_id = S.open_memory_out()
+    # im Bereich ohne Seiteneffekte: ein Stream des Bereichs
+    s = subst()
+    new_id = S.open_memory_out(if PrologEx.Effects.nse?(s), do: PrologEx.Effects.nse_depth(s))
     S.set_output(new_id)
     {:unify, [{old, old_id}, {id, new_id}]}
   end

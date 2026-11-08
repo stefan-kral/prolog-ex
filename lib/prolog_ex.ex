@@ -2811,9 +2811,14 @@ defmodule PrologEx do
       # vorher ein Fehler
       {:builtin, m, {{:fx, kind, cat}, fun, _}} ->
         fun = fn args, ctx ->
-          PrologEx.Effects.nse_check!(ctx.subst, cat, name, arity, fn ->
-            resolve(goal, ctx.subst)
-          end)
+          PrologEx.Effects.nse_check!(
+            ctx.subst,
+            cat,
+            name,
+            arity,
+            fn -> resolve(goal, ctx.subst) end,
+            args
+          )
 
           fun.(args, ctx)
         end
