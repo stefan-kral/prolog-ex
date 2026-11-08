@@ -23,6 +23,10 @@
 
    Wie Scryer: table/1 (Direktive), abolish_all_tables/0,
    start_tabling/2, op(1150, fx, table).
+
+   Dazu Modi wie SWI: `:- table path(_, _, min).` – je Belegung der übrigen
+   Argumente bleibt nur die beste Antwort (min, max, first, lattice(P/3));
+   höchstens ein Argument mit Modus.
 */
 
 :- module(tabling, [(table)/1,
@@ -35,14 +39,72 @@
 :- use_module(library(iso_ext), [forall/2]).
 :- use_module(library(tabling/wrapper), [wrap_declare/6, directive_module/2, pis/3]).
 
-%% table(+Spec): nur als Direktive
+%% table(+Spec): nur als Direktive. Spec: Name/N, Name//N oder ein Kopf
+%  mit Modi (path(_,_,min)); mehrere mit Komma oder als Liste
 table(Spec) :-
     directive_module(table(Spec), M),
-    pis(Spec, PIs, []),
-    forall(member(N/A, PIs),
-           (   wrap_declare(M, N, A, ' tabled', (tabling):'$tbl_call', '$tbl'(M, N, A)),
+    specs(Spec, M, Ts, []),
+    forall(member(t(N, A, Spec1), Ts),
+           (   wrap_declare(M, N, A, ' tabled', (tabling):'$tbl_call', Spec1),
                '$tbl_abolish'(M:N/A)
            )).
+
+specs(V, _, _, _) :-
+    var(V), !,
+    instantiation_error(V).
+specs((A, B), M, Ts0, Ts) :- !,
+    specs(A, M, Ts0, Ts1),
+    specs(B, M, Ts1, Ts).
+specs([], _, Ts, Ts) :- !.
+specs([S|Ss], M, Ts0, Ts) :- !,
+    specs(S, M, Ts0, Ts1),
+    specs(Ss, M, Ts1, Ts).
+specs(PI, M, Ts0, Ts) :-
+    (   PI = _/_ ; PI = _//_ ), !,
+    pis(PI, PIs, []),
+    findall(t(N, A, '$tbl'(M, N, A)), member(N/A, PIs), Ts1),
+    append(Ts1, Ts, Ts0).
+specs(Head, M, [t(N, A, Spec)|Ts], Ts) :-
+    compound(Head), !,
+    functor(Head, N, A),
+    Head =.. [_|Ms],
+    modes(Ms, 1, M, none, Mode),
+    (   Mode == none
+    ->  Spec = '$tbl'(M, N, A)
+    ;   Spec = '$tbl'(M, N, A, Mode)
+    ).
+specs(S, _, _, _) :-
+    type_error(predicate_indicator, S).
+
+% höchstens ein Argument mit Modus: mode(Position, Modus)
+modes([], _, _, Mode, Mode).
+modes([X|Xs], P, M, Mode0, Mode) :-
+    (   index_mode(X)
+    ->  Mode1 = Mode0
+    ;   answer_mode(X, M, AM),
+        (   Mode0 == none
+        ->  Mode1 = mode(P, AM)
+        ;   domain_error(table_mode, X)
+        )
+    ),
+    P1 is P + 1,
+    modes(Xs, P1, M, Mode1, Mode).
+
+index_mode(X) :- var(X), !.
+index_mode(index).
+
+answer_mode(min, _, min) :- !.
+answer_mode(max, _, max) :- !.
+answer_mode(first, _, first) :- !.
+answer_mode(lattice(P), M, lattice(Q)) :-
+    nonvar(P), !,
+    (   P = _:_/3 -> Q = P
+    ;   P = N/3, atom(N) -> Q = M:N
+    ;   atom(P) -> Q = M:P
+    ;   domain_error(table_mode, lattice(P))
+    ).
+answer_mode(X, _, _) :-
+    domain_error(table_mode, X).
 
 %% abolish_all_tables: alle vollständigen Tabellen verwerfen
 abolish_all_tables :-
@@ -57,45 +119,92 @@ start_tabling(M:Wrapper, Worker) :-
 % --- Auswertung ------------------------------------------------------------
 
 '$tbl_call'(Spec, G, I) :-
-    '$tbl_lookup'(Spec, G, I, R),
-    tbl_(R, G, I).
+    (   Spec = '$tbl'(_, _, _, mode(P, _)),
+        arg(P, G, V),
+        nonvar(V)
+    ->  % gebundener Wert: mit freiem Argument rechnen (die beste Antwort),
+        % dann unifizieren
+        G =.. [F|Args],
+        nth1(P, Args, _, Rest),
+        nth1(P, Args1, V1, Rest),
+        G1 =.. [F|Args1],
+        I = Mod:IH,
+        IH =.. [IF|_],
+        IH1 =.. [IF|Args1],
+        '$tbl_call'(Spec, G1, Mod:IH1),
+        V = V1
+    ;   '$tbl_lookup'(Spec, G, I, R),
+        tbl_(R, Spec, G, I)
+    ).
 
-tbl_(complete(As), G, _) :-
+tbl_(complete(As), _, G, _) :-
     table_wrapper:answer(As, G).
-tbl_(incomplete(As), G, _) :-
+tbl_(incomplete(As), _, G, _) :-
     table_wrapper:answer(As, G).
-tbl_(evaluate(Id), G, I) :-
-    catch(eval(Id, G, I), E, ('$tbl_abandon'(Id), throw(E))),
+tbl_(evaluate(Id), Spec, G, I) :-
+    catch(eval(Id, Spec, G, I), E, ('$tbl_abandon'(Id), throw(E))),
+    '$tbl_answers'(Id, As),
+    table_wrapper:answer(As, G).
+tbl_(reevaluate(Id), Spec, G, I) :-
+    catch(run(Id, Spec, G, I, _), E, ('$tbl_abandon'(Id), throw(E))),
     '$tbl_answers'(Id, As),
     table_wrapper:answer(As, G).
 
-tbl_(reevaluate(Id), G, I) :-
-    catch(run(Id, G, I, _), E, ('$tbl_abandon'(Id), throw(E))),
-    '$tbl_answers'(Id, As),
-    table_wrapper:answer(As, G).
+eval(Id, Spec, G, I) :-
+    run(Id, Spec, G, I, Leader),
+    (   Leader == true -> lead(Id, Spec, G, I) ; true ).
 
-eval(Id, G, I) :-
-    run(Id, G, I, Leader),
-    (   Leader == true -> lead(Id, G, I) ; true ).
-
-run(Id, G, I, Leader) :-
+run(Id, Spec, G, I, Leader) :-
     '$tbl_frame'(Id),
     findall(G, I, As),
-    '$tbl_unframe'(Id, As, Leader).
+    (   Spec = '$tbl'(_, _, _, mode(P, Mode))
+    ->  add_moded(As, Id, P, Mode),
+        '$tbl_unframe'(Id, [], Leader)
+    ;   '$tbl_unframe'(Id, As, Leader)
+    ).
 
 % Anführer: Mitglieder nachziehen, dann neue Runde oder fertig
-lead(Id, G, I) :-
+lead(Id, Spec, G, I) :-
     stale(Id),
     '$tbl_round'(Id, S),
     (   S == again
-    ->  run(Id, G, I, _),
-        lead(Id, G, I)
+    ->  run(Id, Spec, G, I, _),
+        lead(Id, Spec, G, I)
     ;   true
     ).
 
 stale(Id) :-
-    (   '$tbl_next_stale'(Id, M, GM, IM)
-    ->  run(M, GM, IM, _),
+    (   '$tbl_next_stale'(Id, M, SM, GM, IM)
+    ->  run(M, SM, GM, IM, _),
         stale(Id)
     ;   true
     ).
+
+% --- Modi -------------------------------------------------------------------
+% Je Belegung der übrigen Argumente (Schlüssel) bleibt eine Antwort: die
+% beste nach dem Modus. Eine bessere ersetzt sie und zählt als Änderung.
+
+add_moded([], _, _, _).
+add_moded([A|As], Id, P, Mode) :-
+    A =.. [F|Args],
+    nth1(P, Args, V, Key),
+    '$tbl_mget'(Id, Key, Old),
+    (   Old = some(OA)
+    ->  OA =.. [_|OArgs],
+        nth1(P, OArgs, OV),
+        (   better(Mode, OV, V, NV)
+        ->  nth1(P, NArgs, NV, Key),
+            NA =.. [F|NArgs],
+            '$tbl_mput'(Id, Key, NA)
+        ;   true
+        )
+    ;   '$tbl_mput'(Id, Key, A)
+    ),
+    add_moded(As, Id, P, Mode).
+
+% better(+Modus, +Alt, +Neu, -Wert): Neu verbessert Alt zu Wert
+better(min, O, N, N) :- compare(<, N, O).
+better(max, O, N, N) :- compare(>, N, O).
+better(lattice(J), O, N, V) :-
+    call(J, O, N, V),
+    V \== O.

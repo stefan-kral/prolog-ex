@@ -98,6 +98,28 @@ defmodule PrologEx.TablingTest do
   rboom(0).
   rboom(_) :- nb_getval(n, 1), throw(rb).
 
+  % Modi
+  w(a, b, 1). w(b, c, 2). w(a, c, 5). w(c, a, 1). w(c, d, 1). w(b, d, 7).
+  :- table sp(_, _, min).
+  sp(X, Y, C) :- w(X, Y, C).
+  sp(X, Y, C) :- sp(X, Z, C0), w(Z, Y, C1), C is C0 + C1.
+  :- table lp(_, _, max).
+  lp(X, Y, C) :- dg(X, Y, C).
+  lp(X, Y, C) :- lp(X, Z, C0), dg(Z, Y, C1), C is C0 + C1.
+  dg(1, 2, 3). dg(2, 3, 4). dg(1, 3, 1). dg(3, 4, 2).
+  :- table fp(_, _, first).
+  fp(X, Y, [X, Y]) :- w(X, Y, _).
+  fp(X, Y, P) :- fp(X, Z, P0), w(Z, Y, _), append(P0, [Y], P).
+  :- table spp(_, _, lattice(shorter/3)).
+  shorter(C1-P1, C2-P2, C-P) :- ( C2 < C1 -> C-P = C2-P2 ; C-P = C1-P1 ).
+  spp(X, Y, C-[X, Y]) :- w(X, Y, C).
+  spp(X, Y, C-P) :- spp(X, Z, C0-P0), w(Z, Y, C1), C is C0 + C1, append(P0, [Y], P).
+  % Modi und ohne in einer Komponente
+  :- table hops(_, min), reach/1.
+  hops(a, 0).
+  hops(Y, N) :- reach(X), hops(X, N0), w(X, Y, _), N is N0 + 1.
+  reach(X) :- hops(X, _).
+
   set(T, G, S) :- findall(T, G, L), msort(L, S).
   """
 
@@ -226,5 +248,34 @@ defmodule PrologEx.TablingTest do
     src = @src <> ":- use_module(library(memo)).\n:- memo mm/1.\nmm(X) :- path(n1, X).\n"
     assert ask(c, "set(X, mm(X), S)", src) == ["S = [n1,n2,n3,n4]"]
     refute Map.has_key?(PrologEx.current_db(), {"table_wrapper", "term_expansion", 2})
+  end
+
+  test "Modi: min, max, first, lattice", c do
+    assert ask(c, "set(Y-C, sp(a, Y, C), S)") == ["S = [a-4,b-1,c-3,d-4]"]
+
+    assert ask(c, "set(X-Y-C, lp(X, Y, C), S)") ==
+             ["S = [1-2-3,1-3-7,1-4-9,2-3-4,2-4-6,3-4-2]"]
+
+    # first: die erste gefundene Antwort je Schlüssel bleibt
+    assert ask(c, "set(Y-P, fp(a, Y, P), S)") ==
+             [~S|S = [a-"aca",b-"ab",c-"ac",d-"abd"]|]
+
+    assert ask(c, "set(Y-CP, spp(a, Y, CP), S)") ==
+             [~S|S = [a-(4-"abca"),b-(1-"ab"),c-(3-"abc"),d-(4-"abcd")]|]
+
+    # gebundener Wert: die beste Antwort, dann unifiziert
+    assert ask(c, "sp(a, d, 4)") == ["true"]
+    assert ask(c, "sp(a, d, 8)") == []
+    assert ask(c, "set(Y-N, hops(Y, N), S)") == ["S = [a-0,b-1,c-1,d-2]"]
+  end
+
+  test "Modi: Fehler in der Direktive", _c do
+    {_db, msgs} =
+      load(@src <> ":- table q1(min, max).\n:- table q2(_, sum).\n:- table q3(lattice(1)).\n")
+
+    m = Enum.join(msgs)
+    assert m =~ "domain_error(table_mode,max)"
+    assert m =~ "domain_error(table_mode,sum)"
+    assert m =~ "domain_error(table_mode,lattice(1))"
   end
 end

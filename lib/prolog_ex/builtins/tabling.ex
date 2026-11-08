@@ -76,11 +76,12 @@ defmodule PrologEx.Builtins.Tabling do
           id: id,
           status: :incomplete,
           answers: [],
-          aset: MapSet.new(),
+          aset: if(moded?(spec, s), do: %{}, else: MapSet.new()),
           index: index,
           lowlink: index,
           stamp: st.round,
-          goal: PrologEx.copy_fresh(mk("-", [g, i]), s),
+          moded: moded?(spec, s),
+          goal: PrologEx.copy_fresh(mk("t", [spec, g, i]), s),
           round_adds: st.adds,
           round_snaps: st.snaps
         }
@@ -165,9 +166,9 @@ defmodule PrologEx.Builtins.Tabling do
     end
   end
 
-  # '$tbl_next_stale'(+Id, -M, -G, -I): ein Mitglied der Komponente von Id,
-  # das in dieser Runde noch nicht ausgewertet wurde
-  defbuiltin "$tbl_next_stale", [id, m, g, i] do
+  # '$tbl_next_stale'(+Id, -M, -Spec, -G, -I): ein Mitglied der Komponente
+  # von Id, das in dieser Runde noch nicht ausgewertet wurde
+  defbuiltin "$tbl_next_stale", [id, m, spec, g, i] do
     st = state()
     e = entry(st, deref(id))
 
@@ -183,8 +184,8 @@ defmodule PrologEx.Builtins.Tabling do
 
       x ->
         put_state(put_entry(st, %{x | stamp: st.round}))
-        {:struct, "-", [g2, i2]} = PrologEx.copy_fresh(x.goal, %{})
-        {:unify, [{m, x.id}, {g, g2}, {i, i2}]}
+        {:struct, "t", [spec2, g2, i2]} = PrologEx.copy_fresh(x.goal, %{})
+        {:unify, [{m, x.id}, {spec, spec2}, {g, g2}, {i, i2}]}
     end
   end
 
@@ -249,18 +250,38 @@ defmodule PrologEx.Builtins.Tabling do
     :ok
   end
 
-  # '$tbl_count'(+M:N/A, -Vollständig, -Antworten): für Tests und Statistik
-  defbuiltin "$tbl_count", [pi, n_tables, n_answers] do
-    {:struct, ":", [{:atom, m}, {:struct, "/", [{:atom, n}, ar]}]} =
-      PrologEx.resolve(pi, subst())
+  defp moded?(spec, s) do
+    match?({:struct, "$tbl", [_, _, _, _]}, PrologEx.resolve(spec, s))
+  end
 
-    es = for {{{^m, ^n, ^ar}, _}, %{status: :complete} = e} <- state().tables, do: e
-    {:unify, [{n_tables, length(es)}, {n_answers, Enum.sum_by(es, &length(&1.answers))}]}
+  # '$tbl_mget'(+Id, +Schlüssel, -R): R = none oder some(Antwort) – die
+  # bisher beste Antwort zu den Indexargumenten Schlüssel
+  defbuiltin "$tbl_mget", [id, key, r] do
+    s = subst()
+    e = entry(state(), deref(id))
+
+    case Map.fetch(e.aset, Memo.variant_key(key, s)) do
+      {:ok, stored} -> {:unify, [{r, mk("some", [one(stored)])}]}
+      :error -> {:unify, [{r, a("none")}]}
+    end
+  end
+
+  # '$tbl_mput'(+Id, +Schlüssel, +Antwort): Antwort ist die neue beste zu
+  # Schlüssel (zählt als Änderung)
+  defbuiltin "$tbl_mput", [id, key, ans] do
+    s = subst()
+    st = state()
+    e = entry(st, deref(id))
+    k = Memo.variant_key(key, s)
+    order = if Map.has_key?(e.aset, k), do: e.answers, else: [k | e.answers]
+    e = %{e | aset: Map.put(e.aset, k, store(ans, s)), answers: order}
+    put_state(put_entry(%{st | adds: st.adds + 1}, e))
+    :ok
   end
 
   defp pk!(spec, s) do
     case PrologEx.resolve(spec, s) do
-      {:struct, "$tbl", [{:atom, m}, {:atom, n}, ar]} when is_integer(ar) -> {m, n, ar}
+      {:struct, "$tbl", [{:atom, m}, {:atom, n}, ar | _]} when is_integer(ar) -> {m, n, ar}
     end
   end
 
@@ -269,13 +290,21 @@ defmodule PrologEx.Builtins.Tabling do
     if PrologEx.Compiler.ground?(r), do: {:ground, PrologEx.mark(r)}, else: {:copy, r}
   end
 
-  defp retrieve(e) do
+  # Modi: answers sind die Schlüssel (Indexargumente) in der Reihenfolge des
+  # ersten Findens, aset ordnet jedem die beste Antwort zu
+  defp retrieve(%{moded: true} = e) do
     e.answers
     |> Enum.reverse()
-    |> Enum.map(fn
-      {:ground, t} -> t
-      {:copy, t} -> PrologEx.copy_fresh(t, %{})
-    end)
-    |> PrologEx.list()
+    |> Enum.map(&Map.fetch!(e.aset, &1))
+    |> materialize()
   end
+
+  defp retrieve(e), do: e.answers |> Enum.reverse() |> materialize()
+
+  defp materialize(stored) do
+    stored |> Enum.map(&one/1) |> PrologEx.list()
+  end
+
+  defp one({:ground, t}), do: t
+  defp one({:copy, t}), do: PrologEx.copy_fresh(t, %{})
 end

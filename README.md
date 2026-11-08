@@ -1884,15 +1884,27 @@ expr --> term.
     Prädikats; hängt es von dynamischen Prädikaten ab, veralten sie still:
     `abolish_all_tables/0`.
   * Geprüft gegen Scryer mit zufälligen Programmen (Links-, Rechts- und
-    doppelte Rekursion, verschränkte und geschachtelte Komponenten).
+    doppelte Rekursion, verschränkte und geschachtelte Komponenten); `min`
+    mit zufälligen gewichteten Graphen gegen die Suche über alle
+    einfachen Pfade.
   * Kosten: Programme ohne `:- table` zahlen nichts (der Hook lebt nur,
     solange eine Datei mit `table/1` lädt). Jede Runde wertet die Komponente
     ganz neu aus (naiv, nicht semi-naiv): Links-Rekursion über einem Ring
     aus n Knoten braucht n Runden. Trotzdem schneller als Scryer
     (`path/2` über einen Ring aus 50 Knoten, alle Paare: 0,27 s gegen
     4,1 s; 100 Knoten: 2,3 s gegen 60 s).
-  * Nicht (noch nicht): Modi wie `path(_,_,min)`, `tnot/1`, Well-Founded
-    Semantics, inkrementelles Tabling.
+  * Modi wie SWI (über Scryer hinaus): `:- table path(_, _, min).` – je
+    Belegung der übrigen Argumente bleibt eine Antwort, die beste:
+    `min`, `max` (Standardordnung der Terme), `first` (die zuerst
+    gefundene), `lattice(P/3)` (`call(P, Alt, Neu, Verbund)`; besser heißt:
+    der Verbund ist nicht `==` dem Alten). Höchstens ein Argument mit
+    Modus; `_` oder `index` für die übrigen. Ein gebundenes Argument mit
+    Modus wird frei gerechnet und dann unifiziert (`path(a, d, 8)`
+    scheitert, wenn der kürzeste Weg 4 kostet). Terminiert nur, wenn sich
+    jeder Wert endlich oft verbessert (bei `min`: keine negativen Zyklen).
+    `sum`, `last` und `po` gibt es nicht (`domain_error(table_mode, M)`).
+  * Nicht (noch nicht): `tnot/1`, Well-Founded Semantics, inkrementelles
+    Tabling.
 
 ## Memoisierung: `library(memo)`
 
