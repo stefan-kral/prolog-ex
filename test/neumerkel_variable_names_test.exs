@@ -60,8 +60,9 @@ defmodule PrologEx.NeumerkelVariableNamesTest do
     {"VN_list = [a|_], " <> @vn, {:error, @inst}},
     {"VN_list = [i=i,7=i], " <> @vn, {:error, @wopt}},
     {"VN_list = [_,_], " <> @vn, {:error, @inst}},
-    # -X^2 ist -(X^2) und wird so auch wieder gelesen
-    {"write_term(-X^2,[variable_names(['X'=X])])", {:out, "-X^2"}},
+    # -X^2 ist -(X^2); die Seite zeigt -X^2, der neuere Entwurf zu 7.10.5
+    # (WDCor.3, h 2 iv) verlangt Klammern nach dem Präfix -: - (X^2)
+    {"write_term(-X^2,[variable_names(['X'=X])])", {:out, "- (X^2)"}},
     {"X=1, write_term(-X^2,[variable_names(['X'=X])])", {:out, "- (1^2)"}},
     {@sn, {:error, @inst}},
     {"S=1+T,N='/*r*/V', " <> @sn, {:out, "1+ /*r*/V"}},

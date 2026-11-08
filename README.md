@@ -237,8 +237,10 @@ Aufruf erweitert statt neu gebaut, `retract` der ersten Klausel ist O(1).
 Abwechselnd `assertz` und Aufruf bleibt quadratisch (Kopie der
 Klauselliste, klein: 8000 Runden ≈ 0,4 s).
 
-Zahlen im Quelltext: Zifferngruppen wie in SWI (`1_000_000`, nach `_` darf
-Leerraum folgen) und Ganzzahl-Literale beliebiger Größe (auch `0x…`).
+Zahlen im Quelltext: Zifferntrenner wie von WG17 2025 angenommen
+(`1_000_000`; nach `_` darf Layout-Text folgen, also Leerraum, Zeilenumbruch
+oder ein Kommentar: `1_ /* … */ 000`; auch in `0b…`, `0o…`, `0x…`; kein
+doppeltes `__`) und Ganzzahl-Literale beliebiger Größe.
 
 Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
 `error(Formal, Kontext)` (`type_error`, `instantiation_error`,
@@ -2817,14 +2819,17 @@ Direktive).
     (wie gprolog, aber Kommentare zählen als Ganzes).
 
 Neumerkels Konformitätstabelle zur ISO-Syntax (in der Fassung von Scryer
-Prolog, 266 Fälle zum Lesen und Schreiben): 259 bestehen.
+Prolog, 266 Fälle zum Lesen und Schreiben): 260 bestehen.
 `mix run conformance/neumerkel/run.exs /pfad/scryer-prolog` (Checkout
 von github.com/mthom/scryer-prolog). Die übrigen sieben sind Absicht oder
 von ISO offen gelassen: Backquotes lesen sich als Atom (#113; ISO: kein
 Term), `|` ist wie bei gprolog und SWI vordefiniert (#285), dazu Abstände
-und Variablennamen in der Ausgabe (#142, #151, #226, #227, #260).
+und Variablennamen in der Ausgabe (#142, #151, #226, #227). Geschrieben
+wird nach dem Entwurf zu 7.10.5 (WDCor.3): nach dem Präfix `-` stehen
+Klammern um eine Zahl und um einen Term in Operatorform (`- (1)`,
+`- (a^2)`).
 
-Drei weitere Tabellen Neumerkels stehen als tabellengetriebene Tests in
+Weitere Tabellen Neumerkels stehen als tabellengetriebene Tests in
 `test/neumerkel_*_test.exs` (je Zeile Anfrage und erwartete Antwort; wo
 die Tabelle mehrere Antworten zulässt, genügt eine):
 
@@ -2848,6 +2853,32 @@ die Tabelle mehrere Antworten zulässt, genügt eine):
     `variable_names/1`-Option gilt die letzte; `read_term/2,3` liest erst
     und unifiziert dann (`variable_names(42)` scheitert, ein Syntaxfehler
     geht vor).
+  * [length](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/length)
+    (`length/2`, `atom_length/2`): eine zyklische Liste scheitert
+    (`L = [a|L], length(L, 7)`); bei offener Liste und offener Länge wird
+    Zelle für Zelle verlängert, so dass `freeze(L, L = []), length(L, L)`
+    scheitert statt endlos zu suchen. Nicht aufgenommen: die Fälle, die
+    endlos laufen dürfen (#21, #22, #30), und #31 (`freeze(L, L=[_|L])` mit
+    Länge 2^64: hier `resource_error(memory)`, die Tabelle erwartet `false`).
+  * [cleanup](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/cleanup)
+    (`setup_call_cleanup/3`, alle Beispiele aus 7.8.11.4; wo der Entwurf
+    mehrere Ausgänge zulässt, läuft die Aufräumung, sobald das Ziel
+    deterministisch fertig ist).
+  * [number_chars](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/number_chars)
+    vollständig, auch #46 (zyklische Liste: `type_error(list, L)`).
+  * Kleinere Seiten in `test/neumerkel_misc_test.exs`:
+    [digit_separators](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/digit_separators),
+    [noname_operators](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/noname_operators)
+    (`'[]'` und `'{}'` sind keine Operatoren:
+    `permission_error(create, operator, [])`),
+    [syntax_extension](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/syntax_extension)
+    (`|` als `op(1105, xfy, '|')` wie SWI/YAP; `f(a|b)`, `[a|b|c]`, `f(|)`
+    sind Syntaxfehler, `(fail|true)` ist `existence_error`, da `'|'/2` kein
+    Steuerkonstrukt ist),
+    [error_k](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/error_k)
+    (`open/3,4` mit gebundenem Stream: `uninstantiation_error(S)`) und
+    [draft-7.10.5](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/draft-7.10.5)
+    (Schreiben).
 
 Die Tests vergleichen Reader und Writer mit gprolog über aufgezeichnete
 Ergebnisse (`test/fixtures/reader/gprolog_reads.txt`,

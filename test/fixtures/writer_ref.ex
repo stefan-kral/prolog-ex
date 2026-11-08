@@ -149,9 +149,12 @@ defmodule PrologEx.WriterRef do
     # - (1), - (1^2): sonst läse man eine negative Zahl (+1 ist keine
     # Zahl, sondern +(1) – wie ISO und gprolog)
     {aio, af, al} =
-      if f == "-" and digit?(elem(arg, 1)),
-        do: paren(arg),
-        else: arg
+      cond do
+        f == "-" and digit?(elem(arg, 1)) -> paren(arg)
+        # - vor Infix-/Postfixform: Klammern (Entwurf 7.10.5 h 2 iv)
+        f == "-" and PrologEx.Writer.op_form?(x, o) and elem(arg, 1) != ?( -> paren(arg)
+        true -> arg
+      end
 
     op = atom(f, o)
 

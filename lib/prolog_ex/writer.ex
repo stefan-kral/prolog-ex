@@ -200,7 +200,10 @@ defmodule PrologEx.Writer do
 
       {[x], %{prefix: {p, type}}} ->
         ap = if type == "fy", do: p, else: p - 1
-        descend(x, ap, :operand, d + 1, o, [{:prefix, f, p, max} | st])
+        # Präfix - vor einem Term in Infix- oder Postfixform: Klammern
+        # (Entwurf 7.10.5 h 2 iv: - (a^2), nicht -a^2)
+        force = f == "-" and op_form?(x, o)
+        descend(x, ap, :operand, d + 1, o, [{:prefix, f, p, max, force} | st])
 
       {[x], %{postfix: {p, type}}} ->
         ap = if type == "yf", do: p, else: p - 1
@@ -233,7 +236,8 @@ defmodule PrologEx.Writer do
   defp ret([{:infix_r, f, p, max, left} | st], right, o),
     do: ret(st, infix(f, p, max, left, right, o), o)
 
-  defp ret([{:prefix, f, p, max} | st], arg, o), do: ret(st, prefix(f, p, max, arg, o), o)
+  defp ret([{:prefix, f, p, max, force} | st], arg, o),
+    do: ret(st, prefix(f, p, max, arg, force, o), o)
 
   defp ret([{:postfix, f, p, max} | st], {aio, af, al}, o) do
     op = atom(f, o)
@@ -271,13 +275,15 @@ defmodule PrologEx.Writer do
     wrap(t, p, max)
   end
 
-  defp prefix(f, p, max, arg, o) do
+  defp prefix(f, p, max, arg, force, o) do
     # - (1), - (1^2): sonst läse man eine negative Zahl (+1 ist keine
-    # Zahl, sondern +(1) – wie ISO und gprolog)
+    # Zahl, sondern +(1) – wie ISO und gprolog); force: siehe compound/6
     {aio, af, al} =
-      if f == "-" and digit?(elem(arg, 1)),
-        do: paren(arg),
-        else: arg
+      cond do
+        f == "-" and digit?(elem(arg, 1)) -> paren(arg)
+        force and elem(arg, 1) != ?( -> paren(arg)
+        true -> arg
+      end
 
     op = atom(f, o)
 
@@ -286,6 +292,21 @@ defmodule PrologEx.Writer do
     sep = if af == ?( or alpha?(op) or glue?(last(op), af), do: " ", else: ""
     wrap({[op, sep, aio], first(op), al || last(op)}, p, max)
   end
+
+  @doc false
+  # wird t in Infix- oder Postfixform geschrieben? ('$VAR'(N) mit
+  # numbervars ist ein Variablenname, auch wenn '$VAR' ein Operator ist)
+  def op_form?({tag, "$VAR", [n]}, %{numbervars: true})
+      when tag in [:struct, :gstruct] and is_integer(n) and n >= 0,
+      do: false
+
+  def op_form?({tag, g, [_, _]}, o) when tag in [:struct, :gstruct],
+    do: match?(%{infix: _}, Map.get(o.ops, g))
+
+  def op_form?({tag, g, [_]}, o) when tag in [:struct, :gstruct],
+    do: match?(%{postfix: _}, Map.get(o.ops, g))
+
+  def op_form?(_t, _o), do: false
 
   # Linker Operand vor einem Infix- oder Postfixoperator der Priorität p:
   # endet er rechts offen – mit einem Präfixoperator oder dem rechten

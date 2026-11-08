@@ -560,8 +560,9 @@ defmodule PrologEx.Builtins.Atoms do
         Lists.items_prefix(l, s) |> Enum.each(&check_elem(PrologEx.Store.walk(&1, s), kind))
         :partial
 
+      # (ungelöst: auch eine zyklische Liste kommt so in den Fehler)
       _ ->
-        Error.type!("list", PrologEx.resolve(l, s))
+        Error.type!("list", l)
     end
   end
 

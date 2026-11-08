@@ -498,12 +498,12 @@ defmodule PrologEx.Parser do
               (x == ?o and d in ?0..?7) or (x == ?b and d in ?0..?1) do
     base = %{?x => 16, ?o => 8, ?b => 2}[x]
     <<_, _, digits::binary>> = r
-    {ds, rest} = radix_digits(digits, base, 0)
-    {{:num, String.to_integer(ds, base)}, lay, pos, rest, pos + 2 + byte_size(ds)}
+    {ds, rest, used} = grouped(digits, base, [], 0)
+    {{:num, String.to_integer(ds, base)}, lay, pos, rest, pos + 2 + used}
   end
 
   defp number(r, pos, lay) do
-    {int, rest, used} = decimal(r, [], 0)
+    {int, rest, used} = grouped(r, 10, [], 0)
 
     case rest do
       <<?., d, _::binary>> when d in ?0..?9 ->
@@ -531,19 +531,28 @@ defmodule PrologEx.Parser do
     _ -> :error
   end
 
-  # Ziffern mit Gruppen (1_000_000, auch 1_000_ 000): {ziffern, rest, bytes}
-  defp decimal(r, acc, used) do
-    {ds, rest} = digits(r, 0)
+  # Ziffern zur Basis mit Trennern (Neumerkel, digit separators; WG17
+  # 2025: Optionen 1, 3, 4): nach einem _ darf Layout-Text folgen –
+  # Leerraum und Kommentare –, dann wieder eine Ziffer (1_000_000,
+  # 1_ 000, 1_ /* … */ 000, 0xff_ff). Kein doppeltes _ (Option 2 offen).
+  # {ziffern, rest, bytes}
+  defp grouped(r, base, acc, used) do
+    {ds, rest} = if base == 10, do: digits(r, 0), else: radix_digits(r, base, 0)
     acc = [acc, ds]
     used = used + byte_size(ds)
 
     case rest do
       <<?_, more::binary>> ->
-        {skipped, more2} = blank(more, 0)
+        {skipped, more2} = layout_text(more, 0)
 
         case more2 do
-          <<d, _::binary>> when d in ?0..?9 -> decimal(more2, acc, used + 1 + skipped)
-          _ -> {IO.iodata_to_binary(acc), rest, used}
+          <<d, _::binary>> ->
+            if digit_value(d) < base,
+              do: grouped(more2, base, acc, used + 1 + skipped),
+              else: {IO.iodata_to_binary(acc), rest, used}
+
+          _ ->
+            {IO.iodata_to_binary(acc), rest, used}
         end
 
       _ ->
@@ -551,8 +560,25 @@ defmodule PrologEx.Parser do
     end
   end
 
-  defp blank(<<c, rest::binary>>, n) when c in @layout, do: blank(rest, n + 1)
-  defp blank(rest, n), do: {n, rest}
+  # Layout-Text (ISO 6.4.1): Leerraum und Kommentare; {bytes, rest}. Ein
+  # nicht geschlossener Kommentar zählt nicht (dann bleibt das _ stehen).
+  defp layout_text(<<c, rest::binary>>, n) when c in @layout, do: layout_text(rest, n + 1)
+
+  defp layout_text(<<"/*", rest::binary>> = r, n) do
+    case :binary.match(rest, "*/") do
+      {i, 2} -> layout_text(binary_part(rest, i + 2, byte_size(rest) - i - 2), n + i + 4)
+      :nomatch -> {n, r}
+    end
+  end
+
+  defp layout_text(<<"%", rest::binary>> = r, n) do
+    case :binary.match(rest, "\n") do
+      {i, 1} -> layout_text(binary_part(rest, i + 1, byte_size(rest) - i - 1), n + i + 2)
+      :nomatch -> {n, r}
+    end
+  end
+
+  defp layout_text(rest, n), do: {n, rest}
 
   defp digits(r, i) do
     case from(r, i) do

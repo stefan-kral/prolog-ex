@@ -2,7 +2,7 @@ defmodule PrologEx.IsoNumberCharsTest do
   # Konformitätstests von Ulrich Neumerkel (ISO/IEC JTC1 SC22 WG17):
   # https://www.complang.tuwien.ac.at/ulrich/iso-prolog/number_chars
   # Erwartungen nach Cor.2; wo die Tabelle mehrere Fehler zulässt, jeder
-  # davon. Fall 46 (zyklische Liste) fehlt: prolog-ex hängt dort (bewusst).
+  # davon.
   use ExUnit.Case, async: false
   alias PrologEx.Reader
 
@@ -54,6 +54,8 @@ defmodule PrologEx.IsoNumberCharsTest do
     {44, "number_chars(1,[[]|_]).", {:error, ["type_error(character,[])"]}},
     {45, "number_chars(1,[[]|2]).",
      {:error, ["type_error(character,[])", "type_error(list,[[]|2])"]}},
+    # außerhalb von 13211-1 (zyklische Liste, ohne Occurs-Check)
+    {46, "L=['1'|L], number_chars(N,L).", {:error, ["type_error(list,"]}},
     {47, "number_chars(1,['.'|_]).", :fail},
     {48, "number_chars(N,[+,'1']).", {:error, ["syntax_error"]}},
     {49, "number_chars(N,[+,' ','1']).", {:error, ["syntax_error"]}},

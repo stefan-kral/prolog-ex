@@ -98,7 +98,8 @@ defmodule PrologEx.CyclicTest do
     yes(c, "A = f(A), findnsols(1, A, (true;true), [B]), B == A, !")
     yes(c, "A = f(A), catch(throw(x(A)), x(B), true), B == A")
     yes(c, "A = f(A), catch(findall(_, throw(y(A)), _), y(B), true), B == A")
-    yes(c, "L = [a|L], catch(length(L, _), error(type_error(list, M), _), true), M == L")
+    # length/2 einer zyklischen Liste scheitert (Neumerkel length #27, #28)
+    no(c, "L = [a|L], length(L, _)")
   end
 
   test "Variablen, ground, dif, numbervars", c do

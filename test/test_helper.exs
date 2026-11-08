@@ -25,6 +25,7 @@ defmodule PrologEx.TableCase do
   #   {:out, "text"}          genau eine Antwort mit dieser Ausgabe
   #   {:out_re, "regex"}      ebenso, die Ausgabe passt zum Muster
   #   {:out, "text", e}       Ausgabe und Erwartung e
+  #   {:out_re, "regex", e}   ebenso mit Muster
   #   {:any, [e1, e2, ...]}   die Tabelle lässt mehrere Antworten zu
   import ExUnit.CaptureIO
   alias PrologEx.Reader
@@ -75,6 +76,7 @@ defmodule PrologEx.TableCase do
     case {expect, r} do
       {{:any, alts}, _} -> Enum.any?(alts, &matches?(&1, actual))
       {{:out_re, re}, _} -> out =~ Regex.compile!(re) and matches?(:succeeds, actual)
+      {{:out_re, re, e}, _} -> out =~ Regex.compile!(re) and matches?(e, actual)
       {{:out, text}, _} -> out == text and matches?(:succeeds, actual)
       {{:out, text, e}, _} -> out == text and matches?(e, actual)
       {:fails, {:answers, as}} -> as == []

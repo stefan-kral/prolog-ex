@@ -65,6 +65,16 @@ defmodule PrologEx.Builtins.Lists do
         s("is", [i1, s("+", [i0, 1])]),
         s("$nth4", [t, h2, i1, i, e, r])
       ]),
+      # length/2 mit offenem Rest und offener Länge (siehe dort)
+      rule(s("$length_open", [t, i, n]), [s("=", [t, []]), s("=", [n, i])]),
+      rule(s("$length_open", [[v("_") | t], i0, n]), [
+        s("is", [i1, s("+", [i0, 1])]),
+        s("$length_open", [t, i1, n])
+      ]),
+      rule(s("$length_attv", [[v("_") | t], i0]), [
+        s("is", [i1, s("-", [i0, 1])]),
+        s("length", [t, i1])
+      ]),
       fact(s("$same_length", [[], []])),
       rule(s("$same_length", [[v("_") | t], [v("_") | l]]), [s("$same_length", [t, l])]),
       # same_length(L1, L2, N) wie SICStus: beide Listen haben N Elemente;
@@ -349,6 +359,13 @@ defmodule PrologEx.Builtins.Lists do
 
       {:var, _} ->
         case deref(len) do
+          # attributierter Rest (freeze, dif, ...): Zelle für Zelle, die
+          # geweckten Ziele können die Liste ändern (Neumerkel length #31)
+          k
+          when is_integer(k) and k > n and elem(rest, 1) |> is_tuple() and
+                 elem(elem(rest, 1), 0) == :attv ->
+            [{:call, mk(":", [a("lists"), mk("$length_attv", [rest, k - n])])}]
+
           k when is_integer(k) and k >= n ->
             [{:unify, [{rest, fresh_list(k - n)}]}]
 
@@ -358,19 +375,18 @@ defmodule PrologEx.Builtins.Lists do
           k when is_integer(k) ->
             PrologEx.Error.domain!("not_less_than_zero", k)
 
+          # Rest und Länge offen: Zelle für Zelle (lists:'$length_open'/3),
+          # damit ein Ziel auf dem Rest (freeze) jede Verlängerung sieht und
+          # die Aufzählung abbrechen kann (Neumerkel length #29)
           {:var, _} ->
-            Stream.map(Stream.iterate(0, &(&1 + 1)), fn i ->
-              {:unify, [{rest, fresh_list(i)}, {len, n + i}]}
-            end)
+            [{:call, mk(":", [a("lists"), mk("$length_open", [rest, n, len])])}]
 
           _ ->
             []
         end
 
-      # eine zyklische Liste (skip_list/2 hält in ihrem Zyklus): wie SWI
-      [_ | _] ->
-        PrologEx.Error.type!("list", l)
-
+      # eine zyklische Liste (skip_list/2 hält in ihrem Zyklus): scheitert
+      # (Neumerkel length #27, #28; SWI wirft type_error(list, L))
       _ ->
         []
     end
