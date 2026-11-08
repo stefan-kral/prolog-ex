@@ -323,9 +323,6 @@ defmodule PrologEx.Builtins.Terms do
     end
   end
 
-  # mehr Argumente auf einmal anzulegen ist sinnlos (je ~50 Byte)
-  @max_build 268_435_456
-
   defbuiltin "functor", [t, name, arity] do
     functor(t, name, arity, subst())
   end
@@ -359,9 +356,8 @@ defmodule PrologEx.Builtins.Terms do
               do: PrologEx.Error.type!("atomic", n),
               else: PrologEx.Error.type!("atom", n)
 
-          # max_arity ist unbeschränkt, der Speicher nicht
-          ar > @max_build ->
-            PrologEx.Error.resource!("memory")
+          ar > PrologEx.Flags.max_arity() ->
+            PrologEx.Error.representation!("max_arity")
 
           true ->
             # groß: vorab gegen eine Speichergrenze (Argument + Variable)
@@ -494,9 +490,16 @@ defmodule PrologEx.Builtins.Terms do
                 PrologEx.Error.instantiation!()
 
               nn ->
-                if Core.atom?(nn),
-                  do: {:unify, [{t, mk(atom_name(nn), args)}]},
-                  else: PrologEx.Error.type!("atom", nn)
+                cond do
+                  not Core.atom?(nn) ->
+                    PrologEx.Error.type!("atom", nn)
+
+                  length(args) > PrologEx.Flags.max_arity() ->
+                    PrologEx.Error.representation!("max_arity")
+
+                  true ->
+                    {:unify, [{t, mk(atom_name(nn), args)}]}
+                end
             end
 
           {:ok, []} ->

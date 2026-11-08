@@ -2752,7 +2752,10 @@ exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
 `float_fractional_part/1` nehmen nur Floats – eine Ganzzahl ist
 `type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
 Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
-Float). Gesamt: 4 121 bestanden, 85 fehlgeschlagen, 206 übersprungen.
+Float). `max_arity` ist 65 536 (2^16): größere Stelligkeiten bei
+`functor/3`, `=../2` und beim Lesen sind `representation_error(max_arity)`
+bzw. ein Syntaxfehler. Gesamt: 4 122 bestanden, 81 fehlgeschlagen,
+209 übersprungen.
 Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
 den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument
 weder Liste noch Teilliste ist (Logtalk: `type_error(list, L)`), und die
@@ -2764,7 +2767,7 @@ Werte von `variables/1`, `variable_names/1`, `singletons/1` werden bei
 bewusst nicht: sie sind nicht portabel, und eindeutige Schlüsselargumente
 mit `retract/1` leisten dasselbe; die logical-update-Tests über `lgt:`), Unicode-Optionen von `open/4`,
 Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
-Syntaxfehler), `functor/3` mit Stelligkeit 10^45 (`resource_error`),
+Syntaxfehler),
 `4/2` ist `2`
 (siehe Arithmetik) und `0 ^ -42` ist `zero_divisor`. Wie Logtalk und
 Scryer: `call_nth(G, 0)` scheitert, negativ ist

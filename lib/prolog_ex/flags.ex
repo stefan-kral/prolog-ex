@@ -28,7 +28,9 @@ defmodule PrologEx.Flags do
     # schaltet die Zeichenumsetzung beim Lesen ein (PrologEx.CharConversion)
     "debug" => {:off, [:off, :on]},
     "char_conversion" => {:off, [:off, :on]},
-    "max_arity" => {:unbounded, :read_only},
+    # größte Stelligkeit (functor/3, =../2, Lesen): darüber
+    # representation_error(max_arity); max_arity/0
+    "max_arity" => {65_536, :read_only},
     "last_call_optimisation" => {true, :read_only},
     "dialect" => {:prolog_ex, :read_only},
     # Toplevel: Antworten ohne Rückfrage zeigen, solange keine Seiteneffekte
@@ -59,6 +61,9 @@ defmodule PrologEx.Flags do
               {name, {v, _}} when is_atom(v) -> {name, {:atom, Atom.to_string(v)}}
               {name, {v, _}} -> {name, v}
             end)
+
+  @doc "Größte Stelligkeit eines Terms (Flag max_arity, 2^16)"
+  def max_arity, do: 65_536
 
   @doc "Alle Flags als `[{name, wert}]`, sortiert"
   def all do

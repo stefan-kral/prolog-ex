@@ -807,8 +807,12 @@ defmodule PrologEx.Parser do
   defp close([{tok, _, at} | _], p), do: syntax!("#{p} erwartet", at, tok)
 
   # Name: Funktionsschreibweise, Präfixoperator oder Atom
-  defp name_term(name, [{{:p, "("}, false, _} | rest], _max, ctx, _at) do
+  defp name_term(name, [{{:p, "("}, false, _} | rest], _max, ctx, at) do
     {args, rest} = args(rest, ctx, [])
+
+    if length(args) > PrologEx.Flags.max_arity(),
+      do: syntax!("mehr als #{PrologEx.Flags.max_arity()} Argumente (max_arity)", at)
+
     {mk(name, args), 0, rest}
   end
 
