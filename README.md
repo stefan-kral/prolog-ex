@@ -1852,7 +1852,7 @@ Reihenfolge in einer Summe.
 
 Wie in Scryer Prolog: `:- table Name/N` (auch `Name//N`, mehrere mit
 Komma oder als Liste), `abolish_all_tables/0`, `start_tabling/2`, Operator
-`table`; dazu wie SWI `tnot/1` und Modi. Ein getabltes Prädikat
+`table`; dazu wie SWI `tnot/1` und Modi, außerdem `table_statistics/1,2`. Ein getabltes Prädikat
 terminiert auch bei Links- und Zyklenrekursion, solange jede Variante
 endlich viele Antworten hat:
 
@@ -1920,6 +1920,13 @@ expr --> term.
     stratifizierte Programme ist `\+` gleichwertig, nur ungeprüft).
     Nicht getablt: `type_error(tabled_predicate, M:N/A)`, nicht grundiert:
     `instantiation_error`.
+  * `table_statistics(-S)`: `[tables(T), answers(A), rounds(R)]` über alle
+    vollständigen Tabellen (R: Runden seit dem letzten
+    `abolish_all_tables/0`); `table_statistics(:PI, -S)`: `[tables(T),
+    answers(A)]` für ein Prädikat.
+  * Beispiele: `examples/tabling_negation.pl` (stratifiziert gegen nicht
+    stratifiziert, `tnot/1`) und `examples/tabling_left_recursion.pl`
+    (Links-Rekursion; dazu naiv und semi-naiv von Hand zum Vergleich).
   * Nicht (noch nicht): Well-Founded Semantics (`undefined` statt Fehler),
     semi-naive Auswertung, inkrementelles Tabling.
 

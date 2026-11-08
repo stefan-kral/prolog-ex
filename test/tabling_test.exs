@@ -135,6 +135,10 @@ defmodule PrologEx.TablingTest do
   :- table win/1.
   win(X) :- move(X, Y), tnot(win(Y)).
 
+  % zählt nur vollständige Tabellen (die eigene läuft noch)
+  :- table selfstat/1.
+  selfstat(S) :- table_statistics(selfstat/1, S).
+
   set(T, G, S) :- findall(T, G, L), msort(L, S).
   """
 
@@ -338,5 +342,24 @@ defmodule PrologEx.TablingTest do
 
     assert hd(res) =~ "N = 22500"
     assert us < 3_000_000, "#{us} µs"
+  end
+
+  test "table_statistics/1,2", c do
+    assert ask(c, "table_statistics(path/2, S)") == ["S = [tables(0),answers(0)]"]
+
+    assert ask(
+             c,
+             "path(n1, _), findall(Y, rpath(n2, Y), _), table_statistics(path/2, S), " <>
+               "table_statistics(rpath/2, T), table_statistics(A)"
+           )
+           |> hd() =~
+             ~r/^A = \[tables\(5\),answers\(16\),rounds\(\d+\)\], S = \[tables\(1\),answers\(4\)\], T = \[tables\(4\),answers\(12\)\]$/
+
+    assert ask(c, "once(path(n1, _)), abolish_all_tables, table_statistics(A)") == [
+             "A = [tables(0),answers(0),rounds(0)]"
+           ]
+
+    assert ask(c, "table_statistics(expr//0, S)") == ["S = [tables(0),answers(0)]"]
+    assert ask(c, "selfstat(S)") == ["S = [tables(0),answers(0)]"]
   end
 end

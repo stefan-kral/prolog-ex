@@ -349,8 +349,36 @@ defmodule PrologEx.Builtins.Tabling do
 
     tables = st.tables |> Enum.filter(keep?) |> Map.new()
     live = MapSet.new(Map.values(tables), & &1.id)
-    put_state(%{st | tables: tables, ids: Map.filter(st.ids, fn {id, _} -> id in live end)})
+    st = %{st | tables: tables, ids: Map.filter(st.ids, fn {id, _} -> id in live end)}
+    # ohne laufende Auswertung beginnt die Rundenzählung neu
+    st = if st.stack == [] and tables == %{}, do: %{st | round: 0}, else: st
+    put_state(st)
     :ok
+  end
+
+  # '$tbl_stats'(+Was, -Liste): Was = all oder M:N/A. Vollständige
+  # Tabellen und ihre Antworten; für all dazu die Runden seit dem letzten
+  # abolish_all_tables
+  defbuiltin "$tbl_stats", [what, stats] do
+    st = state()
+
+    {pick, extra} =
+      case PrologEx.resolve(what, subst()) do
+        {:atom, "all"} ->
+          {fn _ -> true end, [mk("rounds", [st.round])]}
+
+        {:struct, ":", [{:atom, m}, {:struct, "/", [{:atom, n}, ar]}]} ->
+          {fn pk -> pk == {m, n, ar} end, []}
+      end
+
+    es = for {{pk, _}, %{status: :complete} = e} <- st.tables, pick.(pk), do: e
+
+    l =
+      PrologEx.list(
+        [mk("tables", [length(es)]), mk("answers", [Enum.sum_by(es, & &1.n)])] ++ extra
+      )
+
+    {:unify, [{stats, l}]}
   end
 
   # '$tbl_status'(+M:G, -S): S = complete, incomplete oder none – der Stand

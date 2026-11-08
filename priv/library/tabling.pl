@@ -26,7 +26,8 @@
    Wie Scryer: table/1 (Direktive), abolish_all_tables/0,
    start_tabling/2, op(1150, fx, table).
 
-   Dazu tnot/1 (stratifizierte Negation, geprüft) und Modi wie SWI: `:- table path(_, _, min).` – je Belegung der übrigen
+   Dazu table_statistics/1,2, tnot/1 (stratifizierte Negation, geprüft)
+   und Modi wie SWI: `:- table path(_, _, min).` – je Belegung der übrigen
    Argumente bleibt nur die beste Antwort (min, max, first, lattice(P/3));
    höchstens ein Argument mit Modus.
 */
@@ -34,6 +35,8 @@
 :- module(tabling, [(table)/1,
                     tnot/1,
                     abolish_all_tables/0,
+                    table_statistics/1,
+                    table_statistics/2,
                     start_tabling/2,
                     op(1150, fx, table)]).
 
@@ -136,6 +139,19 @@ answer_mode(lattice(P), M, lattice(Q)) :-
     ).
 answer_mode(X, _, _) :-
     domain_error(table_mode, X).
+
+%% table_statistics(-Stats): [tables(T), answers(A), rounds(R)] über alle
+%  vollständigen Tabellen; R: Runden der Fixpunkt-Iteration seit dem
+%  letzten abolish_all_tables/0
+table_statistics(Stats) :-
+    '$tbl_stats'(all, Stats).
+
+%% table_statistics(:PI, -Stats): [tables(T), answers(A)] für PI (N/A, N//A):
+%  T vollständige Tabellen (Varianten), A Antworten darin
+:- meta_predicate(table_statistics(:, -)).
+table_statistics(M:PI, Stats) :-
+    pis(PI, [N/A], []),
+    '$tbl_stats'(M:N/A, Stats).
 
 %% abolish_all_tables: alle vollständigen Tabellen verwerfen
 abolish_all_tables :-
