@@ -8,7 +8,9 @@ defmodule PrologEx.Stream do
   `user_error` (2, stderr) – mit diesen Aliasen.
 
   Eingabe wird gepuffert (Dateien in Blöcken von 64 KB, stdin zeilenweise);
-  Textstreams sind UTF-8 (ungültige Bytes gelten als Latin-1-Zeichen). Die
+  Textstreams sind UTF-8; ein ungültiges Byte ist kein Zeichen:
+  `representation_error(character)` (Neumerkel stc #76), beim Lesen mit
+  get_char/get_code wird es dabei verbraucht, bei peek_char nicht. Die
   Position zählt Zeichen, Zeilen (ab 1), Spalte und Bytes:
   `'$stream_position'(Zeichen, Zeile, Spalte, Bytes)`.
 
@@ -279,8 +281,9 @@ defmodule PrologEx.Stream do
   def input?(id), do: get(id).mode in [:read, :read_write]
 
   @doc """
-  Nächstes Zeichen ansehen, ohne es zu lesen: {codepoint, bytes} | :eof.
-  Liest bei Bedarf nach (stdin: eine Zeile).
+  Nächstes Zeichen ansehen, ohne es zu lesen: {codepoint, bytes} | :eof,
+  bei ungültigem UTF-8 `{:invalid, 1}`. Liest bei Bedarf nach (stdin: eine
+  Zeile).
   """
   def peek_char(id) do
     s = ensure(get(id), 1)
@@ -295,13 +298,16 @@ defmodule PrologEx.Stream do
       <<b0, _::binary>> = b when b0 >= 0xC0 and byte_size(b) < 4 and not s.eof ->
         # angefangenes UTF-8-Zeichen am Pufferende: nachlesen
         s = ensure(s, byte_size(b) + 1)
-        if s.buf == b, do: {b0, 1}, else: peek_char(id)
+        if s.buf == b, do: {:invalid, 1}, else: peek_char(id)
 
-      <<b0, _::binary>> ->
-        # ungültiges UTF-8: als Latin-1
-        {b0, 1}
+      <<_, _::binary>> ->
+        # ungültiges UTF-8: kein Zeichen
+        {:invalid, 1}
     end
   end
+
+  @doc "Fehler für ein ungültiges Byte im Textstream"
+  def invalid_char!, do: Error.representation!("character")
 
   defp size_of(c), do: byte_size(<<c::utf8>>)
 
@@ -328,6 +334,13 @@ defmodule PrologEx.Stream do
     case peek_char(id) do
       :eof ->
         :eof
+
+      {:invalid, n} ->
+        # das Byte wird verbraucht, damit es danach weitergeht
+        s = get(id)
+        {_, rest} = :erlang.split_binary(s.buf, n)
+        update(advance(%{s | buf: rest}, 0xFFFD, n))
+        invalid_char!()
 
       {c, n} ->
         s = get(id)

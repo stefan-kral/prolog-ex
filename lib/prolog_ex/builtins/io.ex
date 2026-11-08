@@ -563,6 +563,10 @@ defmodule PrologEx.Builtins.IO do
               unless peek?, do: S.mark_past(id)
               :eof
 
+            {:invalid, _} ->
+              # get_*: verbraucht das Byte und wirft
+              if peek?, do: S.invalid_char!(), else: S.get_char(id)
+
             {ch, _} ->
               unless peek?, do: S.get_char(id)
               ch
@@ -710,9 +714,18 @@ defmodule PrologEx.Builtins.IO do
         cond do
           # nicht darstellbare Zahlen bzw. Stelligkeiten (Neumerkel stc
           # #73/#74): Repräsentations- statt Syntaxfehler
-          msg =~ "Gleitkommazahl nicht darstellbar" -> Error.representation!("max_float")
-          msg =~ "(max_arity)" -> Error.representation!("max_arity")
-          true -> Error.syntax!(syntax_text(msg))
+          msg =~ "Gleitkommazahl nicht darstellbar" ->
+            Error.representation!("max_float")
+
+          msg =~ "(max_arity)" ->
+            Error.representation!("max_arity")
+
+          # ungültiges UTF-8 (stc #76)
+          msg =~ "ungültiges UTF-8" or msg =~ "unerlaubtes Byte" ->
+            Error.representation!("character")
+
+          true ->
+            Error.syntax!(syntax_text(msg))
         end
 
       :eof ->

@@ -220,6 +220,22 @@ defmodule PrologEx.NeumerkelCorrigendaTest do
     # --- Ziffertrenner im Bruchteil ---
     {"read_term_from_atom('1_000.000_1', T, []), write_canonical(T)", {:out, "1000.0001"}},
     {"read_term_from_atom('1.2_5', T, []), write_canonical(T)", {:out, "1.25"}},
+    # --- ungültiges UTF-8 ist kein Zeichen (stc #76) ---
+    {"open(t_u8, write, S, [type(binary)]), maplist(put_byte(S), [255]), close(S), open(t_u8, read, T), catch(get_char(T, C), error(E, _), true), close(T), E == representation_error(character)",
+     :succeeds},
+    {"open(t_u8, write, S, [type(binary)]), maplist(put_byte(S), [255]), close(S), open(t_u8, read, T), catch(peek_char(T, C), error(E, _), true), close(T), E == representation_error(character)",
+     :succeeds},
+    # get_code verbraucht das Byte, danach geht es weiter
+    {"open(t_u8, write, S, [type(binary)]), maplist(put_byte(S), [255, 97]), close(S), open(t_u8, read, T), catch(get_code(T, C), error(E, _), true), get_char(T, D), close(T), E == representation_error(character), D == a",
+     :succeeds},
+    {"open(t_u8, write, S, [type(binary)]), maplist(put_byte(S), [195]), close(S), open(t_u8, read, T), catch(get_char(T, C), error(E, _), true), close(T), E == representation_error(character)",
+     :succeeds},
+    {"open(t_u8, write, S, [type(binary)]), maplist(put_byte(S), [195, 188]), close(S), open(t_u8, read, T), get_char(T, C), close(T), C == '\u00fc'",
+     :succeeds},
+    {"open(t_u8, write, S, [type(binary)]), maplist(put_byte(S), [97, 40, 39, 252, 39, 41, 46, 10]), close(S), open(t_u8, read, T), catch(read(T, X), error(E, _), true), close(T), E == representation_error(character)",
+     :succeeds},
+    {"open(t_u8, write, S, [type(binary)]), maplist(put_byte(S), [97, 40, 252, 41, 46, 10]), close(S), open(t_u8, read, T), catch(read(T, X), error(E, _), true), close(T), E == representation_error(character)",
+     :succeeds},
     # --- ?=/2 (built-in_predicates) ---
     {"?=(a, a)", true},
     {"?=(a, b)", true},
@@ -244,7 +260,7 @@ defmodule PrologEx.NeumerkelCorrigendaTest do
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
-    on_exit(fn -> File.rm("t_cor") end)
+    on_exit(fn -> Enum.each(["t_cor", "t_u8"], &File.rm/1) end)
     {:ok, reader: r, db: TableCase.db(r, ~w(lists iso_ext swi))}
   end
 

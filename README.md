@@ -261,7 +261,12 @@ ISO 8.11–8.14 – Streams sind `'$stream'(N)`, dazu die Aliase `user_input`,
     `character_count/2`.
   * Zeichen und Bytes: `get_char`, `peek_char`, `put_char`, `get_code`,
     `peek_code`, `put_code`, `get_byte`, `peek_byte`, `put_byte` (je /1 und /2),
-    `nl/0,1`. Textstreams sind UTF-8.
+    `nl/0,1`. Textstreams sind UTF-8; ein ungültiges Byte ist kein
+    Zeichen: `get_char`, `peek_char`, `get_code`, `peek_code` und
+    `read_term` geben `representation_error(character)` (Neumerkel stc
+    #76; `get_*` verbraucht das Byte, danach geht es weiter). Beim Laden
+    einer Datei ist es ein Syntaxfehler – Latin-1-Quelltexte vorher nach
+    UTF-8 umwandeln.
   * Terme: `read/1,2`, `read_term/2,3` (`variables/1`, `variable_names/1`,
     `singletons/1`), `write/2`, `writeq/2`, `print/2`, `write_canonical/2`,
     `write_term/3`; `term_to_atom/2`, `read_term_from_atom/3` (SWI).
@@ -2898,10 +2903,10 @@ die Tabelle mehrere Antworten zulässt, genügt eine):
     Liste), [built-in_predicates](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/built-in_predicates)
     (`?=/2`) und eine Auswahl aus
     [evaluable_functors](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/evaluable_functors)
-    (`nexttoward/2` und `cbrt/1` fehlen). Bewusst anders: `close('$stream'(S))`
-    ist `domain_error(stream_or_alias, _)` (stc #72 erwägt
-    `instantiation_error`), und ungültiges UTF-8 wird als Latin-1 gelesen
-    (stc #76: `representation_error(character)`).
+    (`nexttoward/2` und `cbrt/1` fehlen); ungültiges UTF-8 gibt
+    `representation_error(character)` (stc #76). Bewusst anders:
+    `close('$stream'(S))` ist `domain_error(stream_or_alias, _)` (stc #72
+    erwägt `instantiation_error`).
 
 Die Tests vergleichen Reader und Writer mit gprolog über aufgezeichnete
 Ergebnisse (`test/fixtures/reader/gprolog_reads.txt`,
