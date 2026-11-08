@@ -649,6 +649,14 @@ ist jeweils am Dateianfang vermerkt.
   `portray_clause/1` zeigen).
 * `library(terms)` und `library(freeze)` geben wie in Scryer
   `numbervars/3` und `freeze/2` weiter (eingebaut).
+* `library(varnumbers)` (wie SICStus/SWI; `numbervars/3` selbst ist
+  eingebaut): `numbervars/1`, `max_var_number(+T, +Start, -Max)`,
+  `varnumbers/2,3` (Umkehrung von `numbervars/3`: jedes `'$VAR'(N)` mit
+  ganzzahligem N ≥ Start wird einheitlich eine frische Variable, die
+  Variablen von T bleiben) und `varnumbers_names(+T, -Copy, -Bindings)`
+  (jedes `'$VAR'(X)`, auch mit Namen wie `'$VAR'('Foo')`; Bindings =
+  `[X = V, ...]` nach X sortiert). Zyklische Terme:
+  `domain_error(acyclic_term, _)`.
 * `library(os)` (Markus Triska, gemeinfrei):
   * `getenv/2`, `setenv/2`, `unsetenv/1` mit Namen und Werten als
     Zeichenlisten, Namen wie bei Scryer nur aus `alnum` und
