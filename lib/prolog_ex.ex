@@ -1607,7 +1607,9 @@ defmodule PrologEx do
   end
 
   defp step({:struct, "bb_put", [k, t]} = goal, _cutb, mod, rest, st) do
-    if bb_visible?(mod, "bb_put") do
+    # (im Bereich von call_with_no_side_effects/1 über den allgemeinen Weg:
+    # dort wird die Wirkung geprüft)
+    if bb_visible?(mod, "bb_put") and not PrologEx.Effects.nse?(st.subst) do
       try do
         PrologEx.Builtins.Blackboard.put(k, t, mod, st.subst)
       rescue
@@ -2379,6 +2381,8 @@ defmodule PrologEx do
     case guarded(fn -> callable_goal!(s, st.subst) end) do
       {:ok, sb} ->
         h = st.height
+        # im Bereich ohne Seiteneffekte registriert: der Cleanup läuft im Bereich
+        c = PrologEx.Effects.nse_wrap(c, st.subst)
         run(%{st | goals: [{sb, h, mod}, {{:"$scc_setup", h, g, c}, 0, mod} | rest]})
 
       {:thrown, ball} ->
@@ -2390,6 +2394,19 @@ defmodule PrologEx do
 
   # das eingebaute time/1 (step/5 für time/1 entscheidet, ob es gilt)
   defp builtin_time(g, mod, rest, st) do
+    if PrologEx.Effects.nse?(st.subst) do
+      # gibt die Zeit aus: eine Wirkung
+      throw_error(st, fn ->
+        PrologEx.Effects.nse_check!(st.subst, "io", "time", 1, fn ->
+          mk("time", [resolve(g, st.subst)])
+        end)
+      end)
+    else
+      builtin_time_(g, mod, rest, st)
+    end
+  end
+
+  defp builtin_time_(g, mod, rest, st) do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
@@ -2531,6 +2548,19 @@ defmodule PrologEx do
       {:builtin, m, {:prolog, pred, _}} ->
         args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
         try_clauses(goal, args, candidates(pred, args, st.subst), rest, m, st)
+
+      # Builtin mit Wirkung: im Bereich von call_with_no_side_effects/1
+      # vorher ein Fehler
+      {:builtin, m, {{:fx, kind, cat}, fun, _}} ->
+        fun = fn args, ctx ->
+          PrologEx.Effects.nse_check!(ctx.subst, cat, name, arity, fn ->
+            resolve(goal, ctx.subst)
+          end)
+
+          fun.(args, ctx)
+        end
+
+        call_builtin(m, kind, fun, goal, args, name, arity, mod, rest, st)
 
       {:builtin, m, {kind, fun, _}} ->
         args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
@@ -2867,6 +2897,18 @@ defmodule PrologEx do
   #     Backtracking berechnet; das Builtin entscheidet selbst, wann [r]
   #     (letzte Lösung, kein Choice Point) kommt
   #   * sonstige Aufzählung (Stream, Range): lazy über :suspend
+  defp call_builtin(m, kind, fun, _goal, args, name, arity, mod, rest, st) do
+    args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
+    # {:call, ziel} aus system läuft im Kontext des Aufrufers
+    call_mod = if m == "system", do: mod, else: m
+
+    case guarded(fn -> fun.(args, ctx(st, mod)) end) do
+      {:ok, r} when kind == :det -> apply_result(r, call_mod, rest, st)
+      {:ok, r} -> start_solutions(r, call_mod, rest, st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
+
   defp start_solutions(thunk, mod, rest, st) when is_function(thunk, 0) do
     case guarded(thunk) do
       {:ok, r} -> start_solutions(r, mod, rest, st)
@@ -4008,6 +4050,15 @@ defmodule PrologEx do
       end
 
     attrs = if bb_b, do: Store.put(attrs, bb_key, bb_b), else: attrs
+
+    # Bereich von call_with_no_side_effects/1 mitnehmen
+    nse_key = PrologEx.Effects.nse_key()
+
+    attrs =
+      case Store.fetch(st.subst, nse_key) do
+        {:ok, depth} -> Store.put(attrs, nse_key, depth)
+        :error -> attrs
+      end
 
     # Zähler von call_nth/2 und Uhren von time/1, deren Choice Point (z. B.
     # durch einen Cut) verschwunden ist, werden nie mehr gebraucht

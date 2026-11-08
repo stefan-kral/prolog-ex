@@ -2270,6 +2270,57 @@ Was eine Ebene ist, legen wir unabhängig von der Implementierung fest:
   * Verschachtelt (auch mit `call_with_inference_limit/3`) gilt die
     strengere Grenze.
 
+## Ohne Seiteneffekte: `call_with_no_side_effects/1`
+
+`call_with_no_side_effects(:G)` (`library(iso_ext)`) ruft G wie `call/1`,
+aber jede Wirkung ist **vorher** ein Fehler – sie geschieht nicht:
+
+```
+?- call_with_no_side_effects(assertz(f(1))).
+error(permission_error(perform,side_effect,assertz(f(1))),context(assertz/1,database))
+```
+
+Super-strikt; die Kategorie steht im Kontext:
+
+  * `database`: `assert*`, `retract*`, `abolish`, `dynamic/1` zur
+    Laufzeit, Dateien und Bibliotheken laden.
+  * `state`: Flags, `op/3`, `char_conversion/2`, globale Variablen
+    (`nb_setval/2`, auch `b_setval/2`), `bb_put/2` & Co., `gensym/2`.
+  * `io`: jeder Stream-Verkehr – schreiben, **lesen** (es verbraucht
+    Eingabe), öffnen, schließen, `set_input/1`, auch Speicher-Streams
+    (`with_output_to/2`, `format(atom(A), ...)`), `print/1`, `time/1`,
+    `statistics/0`, `listing/1`.
+  * `external`: Dateisystem ändern, Prozesse, Shell, Umgebung, Netz,
+    `halt`.
+  * `random`: Zufall (er ändert den Zustand des Generators).
+  * `memo`, `tabling`: Aufrufe memoisierter und getablter Prädikate (sie
+    schreiben in Tabellen).
+
+Erlaubt ist Lesen von Zustand, das ihn nicht ändert: Aufrufe dynamischer
+Prädikate, `clause/2`, `current_op/3`, Flags lesen, `nb_getval/2`,
+`get_time/1`, `statistics/2`, Dateien abfragen; reine Text-Funktionen
+(`term_to_atom/2`, `format_//2` aus `library(format)`); Mutables und
+Attribute (backtrackbar, an Termen); Steuerkonstrukte, die ihren Zustand
+selbst wieder abräumen (`call_with_time_limit/2`,
+`call_with_inference_limit/3`, `call_with_memory_limit/2`, ...).
+
+  * Durchsichtig für Nichtdeterminismus: der Bereich ist ein Zähler in der
+    Substitution. Nach der ersten Lösung ist draußen alles erlaubt;
+    Backtracking in G hinein öffnet den Bereich wieder, Scheitern und
+    Ausnahmen schließen ihn.
+  * `findall/3`, `\+`, `forall/2` & Co. laufen im Bereich (sie teilen die
+    Substitution).
+  * Im Bereich registrierter Code läuft im Bereich, auch wenn er erst
+    danach ausgelöst wird: der Cleanup von `setup_call_cleanup/3` (etwa
+    durch einen späteren Cut), Ziele von `freeze/2` und `when/2`. Und ein
+    draußen eingefrorenes Ziel, das im Bereich geweckt wird, ist dort
+    gesperrt.
+  * Ein `catch/3` im Bereich darf den Fehler fangen – die Wirkung ist ja
+    nicht geschehen.
+  * Kosten: Builtins mit Wirkung sind in der Tabelle der Builtins markiert;
+    nur sie prüfen den Zähler. Programme ohne den Bereich zahlen nichts
+    Messbares.
+
 ## Coroutining
 
 `freeze/2`, `frozen/2`, `dif/2`, `when/2` (Bedingungen `nonvar/1`,

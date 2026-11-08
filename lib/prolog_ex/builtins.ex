@@ -81,6 +81,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Pcre,
     PrologEx.Builtins.Memo,
     PrologEx.Builtins.Tabling,
+    PrologEx.Builtins.SideEffects,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt
@@ -160,7 +161,81 @@ defmodule PrologEx.Builtins do
                {:prolog, pred, pmod == "system" and String.starts_with?(name, "$")}}
             end)
 
-  @all Map.merge(@table, @library)
+  # Builtins mit Wirkung (für call_with_no_side_effects/1, super-strikt):
+  # Kategorie je {Modul, Name, Stelligkeit}. Lesen von Zustand ohne ihn zu
+  # ändern ist keine Wirkung (clause/2, current_op/3, Flags lesen, get_time/1,
+  # Dateien abfragen); Lesen aus einem Stream schon (es verbraucht Eingabe),
+  # ebenso jeder Stream-Verkehr, auch mit Speicher-Streams (with_output_to/2,
+  # format/3). Steuerkonstrukte, die ihren Zustand selbst wieder abräumen
+  # (Grenzen, call_residue_vars/2), und interne Caches zählen nicht.
+  @effect_names %{
+    "database" =>
+      ~w(abolish/1 assert/1 asserta/1 assertz/1 retract/1 retractall/1 consult/1 dynamic/1
+         ensure_loaded/1 use_module/1 use_module/2 meta_predicate/1 $expansion_hooks/0
+         $expansion_hooks/2),
+    "state" => ~w(b_setval/2 nb_setval/2 char_conversion/2 op/3 set_prolog_flag/2 style_check/1),
+    "io" => ~w(at_end_of_stream/0 at_end_of_stream/1 close/1 close/2 flush_output/0 flush_output/1
+         format/1 format/2 format/3 get_byte/1 get_byte/2 get_char/1 get_char/2 get_code/1
+         get_code/2 peek_byte/1 peek_byte/2 peek_char/1 peek_char/2 peek_code/1 peek_code/2
+         put_byte/1 put_byte/2 put_char/1 put_char/2 put_code/1 put_code/2 nl/0 nl/1 print/1
+         print/2 read/1 read/2 read_term/2 read_term/3 open/3 open/4 set_input/1 set_output/1
+         set_stream_position/2 tab/1 tab/2 write/1 write/2 write_canonical/1 write_canonical/2
+         write_term/2 write_term/3 writeln/1 writeln/2 writeq/1 writeq/2 listing/0 listing/1
+         statistics/0 with_output_to/2 fast_read/1 fast_read/2 fast_write/1 fast_write/2
+         $get_n_chars/3 $chars_input/2 $lazy_block/5 $lazy_position/4 $lazy_start/2
+         $wot_close/3 $wot_open/2 $wot_restore/2 $wot_sink/1 $http_put_byte_chars/2),
+    "external" => ~w(halt/0 halt/1 delete_file/1 $shell/2 $setenv/2 $unsetenv/1 $process_create/8
+         $process_kill/1 $process_release/1 $process_wait/3 $http_accept/7 $http_answer/4
+         $http_answer/5 $http_listen/5 $http_listen_stop/1 $http_open/7 $http_send_file/4),
+    "memo" => ~w($memo_lookup/3 $memo_store/2 $memo_drop/1 $memo_abolish/1),
+    "tabling" => ~w($tbl_lookup/4 $tbl_abolish/1),
+    "random" => ~w($clpb_random_bindings/2)
+  }
+
+  @effect_modules %{
+    "files" =>
+      {"external",
+       ~w(delete_directory/1 delete_file/1 file_copy/2 make_directory/1 make_directory_path/1
+          rename_file/2 working_directory/2)},
+    "sockets" =>
+      {"external",
+       ~w(socket_client_open/3 socket_select/7 socket_server_accept/4 socket_server_close/1
+          socket_server_open/2 socket_server_open/3)},
+    "random" =>
+      {"random", ~w(maybe/0 random/1 random/3 random_between/3 random_integer/3 random_member/2
+          random_permutation/2 random_select/3 random_subseq/3 randseq/3 randset/3
+          set_random/1 setrand/1)},
+    "gensym" => {"state", ~w(gensym/2 reset_gensym/0 reset_gensym/1)},
+    "blackboard" => {"state", ~w(bb_b_put/2 bb_delete/2 bb_put/2 bb_update/3)},
+    "rlimit" => {"external", ~w(rlimit/3)}
+  }
+
+  pi = fn s ->
+    [n, a] = String.split(s, ~r{/(?=\d+$)})
+    {n, String.to_integer(a)}
+  end
+
+  @effects Map.new(
+             for({cat, names} <- @effect_names, s <- names, do: {{"system", pi.(s)}, cat}) ++
+               for({m, {cat, names}} <- @effect_modules, s <- names, do: {{m, pi.(s)}, cat})
+           )
+           |> Map.new(fn {{m, {n, a}}, cat} -> {{m, n, a}, cat} end)
+
+  for {{m, n, a}, _} <- @effects,
+      not (Map.has_key?(@table, {m, n, a}) or Map.has_key?(@library, {m, n, a})),
+      do: raise("Wirkung für unbekanntes Builtin #{m}:#{n}/#{a}")
+
+  # Builtins mit Wirkung: Art {:fx, :det | :nondet, Kategorie} (die Maschine
+  # prüft vor dem Aufruf, siehe PrologEx.Effects.nse_check!/5)
+  @all (for {k, e} <- Map.merge(@table, @library), into: %{} do
+          case {e, Map.get(@effects, k)} do
+            {{kind, fun, prot}, cat} when kind in [:det, :nondet] and cat != nil ->
+              {k, {{:fx, kind, cat}, fun, prot}}
+
+            _ ->
+              {k, e}
+          end
+        end)
 
   @meta (for mod <- @modules,
              function_exported?(mod, :meta, 0),
@@ -201,7 +276,10 @@ defmodule PrologEx.Builtins do
   @doc "`{:protected, eintrag}`, `{:homed, eintrag}` oder nil (siehe @fast_entries)"
   def fast_entry(name, arity), do: Map.get(@fast_entries, {name, arity})
 
-  @doc "`{:det | :nondet, fun, protected?}`, `{:prolog, pred, protected?}` oder nil"
+  @doc """
+  `{:det | :nondet, fun, protected?}`, `{{:fx, :det | :nondet, Kategorie}, fun,
+  protected?}` (mit Wirkung), `{:prolog, pred, protected?}` oder nil
+  """
   def lookup(module, name, arity), do: Map.get(@all, {module, name, arity})
 
   @doc "Von einem Elixir-Builtin angegebene Hilfsprädikate (Option helpers:)"

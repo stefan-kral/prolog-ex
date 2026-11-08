@@ -40,7 +40,8 @@ defmodule PrologEx.Builtins.Coroutining do
 
   # freeze(X, G): G läuft, sobald X gebunden ist (sofort, wenn schon)
   defbuiltin "freeze", [x, g] do
-    goal = qualify(g, context_module(), subst())
+    # im Bereich von call_with_no_side_effects/1: läuft im Bereich
+    goal = qualify(g, context_module(), subst()) |> PrologEx.Effects.nse_wrap(subst())
 
     case freeze(x, goal, subst()) do
       {:call, goal} -> {:call, goal}
@@ -307,7 +308,7 @@ defmodule PrologEx.Builtins.Coroutining do
 
   # when(Bedingung, G): Bedingung aus nonvar/1, ground/1, ?=/2, (,), (;)
   defbuiltin "when", [c, g] do
-    goal = qualify(g, context_module(), subst())
+    goal = qualify(g, context_module(), subst()) |> PrologEx.Effects.nse_wrap(subst())
 
     case when_(c, goal, subst()) do
       {:call, goal} -> {:call, goal}
