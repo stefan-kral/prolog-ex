@@ -53,7 +53,13 @@ defmodule PrologEx.ExpansionHooksTest do
     assert ask(c, "bb(X), dd(Y), ee(Z), t.") == ["X = 1, Y = 2, Z = 2"]
     # erneutes Laden einer Bibliothek: keine doppelte Anmeldung, Hooks wie vorher
     load(c, "m1.pl")
-    assert Map.get(PrologEx.current_db(), :expansion_modules) == ["m1", "m2"]
+
+    assert Map.get(PrologEx.current_db(), :expansion_hooks) == [
+             {"term_expansion", "m1", "term_expansion"},
+             {"goal_expansion", "m1", "goal_expansion"},
+             {"term_expansion", "m2", "term_expansion"},
+             {"goal_expansion", "m2", "goal_expansion"}
+           ]
   end
 
   test "Quellmodul und user gehen vor; der erste Hook, der gelingt, zählt", c do
@@ -109,5 +115,48 @@ defmodule PrologEx.ExpansionHooksTest do
     assert ask(c, "mod(M).") == ["M = other"]
     # außerhalb des Ladens: scheitert
     assert ask(c, "prolog_load_context(module, _).") == []
+  end
+
+  test "einzeln angemeldet: nur diese Art, unter eigenem Namen; das Programm behält seine", c do
+    write(c, "lib.pl", """
+    :- module(lib, []).
+    :- '$expansion_hooks'(goal_expansion, my_goal_hook).
+    my_goal_hook(g1, true).
+    my_goal_hook(cc(X), dd(X)).
+    % nicht angemeldet: gilt nur für lib selbst
+    term_expansion(aa(_), bb).
+    goal_expansion(g2, true).
+    """)
+
+    write(c, "main.pl", """
+    :- use_module(lib).
+    goal_expansion(g3, true).
+    aa(1).
+    cc(5).
+    t1 :- g1.
+    t3 :- g3.
+    t2 :- g2.
+    """)
+
+    load(c, "main.pl")
+    assert ask(c, "t1, t3.") == ["true"]
+    assert ask(c, "aa(X).") == ["X = 1"]
+    # nur als goal_expansion angemeldet: Klauseln bleiben
+    assert ask(c, "cc(X).") == ["X = 5"]
+    assert ask(c, "catch(t2, error(E, _), true).") == ["E = existence_error(procedure,g2/0)"]
+  end
+
+  test "clpz-Expansion bleibt neben einem eigenen goal_expansion/2", c do
+    write(c, "main.pl", """
+    :- use_module(library(clpz)).
+    goal_expansion(foo, true).
+    t(X) :- X #= 1 + 2, foo.
+    """)
+
+    load(c, "main.pl")
+    assert ask(c, "t(X).") == ["X = 3"]
+    # die Klausel ist von clpz übersetzt (kein #=/2-Aufruf mehr im Rumpf;
+    # vorher ersetzte das eigene goal_expansion/2 den Hook von clpz)
+    assert ask(c, "clause(t(_), (G, true)), G \\= (_ #= _).") |> length() == 1
   end
 end

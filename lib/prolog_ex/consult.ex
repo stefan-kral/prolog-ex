@@ -383,7 +383,8 @@ defmodule PrologEx.Consult do
   # nächsten Term gilt).
   defp hook?(st, name) do
     keys =
-      for m <- PrologEx.Builtins.Expansion.hook_candidates(st.db, st.module), do: {m, name, 2}
+      for {m, p} <- PrologEx.Builtins.Expansion.hook_candidates(st.db, st.module, name),
+          do: {m, p, 2}
 
     st = if Enum.any?(keys, &MapSet.member?(st.dirty, &1)), do: flush(st), else: st
     {st, Enum.any?(keys, &Map.has_key?(st.db, &1))}

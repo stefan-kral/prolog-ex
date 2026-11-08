@@ -59,15 +59,15 @@ defmodule PrologEx.Builtins.Expansion do
     {:call, mk("$expand_term", [t, a(context_module()), x])}
   end
 
-  # '$hook_module'(M, Name, Arity, HM): Module, in denen der Hook Name/Arity
-  # definiert ist – erst M, dann user
-  defbuiltin "$hook_module", [m, name, ar, hm], nondet: true do
+  # '$hook_pred'(M, Art, Arity, HM, P): die Hooks der Art (term_expansion
+  # oder goal_expansion) für Quellmodul M: HM:P/Arity, in Fragereihenfolge
+  defbuiltin "$hook_pred", [m, kind, ar, hm, p], nondet: true do
     {:atom, mod} = deref(m)
-    {:atom, n} = deref(name)
+    {:atom, k} = deref(kind)
     arity = deref(ar)
 
-    hook_modules(db(), mod, n, arity)
-    |> Enum.map(&{:unify, [{hm, a(&1)}]})
+    hook_preds(db(), mod, k, arity)
+    |> Enum.map(fn {hmod, pred} -> {:unify, [{hm, a(hmod)}, {p, a(pred)}]} end)
   end
 
   # '$meta_spec'(M, G, Specs): meta_predicate-Angaben des Ziels G (gerufen
@@ -135,33 +135,51 @@ defmodule PrologEx.Builtins.Expansion do
   end
 
   @doc false
-  def hook_modules(db, mod, name, arity) do
+  def hook_preds(db, mod, kind, arity) do
     db
-    |> hook_candidates(mod)
-    |> Enum.filter(&Map.has_key?(db, {&1, name, arity}))
+    |> hook_candidates(mod, kind)
+    |> Enum.filter(fn {m, p} -> Map.has_key?(db, {m, p, arity}) end)
   end
 
   @doc """
-  Module, deren Hooks gefragt werden, in dieser Reihenfolge: das
-  Quellmodul, `user`, dann die Bibliotheksmodule, die ihre Hooks mit
-  `'$expansion_hooks'/0` angemeldet haben (in der Reihenfolge der
-  Anmeldung). So können mehrere Bibliotheken `term_expansion/2` bzw.
-  `goal_expansion/2` in ihrem eigenen Modul definieren, ohne einander
-  `user:term_expansion/2` wegzunehmen (eine zweite Definition dort ersetzt
-  die erste).
+  Die Hooks einer Art (`"term_expansion"` oder `"goal_expansion"`) als
+  `{Modul, Prädikatname}`, in dieser Reihenfolge: das Quellmodul, `user`,
+  dann die Hooks, die Bibliotheksmodule angemeldet haben (in der
+  Reihenfolge der Anmeldung). So können mehrere Bibliotheken – und das
+  Programm selbst – Hooks haben, ohne einander `user:term_expansion/2`
+  wegzunehmen (eine zweite Definition dort ersetzt die erste).
   """
-  def hook_candidates(db, mod),
-    do: Enum.uniq([mod, "user" | Map.get(db, :expansion_modules, [])])
+  def hook_candidates(db, mod, kind) do
+    registered = for {^kind, m, p} <- Map.get(db, :expansion_hooks, []), do: {m, p}
+    Enum.uniq([{mod, kind}, {"user", kind} | registered])
+  end
 
-  # Direktive in einem Bibliotheksmodul: dessen term_expansion/2 und
-  # goal_expansion/2 gelten für alles, was danach geladen wird
+  # Direktiven in einem Bibliotheksmodul: '$expansion_hooks' meldet dessen
+  # term_expansion/2 und goal_expansion/2 an, '$expansion_hooks'(Art, P)
+  # das eigene P/2 als Hook der Art – für alles, was danach geladen wird
   defbuiltin "$expansion_hooks", [] do
     m = context_module()
+    register([{"term_expansion", m, "term_expansion"}, {"goal_expansion", m, "goal_expansion"}])
+  end
 
+  defbuiltin "$expansion_hooks", [kind, pred] do
+    s = subst()
+
+    k =
+      case deref(kind) do
+        {:atom, k} when k in ["term_expansion", "goal_expansion"] -> k
+        other -> PrologEx.Error.domain!("expansion_hook", PrologEx.resolve(other, s))
+      end
+
+    case deref(pred) do
+      {:atom, p} -> register([{k, context_module(), p}])
+      other -> PrologEx.Error.type!("atom", PrologEx.resolve(other, s))
+    end
+  end
+
+  defp register(hooks) do
     PrologEx.update_db(fn db ->
-      Map.update(db, :expansion_modules, [m], fn ms ->
-        if m in ms, do: ms, else: ms ++ [m]
-      end)
+      Map.update(db, :expansion_hooks, hooks, fn hs -> hs ++ Enum.reject(hooks, &(&1 in hs)) end)
     end)
 
     :ok
@@ -231,8 +249,8 @@ defmodule PrologEx.Builtins.Expansion do
   def library do
     import PrologEx, only: [s: 2, v: 1, a: 1, rule: 2, fact: 1]
 
-    [t, m, x, x0, hm, g, g1, g2, a1, b1, a2, b2, m2, d, d1, h] =
-      Enum.map(~w(T M X X0 HM G G1 G2 A B A2 B2 M2 D D1 H), &v/1)
+    [t, m, x, x0, hm, p, g, g1, g2, a1, b1, a2, b2, m2, d, d1, h] =
+      Enum.map(~w(T M X X0 HM P G G1 G2 A B A2 B2 M2 D D1 H), &v/1)
 
     [specs, f, as, as2, sp, ss, aa, aas, aa2, aas2, vv] =
       Enum.map(~w(Specs F As As2 S Ss A1 As1 A3 As3 V), &v/1)
@@ -261,8 +279,8 @@ defmodule PrologEx.Builtins.Expansion do
           ]),
           fact(s("$expand_term", [t, w, t])),
           rule(s("$term_hook", [t, m, x]), [
-            s("$hook_module", [m, a("term_expansion"), 2, hm]),
-            s(":", [hm, s("term_expansion", [t, x])]),
+            s("$hook_pred", [m, a("term_expansion"), 2, hm, p]),
+            s("call", [s(":", [hm, p]), t, x]),
             cut
           ]),
           rule(s("$expand_goal", [g, w, g, w]), [s("var", [g]), cut])
@@ -302,8 +320,8 @@ defmodule PrologEx.Builtins.Expansion do
             fact(s("$expand_goal", [g, w, g, w])),
             rule(s("$goal_hook", [g, m, g1]), [
               s("callable", [g]),
-              s("$hook_module", [m, a("goal_expansion"), 2, hm]),
-              s(":", [hm, s("goal_expansion", [g, g1])]),
+              s("$hook_pred", [m, a("goal_expansion"), 2, hm, p]),
+              s("call", [s(":", [hm, p]), g, g1]),
               s("\\==", [g1, g]),
               cut
             ]),

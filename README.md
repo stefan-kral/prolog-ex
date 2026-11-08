@@ -2475,10 +2475,14 @@ goal_expansion(setze(X), true) :- X = 42.   % Bindungen gelten in der ganzen Kla
     `forall/2`, `bagof/3` mit `^`, eigene `meta_predicate`).
   * Bibliotheken: Ein Modul, das die Direktive `:- '$expansion_hooks'.`
     enthält, meldet seine eigenen `term_expansion/2` und `goal_expansion/2`
-    an; sie gelten danach für alles, was geladen wird, nach Quellmodul und
-    `user` (in der Reihenfolge der Anmeldung). So stören sich mehrere
-    Bibliotheken nicht: Definieren zwei Dateien `user:term_expansion/2`,
-    ersetzt die zweite die erste.
+    an; `:- '$expansion_hooks'(goal_expansion, P).` nur sein `P/2` als
+    Hook dieser Art (die eigenen `term_expansion/2`/`goal_expansion/2`
+    gelten dann weiter nur für das Modul selbst). Angemeldete Hooks gelten
+    für alles, was danach geladen wird, nach Quellmodul und `user` (in der
+    Reihenfolge der Anmeldung). So stören sich Bibliotheken und Programm
+    nicht: Definieren zwei Dateien `user:goal_expansion/2`, ersetzt die
+    zweite die erste – früher nahm so ein eigenes `goal_expansion/2` im
+    Programm `library(clpz)` seine Übersetzung von `#=` & Co. weg.
   * `prolog_load_context(?Key, ?Value)` beim Laden (in Hooks und
     Direktiven): `module`, `dialect` (`prolog_ex`), `source` (die geladene
     Datei), `file` (bei `include/1` die eingebundene), `directory`;

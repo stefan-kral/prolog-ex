@@ -3048,7 +3048,11 @@ is_false(var(X)) :- nonvar(X).
 
 :- dynamic(goal_expansion/1).
 
-user:goal_expansion(Goal0, Goal) :-
+% PrologEx: als angemeldeter Hook statt user:goal_expansion/2 (das ein
+% Programm mit eigenem goal_expansion/2 sonst ersetzen würde)
+:- '$expansion_hooks'(goal_expansion, user_goal_expansion).
+
+user_goal_expansion(Goal0, Goal) :-
         \+ goal_expansion(false),
         clpz_expandable(Goal0),
         clpz_expansion(Goal0, Goal).
