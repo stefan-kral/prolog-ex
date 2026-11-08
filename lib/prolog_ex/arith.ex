@@ -448,7 +448,8 @@ defmodule PrologEx.Arith do
     do: Integer.pow(x, y)
 
   defp eval2("**", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: ipow(x, y)
-  defp eval2("**", x, y) when x == 0 and y < 0, do: zero_divisor()
+  # 0 hoch negativ: undefined (ISO 9.3.1.3, Cor.2 9.3.10.3 d)
+  defp eval2("**", x, y) when x == 0 and y < 0, do: undefined()
   defp eval2("**", x, y), do: pow(x, y)
 
   defp eval2("^", x, y) when is_integer(x) and is_integer(y) and y >= 0 and y <= 1024,
@@ -460,12 +461,12 @@ defmodule PrologEx.Arith do
     cond do
       x == 1 -> 1
       x == -1 -> if(rem(y, 2) == 0, do: 1, else: -1)
-      x == 0 -> zero_divisor()
+      x == 0 -> undefined()
       true -> Error.type!("float", x)
     end
   end
 
-  defp eval2("^", x, y) when x == 0 and y < 0, do: zero_divisor()
+  defp eval2("^", x, y) when x == 0 and y < 0, do: undefined()
   defp eval2("^", x, y), do: pow(x, y)
 
   defp eval2(">>", x, y), do: Bitwise.bsr(int!(x), int!(y))

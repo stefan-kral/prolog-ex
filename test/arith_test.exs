@@ -79,8 +79,8 @@ defmodule PrologEx.ArithTest do
       {"2.0 ^ -1", 0.5},
       {"4 ** 0.5", 2.0},
       {"2 ^ -1", {:error, "type_error(float,2)"}},
-      {"0 ^ -1", {:error, "evaluation_error(zero_divisor)"}},
-      {"0 ** -1", {:error, "evaluation_error(zero_divisor)"}},
+      {"0 ^ -1", {:error, "evaluation_error(undefined)"}},
+      {"0 ** -1", {:error, "evaluation_error(undefined)"}},
       {"-8 ** 0.5", {:error, "evaluation_error(undefined)"}},
       {"10.0 ** 400", {:error, "evaluation_error(float_overflow)"}}
     ])

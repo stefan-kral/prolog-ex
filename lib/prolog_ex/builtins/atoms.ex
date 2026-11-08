@@ -113,7 +113,7 @@ defmodule PrologEx.Builtins.Atoms do
       xx ->
         case parse_number(atom_name!(xx, :required)) do
           {:ok, num} -> {:unify, [{n, num}]}
-          :error -> :fail
+          _ -> :fail
         end
     end
   end
@@ -601,6 +601,7 @@ defmodule PrologEx.Builtins.Atoms do
   def parse_number!(str) do
     case parse_number(str) do
       {:ok, n} -> n
+      :max_float -> Error.representation!("max_float")
       :error -> Error.syntax!("illegal_number")
     end
   end
@@ -618,6 +619,7 @@ defmodule PrologEx.Builtins.Atoms do
 
     case unsigned(rest) do
       {:ok, n, ""} -> {:ok, sign * n}
+      {:max_float, ""} -> :max_float
       _ -> :error
     end
   rescue
@@ -671,7 +673,7 @@ defmodule PrologEx.Builtins.Atoms do
         {frac, r} = span(<<f, r::binary>>, &(&1 in ?0..?9))
 
         case exponent(r) do
-          {:ok, exp, r} -> {:ok, String.to_float(int <> "." <> frac <> exp), r}
+          {:ok, exp, r} -> to_float(int <> "." <> frac <> exp, r)
           :error -> :error
         end
 
@@ -681,6 +683,13 @@ defmodule PrologEx.Builtins.Atoms do
   end
 
   defp unsigned(_), do: :error
+
+  # syntaktisch gültige, aber zu große Gleitkommazahl: max_float
+  defp to_float(text, r) do
+    {:ok, String.to_float(text), r}
+  rescue
+    ArgumentError -> {:max_float, r}
+  end
 
   # Ziffern mit Gruppen: "_" zwischen Ziffern
   defp digits(s) do

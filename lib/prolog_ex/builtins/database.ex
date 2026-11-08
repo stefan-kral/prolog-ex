@@ -146,6 +146,7 @@ defmodule PrologEx.Builtins.Database do
           not (match?({:atom, _}, n) or n == []) -> PrologEx.Error.type!("atom", n)
           not is_integer(ar) -> PrologEx.Error.type!("integer", PrologEx.resolve(ar, s))
           ar < 0 -> PrologEx.Error.domain!("not_less_than_zero", ar)
+          ar > PrologEx.Flags.max_arity() -> PrologEx.Error.representation!("max_arity")
           true -> {atom_name(n), ar}
         end
 

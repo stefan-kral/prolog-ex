@@ -340,7 +340,8 @@ defmodule PrologEx.Builtins.Order do
     case Lists.skip_list(l, s) do
       {_, []} -> Lists.items(l, s)
       {_, {:var, _}} -> PrologEx.Error.instantiation!()
-      _ -> PrologEx.Error.type!("list", PrologEx.resolve(l, s))
+      # ungelöst: der Ball wird beim Werfen kopiert, auch zyklisch
+      _ -> PrologEx.Error.type!("list", l)
     end
   end
 
@@ -349,7 +350,8 @@ defmodule PrologEx.Builtins.Order do
     case Lists.skip_list(l, s) do
       {_, []} -> :ok
       {_, {:var, _}} -> :ok
-      _ -> PrologEx.Error.type!("list", PrologEx.resolve(l, s))
+      # ungelöst: der Ball wird beim Werfen kopiert, auch zyklisch
+      _ -> PrologEx.Error.type!("list", l)
     end
   end
 end

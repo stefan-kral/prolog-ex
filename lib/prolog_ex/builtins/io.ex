@@ -707,7 +707,13 @@ defmodule PrologEx.Builtins.IO do
         {:unify, [{t, term} | read_results(options, vars, named, singles)]}
 
       {:error, msg} ->
-        Error.syntax!(syntax_text(msg))
+        cond do
+          # nicht darstellbare Zahlen bzw. Stelligkeiten (Neumerkel stc
+          # #73/#74): Repräsentations- statt Syntaxfehler
+          msg =~ "Gleitkommazahl nicht darstellbar" -> Error.representation!("max_float")
+          msg =~ "(max_arity)" -> Error.representation!("max_arity")
+          true -> Error.syntax!(syntax_text(msg))
+        end
 
       :eof ->
         Error.syntax!("end_of_file_in_term")

@@ -189,7 +189,8 @@ Floats; alle ISO-Funktionen dazu die üblichen aus SWI/SICStus: `sin` … `atanh
 `exp`, `log/1,2`, `log2`, `atan/2`, `atan2`, `copysign`, `div`, `gcd`, `msb`,
 `lsb`, `popcount`, `xor`, `float_integer_part`, `random/1`, `random_float`,
 `cputime`, `realtime`, `epsilon`, …; Fehler nach ISO wie
-`evaluation_error(zero_divisor)`, siehe `PrologEx.Arith`; `is/2` und
+`evaluation_error(zero_divisor)`, `0 ^ -1` ist nach Cor.2
+`evaluation_error(undefined)`, siehe `PrologEx.Arith`; `is/2` und
 Vergleiche im Klauselrumpf übersetzt der Compiler in einen Codebaum, statt
 den Ausdruck bei jedem Aufruf als Term zu bauen – 4–13 % schneller,
 gleiche Werte und Fehler), Typprüfungen, `functor/3`, `=../2`, `append/3`, `length/2`, `member/2`, `select/3`, `permutation/2`, `memberchk/2`, `last/2`, `reverse/2`,
@@ -239,8 +240,8 @@ Klauselliste, klein: 8000 Runden ≈ 0,4 s).
 
 Zahlen im Quelltext: Zifferntrenner wie von WG17 2025 angenommen
 (`1_000_000`; nach `_` darf Layout-Text folgen, also Leerraum, Zeilenumbruch
-oder ein Kommentar: `1_ /* … */ 000`; auch in `0b…`, `0o…`, `0x…`; kein
-doppeltes `__`) und Ganzzahl-Literale beliebiger Größe.
+oder ein Kommentar: `1_ /* … */ 000`; auch in `0b…`, `0o…`, `0x…` und
+in den Nachkommastellen, `1_000.000_1`; kein doppeltes `__`) und Ganzzahl-Literale beliebiger Größe.
 
 Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
 `error(Formal, Kontext)` (`type_error`, `instantiation_error`,
@@ -2755,9 +2756,10 @@ exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
 `type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
 Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
 Float). `max_arity` ist 65 536 (2^16): größere Stelligkeiten bei
-`functor/3`, `=../2` und beim Lesen sind `representation_error(max_arity)`
-bzw. ein Syntaxfehler. Gesamt: 4 122 bestanden, 81 fehlgeschlagen,
-209 übersprungen.
+`functor/3`, `=../2`, `abolish/1`, `read_term/2,3` und beim Aufruf (`call/N`) sind
+`representation_error(max_arity)` (beim Laden einer Datei ein
+Syntaxfehler). Gesamt: 4 127 bestanden, 80 fehlgeschlagen,
+205 übersprungen.
 Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
 den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument
 weder Liste noch Teilliste ist (Logtalk: `type_error(list, L)`), und die
@@ -2771,7 +2773,7 @@ mit `retract/1` leisten dasselbe; die logical-update-Tests über `lgt:`), Unicod
 Escapes außerhalb von ISO (`0'\e`, `0'\d`, `0'\s`, `0''` – bewusst
 Syntaxfehler),
 `4/2` ist `2`
-(siehe Arithmetik) und `0 ^ -42` ist `zero_divisor`. Wie Logtalk und
+(siehe Arithmetik). Wie Logtalk und
 Scryer: `call_nth(G, 0)` scheitert, negativ ist
 `domain_error(not_less_than_zero, N)`; `setof/3` scheitert, wenn die
 Ergebnisvariable über eine freie Variable gebunden wird; `keysort/2` prüft
@@ -2813,8 +2815,10 @@ Direktive).
     dem Endepunkt muss Leerraum oder `%` folgen; Gleitkommazahlen brauchen
     Nachkommastellen (`1e10` ist ein Fehler); `(a|b)` ist `'|'(a, b)`.
   * Bewusst anders als gprolog: Backquotes werden mit Escapes gelesen
-    (ISO 6.4.7), `\0\` ist im Atom erlaubt, `1.0e400` ist ein
-    Syntaxfehler statt `inf`.
+    (ISO 6.4.7), `\0\` ist im Atom erlaubt, `1.0e400` ist kein `inf`:
+    `read_term/2,3` und `number_chars/2` melden
+    `representation_error(max_float)` (Neumerkel stc #73), beim Laden einer
+    Datei ist es ein Syntaxfehler.
   * Nach einem Syntaxfehler geht es hinter dem nächsten Endepunkt weiter
     (wie gprolog, aber Kommentare zählen als Ganzes).
 
@@ -2879,6 +2883,25 @@ die Tabelle mehrere Antworten zulässt, genügt eine):
     (`open/3,4` mit gebundenem Stream: `uninstantiation_error(S)`) und
     [draft-7.10.5](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/draft-7.10.5)
     (Schreiben).
+  * Die Korrigenda-Seiten in `test/neumerkel_corrigenda_test.exs`:
+    [dtc2](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/dtc2)
+    (Cor.2: `subsumes_term/2`, `compare/3`, `sort/2`, `keysort/2`,
+    `term_variables/2`, `retractall/1`, `call/N`, Arithmetik, `'.'`
+    schreiben),
+    [WDCor3](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/WDCor3)
+    mit [WDR3](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/WDR3)
+    (Fehler bei Optionen, `max_arity`, `-1 ^ -2`),
+    [stc](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/stc)
+    (negative Zahlen, `(:-B)`, `current_predicate/1`, `abolish/1`,
+    `max_float`/`max_arity` beim Lesen als `representation_error`, ein
+    zyklisches `keysort/2` gibt `type_error(list, L)` mit der zyklischen
+    Liste), [built-in_predicates](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/built-in_predicates)
+    (`?=/2`) und eine Auswahl aus
+    [evaluable_functors](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/evaluable_functors)
+    (`nexttoward/2` und `cbrt/1` fehlen). Bewusst anders: `close('$stream'(S))`
+    ist `domain_error(stream_or_alias, _)` (stc #72 erwägt
+    `instantiation_error`), und ungültiges UTF-8 wird als Latin-1 gelesen
+    (stc #76: `representation_error(character)`).
 
 Die Tests vergleichen Reader und Writer mit gprolog über aufgezeichnete
 Ergebnisse (`test/fixtures/reader/gprolog_reads.txt`,

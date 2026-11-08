@@ -508,9 +508,10 @@ defmodule PrologEx.Parser do
     case rest do
       <<?., d, _::binary>> when d in ?0..?9 ->
         <<_, frac_r::binary>> = rest
-        {frac, rest2} = digits(frac_r, 0)
+        # Trenner auch in den Nachkommastellen (WG17 stc #82: 1.0_0)
+        {frac, rest2, fused} = grouped(frac_r, 10, [], 0)
         {exp, rest3} = exponent(rest2)
-        len = used + 1 + byte_size(frac) + byte_size(exp)
+        len = used + 1 + fused + byte_size(exp)
 
         case float(int <> "." <> frac <> exp) do
           {:ok, f} -> {{:num, f}, lay, pos, rest3, pos + len}
