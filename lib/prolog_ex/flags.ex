@@ -34,6 +34,10 @@ defmodule PrologEx.Flags do
     # Toplevel: Antworten ohne Rückfrage zeigen, solange keine Seiteneffekte
     # passieren – auto: eine Bildschirmseite, N: höchstens N, 1: einzeln
     "answer_chunk" => {:auto, [:auto, :positive_integer]},
+    # wie SWI: Meldungen beim Laden (PrologEx.LoadLog) – silent: keine,
+    # normal: geladene Dateien und je Import die Zahl der Prädikate, full:
+    # dazu die importierten Prädikate und Operatoren einzeln
+    "verbose_load" => {:silent, [:silent, :normal, :full]},
     # true: die eingebauten Prädikate aus library(swi), iso_ext, between,
     # fastrw sind ohne Import sichtbar (wie früher; Übergang)
     "swi_compat" => {false, [false, true]},

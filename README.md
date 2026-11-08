@@ -2612,6 +2612,32 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     Geladene, ein Fehler gilt als falsch. In inaktiven Zweigen wird alles
     übersprungen, auch Direktiven und Syntaxfehler.
 
+### Was wohin importiert wird: Flag `verbose_load`
+
+Wie SWI (`silent` ist die Vorgabe). Mit `normal` meldet das Laden auf
+stderr jede geladene Datei bzw. Bibliothek und je Import, wie viele
+Prädikate in welches Modul kamen. Mit `full` stehen die Prädikate und
+Operatoren einzeln dabei. Was eine Bibliothek beim Laden selbst importiert,
+steht eingerückt darunter:
+
+```
+?- set_prolog_flag(verbose_load, normal), use_module(library(dcgs)).
+% lade library(dcgs) ...
+%   dcgs ← lists: 1 Prädikat
+% library(dcgs) geladen (Modul dcgs, 9 ms)
+% user ← dcgs: 8 Prädikate
+?- set_prolog_flag(verbose_load, full), use_module(library(pairs)).
+% lade library(pairs) ...
+% library(pairs) geladen (Modul pairs, 0 ms)
+% user ← pairs: 6 Prädikate
+%     group_pairs_by_key/2, map_list_to_pairs/3, pairs_keys/2,
+%     pairs_keys_values/3, pairs_values/2, transpose_pairs/2
+```
+
+Bibliotheken in Elixir (`lists`, `assoc`, ...) werden nicht geladen, nur
+importiert. Ist alles schon da: `user ← lists: nichts Neues` (nur bei
+`full`).
+
 ## Expansion: `term_expansion/2`, `goal_expansion/2`
 
 Wie SWI/SICStus: Hooks im Quellmodul oder in `user`, ab der Klausel nach

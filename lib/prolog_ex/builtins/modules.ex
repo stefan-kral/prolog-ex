@@ -26,7 +26,12 @@ defmodule PrologEx.Builtins.Modules do
   end
 
   defbuiltin "consult", [spec] do
-    for f <- files(resolve(spec)), do: Consult.load_file(f, into: context_module())
+    for f <- files(resolve(spec)) do
+      PrologEx.LoadLog.loading(Path.relative_to_cwd(f), fn ->
+        Consult.load_file(f, into: context_module())
+      end)
+    end
+
     :ok
   end
 
@@ -223,33 +228,38 @@ defmodule PrologEx.Builtins.Modules do
         PrologEx.Error.existence!("source_sink", mk("library", [a(name)]))
 
       {nil, path} ->
-        use_file(path, keys, ctx)
+        use_file(path, keys, ctx, "library(#{name})")
 
       {exports, _} ->
-        for {p, type, op} <- PrologEx.Builtins.ops(name),
-            do: PrologEx.Reader.op(PrologEx.Reader.current(), p, type, op)
-
-        import(name, select(exports, keys, name), ctx)
+        ops = PrologEx.Builtins.ops(name)
+        for {p, type, op} <- ops, do: PrologEx.Reader.op(PrologEx.Reader.current(), p, type, op)
+        import(name, select(exports, keys, name), ctx, ops)
     end
 
     :ok
   end
 
   defp use_module(spec, keys, ctx, _s) do
-    for f <- files(spec), do: use_file(f, keys, ctx)
+    for f <- files(spec), do: use_file(f, keys, ctx, Path.relative_to_cwd(f))
     :ok
   end
 
-  defp use_file(f, keys, ctx) do
+  # label: für die Meldungen beim Laden (PrologEx.LoadLog)
+  defp use_file(f, keys, ctx, label) do
     {module, fresh} =
       case Consult.loaded(f) do
-        {:ok, m} -> {m, false}
-        :error -> {elem(Consult.load_file(f, into: nil), 1), true}
+        {:ok, m} ->
+          {m, false}
+
+        :error ->
+          r = PrologEx.LoadLog.loading(label, fn -> Consult.load_file(f, into: nil) end)
+          {elem(r, 1), true}
       end
 
     if module do
       info = Map.fetch!(PrologEx.current_db(), {:module, module})
-      import(module, select(info.exports, keys, module), ctx)
+      user_ops = if PrologEx.Builtins.system_module?(ctx), do: [], else: Map.get(info, :ops, [])
+      import(module, select(info.exports, keys, module), ctx, user_ops)
 
       # Operatoren der Exportliste gelten in den Modulen des Benutzers;
       # beim ersten Laden nur für eine Bibliothek des Systems (clpz lädt
@@ -277,26 +287,31 @@ defmodule PrologEx.Builtins.Modules do
   end
 
   # Import in ctx; lokale Definitionen und frühere Importe aus einem
-  # anderen Modul gehen vor (wie SWI; dann eine Warnung auf stderr)
-  defp import(m, keys, ctx) do
-    PrologEx.update_db(fn db ->
-      Enum.reduce(keys, db, fn {n, ar}, db ->
+  # anderen Modul gehen vor (wie SWI; dann eine Warnung auf stderr). ops:
+  # die Operatoren, die mitkommen (nur für die Meldung, PrologEx.LoadLog)
+  defp import(lib, keys, ctx, ops) do
+    db = PrologEx.current_db()
+
+    {db, new} =
+      Enum.reduce(keys, {db, []}, fn {n, ar} = k, {db, new} ->
         # Re-Export: aus dem Quellmodul
-        m = if PrologEx.Builtins.exports(m), do: PrologEx.Builtins.source(m, n, ar), else: m
+        m = if PrologEx.Builtins.exports(lib), do: PrologEx.Builtins.source(lib, n, ar), else: lib
 
         case import_check(db, m, ctx, n, ar) do
           :ok ->
-            Map.put(db, {:import, ctx, n, ar}, m)
+            {Map.put(db, {:import, ctx, n, ar}, m), [k | new]}
 
           :same ->
-            db
+            {db, new}
 
           {:warn, text} ->
             IO.puts(:stderr, "Warnung: " <> text)
-            db
+            {db, new}
         end
       end)
-    end)
+
+    PrologEx.put_db(db)
+    PrologEx.LoadLog.imported(ctx, lib, new, ops)
   end
 
   @doc false

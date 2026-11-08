@@ -706,13 +706,17 @@ defmodule PrologEx.Consult do
   defp import_into(st, m, _keys, m), do: st
 
   defp import_into(st, m, keys, into) do
-    Enum.reduce(keys, st, fn {n, ar}, st ->
-      case PrologEx.Builtins.Modules.import_check(st.db, m, into, n, ar) do
-        :ok -> %{st | db: Map.put(st.db, {:import, into, n, ar}, m)}
-        :same -> st
-        {:warn, text} -> msg(st, "Warnung: " <> text)
-      end
-    end)
+    {st, new} =
+      Enum.reduce(keys, {st, []}, fn {n, ar} = k, {st, new} ->
+        case PrologEx.Builtins.Modules.import_check(st.db, m, into, n, ar) do
+          :ok -> {%{st | db: Map.put(st.db, {:import, into, n, ar}, m)}, [k | new]}
+          :same -> {st, new}
+          {:warn, text} -> {msg(st, "Warnung: " <> text), new}
+        end
+      end)
+
+    PrologEx.LoadLog.imported(into, m, new)
+    st
   end
 
   # [name/arity, name//arity, op(P, T, N), ...]
