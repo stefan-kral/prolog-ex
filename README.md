@@ -1853,8 +1853,8 @@ Reihenfolge in einer Summe.
 Wie in Scryer Prolog: `:- table Name/N` (auch `Name//N`, mehrere mit
 Komma oder als Liste), `abolish_all_tables/0`, `start_tabling/2`, Operator
 `table`; dazu wie SWI `tnot/1` und Modi. Ein getabltes Prädikat
-terminiert auch bei Links- und
-Zyklenrekursion, solange jede Variante endlich viele Antworten hat:
+terminiert auch bei Links- und Zyklenrekursion, solange jede Variante
+endlich viele Antworten hat:
 
 ```prolog
 :- use_module(library(tabling)).
