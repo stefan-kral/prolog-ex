@@ -1852,7 +1852,8 @@ Reihenfolge in einer Summe.
 
 Wie in Scryer Prolog: `:- table Name/N` (auch `Name//N`, mehrere mit
 Komma oder als Liste), `abolish_all_tables/0`, `start_tabling/2`, Operator
-`table`. Ein getabltes Prädikat terminiert auch bei Links- und
+`table`; dazu wie SWI `tnot/1` und Modi. Ein getabltes Prädikat
+terminiert auch bei Links- und
 Zyklenrekursion, solange jede Variante endlich viele Antworten hat:
 
 ```prolog
@@ -1903,8 +1904,19 @@ expr --> term.
     scheitert, wenn der kürzeste Weg 4 kostet). Terminiert nur, wenn sich
     jeder Wert endlich oft verbessert (bei `min`: keine negativen Zyklen).
     `sum`, `last` und `po` gibt es nicht (`domain_error(table_mode, M)`).
-  * Nicht (noch nicht): `tnot/1`, Well-Founded Semantics, inkrementelles
-    Tabling.
+  * `tnot(:G)`: Negation über ein getabltes Prädikat, stratifiziert und
+    geprüft. G (grundiert, getablt) wird ganz ausgewertet: hat es eine
+    Antwort, scheitert `tnot`; ist seine Tabelle vollständig ohne Antwort,
+    gelingt es. Bleibt sie unvollständig, hängt G negativ von einer gerade
+    laufenden Auswertung ab – das Programm ist nicht stratifiziert, etwa
+    `win(X) :- move(X, Y), tnot(win(Y)).` über einem Zyklus:
+    `permission_error(tnot, incomplete_table, M:G)` statt einer Antwort,
+    die von der Reihenfolge der Aufrufe abhinge (mit `\+` heute so; für
+    stratifizierte Programme ist `\+` gleichwertig, nur ungeprüft).
+    Nicht getablt: `type_error(tabled_predicate, M:N/A)`, nicht grundiert:
+    `instantiation_error`.
+  * Nicht (noch nicht): Well-Founded Semantics (`undefined` statt Fehler),
+    semi-naive Auswertung, inkrementelles Tabling.
 
 ## Memoisierung: `library(memo)`
 

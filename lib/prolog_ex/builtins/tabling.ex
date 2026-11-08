@@ -250,6 +250,29 @@ defmodule PrologEx.Builtins.Tabling do
     :ok
   end
 
+  # '$tbl_status'(+M:G, -S): S = complete, incomplete oder none – der Stand
+  # der Tabelle für die Variante G (für tnot/1)
+  defbuiltin "$tbl_status", [mg, res] do
+    s = subst()
+    {:struct, ":", [m, g]} = PrologEx.unmark_top(deref(mg))
+    {:atom, mod} = deref(m)
+
+    {n, ar} =
+      case PrologEx.unmark_top(deref(g)) do
+        {:atom, n} -> {n, 0}
+        {:struct, n, args} -> {n, length(args)}
+      end
+
+    status =
+      case Map.get(state().tables, {{mod, n, ar}, Memo.variant_key(g, s)}) do
+        %{status: :complete} -> "complete"
+        %{status: :incomplete} -> "incomplete"
+        nil -> "none"
+      end
+
+    {:unify, [{res, a(status)}]}
+  end
+
   defp moded?(spec, s) do
     match?({:struct, "$tbl", [_, _, _, _]}, PrologEx.resolve(spec, s))
   end

@@ -120,6 +120,15 @@ defmodule PrologEx.TablingTest do
   hops(Y, N) :- reach(X), hops(X, N0), w(X, Y, _), N is N0 + 1.
   reach(X) :- hops(X, _).
 
+  % Negation: stratifiziert und nicht
+  node(N) :- member(N, [n1, n2, n3, n4, n5]).
+  unreach(X, Y) :- node(X), node(Y), tnot(path(X, Y)).
+  :- table acyclic/1.
+  acyclic(X) :- node(X), tnot(path(X, X)).
+  move(p1, p2). move(p2, p1). move(p2, p3).
+  :- table win/1.
+  win(X) :- move(X, Y), tnot(win(Y)).
+
   set(T, G, S) :- findall(T, G, L), msort(L, S).
   """
 
@@ -277,5 +286,34 @@ defmodule PrologEx.TablingTest do
     assert m =~ "domain_error(table_mode,max)"
     assert m =~ "domain_error(table_mode,sum)"
     assert m =~ "domain_error(table_mode,lattice(1))"
+  end
+
+  test "tnot/1: stratifiziert wie \\+, sonst ein Fehler", c do
+    assert ask(c, "set(Y, unreach(n1, Y), S)") == ["S = [n5]"]
+    assert ask(c, "set(X, acyclic(X), S)") == ["S = [n4,n5]"]
+    assert ask(c, "tnot(path(n4, n1))") == ["true"]
+    assert ask(c, "tnot(path(n1, n4))") == []
+
+    assert ask(c, "catch(win(p1), error(E, _), true)") ==
+             ["E = permission_error(tnot,incomplete_table,user:win(p1))"]
+
+    # danach keine halben Tabellen: dasselbe noch einmal, und Stratifiziertes geht
+    assert ask(
+             c,
+             "catch(win(p1), error(E, _), true), catch(win(p2), error(E2, _), true), " <>
+               "\\+ win(p3), set(Y, unreach(n4, Y), S)"
+           ) == [
+             "E = permission_error(tnot,incomplete_table,user:win(p1)), " <>
+               "E2 = permission_error(tnot,incomplete_table,user:win(p2)), S = [n1,n2,n3,n4,n5]"
+           ]
+  end
+
+  test "tnot/1: Fehler im Argument", c do
+    assert ask(c, "catch(tnot(_), error(E, _), true)") == ["E = instantiation_error"]
+    assert ask(c, "catch(tnot(path(n1, _)), error(E, _), true)") == ["E = instantiation_error"]
+    assert ask(c, "catch(tnot(1), error(E, _), true)") == ["E = type_error(callable,1)"]
+
+    assert ask(c, "catch(tnot(e(n1, n2)), error(E, _), true)") ==
+             ["E = type_error(tabled_predicate,user:e/2)"]
   end
 end

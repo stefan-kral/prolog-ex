@@ -24,12 +24,13 @@
    Wie Scryer: table/1 (Direktive), abolish_all_tables/0,
    start_tabling/2, op(1150, fx, table).
 
-   Dazu Modi wie SWI: `:- table path(_, _, min).` – je Belegung der übrigen
+   Dazu tnot/1 (stratifizierte Negation, geprüft) und Modi wie SWI: `:- table path(_, _, min).` – je Belegung der übrigen
    Argumente bleibt nur die beste Antwort (min, max, first, lattice(P/3));
    höchstens ein Argument mit Modus.
 */
 
 :- module(tabling, [(table)/1,
+                    tnot/1,
                     abolish_all_tables/0,
                     start_tabling/2,
                     op(1150, fx, table)]).
@@ -46,8 +47,36 @@ table(Spec) :-
     specs(Spec, M, Ts, []),
     forall(member(t(N, A, Spec1), Ts),
            (   wrap_declare(M, N, A, ' tabled', (tabling):'$tbl_call', Spec1),
-               '$tbl_abolish'(M:N/A)
+               '$tbl_abolish'(M:N/A),
+               retractall('$tabled'(M, N, A)),
+               assertz('$tabled'(M, N, A))
            )).
+
+% getablte Prädikate (für tnot/1)
+:- dynamic('$tabled'/3).
+
+%% tnot(:G): Negation über ein getabltes Prädikat, stratifiziert. G wird
+%  ganz ausgewertet; hat es eine Antwort, scheitert tnot, ist seine Tabelle
+%  vollständig ohne Antwort, gelingt es. Bleibt sie unvollständig, hängt G
+%  negativ von einer gerade laufenden Auswertung ab (das Programm ist nicht
+%  stratifiziert): Fehler statt einer Antwort, die von der Reihenfolge der
+%  Aufrufe abhinge.
+:- meta_predicate(tnot(0)).
+tnot(M:G) :-
+    (   var(G) -> instantiation_error(G)
+    ;   callable(G) -> true
+    ;   type_error(callable, G)
+    ),
+    (   ground(G) -> true ; instantiation_error(G) ),
+    functor(G, N, A),
+    (   '$tabled'(M, N, A) -> true ; type_error(tabled_predicate, M:N/A) ),
+    (   \+ \+ call(M:G)
+    ->  fail
+    ;   '$tbl_status'(M:G, complete)
+    ->  true
+    ;   throw(error(permission_error(tnot, incomplete_table, M:G),
+                    context(tnot/1, 'nicht stratifiziert: das Ziel hängt negativ von einer laufenden Auswertung ab')))
+    ).
 
 specs(V, _, _, _) :-
     var(V), !,
