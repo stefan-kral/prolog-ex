@@ -2051,6 +2051,31 @@ defmodule PrologEx do
     run(%{rearm(st) | goals: rest})
   end
 
+  # library(concurrent): die Grenzen dieser Maschine für Kindprozesse –
+  # Deadline (absolut, µs, monotone Uhr), verbleibendes Inferenzbudget,
+  # engste Speichergrenze (Bytes); jeweils none ohne Grenze
+  defp step({:struct, "$conc_limits", [d, b, m]}, _cutb, mod, rest, st) do
+    deadlines =
+      Enum.map(st.tlimits, &elem(&1, 1)) ++ List.wrap(Map.get(timers(), st.qref))
+
+    n = :atomics.get(st.icount, 1)
+    budgets = for {_, l} <- st.ilimits, do: max(l - n, 0)
+    mems = for {_, _, bytes} <- mlimits(), do: bytes
+    none = {:atom, "none"}
+
+    pick = fn
+      [] -> none
+      l -> Enum.min(l)
+    end
+
+    apply_result(
+      {:unify, [{d, pick.(deadlines)}, {b, pick.(budgets)}, {m, pick.(mems)}]},
+      mod,
+      rest,
+      st
+    )
+  end
+
   # set_timer/1: ein Timer je Anfrage (ein neuer ersetzt ihn), bis zum Ende
   # der Anfrage oder cancel_timer/0; Backtracking nimmt ihn nicht zurück
   defp step({:struct, "$set_timer", [us]}, _cutb, _mod, rest, st) do

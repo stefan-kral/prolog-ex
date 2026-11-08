@@ -82,6 +82,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Memo,
     PrologEx.Builtins.Tabling,
     PrologEx.Builtins.SideEffects,
+    PrologEx.Builtins.Concurrent,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt

@@ -2321,6 +2321,47 @@ selbst wieder abräumen (`call_with_time_limit/2`,
     nur sie prüfen den Zähler. Programme ohne den Bereich zahlen nichts
     Messbares.
 
+## Parallel: `library(concurrent)`
+
+Ziele parallel in BEAM-Prozessen, aufgebaut auf `call_with_no_side_effects/1`:
+jedes Kind läuft mit einer Kopie des Interpreter-Zustands, super-strikt ohne
+Seiteneffekte. Darum ist die Reihenfolge egal, und ein Kind kann jederzeit
+beendet werden, ohne etwas halb getan zu haben.
+
+```prolog
+?- use_module(library(concurrent)), use_module(library(iso_ext)).
+?- concurrent_maplist(succ, [1,2,3], Ys).           % Ys = [2,3,4]
+?- first_solution(X, [(repeat, fail), X = schnell], []).   % X = schnell
+?- concurrent_findall(X, [member(X,[a,b]), between(1,3,X)], Bs).
+% Bs = [[a,b],[1,2,3]]   (member/between aus library(lists)/library(between))
+```
+
+| Prädikat | Bedeutung |
+|---|---|
+| `concurrent_maplist/2,3,4` | wie `maplist`, je Element ein Prozess (`once`) |
+| `concurrent(N, Goals, Opts)` | alle Ziele, höchstens N gleichzeitig; Bindungen werden zusammengeführt |
+| `concurrent_forall(Cond, Action[, [workers(N)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
+| `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
+| `first_solution(X, Goals, [on_fail(stop\|continue)])` | der Erste gewinnt, die anderen werden beendet |
+
+* **Ausnahmen:** wirft ein Kind – auch den Seiteneffekt-Fehler
+  `permission_error(perform, side_effect, G)` –, werden alle anderen sofort
+  beendet (kein Warten), und die Ausnahme kommt beim Aufrufer an; werfen
+  mehrere, entscheidet der Scheduler.
+* **Grenzen** des Aufrufers gelten weiter: `call_with_time_limit` als
+  gemeinsame Deadline, `call_with_inference_limit` als Budget für alle
+  zusammen (die Kinder zählen im selben Zähler), Speichergrenze je Kind.
+* **Ergebnisse** kommen als Kopien zurück und werden nach Index unifiziert.
+  Geteilte Teilbäume werden dabei ausgerollt (große DAG-Terme werden teuer).
+  Attributierte Variablen (`dif`, `freeze`, clpz …) in Zielen oder
+  Ergebnissen: `representation_error(concurrent_attributed_variable)`.
+* Teilen Ziele Variablen, rechnet jedes auf seiner Kopie; erst das
+  Zusammenführen prüft, ob es passt.
+* Kein memo/tabling in den Kindern (das sind Seiteneffekte).
+* Unbenutzt kostet die Bibliothek nichts (nichts in der Maschine ändert sich).
+
+Zum Ausprobieren: `mix prolog examples/concurrent.pl -g main -q -g halt`.
+
 ## Coroutining
 
 `freeze/2`, `frozen/2`, `dif/2`, `when/2` (Bedingungen `nonvar/1`,
