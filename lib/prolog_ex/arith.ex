@@ -568,7 +568,15 @@ defmodule PrologEx.Arith do
     if x == 0 and y == 0, do: undefined(), else: :math.atan2(float!(x), float!(y))
   end
 
-  defp msb(x), do: length(Integer.digits(x, 2)) - 1
+  # höchstes gesetztes Bit (x > 0); über die Bytes, nicht die Binärziffern
+  # (Integer.digits/2 braucht für 7^7^7 eine Minute)
+  defp msb(x) do
+    <<first, _::binary>> = bin = :binary.encode_unsigned(x)
+    (byte_size(bin) - 1) * 8 + byte_msb(first, 0)
+  end
+
+  defp byte_msb(1, n), do: n
+  defp byte_msb(b, n), do: byte_msb(Bitwise.bsr(b, 1), n + 1)
 
   defp lsb(x), do: lsb(x, 0)
   defp lsb(x, n) when Bitwise.band(x, 1) == 1, do: n

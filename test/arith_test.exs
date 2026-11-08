@@ -96,6 +96,10 @@ defmodule PrologEx.ArithTest do
       {"-16 >> 2", -4},
       {"msb(1000)", 9},
       {"msb(1)", 0},
+      {"msb(256)", 8},
+      {"msb(2^100+1)", 100},
+      # log einer sehr großen Ganzzahl über msb (früher eine Minute)
+      {"truncate(log(7^7^7))", 1_602_540},
       {"lsb(1000)", 3},
       {"popcount(255)", 8},
       {"gcd(12,18)", 6},
