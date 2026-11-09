@@ -282,13 +282,13 @@ defmodule PrologEx.ConcurrentTest do
     # die ganze Kette, innerster zuerst; außerhalb []
     assert ask(
              c,
-             ~S"concurrent_maplist(\_^P^concurrent_maplist(\_^Q^concurrent_child_path(Q), [x, y], P), [a, b], Ps)"
+             ~S"concurrent_maplist(\_^P^concurrent_maplist(\_^Q^concurrent_child_stack(Q), [x, y], P), [a, b], Ps)"
            ) == ["Ps = [[[1/2,1/2],[2/2,1/2]],[[1/2,2/2],[2/2,2/2]]]"]
 
-    assert ask(c, ~S"concurrent_maplist(\_^P^concurrent_child_path(P), [a], Ps)") ==
+    assert ask(c, ~S"concurrent_maplist(\_^P^concurrent_child_stack(P), [a], Ps)") ==
              ["Ps = [[1/1]]"]
 
-    assert ask(c, "concurrent_child_path(P)") == ["P = []"]
+    assert ask(c, "concurrent_child_stack(P)") == ["P = []"]
   end
 
   test "Brüche reisen zu den Kindern und zurück", c do

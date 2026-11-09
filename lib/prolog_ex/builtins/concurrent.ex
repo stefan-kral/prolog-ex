@@ -44,9 +44,9 @@ defmodule PrologEx.Builtins.Concurrent do
     end
   end
 
-  # concurrent_child_path(-Path): [I/N, ...], innerster Aufruf zuerst;
+  # concurrent_child_stack(-Stack): [I/N, ...], innerster Aufruf oben;
   # außerhalb jedes Kinds []
-  defbuiltin "$conc_child_path", [p] do
+  defbuiltin "$conc_child_stack", [p] do
     path = for {i, n} <- Process.get(:conc_path, []), do: mk("/", [i, n])
     {:unify, [{p, path}]}
   end

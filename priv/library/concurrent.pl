@@ -62,7 +62,7 @@
                        concurrent_findall/3,
                        first_solution/3,
                        concurrent_child/1,
-                       concurrent_child_path/1]).
+                       concurrent_child_stack/1]).
 
 %% concurrent_child(-I/N)
 %
@@ -75,14 +75,14 @@
 concurrent_child(P) :-
     '$conc_child'(P).
 
-%% concurrent_child_path(-Path)
+%% concurrent_child_stack(-Stack)
 %
-% Path ist die Kette der Aufrufe als Liste I/N, der innerste zuerst:
-% concurrent_child(P) ist concurrent_child_path([P|_]).
-% Außerhalb jedes Kinds ist Path = []; length(Path, D) ist also die
+% Stack ist der Stapel der Aufrufe als Liste I/N, der innerste oben:
+% concurrent_child(P) ist concurrent_child_stack([P|_]).
+% Außerhalb jedes Kinds ist Stack = []; length(Stack, D) ist also die
 % Schachtelungstiefe.
-concurrent_child_path(Path) :-
-    '$conc_child_path'(Path).
+concurrent_child_stack(Stack) :-
+    '$conc_child_stack'(Stack).
 
 :- use_module(library(lists)).
 :- use_module(library(error)).
