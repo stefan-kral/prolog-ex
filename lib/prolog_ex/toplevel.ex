@@ -48,6 +48,7 @@ defmodule PrologEx.Toplevel do
   def main(args) do
     Application.put_env(:prolog_ex, :argv, args)
     {files, goals, quiet} = parse_args(args, [], [], false)
+    quiet_load(quiet)
     {:ok, reader} = Reader.start_link()
     Reader.put_current(reader)
     PrologEx.put_db(%{})
@@ -73,6 +74,7 @@ defmodule PrologEx.Toplevel do
   def repl(args \\ []) do
     Application.put_env(:prolog_ex, :argv, args)
     {files, goals, quiet} = parse_args(args, [], [], false)
+    quiet_load(quiet)
     session = session()
 
     {st, resumed?} =
@@ -143,6 +145,11 @@ defmodule PrologEx.Toplevel do
   defp prolog_key?(k) when is_atom(k), do: String.starts_with?(Atom.to_string(k), "prolog_ex_")
   defp prolog_key?(k) when is_tuple(k) and tuple_size(k) > 0, do: prolog_key?(elem(k, 0))
   defp prolog_key?(_), do: false
+
+  # -q: auch das Laden still (wie SWI); das Programm kann verbose_load
+  # wieder setzen
+  defp quiet_load(true), do: PrologEx.Flags.set("verbose_load", {:atom, "silent"})
+  defp quiet_load(false), do: :ok
 
   defp parse_args([], files, goals, q), do: {Enum.reverse(files), Enum.reverse(goals), q}
   # dahinter: Argumente für das Programm (argv/1 aus library(os))

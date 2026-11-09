@@ -83,6 +83,7 @@ mix compile                          # übersetzen
 mix prolog                           # interaktiver Toplevel
 mix prolog examples/demo.pl          # Datei laden, dann Toplevel
 mix prolog examples/demo.pl -g main -q   # laden, main ausführen, Ende
+                                     # (-q: still, auch beim Laden)
 cat prog.pl | mix prolog - -g main   # Programm von stdin
 ```
 
@@ -2671,7 +2672,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 ### Was wohin importiert wird: Flag `verbose_load`
 
 Werte wie SWI; Vorgabe hier `full` (SWI: `silent`), abschalten mit
-`set_prolog_flag(verbose_load, silent)`. Mit `normal` meldet das Laden auf
+`set_prolog_flag(verbose_load, silent)`; `mix prolog … -q` setzt es auf
+`silent` (das Programm kann es wieder setzen). Mit `normal` meldet das Laden auf
 stderr jede geladene Datei bzw. Bibliothek und je Import, wie viele
 Prädikate in welches Modul kamen. Mit `full` stehen die Prädikate und
 Operatoren einzeln dabei. Was eine Bibliothek beim Laden selbst importiert,
