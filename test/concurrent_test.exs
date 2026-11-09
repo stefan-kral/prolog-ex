@@ -260,6 +260,11 @@ defmodule PrologEx.ConcurrentTest do
     assert e =~ "permission_error(perform,side_effect"
   end
 
+  test "Brüche reisen zu den Kindern und zurück", c do
+    assert ask(c, ~S"concurrent_maplist(\X^Y^(Y is X * 1r3), [1, 2r5, 0.5], L)") ==
+             ["L = [1r3,2r15,0.16666666666666666]"]
+  end
+
   test "Ausgabe der Kinder: gepuffert, nach Erfolg in der Reihenfolge der Ziele", c do
     assert ask(
              c,

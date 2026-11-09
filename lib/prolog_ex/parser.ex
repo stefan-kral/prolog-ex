@@ -518,6 +518,22 @@ defmodule PrologEx.Parser do
           :error -> {:error, "Gleitkommazahl nicht darstellbar", pos, rest3, pos + len}
         end
 
+      # Bruch wie SWI: 1r3 (Nenner mit Ziffern, auch mit Trennern; 1r0 ist
+      # ein Syntaxfehler)
+      <<?r, d, _::binary>> when d in ?0..?9 ->
+        <<_, den_r::binary>> = rest
+        {den, rest2, dused} = grouped(den_r, 10, [], 0)
+        len = used + 1 + dused
+
+        case String.to_integer(den) do
+          0 ->
+            {:error, "Bruch mit Nenner 0", pos, rest2, pos + len}
+
+          dn ->
+            {{:num, PrologEx.Rational.make(String.to_integer(int), dn)}, lay, pos, rest2,
+             pos + len}
+        end
+
       _ ->
         {{:num, String.to_integer(int)}, lay, pos, rest, pos + used}
     end
@@ -733,6 +749,7 @@ defmodule PrologEx.Parser do
   defp show({:name, s}), do: s
   defp show({:qname, s}), do: "'#{s}'"
   defp show({:var, s}), do: s
+  defp show({:num, {:rat, _, _} = r}), do: PrologEx.Rational.to_string(r)
   defp show({:num, n}), do: inspect(n)
   defp show({:str, s}), do: inspect(s)
   defp show({:bq, s}), do: "`#{s}`"
@@ -828,6 +845,7 @@ defmodule PrologEx.Parser do
   defp primary([], _max, _ctx), do: syntax!("Term erwartet", 0)
 
   defp neg(n) when is_integer(n), do: -n
+  defp neg({:rat, n, d}), do: {:rat, -n, d}
   defp neg(f), do: -f
 
   defp close([{{:p, p}, _, _} | rest], p), do: rest

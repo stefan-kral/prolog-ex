@@ -44,6 +44,7 @@ defmodule PrologEx.Builtins.Atoms do
   representation_error(character_code), syntax_error(illegal_number).
   """
   use PrologEx.Builtin
+  import PrologEx.Rational, only: [is_rat: 1]
   alias PrologEx.Builtins.Lists
   alias PrologEx.Error
 
@@ -106,7 +107,7 @@ defmodule PrologEx.Builtins.Atoms do
       {:var, _} ->
         case deref(n) do
           {:var, _} -> Error.instantiation!()
-          num when is_number(num) -> {:unify, [{x, a(number_string(num))}]}
+          num when is_number(num) or is_rat(num) -> {:unify, [{x, a(number_string(num))}]}
           other -> Error.type!("number", other)
         end
 
@@ -271,12 +272,13 @@ defmodule PrologEx.Builtins.Atoms do
     end
   end
 
-  defp atomic?(x), do: is_number(x) or x == [] or match?({:atom, _}, x)
+  defp atomic?(x), do: is_number(x) or is_rat(x) or x == [] or match?({:atom, _}, x)
 
   defp atomic_text([]), do: "[]"
   defp atomic_text({:atom, n}), do: n
   defp atomic_text(n) when is_integer(n), do: Integer.to_string(n)
   defp atomic_text(f) when is_float(f), do: PrologEx.format_float(f)
+  defp atomic_text({:rat, _, _} = r), do: PrologEx.Rational.to_string(r)
 
   # ---------------------------------------------------------------------
   # atom_concat/3
@@ -528,14 +530,14 @@ defmodule PrologEx.Builtins.Atoms do
   defp number_text(n, l, s, kind) do
     nn = PrologEx.Store.walk(n, s)
 
-    unless match?({:var, _}, nn) or is_number(nn),
+    unless match?({:var, _}, nn) or is_number(nn) or is_rat(nn),
       do: Error.type!("number", PrologEx.resolve(nn, s))
 
     case text(l, s, kind) do
       {:ok, str} ->
         {:unify, [{n, parse_number!(str)}]}
 
-      :partial when is_number(nn) ->
+      :partial when is_number(nn) or is_rat(nn) ->
         {:unify, [{l, encode(number_string(nn), kind)}]}
 
       :partial ->
@@ -592,6 +594,7 @@ defmodule PrologEx.Builtins.Atoms do
   @doc "Textform einer Zahl (wie write/1)"
   def number_string(n) when is_integer(n), do: Integer.to_string(n)
   def number_string(f) when is_float(f), do: PrologEx.format_float(f)
+  def number_string({:rat, _, _} = r), do: PrologEx.Rational.to_string(r)
 
   # ---------------------------------------------------------------------
   # Zahlensyntax
@@ -618,6 +621,7 @@ defmodule PrologEx.Builtins.Atoms do
       end
 
     case unsigned(rest) do
+      {:ok, {:rat, _, _} = r, ""} -> {:ok, if(sign < 0, do: PrologEx.Rational.neg(r), else: r)}
       {:ok, n, ""} -> {:ok, sign * n}
       {:max_float, ""} -> :max_float
       _ -> :error
@@ -675,6 +679,16 @@ defmodule PrologEx.Builtins.Atoms do
         case exponent(r) do
           {:ok, exp, r} -> to_float(int <> "." <> frac <> exp, r)
           :error -> :error
+        end
+
+      # Bruch: 3r4 (Nenner 0: kein Bruch)
+      <<"r", f, r::binary>> when f in ?0..?9 ->
+        case digits(<<f, r::binary>>) do
+          {den, r} ->
+            case String.to_integer(den) do
+              0 -> :error
+              d -> {:ok, PrologEx.Rational.make(String.to_integer(int), d), r}
+            end
         end
 
       _ ->

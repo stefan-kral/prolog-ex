@@ -1,8 +1,8 @@
 /** Arithmetic predicates
 
 Wie Scryers library(arithmetic) (siehe SCRYER-LICENSE), ohne
-number_to_rational/2,3 und rational_numerator_denominator/3: PrologEx
-kennt keine rationalen Zahlen. msb/2, lsb/2 und popcount/2 rechnen über
+number_to_rational/2,3 und rational_numerator_denominator/3 (noch nicht
+übernommen; die Brüche selbst kennt PrologEx: rational/3, rationalize/1). msb/2, lsb/2 und popcount/2 rechnen über
 die gleichnamigen Funktionen von is/2.
 */
 

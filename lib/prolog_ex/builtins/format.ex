@@ -248,19 +248,18 @@ defmodule PrologEx.Builtins.Format do
 
   defp directive(d, n, rest, args, st, s) when d in [?e, ?E, ?f, ?F, ?g, ?G] do
     {t, args} = next(args)
-    x = float!(t, s)
     p = n || 6
 
-    text =
-      case d do
-        ?e -> sci(x, p)
-        ?E -> String.upcase(sci(x, p))
-        d when d in [?f, ?F] -> fixed(x, p)
-        ?g -> g_format(x, p)
-        ?G -> String.upcase(g_format(x, p))
-      end
+    case Arith.eval(t, s) do
+      # Bruch mit ~Nf: exakt (wie SWI), Hälften weg von 0
+      {:rat, _, _} = r when d in [?f, ?F] ->
+        {num, den} = PrologEx.Rational.parts(r)
+        v = PrologEx.Rational.round_away(PrologEx.Rational.make(num * Integer.pow(10, p), den))
+        run(rest, args, emit(st, decimal(v, p, false)), s)
 
-    run(rest, args, emit(st, text), s)
+      _ ->
+        float_directive(d, p, t, rest, args, st, s)
+    end
   end
 
   defp directive(?n, n, rest, args, st, s),
@@ -310,6 +309,21 @@ defmodule PrologEx.Builtins.Format do
     end
   end
 
+  defp float_directive(d, p, t, rest, args, st, s) do
+    x = float!(t, s)
+
+    text =
+      case d do
+        ?e -> sci(x, p)
+        ?E -> String.upcase(sci(x, p))
+        d when d in [?f, ?F] -> fixed(x, p)
+        ?g -> g_format(x, p)
+        ?G -> String.upcase(g_format(x, p))
+      end
+
+    run(rest, args, emit(st, text), s)
+  end
+
   defp float!(t, s) do
     case Arith.eval(t, s) do
       x when is_float(x) ->
@@ -321,6 +335,9 @@ defmodule PrologEx.Builtins.Format do
         rescue
           ArithmeticError -> Error.evaluation!("float_overflow")
         end
+
+      {:rat, _, _} = r ->
+        PrologEx.Rational.to_float(r)
     end
   end
 

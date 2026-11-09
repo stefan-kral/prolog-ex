@@ -148,6 +148,10 @@ defmodule PrologEx.Writer do
     {text, first(text), ?0}
   end
 
+  # Bruch: 1r3, -1r3 (wie eine Ganzzahl: vorn Ziffer oder -, hinten Ziffer)
+  defp leaf({:rat, n, _} = r, _role, _o),
+    do: {PrologEx.Rational.to_string(r), if(n < 0, do: ?-, else: ?0), ?0}
+
   defp leaf([], role, o), do: leaf({:atom, "[]"}, role, o)
 
   defp leaf({:atom, name}, role, o) do

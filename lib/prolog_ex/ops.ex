@@ -87,6 +87,7 @@ defmodule PrologEx.Ops do
     {400, "yfx", "div"},
     {400, "yfx", "mod"},
     {400, "yfx", "rem"},
+    {400, "yfx", "rdiv"},
     {400, "yfx", "xor"},
     {200, "xfx", "**"},
     {200, "fy", "+"},

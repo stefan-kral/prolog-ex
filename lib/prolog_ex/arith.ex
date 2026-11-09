@@ -62,6 +62,7 @@ defmodule PrologEx.Arith do
   import PrologEx, only: [unmark_top: 1]
   import PrologEx.Store, only: [walk: 2]
   alias PrologEx.Error
+  alias PrologEx.Rational, as: Rat
 
   @max_tagged 576_460_752_303_423_487
   @min_tagged -576_460_752_303_423_488
@@ -71,9 +72,9 @@ defmodule PrologEx.Arith do
   @ops1 ~w(+ - \\ abs acos acosh acot asin asinh atan atanh ceiling cos cosh cot exp
            float float_fractional_part float_integer_part floor integer log log2 lsb
            log10 msb popcount random random_float round sign sin sinh sqrt succ tan
-           tanh truncate)
+           tanh truncate rational rationalize numerator denominator)
   @ops2 ~w(* ** + - / // /\\ << >> \\/ ^ atan atan2 copysign div gcd log max min
-           mod plus rem xor)
+           mod plus rem xor rdiv)
 
   # Signaturen der auswertbaren Funktoren für evaluable_property/2:
   # {Name, Stelligkeit} => [{Argumenttypen, Ergebnistyp}] mit den Typen
@@ -110,7 +111,12 @@ defmodule PrologEx.Arith do
                  {"atan", 2} => [{[:number, :number], :float}],
                  {"atan2", 2} => [{[:number, :number], :float}],
                  {"copysign", 2} => [{[:number, :number], :float}],
-                 {"log", 2} => [{[:number, :number], :float}]
+                 {"log", 2} => [{[:number, :number], :float}],
+                 {"rational", 1} => [{[:number], :number}],
+                 {"rationalize", 1} => [{[:number], :number}],
+                 {"numerator", 1} => [{[:number], :integer}],
+                 {"denominator", 1} => [{[:number], :integer}],
+                 {"rdiv", 2} => [{[:number, :number], :number}]
                },
                Map.new(
                  Enum.map(@float1, &{{&1, 1}, [{[:number], :float}]}) ++
@@ -153,6 +159,7 @@ defmodule PrologEx.Arith do
   defp ev(t, s, d) do
     case unmark_top(walk(t, s)) do
       n when is_number(n) -> n
+      {:rat, _, _} = r -> r
       # erst der Funktor, dann die Argumente: X is foo(bar) gibt
       # type_error(evaluable, foo/1), nicht bar/0 (ISO 9.1.1)
       {:struct, op, [x, y]} when op in @ops2 -> eval2(op, ev(x, s, d + 1), ev(y, s, d + 1))
@@ -320,6 +327,9 @@ defmodule PrologEx.Arith do
 
   # --- einstellig -----------------------------------------------------------
 
+  # Brüche (PrologEx.Rational): eigene Klauseln, die übrigen bleiben unberührt
+  defp eval1(op, {:rat, _, _} = x, s), do: rat1(op, x, s)
+
   defp eval1("-", x, _s), do: -x
   defp eval1("+", x, _s), do: x
   defp eval1("abs", x, _s), do: abs(x)
@@ -403,7 +413,42 @@ defmodule PrologEx.Arith do
 
   defp eval1("random_float", _x, s), do: random_float(s)
 
+  defp eval1("rational", x, _s) when is_float(x), do: Rat.from_float(x)
+  defp eval1("rational", x, _s), do: x
+  defp eval1("rationalize", x, _s) when is_float(x), do: Rat.rationalize(x)
+  defp eval1("rationalize", x, _s), do: x
+  defp eval1("numerator", x, _s), do: rational!(x)
+
+  defp eval1("denominator", x, _s) do
+    rational!(x)
+    1
+  end
+
   defp eval1(op, _, _s), do: Error.type!("evaluable", Error.indicator(op, 1))
+
+  # einstellig auf einem Bruch: exakt, wo das Ergebnis ganz oder rational ist,
+  # sonst über den Float; Ganzzahl-Operationen: type_error(integer, X)
+  defp rat1("-", x, _s), do: Rat.neg(x)
+  defp rat1("+", x, _s), do: x
+  defp rat1("abs", x, _s), do: Rat.abs(x)
+  defp rat1("sign", x, _s), do: Rat.sign(x)
+  defp rat1("float", x, _s), do: Rat.to_float(x)
+  defp rat1("integer", x, _s), do: Rat.round_away(x)
+  defp rat1("truncate", x, _s), do: Rat.truncate(x)
+  defp rat1("round", x, _s), do: Rat.round_iso(x)
+  defp rat1("floor", x, _s), do: Rat.floor(x)
+  defp rat1("ceiling", x, _s), do: Rat.ceiling(x)
+  defp rat1("float_integer_part", x, _s), do: Rat.truncate(x) * 1.0
+  defp rat1("float_fractional_part", x, _s), do: Rat.sub(x, Rat.truncate(x))
+  defp rat1(op, x, _s) when op in ~w(rational rationalize), do: x
+  defp rat1("numerator", {:rat, n, _}, _s), do: n
+  defp rat1("denominator", {:rat, _, d}, _s), do: d
+  defp rat1(op, x, _s) when op in ~w(\\ msb lsb popcount succ random), do: int!(x)
+  defp rat1("random_float", _x, s), do: random_float(s)
+  defp rat1(op, x, s), do: eval1(op, Rat.to_float(x), s)
+
+  defp rational!(x) when is_integer(x), do: x
+  defp rational!(x), do: Error.type!("rational", x)
 
   # --- zweistellig ----------------------------------------------------------
 
@@ -426,14 +471,21 @@ defmodule PrologEx.Arith do
   defp eval2("*", x, y) when is_integer(x) and is_integer(y), do: x * y
   defp eval2("mod", x, y) when is_integer(x) and is_integer(y) and y != 0, do: Integer.mod(x, y)
   defp eval2("//", x, y) when is_integer(x) and is_integer(y) and y != 0, do: div(x, y)
+  # Brüche (PrologEx.Rational)
+  defp eval2(op, x, y) when is_tuple(x) or is_tuple(y), do: rat2(op, x, y)
   defp eval2("+", x, y), do: overflow(fn -> x + y end)
   defp eval2("-", x, y), do: overflow(fn -> x - y end)
   defp eval2("*", x, y), do: overflow(fn -> x * y end)
 
   defp eval2("/", _x, y) when y == 0, do: zero_divisor()
 
-  defp eval2("/", x, y) when is_integer(x) and is_integer(y),
-    do: if(rem(x, y) == 0, do: div(x, y), else: overflow(fn -> x / y end))
+  defp eval2("/", x, y) when is_integer(x) and is_integer(y) do
+    cond do
+      rem(x, y) == 0 -> div(x, y)
+      prefer_rationals?() -> Rat.make(x, y)
+      true -> overflow(fn -> x / y end)
+    end
+  end
 
   defp eval2("/", x, y), do: overflow(fn -> x / y end)
 
@@ -451,6 +503,11 @@ defmodule PrologEx.Arith do
   defp eval2("**", x, y) when is_integer(x) and is_integer(y) and y >= 0, do: ipow(x, y)
   # 0 hoch negativ: undefined (ISO 9.3.1.3, Cor.2 9.3.10.3 d)
   defp eval2("**", x, y) when x == 0 and y < 0, do: undefined()
+  # mit prefer_rationals exakt: 2 ** -1 = 1r2 (wie SWI)
+  defp eval2("**", x, y) when is_integer(x) and is_integer(y) do
+    if prefer_rationals?(), do: Rat.pow(x, y), else: pow(x, y)
+  end
+
   defp eval2("**", x, y), do: pow(x, y)
 
   defp eval2("^", x, y) when is_integer(x) and is_integer(y) and y >= 0 and y <= 1024,
@@ -463,6 +520,7 @@ defmodule PrologEx.Arith do
       x == 1 -> 1
       x == -1 -> if(rem(y, 2) == 0, do: 1, else: -1)
       x == 0 -> undefined()
+      prefer_rationals?() -> Rat.pow(x, y)
       true -> Error.type!("float", x)
     end
   end
@@ -501,7 +559,70 @@ defmodule PrologEx.Arith do
   defp eval2("log", b, x), do: eval1("log", x, nil) / eval1("log", b, nil)
 
   defp eval2("plus", x, y), do: eval2("+", x, y)
+  defp eval2("rdiv", x, y), do: Rat.divide(rational!(x), rational!(y))
   defp eval2(op, _, _), do: Error.type!("evaluable", Error.indicator(op, 2))
+
+  # zweistellig mit (mindestens) einem Bruch: mit einem Float über Floats,
+  # sonst exakt
+  # min/max: der größere bzw. kleinere Wert selbst (auch ein Bruch)
+  defp rat2("min", x, y), do: if(compare_num("<", y, x), do: y, else: x)
+  defp rat2("max", x, y), do: if(compare_num(">", y, x), do: y, else: x)
+
+  defp rat2(op, x, y) when is_float(x) or is_float(y) do
+    if op == "rdiv", do: Error.type!("rational", if(is_float(x), do: x, else: y))
+    eval2(op, to_f(x), to_f(y))
+  end
+
+  defp rat2(op, x, y) when op in ["+", "plus"], do: Rat.add(x, y)
+  defp rat2("-", x, y), do: Rat.sub(x, y)
+  defp rat2("*", x, y), do: Rat.mul(x, y)
+  defp rat2(op, x, y) when op in ["/", "rdiv"], do: Rat.divide(x, y)
+
+  defp rat2(op, x, y) when op in ["**", "^"] and is_integer(y) do
+    # groß: vorab gegen eine Speichergrenze (wie ipow/2)
+    {n, d} = Rat.parts(x)
+    b = (bits(n) + bits(d)) * abs(y)
+    if b > 65_536, do: PrologEx.reserve!(div(b, 64) + 2)
+    Rat.pow(x, y)
+  end
+
+  defp rat2(op, x, y) when op in ~w(// rem mod div >> << /\\ \\/ xor gcd),
+    do: int!(if is_integer(x), do: y, else: x)
+
+  defp rat2(op, x, y), do: eval2(op, to_f(x), to_f(y))
+
+  defp to_f({:rat, _, _} = r), do: Rat.to_float(r)
+  defp to_f(x), do: x
+
+  defp prefer_rationals?, do: PrologEx.Flags.get("prefer_rationals") == {:atom, "true"}
+
+  @doc """
+  Arithmetischer Vergleich, wenn ein Bruch beteiligt ist (sonst vergleicht
+  die Maschine selbst): mit einem Float über Floats, sonst exakt
+  """
+  def compare_num(op, x, y) do
+    c =
+      if is_float(x) or is_float(y) do
+        {x, y} = {to_f(x), to_f(y)}
+
+        cond do
+          x < y -> :lt
+          x > y -> :gt
+          true -> :eq
+        end
+      else
+        Rat.cmp(x, y)
+      end
+
+    case op do
+      "<" -> c == :lt
+      ">" -> c == :gt
+      "=<" -> c != :gt
+      ">=" -> c != :lt
+      "=:=" -> c == :eq
+      "=\\=" -> c != :eq
+    end
+  end
 
   # --- Hilfen -------------------------------------------------------------
 

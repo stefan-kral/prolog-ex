@@ -153,7 +153,7 @@ defmodule PrologEx.Builtins.Solutions do
       {:struct, "^", [v, inner]} ->
         strip(inner, s, [v | ex])
 
-      n when is_number(n) ->
+      n when is_number(n) or (is_tuple(n) and elem(n, 0) == :rat) ->
         Error.type!("callable", n)
 
       other ->

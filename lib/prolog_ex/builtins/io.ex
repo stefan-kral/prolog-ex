@@ -357,7 +357,7 @@ defmodule PrologEx.Builtins.IO do
         {:var, _} -> Error.instantiation!()
         {:atom, x} -> x
         [] -> "[]"
-        n when is_number(n) -> Writer.format(n)
+        n when is_number(n) or (is_tuple(n) and elem(n, 0) == :rat) -> Writer.format(n)
         other -> Error.type!("atom", PrologEx.resolve(other, s))
       end
 

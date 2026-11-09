@@ -244,6 +244,46 @@ Zahlen im Quelltext: Zifferntrenner wie von WG17 2025 angenommen
 oder ein Kommentar: `1_ /* … */ 000`; auch in `0b…`, `0o…`, `0x…` und
 in den Nachkommastellen, `1_000.000_1`; kein doppeltes `__`) und Ganzzahl-Literale beliebiger Größe.
 
+### Rationale Zahlen
+
+Brüche wie in SWI: `1r3`, `-7r2` (gelesen auch mit Zifferntrennern im
+Nenner, `1_000r3`; `1r0` ist ein Syntaxfehler), immer gekürzt – `2r6` ist
+`1r3`, `4r2` die Ganzzahl `2`. Sie sind atomar: `number/1`, `atomic/1`
+und `rational/1` gelingen, `integer/1`, `float/1` und `compound/1` nicht;
+`rational(X, N, D)` zerlegt (auch Ganzzahlen: `D = 1`).
+
+  * **Rechnen:** Ganzzahlen und Brüche bleiben exakt (`+ - * /`, `rdiv`,
+    `min`, `max`, `abs`, `sign`, `^` und `**` mit ganzzahligem Exponenten:
+    `X is 2r3 ** -2` gibt `9r4`); ein Float macht alles zum Float
+    (`1r3 + 0.5`). `floor`, `ceiling`, `truncate`, `round` (wie für Floats
+    `floor(X + 1/2)`) und `integer` (Hälften weg von 0) geben Ganzzahlen,
+    `float/1` den nächsten Float (korrekt gerundet, auch bei riesigen
+    Zählern und Nennern). Neu: `rdiv/2` (Operator 400 `yfx` wie in SWI),
+    `rational/1` (exakter Wert eines Floats: `rational(0.1)` ist
+    `3602879701896397r36028797018963968`), `rationalize/1` (einfachster
+    Bruch, der denselben Float ergibt: `1r10`), `numerator/1`,
+    `denominator/1`. Ganzzahl-Operationen (`//`, `mod`, Bitoperationen, …)
+    geben `type_error(integer, 1r3)`.
+  * **Flag `prefer_rationals`** (Vorgabe `false` wie SWI): mit `true` gibt
+    `/` auf Ganzzahlen einen Bruch statt eines Floats (`1/3` → `1r3`), ebenso
+    `2 ** -1` und `2 ^ -1` (sonst `0.5` bzw. `type_error`). Der Compiler
+    rechnet solche Ausdrücke darum erst zur Laufzeit aus.
+  * **Vergleiche:** exakt, außer wenn ein Float beteiligt ist (dann über
+    Floats, wie bei Ganzzahl und Float). **Standardordnung:** alle Floats
+    vor allen Ganzzahlen und Brüchen (wie bisher Floats vor Ganzzahlen),
+    Ganzzahlen und Brüche untereinander nach Wert: `[0.9, -1r2, 1r3, 1, 2]`.
+    Die Sortierschlüssel von `sort/2` & Co. bilden den Wert über den
+    Kettenbruch exakt ab.
+  * **Text:** `write/1`, `writeq/1`, `format/2` (`~w`; `~Nf` exakt:
+    `format("~2f", [10^30 rdiv 3])` schreibt alle Stellen),
+    `number_codes/2`, `atom_number/2`, `term_to_atom/2` – `1r3` hin und
+    zurück; `fast_write/2` und `fast_term_serialized/2` ebenso.
+  * Brüche gehen überall durch: Unifikation, `assert`, `findall`,
+    Ausnahmen, `term_hash/2`, `concurrent_maplist/3`, `dif/2`. clpz nimmt
+    keine (`domain_error`).
+  * Programme ohne Brüche zahlen nichts: Ganzzahl- und Float-Arithmetik
+    laufen über dieselben Klauseln wie vorher, Brüche haben eigene dahinter.
+
 Ausnahmen: `catch/3`, `throw/1`; alle Fehler der Builtins sind ISO-Terme
 `error(Formal, Kontext)` (`type_error`, `instantiation_error`,
 `existence_error`, `permission_error`, `domain_error`, `evaluation_error`, …)
@@ -674,8 +714,9 @@ ist jeweils am Dateianfang vermerkt.
   Nach `use_module(library(time))` gilt dieses `time/1`, nach
   `use_module(library(swi))` das SWI-artige. `statistics/2` bleibt das eingebaute, eine Obermenge von
   Scryers vorläufigem.
-* `library(arithmetic)` (BSD-Lizenz, wie Scryer ohne die Prädikate für
-  rationale Zahlen, die PrologEx nicht kennt): `expmod/4`, `lcm/3`,
+* `library(arithmetic)` (BSD-Lizenz, wie Scryer, noch ohne dessen
+  Prädikate für rationale Zahlen – eingebaut gibt es `rational/3` und
+  `rationalize/1`): `expmod/4`, `lcm/3`,
   `lsb/2`, `msb/2`, `popcount/2` mit Scryers Fehlern.
 * `library(debug)` (BSD-Lizenz, unverändert): `* G` (Ziel
   wegverallgemeinern), `$ G` und `$- G` (Aufruf und Ausnahmen mit

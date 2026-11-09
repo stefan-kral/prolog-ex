@@ -230,6 +230,7 @@ defmodule PrologEx.Builtins.Si do
   defp atomic?({:atom, _}), do: true
   defp atomic?([]), do: true
   defp atomic?(n) when is_number(n), do: true
+  defp atomic?({:rat, _, _}), do: true
   defp atomic?(_), do: false
 
   defp symbol(:lt), do: "<"

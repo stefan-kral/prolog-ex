@@ -116,7 +116,11 @@ defmodule PrologEx.WriterOpsTest do
   test "Zufallsterme wie gprolog", c do
     :rand.seed(:exsss, {7, 8, 9})
     # sortiert: die Reihenfolge der Map-Schlüssel hängt von der OTP-Version ab
-    ops = PrologEx.Ops.default() |> Map.keys() |> Enum.sort() |> Enum.reject(&(&1 == "|"))
+    # (ohne rdiv: gprolog kennt den Operator nicht, und die Aufzeichnung
+    # stammt von davor)
+    ops =
+      PrologEx.Ops.default() |> Map.keys() |> Enum.sort() |> Enum.reject(&(&1 in ["|", "rdiv"]))
+
     q = &Writer.atom(&1, %{quoted: true})
 
     atoms =

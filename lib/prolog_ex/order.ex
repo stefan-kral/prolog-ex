@@ -17,6 +17,7 @@ defmodule PrologEx.Order do
 
   import PrologEx, only: [uncons: 1, is_marked: 1]
   import PrologEx.Store, only: [walk: 2]
+  import PrologEx.Rational, only: [is_rat: 1]
 
   @doc """
   `:lt`, `:eq` oder `:gt`, direkt auf dem Paar: Klassen, Zahlen, Atome und
@@ -69,8 +70,17 @@ defmodule PrologEx.Order do
   # ISO: Float vor Integer, unabhängig vom Wert
   defp c(x, y, _, m, _d) when is_float(x) and is_integer(y), do: {:lt, m}
   defp c(x, y, _, m, _d) when is_integer(x) and is_float(y), do: {:gt, m}
-  defp c(x, _, _, m, _d) when is_number(x), do: {:lt, m}
-  defp c(_, y, _, m, _d) when is_number(y), do: {:gt, m}
+  # Brüche: Float < (Ganzzahl und Bruch nach Wert) – wie Ganzzahlen
+  defp c({:rat, _, _} = x, y, _, m, _d) when is_integer(y) or is_rat(y),
+    do: {PrologEx.Rational.cmp(x, y), m}
+
+  defp c(x, {:rat, _, _} = y, _, m, _d) when is_integer(x),
+    do: {PrologEx.Rational.cmp(x, y), m}
+
+  defp c({:rat, _, _}, y, _, m, _d) when is_float(y), do: {:gt, m}
+  defp c(x, {:rat, _, _}, _, m, _d) when is_float(x), do: {:lt, m}
+  defp c(x, _, _, m, _d) when is_number(x) or is_rat(x), do: {:lt, m}
+  defp c(_, y, _, m, _d) when is_number(y) or is_rat(y), do: {:gt, m}
   defp c({:atom, x}, {:atom, y}, _, m, _d), do: {cmp(x, y), m}
   defp c([], [], _, m, _d), do: {:eq, m}
   defp c([], {:atom, y}, _, m, _d), do: {cmp("[]", y), m}
@@ -243,14 +253,14 @@ defmodule PrologEx.Order do
 
   # flach: atomar oder eine Struktur mit lauter atomaren Argumenten
   # (Variablen zählen nicht als atomar – gebunden könnten sie verzweigen)
-  defp flat_head?(x) when is_number(x), do: true
+  defp flat_head?(x) when is_number(x) or is_rat(x), do: true
   defp flat_head?({:atom, _}), do: true
   defp flat_head?([]), do: true
   defp flat_head?({tag, _, args}) when tag in [:struct, :gstruct], do: atomic_args?(args)
   defp flat_head?(_), do: false
 
   defp atomic_args?([]), do: true
-  defp atomic_args?([x | xs]) when is_number(x), do: atomic_args?(xs)
+  defp atomic_args?([x | xs]) when is_number(x) or is_rat(x), do: atomic_args?(xs)
   defp atomic_args?([{:atom, _} | xs]), do: atomic_args?(xs)
   defp atomic_args?([[] | xs]), do: atomic_args?(xs)
   defp atomic_args?(_), do: false
@@ -680,6 +690,9 @@ defmodule PrologEx.Order do
       x when is_integer(x) ->
         {1, 1, x, 0}
 
+      {:rat, _, _} = r ->
+        PrologEx.Rational.sort_key(r)
+
       [] ->
         {2, "[]", 0, 0}
 
@@ -689,7 +702,7 @@ defmodule PrologEx.Order do
   end
 
   defp class({:var, _}), do: 0
-  defp class(n) when is_number(n), do: 1
+  defp class(n) when is_number(n) or is_rat(n), do: 1
   defp class([]), do: 2
   defp class({:atom, _}), do: 2
   defp class(_compound), do: 3
@@ -698,6 +711,9 @@ defmodule PrologEx.Order do
   # ISO: Float vor Integer, unabhängig vom Wert
   defp same_class(1, x, y, _) when is_float(x) and is_integer(y), do: :lt
   defp same_class(1, x, y, _) when is_integer(x) and is_float(y), do: :gt
+  defp same_class(1, x, y, _) when is_rat(x) and is_float(y), do: :gt
+  defp same_class(1, x, y, _) when is_float(x) and is_rat(y), do: :lt
+  defp same_class(1, x, y, _) when is_rat(x) or is_rat(y), do: PrologEx.Rational.cmp(x, y)
   defp same_class(1, x, y, _) when x < y, do: :lt
   defp same_class(1, x, y, _) when x > y, do: :gt
   defp same_class(1, _, _, _), do: :eq

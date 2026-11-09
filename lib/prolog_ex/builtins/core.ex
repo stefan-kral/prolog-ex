@@ -1,6 +1,7 @@
 defmodule PrologEx.Builtins.Core do
   @moduledoc "Vergleich, Typprüfung, Ein-/Ausgabe, System."
   use PrologEx.Builtin
+  require PrologEx.Rational
 
   defbuiltin "false", [] do
     :fail
@@ -93,7 +94,23 @@ defmodule PrologEx.Builtins.Core do
   end
 
   defbuiltin "number", [x] do
-    is_number(deref(x))
+    t = deref(x)
+    is_number(t) or PrologEx.Rational.is_rat(t)
+  end
+
+  # rational/1 (wie SWI): Ganzzahl oder Bruch
+  defbuiltin "rational", [x] do
+    t = deref(x)
+    is_integer(t) or PrologEx.Rational.is_rat(t)
+  end
+
+  # rational(X, N, D): X ist Ganzzahl oder Bruch mit Zähler N, Nenner D
+  defbuiltin "rational", [x, n, d] do
+    case deref(x) do
+      i when is_integer(i) -> {:unify, [{n, i}, {d, 1}]}
+      {:rat, a, b} -> {:unify, [{n, a}, {d, b}]}
+      _ -> :fail
+    end
   end
 
   defbuiltin "integer", [x] do
@@ -106,7 +123,7 @@ defmodule PrologEx.Builtins.Core do
 
   defbuiltin "atomic", [x] do
     t = deref(x)
-    is_number(t) or atom?(t)
+    is_number(t) or atom?(t) or PrologEx.Rational.is_rat(t)
   end
 
   defbuiltin "compound", [x] do

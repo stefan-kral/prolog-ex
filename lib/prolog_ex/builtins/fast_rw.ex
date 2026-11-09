@@ -143,6 +143,11 @@ defmodule PrologEx.Builtins.FastRW do
   end
 
   defp fresh_vars(n, m) when is_number(n), do: {n, m}
+  # Bruch: nur gekürzt mit Nenner > 1 (sonst kein gültiger Term)
+  defp fresh_vars({:rat, n, d} = r, m)
+       when is_integer(n) and is_integer(d) and d > 1 and n != 0,
+       do: if(Integer.gcd(n, d) == 1, do: {r, m}, else: Error.syntax!("fast_term"))
+
   defp fresh_vars({:atom, name} = a, m) when is_binary(name), do: {a, m}
   defp fresh_vars([], m), do: {[], m}
 

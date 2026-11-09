@@ -58,7 +58,7 @@ defmodule PrologEx do
   # atomar oder markiert = sicher ground, ohne hineinzuschauen
   defguard is_known_ground(t)
            when is_number(t) or t == [] or is_marked(t) or
-                  (is_tuple(t) and elem(t, 0) == :atom)
+                  (is_tuple(t) and (elem(t, 0) == :atom or elem(t, 0) == :rat))
 
   def v(name), do: {:var, name}
 
@@ -580,6 +580,9 @@ defmodule PrologEx do
       match?({:atom, _}, x) and x === y ->
         {:ok, subst, m}
 
+      match?({:rat, _, _}, x) and x === y ->
+        {:ok, subst, m}
+
       # zwei Variablen: normale an attributierte (kein Wecken), sonst die
       # jüngere an die ältere wie die WAM (Scryer)
       match?({:var, _}, x) and match?({:var, _}, y) ->
@@ -684,6 +687,9 @@ defmodule PrologEx do
         {:ok, subst, seen}
 
       match?({:atom, _}, x) and x === y ->
+        {:ok, subst, seen}
+
+      match?({:rat, _, _}, x) and x === y ->
         {:ok, subst, seen}
 
       match?({:var, _}, x) and match?({:var, _}, y) ->
@@ -4597,6 +4603,8 @@ defmodule PrologEx do
 
   defp eval(t, subst), do: PrologEx.Arith.eval(t, subst)
 
+  # Brüche (Tupel): PrologEx.Arith.compare_num/3
+  defp compare(op, x, y) when is_tuple(x) or is_tuple(y), do: PrologEx.Arith.compare_num(op, x, y)
   defp compare("<", x, y), do: x < y
   defp compare(">", x, y), do: x > y
   defp compare(">=", x, y), do: x >= y

@@ -285,6 +285,7 @@ defmodule PrologEx.Compiler do
 
   # Codebaum eines Ausdrucks; acc = {Blatt-Templates umgekehrt, st}
   defp acode(n, acc) when is_number(n), do: {{:num, n}, acc}
+  defp acode({:rat, _, _} = r, acc), do: {{:num, r}, acc}
   # markierte (ground) Teilterme, z. B. aus assertz
   defp acode({:gstruct, f, args}, acc), do: acode({:struct, f, args}, acc)
 
@@ -343,12 +344,20 @@ defmodule PrologEx.Compiler do
   defp pure_const?({:op1, op, a}), do: not PrologEx.Arith.impure?(op) and pure_const?(a)
   # Potenzen und Schieben nur mit kleinem rechten Operanden (sonst kann
   # schon das Laden lange dauern – die Klausel läuft vielleicht nie)
-  defp pure_const?({:op2, op, a, {:num, n}}) when op in ["**", "^", "<<"],
-    do: abs(n) <= 64 and pure_const?(a)
+  defp pure_const?({:op2, op, a, {:num, n}}) when op in ["**", "^", "<<"] and is_number(n),
+    do: abs(n) <= 64 and not flag_dependent?(op, n) and pure_const?(a)
 
   defp pure_const?({:op2, op, _a, _b}) when op in ["**", "^", "<<"], do: false
+  # das Ergebnis hängt vom Flag prefer_rationals ab (1/3: Float oder 1r3) –
+  # erst zur Laufzeit (geht die Division auf oder ist ein Float dabei, nicht)
+  defp pure_const?({:op2, "/", {:num, x}, {:num, y}}) when is_integer(x) and is_integer(y),
+    do: y != 0 and rem(x, y) == 0
+
   defp pure_const?({:op2, _, a, b}), do: pure_const?(a) and pure_const?(b)
   defp pure_const?(_), do: false
+
+  # Ganzzahl hoch negative Ganzzahl: mit prefer_rationals ein Bruch
+  defp flag_dependent?(op, n), do: op in ["**", "^"] and is_integer(n) and n < 0
 
   defp body_tmpl({:var, "_"}, st), do: new_fresh({:anon, map_size(st.fresh)}, st)
 

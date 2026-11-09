@@ -238,7 +238,7 @@ defmodule PrologEx.Builtins.Atts do
     k =
       case att do
         {:var, _} -> Error.instantiation!()
-        n when is_number(n) -> Error.type!("callable", n)
+        n when is_number(n) or (is_tuple(n) and elem(n, 0) == :rat) -> Error.type!("callable", n)
         t -> PrologEx.Compiler.key(t)
       end
 
