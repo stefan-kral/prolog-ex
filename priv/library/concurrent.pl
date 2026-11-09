@@ -17,13 +17,22 @@
          gelingt, wenn jede gelingt
      concurrent_findall(?Template, :Goals, -Bags)
          je Ziel alle Lösungen: Bags = [findall(Template, G1), ...]
+     concurrent_and(:Gen, :Test), concurrent_and(:Gen, :Test, +Options)
+         wie (Gen, Test), die Tests parallel: Gen läuft im Aufrufer (vorab
+         alle Lösungen, also endlich), je Lösung ein Kind mit allen
+         Lösungen von Test; zurück per Backtracking in der Reihenfolge von
+         (Gen, Test) – SWI liefert sie in beliebiger Reihenfolge und
+         erzeugt Gen nebenher
      first_solution(?X, :Goals, +Options)
          wer zuerst eine Lösung hat, gewinnt; die anderen werden beendet
 
-   Options: threads(N) (concurrent_forall/3, wie SWI; es sind Prozesse
-   der BEAM, keine Threads); first_solution/3:
+   Options: threads(N) (concurrent_forall/3, concurrent_and/3, wie SWI;
+   es sind Prozesse der BEAM, keine Threads); first_solution/3:
    on_fail(stop) (Vorgabe: das erste Scheitern beendet alles) oder
    on_fail(continue) (scheitern, wenn alle gescheitert sind);
+   on_error(stop) (Vorgabe: die erste Ausnahme beendet alles und kommt
+   an) oder on_error(continue) (wie ein Scheitern; haben alle geworfen
+   oder sind gescheitert, scheitert first_solution/3, wie SWI);
    output(winner) (Vorgabe) oder output(all) (siehe unten). Höchstens so
    viele Prozesse gleichzeitig wie Scheduler, außer bei concurrent/3.
 
@@ -61,6 +70,8 @@
                        concurrent_forall/2,
                        concurrent_forall/3,
                        concurrent_findall/3,
+                       concurrent_and/2,
+                       concurrent_and/3,
                        first_solution/3,
                        concurrent_child/1,
                        concurrent_child_stack/1]).
@@ -94,6 +105,8 @@ concurrent_child_stack(Stack) :-
 :- meta_predicate(concurrent_maplist(3, ?, ?, ?)).
 :- meta_predicate(concurrent_forall(0, 0)).
 :- meta_predicate(concurrent_forall(0, 0, +)).
+:- meta_predicate(concurrent_and(0, 0)).
+:- meta_predicate(concurrent_and(0, 0, +)).
 :- meta_predicate(concurrent_findall(?, :, -)).
 :- meta_predicate(first_solution(?, :, +)).
 
@@ -164,14 +177,31 @@ concurrent_forall(Cond, Action) :-
     concurrent_forall(Cond, Action, []).
 
 concurrent_forall(Cond, Action, Options) :-
+    threads_option(Options, W),
+    findall(Action-Action, Cond, Jobs),
+    run(Jobs, once, W, ok(_)).
+
+threads_option(Options, W) :-
     must_be(list, Options),
     (   memberchk(threads(W), Options)
     ->  must_be(integer, W),
         (   W >= 1 -> true ; domain_error(positive_integer, W) )
     ;   workers(W)
-    ),
-    findall(Action-Action, Cond, Jobs),
-    run(Jobs, once, W, ok(_)).
+    ).
+
+concurrent_and(Gen, Test) :-
+    concurrent_and(Gen, Test, []).
+
+% die Lösungen von Gen im Aufrufer (vorab, alle), je eine Prüfung Test im
+% Kind mit allen ihren Lösungen; zurück per Backtracking in der Reihenfolge
+% von (Gen, Test)
+concurrent_and(Gen, Test, Options) :-
+    threads_option(Options, W),
+    term_variables(Gen-Test, Vs),
+    findall(Vs-Test, Gen, Jobs),
+    run(Jobs, findall, W, ok(Bags)),
+    member(Bag, Bags),
+    member(Vs, Bag).
 
 concurrent_findall(T, M:Goals, Bags) :-
     must_be(list, Goals),
@@ -194,10 +224,14 @@ first_solution(X, M:Goals, Options) :-
     ->  (   O == winner -> true ; O == all -> true ; domain_error(output, O) )
     ;   O = winner
     ),
+    (   memberchk(on_error(E), Options)
+    ->  (   E == stop -> true ; E == continue -> true ; domain_error(on_error, E) )
+    ;   E = stop
+    ),
     findall_jobs(Goals, X, M, Jobs),
     length(Jobs, N),
     N1 is max(N, 1),
-    run(Jobs, first(F, O), N1, R),
+    run(Jobs, first(F, O, E), N1, R),
     R = ok([X]).
 
 % so viele wie Scheduler (die Maschine wählt)

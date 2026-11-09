@@ -291,6 +291,53 @@ defmodule PrologEx.ConcurrentTest do
     assert ask(c, "concurrent_child_stack(P)") == ["P = []"]
   end
 
+  test "concurrent_and/2,3: wie (Gen, Test), Tests parallel, Reihenfolge von (Gen, Test)", c do
+    assert ask(
+             c,
+             "findall(X, concurrent_and(member(X, [1,2,3,4,5,6,7,8,9,10]), " <>
+               "(X > 1, \\+ (member(D, [2,3]), X > D, X mod D =:= 0))), L)"
+           ) == ["L = [2,3,5,7]"]
+
+    # alle Lösungen von Test, je Lösung von Gen
+    assert ask(
+             c,
+             "findall(X-Y, concurrent_and(member(X, [a,b,c]), member(Y-X, [1-a, 2-b, 3-a])), L)"
+           ) == ["L = [a-1,a-3,b-2]"]
+
+    assert ask(c, "concurrent_and(member(X, [1,2,3]), X > 1, [threads(2)])") ==
+             ["X = 2", "X = 3"]
+
+    assert ask(c, "concurrent_and(fail, true)") == []
+    [e] = ask(c, "catch(concurrent_and(member(X, [1,a]), _ is X + 1), error(E, _), true)")
+    assert e =~ "type_error(evaluable,a/0)"
+    [e] = ask(c, "catch(concurrent_and(true, true, [threads(0)]), error(E, _), true)")
+    assert e =~ "domain_error(positive_integer,0)"
+  end
+
+  test "first_solution/3 mit on_error(continue): eine Ausnahme wie ein Scheitern", c do
+    assert ask(
+             c,
+             "first_solution(X, [throw(oops), (numlist(1, 100000, L), sum_list(L, _), X = slow)], [on_error(continue)])"
+           ) == ["X = slow"]
+
+    # alle werfen oder scheitern: scheitert (wie SWI)
+    assert ask(
+             c,
+             "first_solution(_, [throw(oops), fail], [on_error(continue), on_fail(continue)])"
+           ) == []
+
+    # Vorgabe stop: die Ausnahme kommt an
+    [e] =
+      ask(
+        c,
+        "catch(first_solution(X, [throw(oops), (numlist(1, 100000, L), sum_list(L, _), X = b)], []), E, true)"
+      )
+
+    assert e =~ "E = oops"
+    [e] = ask(c, "catch(first_solution(X, [X = a], [on_error(foo)]), error(E, _), true)")
+    assert e =~ "domain_error(on_error,foo)"
+  end
+
   test "Brüche reisen zu den Kindern und zurück", c do
     assert ask(c, ~S"concurrent_maplist(\X^Y^(Y is X * 1r3), [1, 2r5, 0.5], L)") ==
              ["L = [1r3,2r15,0.16666666666666666]"]

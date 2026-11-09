@@ -109,12 +109,12 @@ defmodule PrologEx.Builtins.Concurrent do
   defp mode!({:atom, "once"}), do: :once
   defp mode!({:atom, "findall"}), do: :findall
 
-  defp mode!({:struct, "first", [{:atom, on_fail}, {:atom, output}]}),
-    do: {:first, on_fail, output}
+  defp mode!({:struct, "first", [{:atom, on_fail}, {:atom, output}, {:atom, on_error}]}),
+    do: {:first, on_fail, output, on_error}
 
   # --- Elternprozess ----------------------------------------------------------
 
-  defp run([], {:first, _, _}, _max, _limits), do: a("fail")
+  defp run([], {:first, _, _, _}, _max, _limits), do: a("fail")
   defp run([], _mode, _max, _limits), do: mk("ok", [[]])
 
   defp run(jobs, mode, max, {deadline, _, _} = limits) do
@@ -154,6 +154,11 @@ defmodule PrologEx.Builtins.Concurrent do
           Process.put({:conc_outs, ref}, Map.put(outs, i, {status(oc), text}))
 
           case {oc, mode} do
+            # first_solution/3 mit on_error(continue): wie ein Scheitern
+            # (sind alle gescheitert oder haben geworfen: scheitern, wie SWI)
+            {{:error, _}, {:first, _, _, "continue"}} ->
+              next(ref, running, waiting, mode, limits, state, deadline, results)
+
             {{:error, ball}, _} ->
               conclude(ref, mode, running, nil)
               Error.throw!(ball)
@@ -161,14 +166,14 @@ defmodule PrologEx.Builtins.Concurrent do
             {:fail, :once} ->
               a("fail")
 
-            {:fail, {:first, "stop", _}} ->
+            {:fail, {:first, "stop", _, _}} ->
               conclude(ref, mode, running, nil)
               a("fail")
 
             {:fail, _} ->
               next(ref, running, waiting, mode, limits, state, deadline, results)
 
-            {{:ok, t}, {:first, _, _}} ->
+            {{:ok, t}, {:first, _, _, _}} ->
               conclude(ref, mode, running, i)
               mk("ok", [[t]])
 
@@ -176,6 +181,16 @@ defmodule PrologEx.Builtins.Concurrent do
               results = Map.put(results, i, t)
               next(ref, running, waiting, mode, limits, state, deadline, results)
           end
+
+        # ein abgestürztes Kind bei on_error(continue): wie ein Scheitern
+        {:DOWN, _mon, :process, pid, _reason}
+        when is_map_key(running, pid) and elem(mode, 0) == :first and
+               elem(mode, 3) == "continue" ->
+          Process.put({:conc_mon, ref}, Map.delete(Process.get({:conc_mon, ref}, %{}), pid))
+          outs = Process.get({:conc_outs, ref}, %{})
+          Process.put({:conc_outs, ref}, Map.put(outs, running[pid], {:error, ""}))
+          running = Map.delete(running, pid)
+          next(ref, running, waiting, mode, limits, state, deadline, results)
 
         {:DOWN, _mon, :process, pid, reason} when is_map_key(running, pid) ->
           # (ein Kind, das normal endet, hat seine Nachricht vorher geschickt;
@@ -209,7 +224,7 @@ defmodule PrologEx.Builtins.Concurrent do
     loop(ref, running, waiting, mode, limits, state, deadline, results)
   end
 
-  defp finish({:first, _, _}, _results), do: a("fail")
+  defp finish({:first, _, _, _}, _results), do: a("fail")
 
   defp finish(_mode, results) do
     l = results |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
@@ -246,7 +261,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
     prints =
       case {mode, winner} do
-        {{:first, _, out}, _} ->
+        {{:first, _, out, _}, _} ->
           w = if winner, do: [{:out, elem(Map.fetch!(outs, winner), 1)}], else: []
           if out == "all", do: w ++ others(ref, mode, outs, running, winner), else: w
 
