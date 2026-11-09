@@ -2482,8 +2482,8 @@ beendet werden, ohne etwas halb getan zu haben.
 | `concurrent_forall(Cond, Action[, [workers(N)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
 | `first_solution(X, Goals, [on_fail(stop\|continue), output(winner\|all)])` | der Erste gewinnt, die anderen werden beendet |
-| `concurrent_child(I, N)` | im Kind: Position seines Ziels (1-basiert) und Anzahl der Ziele des innersten Aufrufs; außerhalb scheitert es |
-| `concurrent_child_path(Path)` | die ganze Kette `[I-N, …]`, innerster Aufruf zuerst (`concurrent_child(I, N)` ist `concurrent_child_path([I-N\|_])`); außerhalb jedes Kinds `[]`, `length(Path, D)` ist die Tiefe |
+| `concurrent_child(I/N)` | im Kind: Position seines Ziels (1-basiert) und Anzahl der Ziele des innersten Aufrufs; außerhalb scheitert es |
+| `concurrent_child_path(Path)` | die ganze Kette `[I/N, …]`, innerster Aufruf zuerst (`concurrent_child(P)` ist `concurrent_child_path([P\|_])`); außerhalb jedes Kinds `[]`, `length(Path, D)` ist die Tiefe |
 
 * **Ausnahmen:** wirft ein Kind – auch den Seiteneffekt-Fehler
   `permission_error(perform, side_effect, G)` –, werden alle anderen sofort
@@ -2499,7 +2499,7 @@ beendet werden, ohne etwas halb getan zu haben.
   zyklische Terme: `representation_error(cyclic_term)`.
 * Teilen Ziele Variablen, rechnet jedes auf seiner Kopie; erst das
   Zusammenführen prüft, ob es passt.
-* **Wer bin ich:** `concurrent_child(I, N)` gibt im Kind die Position
+* **Wer bin ich:** `concurrent_child(I/N)` gibt im Kind die Position
   seines Ziels und die Anzahl der Ziele – etwa um einen Suchraum
   aufzuteilen („jedes N-te Element ab I“). Damit hängt ein Ziel aber von
   seinem Platz in der Liste ab, ohne dass man es sieht; sichtbar wird das,

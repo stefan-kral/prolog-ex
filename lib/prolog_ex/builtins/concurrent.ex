@@ -35,19 +35,19 @@ defmodule PrologEx.Builtins.Concurrent do
   use PrologEx.Builtin
   alias PrologEx.Error
 
-  # concurrent_child(-I, -N): im Kind seine Position unter den Zielen des
+  # concurrent_child(-I/N): im Kind seine Position unter den Zielen des
   # (innersten) Aufrufs, 1-basiert, und deren Anzahl; außerhalb scheitert es
-  defbuiltin "$conc_child", [i, n] do
+  defbuiltin "$conc_child", [p] do
     case Process.get(:conc_child) do
-      {pos, total} -> {:unify, [{i, pos}, {n, total}]}
+      {pos, total} -> {:unify, [{p, mk("/", [pos, total])}]}
       nil -> :fail
     end
   end
 
-  # concurrent_child_path(-Path): [I-N, ...], innerster Aufruf zuerst;
+  # concurrent_child_path(-Path): [I/N, ...], innerster Aufruf zuerst;
   # außerhalb jedes Kinds []
   defbuiltin "$conc_child_path", [p] do
-    path = for {i, n} <- Process.get(:conc_path, []), do: mk("-", [i, n])
+    path = for {i, n} <- Process.get(:conc_path, []), do: mk("/", [i, n])
     {:unify, [{p, path}]}
   end
 
@@ -68,7 +68,7 @@ defmodule PrologEx.Builtins.Concurrent do
     # Bereich ohne Seiteneffekte nur angesehen, nicht weitergeschaltet)
     Process.put(:conc_seed, PrologEx.Builtins.Random.split_base(PrologEx.Effects.random_ok?(s)))
     Process.delete(:conc_prints)
-    # Anzahl der Ziele dieses Aufrufs (concurrent_child/2 im Kind)
+    # Anzahl der Ziele dieses Aufrufs (concurrent_child/1 im Kind)
     Process.put(:conc_total, length(jobs))
 
     try do
@@ -362,7 +362,7 @@ defmodule PrologEx.Builtins.Concurrent do
         # eigener Generator; Zufall ist im Kind erlaubt (PrologEx.Effects)
         PrologEx.Builtins.Random.seed_child(base, i)
         PrologEx.Effects.mark_child!()
-        # wer bin ich: Position (1-basiert) und Anzahl (concurrent_child/2)
+        # wer bin ich: Position (1-basiert) und Anzahl (concurrent_child/1)
         Process.put(:conc_child, {i + 1, total})
         Process.put(:conc_path, path)
         # Ausgabe in einen eigenen Puffer (gehört dem Bereich des Kinds)
