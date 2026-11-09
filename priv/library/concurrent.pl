@@ -27,7 +27,8 @@
          wer zuerst eine Lösung hat, gewinnt; die anderen werden beendet
 
    Options: threads(N) (concurrent_forall/3, concurrent_and/3, wie SWI;
-   es sind Prozesse der BEAM, keine Threads); first_solution/3:
+   es sind Prozesse der BEAM, keine Threads) und chunk(K) (ebenda, siehe
+   Blockung); first_solution/3:
    on_fail(stop) (Vorgabe: das erste Scheitern beendet alles) oder
    on_fail(continue) (scheitern, wenn alle gescheitert sind);
    on_error(stop) (Vorgabe: die erste Ausnahme beendet alles und kommt
@@ -35,6 +36,15 @@
    oder sind gescheitert, scheitert first_solution/3, wie SWI);
    output(winner) (Vorgabe) oder output(all) (siehe unten). Höchstens so
    viele Prozesse gleichzeitig wie Scheduler, außer bei concurrent/3.
+
+   Blockung (wie schedule(dynamic) bei OpenMP mit guided-Paketen): höchstens
+   so viele Arbeiter wie Scheduler (bzw. threads(N)); ein Arbeiter bekommt
+   ein Paket von Elementen, bearbeitet sie nacheinander und holt sich dann
+   das nächste – Rest / (2·Arbeiter) Elemente, mindestens eines, oder K mit
+   chunk(K). Jedes Element läuft auf einem frischen Zustand (eigener
+   Zufall, eigene Ausgabe, concurrent_child/1); für das Programm sieht es
+   aus wie ein Kind je Element. first_solution/3: ein Arbeiter je Ziel (sie
+   laufen gegeneinander).
 
    Ausgabe: jedes Kind schreibt in einen eigenen Puffer (auf die aktuelle
    Ausgabe; andere Streams bleiben verboten). Ausgegeben wird hier, wenn
@@ -181,12 +191,18 @@ concurrent_forall(Cond, Action, Options) :-
     findall(Action-Action, Cond, Jobs),
     run(Jobs, once, W, ok(_)).
 
-threads_option(Options, W) :-
+% threads(N) und chunk(K) als sched(N, K) für '$conc_run'/7
+threads_option(Options, sched(W, K)) :-
     must_be(list, Options),
     (   memberchk(threads(W), Options)
     ->  must_be(integer, W),
         (   W >= 1 -> true ; domain_error(positive_integer, W) )
     ;   workers(W)
+    ),
+    (   memberchk(chunk(K), Options)
+    ->  must_be(integer, K),
+        (   K >= 1 -> true ; domain_error(positive_integer, K) )
+    ;   K = auto
     ).
 
 concurrent_and(Gen, Test) :-

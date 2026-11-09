@@ -57,10 +57,14 @@ defmodule PrologEx.Builtins.Concurrent do
     Enum.each(jobs, &no_attvars!/1)
     mode = mode!(PrologEx.resolve(mode, s))
 
-    max =
-      case PrologEx.Store.walk(max, s) do
-        n when is_integer(n) and n >= 1 -> n
-        _ -> System.schedulers_online()
+    # Max: N | default | sched(N | default, K | auto) (Arbeiter, Paketgröße)
+    {max, chunk} =
+      case PrologEx.resolve(max, s) do
+        {:struct, "sched", [w, k]} ->
+          {workers(w), if(is_integer(k) and k >= 1, do: k, else: :auto)}
+
+        w ->
+          {workers(w), :auto}
       end
 
     limits = {opt(deadline, s), opt(budget, s), opt(mem, s)}
@@ -72,7 +76,7 @@ defmodule PrologEx.Builtins.Concurrent do
     Process.put(:conc_total, length(jobs))
 
     try do
-      res = run(jobs, mode, max, limits)
+      res = run(jobs, mode, {max, chunk}, limits)
       emit(s)
       {:unify, [{r, res}]}
     rescue
@@ -99,6 +103,9 @@ defmodule PrologEx.Builtins.Concurrent do
     :ok
   end
 
+  defp workers(n) when is_integer(n) and n >= 1, do: n
+  defp workers(_), do: System.schedulers_online()
+
   defp opt(t, s) do
     case PrologEx.Store.walk(t, s) do
       n when is_integer(n) -> n
@@ -117,32 +124,60 @@ defmodule PrologEx.Builtins.Concurrent do
   defp run([], {:first, _, _, _}, _max, _limits), do: a("fail")
   defp run([], _mode, _max, _limits), do: mk("ok", [[]])
 
-  defp run(jobs, mode, max, {deadline, _, _} = limits) do
+  defp run(jobs, mode, {max, chunk}, {deadline, _, _} = limits) do
     ref = make_ref()
-    # der Zustand einmal je Aufruf als persistent_term: die Kinder lesen ihn,
-    # ohne ihn in ihren Heap zu kopieren (eine Kopie je Kind kostete bei
+    # der Zustand einmal je Aufruf als persistent_term: die Arbeiter lesen
+    # ihn, ohne ihn in ihren Heap zu kopieren (eine Kopie je Kind kostete bei
     # 2 MiB Datenbank rund 2 ms, so sind es ~30 µs); am Ende gelöscht
     state = {:prolog_ex_conc_state, ref}
     :persistent_term.put(state, child_state())
-    indexed = Enum.with_index(jobs)
-    {start, waiting} = Enum.split(indexed, max)
+    waiting = Enum.with_index(jobs)
+    n = length(jobs)
+    # first: jedes Ziel ein eigener Arbeiter (sie laufen gegeneinander)
+    w = if match?({:first, _, _, _}, mode), do: n, else: min(max, n)
+    sched = %{w: w, chunk: chunk, n_wait: n}
 
     try do
-      running =
-        Map.new(start, fn {job, i} -> {spawn_child(ref, i, job, mode, limits, state), i} end)
+      {running, waiting, sched} =
+        Enum.reduce(1..w, {%{}, waiting, sched}, fn _, {running, waiting, sched} ->
+          pid = spawn_worker(ref, mode, limits, state)
+          dispatch(ref, pid, running, waiting, sched)
+        end)
 
-      loop(ref, running, waiting, mode, limits, state, deadline, %{})
+      loop(ref, running, {waiting, sched}, mode, limits, state, deadline, %{})
     after
       # alle noch laufenden beenden (auch bei Ausnahmen hier), dann den
-      # geteilten Zustand freigeben (die Kinder sind entkoppelt: eines, das
-      # ihn noch zu lesen versucht, stirbt allein)
+      # geteilten Zustand freigeben (die Arbeiter sind entkoppelt: einer,
+      # der ihn noch zu lesen versucht, stirbt allein)
       kill_all(ref)
       :persistent_term.erase(state)
     end
   end
 
+  # Blockung (wie OpenMP schedule(dynamic) mit guided-Paketen): ein Arbeiter,
+  # der nichts mehr zu tun hat, bekommt das nächste Paket – Rest / (2·W),
+  # mindestens 1, oder eine feste Größe (chunk(K)); ist nichts mehr da, wird
+  # er beendet. running: Arbeiter -> seine offenen Indizes (der erste läuft)
+  defp dispatch(ref, pid, running, [], sched) do
+    send(pid, {:stop, ref})
+    {Map.delete(running, pid), [], sched}
+  end
+
+  defp dispatch(ref, pid, running, waiting, %{w: w, chunk: chunk, n_wait: nw} = sched) do
+    k =
+      case chunk do
+        :auto -> max(1, div(nw, 2 * w))
+        k -> k
+      end
+
+    {pkg, rest} = Enum.split(waiting, k)
+    send(pid, {:jobs, ref, for({{:struct, "-", [t, g]}, i} <- pkg, do: {i, t, g})})
+    running = Map.put(running, pid, for({_, i} <- pkg, do: i))
+    {running, rest, %{sched | n_wait: nw - length(pkg)}}
+  end
+
   # results: Index -> Ergebnis
-  defp loop(ref, running, waiting, mode, limits, state, deadline, results) do
+  defp loop(ref, running, queue, mode, limits, state, deadline, results) do
     if map_size(running) == 0 do
       res = finish(mode, results)
       conclude(ref, mode, running, if(res == a("fail"), do: nil, else: :all))
@@ -151,57 +186,60 @@ defmodule PrologEx.Builtins.Concurrent do
       timeout = if deadline, do: max(div(deadline - now_us(), 1000), 0), else: :infinity
 
       receive do
-        {:conc, ^ref, pid, i, res, text} ->
-          {mon, mons} = Map.pop(Process.get({:conc_mon, ref}, %{}), pid)
-          if mon, do: Process.demonitor(mon, [:flush])
-          Process.put({:conc_mon, ref}, mons)
-          running = Map.delete(running, pid)
+        {:conc, ^ref, pid, i, res, text} when is_map_key(running, pid) ->
           oc = outcome(res, mode)
           outs = Process.get({:conc_outs, ref}, %{})
           Process.put({:conc_outs, ref}, Map.put(outs, i, {status(oc), text}))
+          # das Element ist fertig; der Arbeiter macht mit seinem Paket weiter
+          running = Map.update!(running, pid, &List.delete(&1, i))
 
           case {oc, mode} do
             # first_solution/3 mit on_error(continue): wie ein Scheitern
             # (sind alle gescheitert oder haben geworfen: scheitern, wie SWI)
             {{:error, _}, {:first, _, _, "continue"}} ->
-              next(ref, running, waiting, mode, limits, state, deadline, results)
+              next(ref, pid, running, queue, mode, limits, state, deadline, results)
 
             {{:error, ball}, _} ->
-              conclude(ref, mode, running, nil)
+              conclude(ref, mode, Map.delete(running, pid), nil)
               Error.throw!(ball)
 
             {:fail, :once} ->
               a("fail")
 
             {:fail, {:first, "stop", _, _}} ->
-              conclude(ref, mode, running, nil)
+              conclude(ref, mode, Map.delete(running, pid), nil)
               a("fail")
 
             {:fail, _} ->
-              next(ref, running, waiting, mode, limits, state, deadline, results)
+              next(ref, pid, running, queue, mode, limits, state, deadline, results)
 
             {{:ok, t}, {:first, _, _, _}} ->
-              conclude(ref, mode, running, i)
+              conclude(ref, mode, Map.delete(running, pid), i)
               mk("ok", [[t]])
 
             {{:ok, t}, _} ->
               results = Map.put(results, i, t)
-              next(ref, running, waiting, mode, limits, state, deadline, results)
+              next(ref, pid, running, queue, mode, limits, state, deadline, results)
           end
 
-        # ein abgestürztes Kind bei on_error(continue): wie ein Scheitern
+        # ein abgestürzter Arbeiter bei on_error(continue) (first: ein Ziel
+        # je Arbeiter): wie ein Scheitern
         {:DOWN, _mon, :process, pid, _reason}
         when is_map_key(running, pid) and elem(mode, 0) == :first and
                elem(mode, 3) == "continue" ->
           Process.put({:conc_mon, ref}, Map.delete(Process.get({:conc_mon, ref}, %{}), pid))
           outs = Process.get({:conc_outs, ref}, %{})
-          Process.put({:conc_outs, ref}, Map.put(outs, running[pid], {:error, ""}))
+
+          outs =
+            Enum.reduce(running[pid], outs, fn i, o -> Map.put(o, i, {:error, ""}) end)
+
+          Process.put({:conc_outs, ref}, outs)
           running = Map.delete(running, pid)
-          next(ref, running, waiting, mode, limits, state, deadline, results)
+          loop(ref, running, queue, mode, limits, state, deadline, results)
 
         {:DOWN, _mon, :process, pid, reason} when is_map_key(running, pid) ->
-          # (ein Kind, das normal endet, hat seine Nachricht vorher geschickt;
-          # hier also ein Absturz)
+          # (ein Arbeiter, der normal endet, hat nichts mehr offen; hier also
+          # ein Absturz)
           conclude(ref, mode, running, nil)
 
           Error.throw!(
@@ -218,17 +256,19 @@ defmodule PrologEx.Builtins.Concurrent do
     end
   end
 
-  defp next(ref, running, waiting, mode, limits, state, deadline, results) do
-    {running, waiting} =
-      case waiting do
-        [{job, j} | more] ->
-          {Map.put(running, spawn_child(ref, j, job, mode, limits, state), j), more}
-
+  # ist der Arbeiter mit seinem Paket fertig: das nächste (oder beenden)
+  defp next(ref, pid, running, {waiting, sched} = queue, mode, limits, state, deadline, results) do
+    {running, queue} =
+      case running[pid] do
         [] ->
-          {running, waiting}
+          {running, waiting, sched} = dispatch(ref, pid, running, waiting, sched)
+          {running, {waiting, sched}}
+
+        _ ->
+          {running, queue}
       end
 
-    loop(ref, running, waiting, mode, limits, state, deadline, results)
+    loop(ref, running, queue, mode, limits, state, deadline, results)
   end
 
   defp finish({:first, _, _, _}, _results), do: a("fail")
@@ -286,7 +326,7 @@ defmodule PrologEx.Builtins.Concurrent do
     done = for {i, {st, text}} <- outs, i != winner, do: {i, st, text}
 
     cut =
-      for {pid, i} <- running do
+      for {pid, [i | _]} <- running do
         {st, text} = final(ref, mode, pid)
         {i, st, text}
       end
@@ -370,35 +410,63 @@ defmodule PrologEx.Builtins.Concurrent do
     |> Enum.reject(fn {k, _} -> k == :prolog_ex_timers end)
   end
 
-  defp spawn_child(ref, i, {:struct, "-", [t, g]}, mode, limits, state) do
+  # ein Arbeiter: holt sich den Zustand (ohne Kopie) und bearbeitet Pakete
+  # von Elementen nacheinander, jedes auf einem frischen Zustand – für das
+  # Programm sieht es aus wie ein eigenes Kind je Element
+  defp spawn_worker(ref, mode, limits, state) do
     parent = self()
     base = Process.get(:conc_seed)
     total = Process.get(:conc_total)
-    # Kette der Aufrufe, innerster zuerst (ist der Aufrufer selbst ein Kind,
-    # steht seine schon hier)
-    path = [{i + 1, total} | Process.get(:conc_path, [])]
+    outer = Process.get(:conc_path, [])
 
     pid =
       spawn_link(fn ->
-        Enum.each(:persistent_term.get(state), fn {k, v} -> Process.put(k, v) end)
-        # eigener Generator; Zufall ist im Kind erlaubt (PrologEx.Effects)
-        PrologEx.Builtins.Random.seed_child(base, i)
-        PrologEx.Effects.mark_child!()
-        # wer bin ich: Position (1-basiert) und Anzahl (concurrent_child/1)
-        Process.put(:conc_child, {i + 1, total})
-        Process.put(:conc_path, path)
-        # Ausgabe in einen eigenen Puffer (gehört dem Bereich des Kinds)
-        out = PrologEx.Stream.open_memory_out(1)
-        PrologEx.Stream.set_output(out)
-        Process.put(:conc_out, out)
-        res = child(t, g, mode, limits)
-        send(parent, {:conc, ref, self(), i, res, PrologEx.Stream.memory_text(out)})
+        st = :persistent_term.get(state)
+        worker(parent, ref, st, base, total, outer, mode, limits)
       end)
 
     mon = Process.monitor(pid)
     Process.put({:conc_pids, ref}, [pid | Process.get({:conc_pids, ref}, [])])
     Process.put({:conc_mon, ref}, Map.put(Process.get({:conc_mon, ref}, %{}), pid, mon))
     pid
+  end
+
+  defp worker(parent, ref, st, base, total, outer, mode, limits) do
+    receive do
+      {:jobs, ^ref, jobs} ->
+        for {i, t, g} <- jobs do
+          res_text = job(st, base, total, outer, i, t, g, mode, limits)
+          send(parent, {:conc, ref, self(), i, elem(res_text, 0), elem(res_text, 1)})
+        end
+
+        worker(parent, ref, st, base, total, outer, mode, limits)
+
+      {:stop, ^ref} ->
+        :ok
+    end
+  end
+
+  # ein Element: Zustand zurücksetzen (was das vorige angelegt hat, weg;
+  # die geteilten Werte wieder ein – Verweise, keine Kopien), dann wie bisher
+  defp job(st, base, total, outer, i, t, g, mode, limits) do
+    for {k, _} <- PrologEx.Toplevel.state_snapshot(),
+        k != :prolog_ex_timers,
+        do: Process.delete(k)
+
+    Enum.each(st, fn {k, v} -> Process.put(k, v) end)
+    # eigener Generator; Zufall ist im Kind erlaubt (PrologEx.Effects)
+    PrologEx.Builtins.Random.seed_child(base, i)
+    PrologEx.Effects.mark_child!()
+    # wer bin ich: Position (1-basiert) und Anzahl (concurrent_child/1); die
+    # Kette der Aufrufe, innerster zuerst
+    Process.put(:conc_child, {i + 1, total})
+    Process.put(:conc_path, [{i + 1, total} | outer])
+    # Ausgabe in einen eigenen Puffer (gehört dem Bereich des Kinds)
+    out = PrologEx.Stream.open_memory_out(1)
+    PrologEx.Stream.set_output(out)
+    Process.put(:conc_out, out)
+    res = child(t, g, mode, limits)
+    {res, PrologEx.Stream.memory_text(out)}
   end
 
   # findall(T, '$nse_call'(G'), L) mit den Grenzen; G' = once(G) außer bei

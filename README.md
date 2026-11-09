@@ -2468,12 +2468,20 @@ Seiteneffekte. Darum ist die Reihenfolge egal, und ein Kind kann jederzeit
 beendet werden, ohne etwas halb getan zu haben.
 
 Kosten: Der Zustand (vor allem die Klauseldatenbank samt Bibliotheken, leicht
-einige MiB) liegt je Aufruf einmal als `persistent_term`; die Kinder lesen
+einige MiB) liegt je Aufruf einmal als `persistent_term`; die Arbeiter lesen
 ihn, ohne ihn in ihren Heap zu kopieren (die BEAM kopiert sonst alles, was
-ein Prozess einem anderen gibt). Ein Aufruf kostet damit einmal rund 2 ms
-(Ablegen und Freigeben), jedes Kind einige 10 µs – vorher kostete jedes
-Kind seine eigene Kopie, rund 2 ms. Lohnend ist Parallelität also ab etwa
-einer Millisekunde Arbeit je Ziel.
+ein Prozess einem anderen gibt). **Blockung** wie `schedule(dynamic)` bei
+OpenMP mit guided-Paketen: höchstens so viele Arbeiter wie Scheduler (bzw.
+`threads(N)`), jeder bekommt ein Paket von Elementen – Rest / (2·Arbeiter),
+mindestens eines, oder `chunk(K)` – und holt sich danach das nächste. Jedes
+Element läuft auf einem frischen Zustand (eigener Zufall, eigene Ausgabe,
+eigenes `concurrent_child/1`, nichts vom Vorgänger); für das Programm sieht
+es aus wie ein Kind je Element. `first_solution/3` hat einen Arbeiter je Ziel
+(sie laufen gegeneinander). Ein Aufruf kostet damit einmal rund 2 ms
+(Ablegen und Freigeben des Zustands), jedes Element rund 20 µs Verwaltung
+(frischer Zustand, eigene Anfrage). Vorher kostete jedes Element ein eigenes
+Kind mit eigener Kopie des Zustands, rund 2 ms. Lohnend ist Parallelität
+also ab etwa 0,1 ms Arbeit je Element.
 
 ```prolog
 ?- use_module(library(concurrent)), use_module(library(iso_ext)).
@@ -2487,9 +2495,9 @@ einer Millisekunde Arbeit je Ziel.
 |---|---|
 | `concurrent_maplist/2,3,4` | wie `maplist`, je Element ein Prozess (`once`) |
 | `concurrent(N, Goals, Opts)` | alle Ziele, höchstens N gleichzeitig; Bindungen werden zusammengeführt |
-| `concurrent_forall(Cond, Action[, [threads(N)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
+| `concurrent_forall(Cond, Action[, [threads(N), chunk(K)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
-| `concurrent_and(Gen, Test[, [threads(N)]])` | wie `(Gen, Test)`, die Tests parallel: `Gen` vorab im Aufrufer (muss endlich sein), je Lösung ein Kind mit allen Lösungen von `Test`; per Backtracking in der Reihenfolge von `(Gen, Test)` (SWI: beliebige Reihenfolge, `Gen` nebenher) |
+| `concurrent_and(Gen, Test[, [threads(N), chunk(K)]])` | wie `(Gen, Test)`, die Tests parallel: `Gen` vorab im Aufrufer (muss endlich sein), je Lösung ein Kind mit allen Lösungen von `Test`; per Backtracking in der Reihenfolge von `(Gen, Test)` (SWI: beliebige Reihenfolge, `Gen` nebenher) |
 | `first_solution(X, Goals, [on_fail(stop\|continue), on_error(stop\|continue), output(winner\|all)])` | der Erste gewinnt, die anderen werden beendet; mit `on_error(continue)` zählt eine Ausnahme wie ein Scheitern (werfen oder scheitern alle: scheitert, wie SWI) |
 | `concurrent_child(I/N)` | im Kind: Position seines Ziels (1-basiert) und Anzahl der Ziele des innersten Aufrufs; außerhalb scheitert es |
 | `concurrent_child_stack(Stack)` | der Stapel der Aufrufe `[I/N, …]`, innerster oben (`concurrent_child(P)` ist `concurrent_child_stack([P\|_])`); außerhalb jedes Kinds `[]`, `length(Stack, D)` ist die Tiefe |

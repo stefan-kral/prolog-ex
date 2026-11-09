@@ -338,6 +338,31 @@ defmodule PrologEx.ConcurrentTest do
     assert e =~ "domain_error(on_error,foo)"
   end
 
+  test "Blockung: ein Arbeiter, viele Elemente – jedes auf frischem Zustand", c do
+    # threads(1): alle Elemente im selben Arbeiter; b_setval des Vorgängers
+    # ist trotzdem unsichtbar, ebenso die Position je Element
+    assert ask(
+             c,
+             "findall(X-V-P, concurrent_and(between(1, 4, X), " <>
+               "((catch(b_getval(k, V), _, V = none)), b_setval(k, X), concurrent_child(P)), " <>
+               "[threads(1), chunk(2)]), L)"
+           ) == ["L = [1-none-1/4,2-none-2/4,3-none-3/4,4-none-4/4]"]
+
+    # Zufall je Element, unabhängig von der Blockung
+    assert ask(
+             c,
+             "set_random(seed(7)), findall(R, concurrent_and(between(1, 6, _), random_between(1, 1000000, R), [threads(1)]), L1), " <>
+               "set_random(seed(7)), findall(R, concurrent_and(between(1, 6, _), random_between(1, 1000000, R), [threads(3), chunk(1)]), L2), " <>
+               "L1 == L2"
+           )
+           |> length() == 1
+
+    # Scheitern beendet alles, auch mitten im Paket
+    assert ask(c, "concurrent_forall(between(1, 50, X), X < 20, [threads(2), chunk(10)])") == []
+    [e] = ask(c, "catch(concurrent_forall(true, true, [chunk(0)]), error(E, _), true)")
+    assert e =~ "domain_error(positive_integer,0)"
+  end
+
   test "Brüche reisen zu den Kindern und zurück", c do
     assert ask(c, ~S"concurrent_maplist(\X^Y^(Y is X * 1r3), [1, 2r5, 0.5], L)") ==
              ["L = [1r3,2r15,0.16666666666666666]"]
