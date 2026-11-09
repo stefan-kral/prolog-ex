@@ -193,6 +193,23 @@ defmodule PrologEx.RationalTest do
     end
   end
 
+  test "simplest/2: kleinster Nenner im Intervall, wie eine Suche über alle Nenner" do
+    :rand.seed(:exsss, {3, 3, 3})
+
+    for _ <- 1..300 do
+      a = Rational.make(:rand.uniform(400) - 200, :rand.uniform(40))
+      b = Rational.add(a, Rational.make(:rand.uniform(30) - 1, :rand.uniform(60)))
+      s = Rational.simplest(a, b)
+      {_, d} = Rational.parts(s)
+      assert Rational.cmp(a, s) != :gt and Rational.cmp(s, b) != :gt
+      # kein kleinerer Nenner hat einen Bruch im Intervall
+      for k <- 1..(d - 1)//1 do
+        lo = Rational.ceiling(Rational.mul(a, k))
+        assert Rational.cmp(Rational.make(lo, k), b) == :gt, inspect({a, b, s, k})
+      end
+    end
+  end
+
   # Nachbar eines positiven Floats (über die Bits)
   defp next_float(f, step) do
     <<b::64>> = <<f::float>>

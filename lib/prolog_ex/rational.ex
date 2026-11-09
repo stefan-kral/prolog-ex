@@ -16,6 +16,7 @@ defmodule PrologEx.Rational do
   """
 
   import Bitwise
+  import Kernel, except: [floor: 1, abs: 1]
   alias PrologEx.Error
 
   defguard is_rat(t) when is_tuple(t) and tuple_size(t) == 3 and elem(t, 0) == :rat
@@ -194,6 +195,35 @@ defmodule PrologEx.Rational do
 
   defp r_float(n) when is_integer(n), do: n * 1.0
   defp r_float(r), do: to_float(r)
+
+  @doc """
+  Der einfachste Bruch im geschlossenen Intervall [lo, hi] (Ganzzahlen oder
+  Brüche, lo =< hi): kleinster Nenner, bei gleichem Nenner der kleinste
+  Betrag – derselbe, den der Stern-Brocot-Baum zuerst träfe, nur über
+  Kettenbrüche gerechnet (Schritte: Länge des Kettenbruchs, nicht Summe
+  seiner Glieder).
+  """
+  def simplest(lo, hi) do
+    cond do
+      cmp(lo, 0) != :gt and cmp(hi, 0) != :lt -> 0
+      cmp(hi, 0) == :lt -> neg(simplest(neg(hi), neg(lo)))
+      true -> simplest_pos(lo, hi)
+    end
+  end
+
+  # 0 < lo =< hi
+  defp simplest_pos(lo, hi) do
+    f = floor(lo)
+
+    cond do
+      # lo ganz: die kleinste Ganzzahl darin
+      cmp(lo, f) == :eq -> f
+      # eine Ganzzahl dazwischen: die kleinste
+      floor(hi) > f -> f + 1
+      # gleicher ganzzahliger Teil: f + 1/x mit x einfachst in [1/(hi-f), 1/(lo-f)]
+      true -> add(f, divide(1, simplest_pos(divide(1, sub(hi, f)), divide(1, sub(lo, f)))))
+    end
+  end
 
   # --- Standardordnung --------------------------------------------------------
 

@@ -263,7 +263,7 @@ defmodule PrologEx.ClpzTest do
              TableCase.run(c.reader, db, "findall(P-T, current_op(P, T, *), L)")
   end
 
-  test "library(arithmetic): wie Scryer, ohne rationale Zahlen", c do
+  test "library(arithmetic): wie Scryer", c do
     db = TableCase.db(c.reader, ["arithmetic"])
 
     assert {_, {:answers, ["L = [9,3,6,12,2]"]}} =
@@ -280,6 +280,41 @@ defmodule PrologEx.ClpzTest do
              TableCase.run(c.reader, db, "msb(0, _)")
 
     assert {_, {:error, "type_error(integer,a)"}} = TableCase.run(c.reader, db, "popcount(a, _)")
+
+    # Brüche: der einfachste im Intervall [Real - Eps, Real + Eps]
+    for {q, a} <- [
+          {"number_to_rational(0.1, F)", "F = 1r10"},
+          {"number_to_rational(3.14159265, F)", "F = 355r113"},
+          {"number_to_rational(-2.5, F)", "F = -5r2"},
+          {"number_to_rational(7, F)", "F = 7"},
+          {"number_to_rational(1.0e-6, -2.0, F)", "F = -2"},
+          {"number_to_rational(1.0e-6, 2.0000001, F)", "F = 2"},
+          {"number_to_rational(0.01, 0.3, F)", "F = 3r10"},
+          {"number_to_rational(1r100, 1r3, F)", "F = 1r3"},
+          {"number_to_rational(1, 0.5, F)", "F = 0"},
+          {"number_to_rational(0, 0.1, F)", "F = 3602879701896397r36028797018963968"},
+          {"number_to_rational(1.0e-9, 2.718281828, F)", "F = 49171r18089"},
+          {"number_to_rational(0, 1.0e-300, F), F > 0",
+           "F = 6032057205060441r" <>
+             "6032057205060440848842124543157735677050252251748505781796615064961622344493727293370973578138265743708225425014400837164813540499979063179105919597766951022193355091707896034850684039059079180396788349106095584290087446076413771468940477241550670753145517602931224392424029547429993824129889235158145614364972941312"},
+          {"rational_numerator_denominator(3r4, N, D)", "D = 4, N = 3"},
+          {"rational_numerator_denominator(5, N, D)", "D = 1, N = 5"}
+        ] do
+      assert {_, {:answers, [^a]}} = TableCase.run(c.reader, db, q), q
+    end
+
+    assert {_, {:answers, []}} =
+             TableCase.run(c.reader, db, "rational_numerator_denominator(0.5, _, _)")
+
+    for {q, e} <- [
+          {"number_to_rational(x, _)", "type_error(number,x)"},
+          {"number_to_rational(_, _)", "instantiation_error"},
+          {"number_to_rational(-1, 0.5, _)", "domain_error(not_less_than_zero,-1)"},
+          {"number_to_rational(0.1, x, _)", "type_error(number,x)"},
+          {"number_to_rational(_, 1.0, _)", "instantiation_error"}
+        ] do
+      assert {_, {:error, ^e}} = TableCase.run(c.reader, db, q), q
+    end
   end
 
   test "library(terms) und library(freeze) wie Scryer (eingebaut)", c do

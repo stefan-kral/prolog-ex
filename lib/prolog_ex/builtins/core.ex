@@ -104,6 +104,12 @@ defmodule PrologEx.Builtins.Core do
     is_integer(t) or PrologEx.Rational.is_rat(t)
   end
 
+  # '$simplest_rational'(+Lo, +Hi, -F): der einfachste Bruch in [Lo, Hi]
+  # (library(arithmetic): number_to_rational/3)
+  defbuiltin "$simplest_rational", [lo, hi, f] do
+    {:unify, [{f, PrologEx.Rational.simplest(deref(lo), deref(hi))}]}
+  end
+
   # rational(X, N, D): X ist Ganzzahl oder Bruch mit Zähler N, Nenner D
   defbuiltin "rational", [x, n, d] do
     case deref(x) do

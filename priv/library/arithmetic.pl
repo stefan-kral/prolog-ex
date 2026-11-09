@@ -1,12 +1,28 @@
 /** Arithmetic predicates
 
-Wie Scryers library(arithmetic) (siehe SCRYER-LICENSE), ohne
-number_to_rational/2,3 und rational_numerator_denominator/3 (noch nicht
-übernommen; die Brüche selbst kennt PrologEx: rational/3, rationalize/1). msb/2, lsb/2 und popcount/2 rechnen über
+Wie Scryers library(arithmetic) (siehe SCRYER-LICENSE). Die Prädikate für
+Brüche (number_to_rational/2,3, rational_numerator_denominator/3) sind neu
+geschrieben, über die eingebauten Brüche (1r3, rational/3):
+
+  * number_to_rational(+Eps, +Real, -F): F ist der einfachste Bruch (kleinster
+    Nenner) im geschlossenen Intervall [Real - Eps, Real + Eps], exakt
+    gerechnet (ein Float zählt mit seinem exakten Wert). Scryer sucht nur im
+    Nachkommateil und trifft dessen Ränder 0 und 1 nie: 2.0000001 mit Eps
+    1.0e-6 gibt dort 2 + 1/909091, hier 2; eine negative Ganzzahl -2 gibt
+    dort -3. Über Kettenbrüche statt Schritt für Schritt durch den
+    Stern-Brocot-Baum: auch number_to_rational(0, 1.0e-300, F) ist sofort
+    fertig.
+  * number_to_rational(+Real, -F): Ganzzahl unverändert, sonst mit Eps
+    1.0e-6 (wie Scryer): number_to_rational(3.14159265, F) gibt 355r113.
+  * rational_numerator_denominator(+R, -N, -D): wie rational/3 (auch für
+    Ganzzahlen: D = 1; Scryer scheitert dort, sein Bruch 2 rdiv 1 ist keine
+    Ganzzahl). Kein Bruch: scheitert. msb/2, lsb/2 und popcount/2 rechnen über
 die gleichnamigen Funktionen von is/2.
 */
 
-:- module(arithmetic, [expmod/4, lcm/3, lsb/2, msb/2, popcount/2]).
+:- module(arithmetic, [expmod/4, lcm/3, lsb/2, msb/2, number_to_rational/2,
+                       number_to_rational/3, popcount/2,
+                       rational_numerator_denominator/3]).
 
 :- use_module(library(error)).
 :- use_module(library(lists), [member/2]).
@@ -90,3 +106,37 @@ can_be_number(X, PI) :-
     ;   number(X) -> true
     ;   type_error(number, X, PI)
     ).
+
+%% number_to_rational(+Real, -Fraction).
+%
+% Fraction ist Real als Bruch: eine Ganzzahl unverändert, sonst der
+% einfachste Bruch im Abstand höchstens 1.0e-6.
+number_to_rational(Real, Fraction) :-
+    (   var(Real) -> instantiation_error(number_to_rational/2)
+    ;   integer(Real) -> Fraction = Real
+    ;   number(Real) -> number_to_rational(1.0e-6, Real, Fraction)
+    ;   type_error(number, Real, number_to_rational/2)
+    ).
+
+%% number_to_rational(+Eps, +Real, -Fraction).
+%
+% Fraction ist der einfachste Bruch (kleinster Nenner, dann kleinster
+% Betrag) mit |Fraction - Real| =< Eps, exakt gerechnet.
+number_to_rational(Eps0, Real0, Fraction) :-
+    (   var(Eps0) -> instantiation_error(number_to_rational/3)
+    ;   \+ number(Eps0) -> type_error(number, Eps0, number_to_rational/3)
+    ;   Eps0 < 0 -> domain_error(not_less_than_zero, Eps0, number_to_rational/3)
+    ;   var(Real0) -> instantiation_error(number_to_rational/3)
+    ;   \+ number(Real0) -> type_error(number, Real0, number_to_rational/3)
+    ;   Eps is rational(Eps0),
+        Real is rational(Real0),
+        Lo is Real - Eps,
+        Hi is Real + Eps,
+        '$simplest_rational'(Lo, Hi, Fraction)
+    ).
+
+%% rational_numerator_denominator(+Fraction, -Numerator, -Denominator).
+%
+% Zähler und Nenner eines Bruchs (einer Ganzzahl: Nenner 1).
+rational_numerator_denominator(R, N, D) :-
+    rational(R, N, D).

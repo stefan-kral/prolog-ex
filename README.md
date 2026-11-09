@@ -714,10 +714,19 @@ ist jeweils am Dateianfang vermerkt.
   Nach `use_module(library(time))` gilt dieses `time/1`, nach
   `use_module(library(swi))` das SWI-artige. `statistics/2` bleibt das eingebaute, eine Obermenge von
   Scryers vorläufigem.
-* `library(arithmetic)` (BSD-Lizenz, wie Scryer, noch ohne dessen
-  Prädikate für rationale Zahlen – eingebaut gibt es `rational/3` und
-  `rationalize/1`): `expmod/4`, `lcm/3`,
-  `lsb/2`, `msb/2`, `popcount/2` mit Scryers Fehlern.
+* `library(arithmetic)` (BSD-Lizenz, wie Scryer): `expmod/4`, `lcm/3`,
+  `lsb/2`, `msb/2`, `popcount/2` mit Scryers Fehlern; dazu für Brüche
+  (neu geschrieben, über die eingebauten):
+  - `number_to_rational(+Eps, +Real, -F)`: der einfachste Bruch (kleinster
+    Nenner) mit `|F - Real| =< Eps`, exakt gerechnet und über Kettenbrüche
+    (auch winzige Eps sind sofort fertig). Scryer sucht nur im
+    Nachkommateil und trifft dessen Ränder nie: dort gibt `2.0000001` mit
+    Eps `1.0e-6` 2 + 1/909091 statt 2 und eine negative Ganzzahl `-2.0`
+    den Wert -3.
+  - `number_to_rational(+Real, -F)`: Ganzzahlen unverändert, sonst Eps
+    `1.0e-6` wie Scryer (`3.14159265` → `355r113`).
+  - `rational_numerator_denominator(+R, -N, -D)`: wie `rational/3` (für
+    eine Ganzzahl `D = 1`; Scryer scheitert dort).
 * `library(debug)` (BSD-Lizenz, unverändert): `* G` (Ziel
   wegverallgemeinern), `$ G` und `$- G` (Aufruf und Ausnahmen mit
   `portray_clause/1` zeigen).
