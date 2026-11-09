@@ -103,7 +103,7 @@ defmodule PrologEx.ConcurrentTest do
     assert ask(c, "concurrent(2, [A = 1, B is 1 + 1, C = c], [])") == ["A = 1, B = 2, C = c"]
     assert ask(c, "concurrent(2, [A = 1, A = 2], [])") == []
     assert ask(c, "concurrent_forall(member(X, [1, 2, 3]), X > 0)") == ["true"]
-    assert ask(c, "concurrent_forall(member(X, [1, 2, 3]), X > 1, [workers(1)])") == []
+    assert ask(c, "concurrent_forall(member(X, [1, 2, 3]), X > 1, [threads(1)])") == []
 
     assert ask(c, "concurrent_findall(X, [member(X, [a, b]), member(X, [c]), fail], Bs)") ==
              [~S|Bs = ["ab","c",[]]|]

@@ -20,7 +20,8 @@
      first_solution(?X, :Goals, +Options)
          wer zuerst eine Lösung hat, gewinnt; die anderen werden beendet
 
-   Options: workers(N) (concurrent_forall/3); first_solution/3:
+   Options: threads(N) (concurrent_forall/3, wie SWI; es sind Prozesse
+   der BEAM, keine Threads); first_solution/3:
    on_fail(stop) (Vorgabe: das erste Scheitern beendet alles) oder
    on_fail(continue) (scheitern, wenn alle gescheitert sind);
    output(winner) (Vorgabe) oder output(all) (siehe unten). Höchstens so
@@ -164,7 +165,7 @@ concurrent_forall(Cond, Action) :-
 
 concurrent_forall(Cond, Action, Options) :-
     must_be(list, Options),
-    (   memberchk(workers(W), Options)
+    (   memberchk(threads(W), Options)
     ->  must_be(integer, W),
         (   W >= 1 -> true ; domain_error(positive_integer, W) )
     ;   workers(W)

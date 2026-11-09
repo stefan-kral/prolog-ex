@@ -2479,7 +2479,7 @@ beendet werden, ohne etwas halb getan zu haben.
 |---|---|
 | `concurrent_maplist/2,3,4` | wie `maplist`, je Element ein Prozess (`once`) |
 | `concurrent(N, Goals, Opts)` | alle Ziele, höchstens N gleichzeitig; Bindungen werden zusammengeführt |
-| `concurrent_forall(Cond, Action[, [workers(N)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
+| `concurrent_forall(Cond, Action[, [threads(N)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
 | `first_solution(X, Goals, [on_fail(stop\|continue), output(winner\|all)])` | der Erste gewinnt, die anderen werden beendet |
 | `concurrent_child(I/N)` | im Kind: Position seines Ziels (1-basiert) und Anzahl der Ziele des innersten Aufrufs; außerhalb scheitert es |
