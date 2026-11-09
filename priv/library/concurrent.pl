@@ -35,7 +35,8 @@
    Kopfzeile (% Ziel I: abgebrochen | gescheitert | Ausnahme) – auch, wenn
    es scheitert oder wirft. Im Kind sind außerdem erlaubt: Zufall (eigener
    Generator, siehe README), memo/tabling (Kopie der Tabellen) und
-   b_setval/2.
+   b_setval/2. Wer bin ich: concurrent_child(I, N) gibt im Kind die
+   Position I seines Ziels (1-basiert) und die Anzahl N der Ziele.
 
    Eine Ausnahme in einem Kind – auch der Seiteneffekt-Fehler
    permission_error(perform, side_effect, Ziel) – beendet alle anderen
@@ -59,7 +60,19 @@
                        concurrent_forall/2,
                        concurrent_forall/3,
                        concurrent_findall/3,
-                       first_solution/3]).
+                       first_solution/3,
+                       concurrent_child/2]).
+
+%% concurrent_child(-I, -N)
+%
+% Im Kind: I ist die Position seines Ziels (1-basiert) unter den N Zielen
+% des Aufrufs (bei Verschachtelung des innersten); außerhalb eines Kinds
+% scheitert es. Bei concurrent_maplist/2,3,4 die Position in der Liste,
+% bei first_solution/3 die des Ziels in Goals, bei concurrent/3 die in der
+% Zielliste. Wer den Index sichtbar mitgeben will, nimmt numlist/3:
+% numlist(1, N, Is), concurrent_maplist(G, Is, Xs).
+concurrent_child(I, N) :-
+    '$conc_child'(I, N).
 
 :- use_module(library(lists)).
 :- use_module(library(error)).

@@ -2482,6 +2482,7 @@ beendet werden, ohne etwas halb getan zu haben.
 | `concurrent_forall(Cond, Action[, [workers(N)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
 | `first_solution(X, Goals, [on_fail(stop\|continue), output(winner\|all)])` | der Erste gewinnt, die anderen werden beendet |
+| `concurrent_child(I, N)` | im Kind: Position seines Ziels (1-basiert) und Anzahl der Ziele des innersten Aufrufs; außerhalb scheitert es |
 
 * **Ausnahmen:** wirft ein Kind – auch den Seiteneffekt-Fehler
   `permission_error(perform, side_effect, G)` –, werden alle anderen sofort
@@ -2497,6 +2498,12 @@ beendet werden, ohne etwas halb getan zu haben.
   zyklische Terme: `representation_error(cyclic_term)`.
 * Teilen Ziele Variablen, rechnet jedes auf seiner Kopie; erst das
   Zusammenführen prüft, ob es passt.
+* **Wer bin ich:** `concurrent_child(I, N)` gibt im Kind die Position
+  seines Ziels und die Anzahl der Ziele – etwa um einen Suchraum
+  aufzuteilen („jedes N-te Element ab I“). Damit hängt ein Ziel aber von
+  seinem Platz in der Liste ab, ohne dass man es sieht; sichtbar wird das,
+  wenn man den Index mitgibt: `numlist(1, N, Is), concurrent_maplist(G, Is,
+  Xs)`.
 * **memo/tabling und `b_setval/2`** sind in den Kindern erlaubt: das Kind
   hat Kopien der Tabellen und globalen Variablen des Aufrufers, Neues
   verschwindet mit ihm (der Aufrufer profitiert also nicht davon).

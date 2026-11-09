@@ -35,6 +35,15 @@ defmodule PrologEx.Builtins.Concurrent do
   use PrologEx.Builtin
   alias PrologEx.Error
 
+  # concurrent_child(-I, -N): im Kind seine Position unter den Zielen des
+  # (innersten) Aufrufs, 1-basiert, und deren Anzahl; außerhalb scheitert es
+  defbuiltin "$conc_child", [i, n] do
+    case Process.get(:conc_child) do
+      {pos, total} -> {:unify, [{i, pos}, {n, total}]}
+      nil -> :fail
+    end
+  end
+
   defbuiltin "$conc_run", [jobs, mode, max, deadline, budget, mem, r] do
     s = subst()
     jobs = for j <- PrologEx.Builtins.Lists.items(jobs, s), do: PrologEx.resolve(j, s)
@@ -52,6 +61,8 @@ defmodule PrologEx.Builtins.Concurrent do
     # Bereich ohne Seiteneffekte nur angesehen, nicht weitergeschaltet)
     Process.put(:conc_seed, PrologEx.Builtins.Random.split_base(PrologEx.Effects.random_ok?(s)))
     Process.delete(:conc_prints)
+    # Anzahl der Ziele dieses Aufrufs (concurrent_child/2 im Kind)
+    Process.put(:conc_total, length(jobs))
 
     try do
       res = run(jobs, mode, max, limits)
@@ -333,6 +344,7 @@ defmodule PrologEx.Builtins.Concurrent do
   defp spawn_child(ref, i, {:struct, "-", [t, g]}, mode, limits, state) do
     parent = self()
     base = Process.get(:conc_seed)
+    total = Process.get(:conc_total)
 
     pid =
       spawn_link(fn ->
@@ -340,6 +352,8 @@ defmodule PrologEx.Builtins.Concurrent do
         # eigener Generator; Zufall ist im Kind erlaubt (PrologEx.Effects)
         PrologEx.Builtins.Random.seed_child(base, i)
         PrologEx.Effects.mark_child!()
+        # wer bin ich: Position (1-basiert) und Anzahl (concurrent_child/2)
+        Process.put(:conc_child, {i + 1, total})
         # Ausgabe in einen eigenen Puffer (gehört dem Bereich des Kinds)
         out = PrologEx.Stream.open_memory_out(1)
         PrologEx.Stream.set_output(out)

@@ -260,6 +260,26 @@ defmodule PrologEx.ConcurrentTest do
     assert e =~ "permission_error(perform,side_effect"
   end
 
+  test "concurrent_child/2: Position und Anzahl im Kind", c do
+    assert ask(c, ~S"concurrent_maplist(\_^P^(concurrent_child(I, N), P = I/N), [a, b, c], Ps)") ==
+             ["Ps = [1/3,2/3,3/3]"]
+
+    assert ask(c, ~S"first_solution(I-N, [fail, concurrent_child(I, N)], [on_fail(continue)])") ==
+             ["I = 2, N = 2"]
+
+    assert ask(c, "concurrent(2, [concurrent_child(A, N), concurrent_child(B, N)], [])") ==
+             ["A = 1, B = 2, N = 2"]
+
+    # verschachtelt: der innerste Aufruf
+    assert ask(
+             c,
+             ~S"concurrent_maplist(\_^P^concurrent_maplist(\_^Q^concurrent_child(Q, _), [x, y], P), [a], Ps)"
+           ) == ["Ps = [[1,2]]"]
+
+    # außerhalb eines Kinds: scheitert
+    assert ask(c, "concurrent_child(_, _)") == []
+  end
+
   test "Brüche reisen zu den Kindern und zurück", c do
     assert ask(c, ~S"concurrent_maplist(\X^Y^(Y is X * 1r3), [1, 2r5, 0.5], L)") ==
              ["L = [1r3,2r15,0.16666666666666666]"]
