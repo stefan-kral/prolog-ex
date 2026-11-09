@@ -113,6 +113,27 @@ defmodule PrologEx.LoadWarningsTest do
            ]
   end
 
+  test "Namen mit $ gehören dem System: Warnung einmal je Prädikat, abschaltbar", c do
+    PrologEx.put_db(PrologEx.use_library(%{}, "swi"))
+
+    assert load(c, """
+           '$mein'(1).
+           '$mein'(2).
+           foo:'$bar'.
+           ok('$nicht_definiert').
+           :- style_check(-dollar).
+           '$still'.
+           :- style_check(+dollar).
+           """) == [
+             "Warnung (Zeile 1): '$mein'/1: Namen mit $ am Anfang gehören dem System (style_check(-dollar) schaltet ab)",
+             "Warnung (Zeile 3): foo:'$bar'/0: Namen mit $ am Anfang gehören dem System (style_check(-dollar) schaltet ab)"
+           ]
+
+    # vorhandene Systemprädikate bleiben geschützt
+    [line] = load(c, "'$wot_open'(a, b).\n")
+    assert line =~ "permission_error(modify,static_procedure,'$wot_open'/2)"
+  end
+
   test "Fehler in Direktiven nennen die Zeile; in eingebundenen Dateien auch die Datei", c do
     File.write!(Path.join(c.tmp_dir, "teil.pl"), "x.\nt(V).\n:- gibts_nicht.\n")
 

@@ -33,7 +33,7 @@ defmodule PrologEx.Builtins.System do
   # im Kontextmodul) definierte oder dorthin importierte Prädikate
   # (keine von system). Mit ungebundenem M: alle Module.
   # style_check(+Art) / style_check(-Art) wie SWI: Warnungen beim Laden
-  # (singleton, discontiguous) ein- und ausschalten; ?(Art) fragt ab
+  # (singleton, discontiguous, dollar) ein- und ausschalten; ?(Art) fragt ab
   defbuiltin "style_check", [spec] do
     case resolve(spec) do
       {:var, _} ->
@@ -43,7 +43,7 @@ defmodule PrologEx.Builtins.System do
         kind =
           case x do
             {:var, _} when sign != "?" -> PrologEx.Error.instantiation!()
-            {:atom, k} when k in ["singleton", "discontiguous"] -> String.to_atom(k)
+            {:atom, k} when k in ["singleton", "discontiguous", "dollar"] -> String.to_atom(k)
             other -> PrologEx.Error.domain!("style_name", other)
           end
 

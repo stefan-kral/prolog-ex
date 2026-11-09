@@ -451,7 +451,7 @@ results =
             goal =
               mk(":", [
                 a("lgt"),
-                mk("$lgt_run", [o, Conf.tr(body), Conf.tr_opts(opts), res])
+                mk("lgt_run_test", [o, Conf.tr(body), Conf.tr_opts(opts), res])
               ])
 
             case Conf.run(db, goal, reader) do

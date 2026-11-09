@@ -1,12 +1,14 @@
 defmodule PrologEx.StyleCheck do
   @moduledoc """
   Welche Warnungen `consult` ausgibt (`style_check/1` wie SWI):
-  `singleton` und `discontiguous`, beide anfangs an. Gehört der Sitzung
+  `singleton`, `discontiguous` und `dollar` (ein Benutzerprädikat, dessen
+  Name mit `$` beginnt – solche Namen gehören dem System), alle anfangs an.
+  Gehört der Sitzung
   (Prozess-Dictionary).
   """
 
   @key :prolog_ex_style_check
-  @kinds [:singleton, :discontiguous]
+  @kinds [:singleton, :discontiguous, :dollar]
 
   def kinds, do: @kinds
 

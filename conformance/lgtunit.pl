@@ -26,9 +26,9 @@
 
 epsilon(E) :- E is epsilon.
 
-% '$lgt_run'(+Outcome, +Goal, +Options, -Result)
+% lgt_run_test(+Outcome, +Goal, +Options, -Result)
 % Result: passed, skipped oder failed(Grund)
-'$lgt_run'(Outcome, Goal, Options, Result) :-
+lgt_run_test(Outcome, Goal, Options, Result) :-
     (   memberchk_(condition(C), Options),
         \+ catch(C, _, fail)
     ->  Result = skipped
@@ -50,7 +50,7 @@ epsilon(E) :- E is epsilon.
         )
     ),
     !.
-'$lgt_run'(_, _, _, failed(harness)).
+lgt_run_test(_, _, _, failed(harness)).
 
 memberchk_(X, [Y|Ys]) :- ( X = Y -> true ; memberchk_(X, Ys) ).
 

@@ -2577,6 +2577,28 @@ die dabei Attribute abbauen (wie bei clpb), lassen das Original unberührt.
 
 ## Module
 
+### Interne Prädikate: Namen mit `$`
+
+Prädikate, deren Name mit `$` beginnt (`'$wot_open'/2`, `'$clpz_…'`,
+`'$nse_call'/1`, …), gehören dem System. Es sind Hilfsprädikate der
+Maschine und der Bibliotheken (gut die Hälfte der Prädikate in `system`):
+
+  * Sie sind intern und können sich ohne Vorwarnung ändern oder
+    verschwinden. Ein direkter Aufruf ist nicht vorgesehen und kann
+    Zustand durcheinanderbringen – `'$wot_open'/2` etwa leitet die
+    Ausgabe um und stellt sie nicht zurück (das macht erst
+    `with_output_to/2` als Ganzes).
+  * Aufrufbar sind sie trotzdem von überall (wie in SWI); neu definieren
+    kann man die vorhandenen nicht (`permission_error`).
+    `current_predicate/1` zeigt sie nicht, `predicate_property/2` schon.
+  * Eigene Prädikate sollte man nicht so benennen: ein späteres
+    Systemprädikat gleichen Namens machte das Programm unladbar
+    (`permission_error`). Das Laden warnt darum bei jedem
+    Benutzerprädikat mit `$` am Anfang (einmal je Prädikat; nicht für die
+    Bibliotheken des Systems); abschalten mit `style_check(-dollar)`.
+
+### Module und Sichtbarkeit
+
 Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
 ```prolog
@@ -2657,8 +2679,10 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     eigene Warnung) und nicht zusammenhängende Klauseln ohne
     `discontiguous/1` (einmal je Prädikat; Klauseln, die `term_expansion`
     aus einem Term macht, dürfen sich abwechseln; nicht für die
-    Bibliotheken des Systems, wie Scryer). Abschalten mit
-    `style_check(-singleton)`, `style_check(-(discontiguous))` – die
+    Bibliotheken des Systems, wie Scryer) und Prädikate, deren Name mit
+    `$` beginnt (siehe unten, „Interne Prädikate“). Abschalten mit
+    `style_check(-singleton)`, `style_check(-(discontiguous))`,
+    `style_check(-dollar)` – die
     Klammern braucht ISO, weil `discontiguous` ein Präfixoperator ist;
     `style_check(?(X))` fragt ab. Fehler in Direktiven nennen ebenfalls die
     Zeile.

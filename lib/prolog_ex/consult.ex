@@ -258,6 +258,25 @@ defmodule PrologEx.Consult do
     end
   end
 
+  # Benutzerprädikat mit $ am Anfang: solche Namen gehören dem System (ein
+  # späteres Systemprädikat gleichen Namens wäre ein permission_error);
+  # einmal je Prädikat und Ladevorgang, nicht für Bibliotheken
+  defp dollar(st, {m, n, ar} = key) do
+    if String.starts_with?(n, "$") and not MapSet.member?(st.warned, {:dollar, key}) and
+         PrologEx.StyleCheck.on?(:dollar) and not PrologEx.Builtins.system_module?(st.module) and
+         not PrologEx.Builtins.system_module?(m) do
+      pi = if m == st.module, do: indicator(n, ar), else: "#{m}:#{indicator(n, ar)}"
+
+      st
+      |> warn(
+        "#{pi}: Namen mit $ am Anfang gehören dem System (style_check(-dollar) schaltet ab)"
+      )
+      |> Map.update!(:warned, &MapSet.put(&1, {:dollar, key}))
+    else
+      st
+    end
+  end
+
   defp warn(st, text), do: located(st, "Warnung", text)
 
   # "Warnung (Zeile 3): ...", "Fehler (teil.pl, Zeile 2): ..."
@@ -488,6 +507,7 @@ defmodule PrologEx.Consult do
     end
 
     pkey = {m, name, arity}
+    st = dollar(st, pkey)
     st = contiguity(st, pkey)
     st = if PrologEx.has_property?(st.db, pkey, :multifile), do: remember_base(st, pkey), else: st
 
