@@ -61,7 +61,8 @@
                        concurrent_forall/3,
                        concurrent_findall/3,
                        first_solution/3,
-                       concurrent_child/2]).
+                       concurrent_child/2,
+                       concurrent_child_path/1]).
 
 %% concurrent_child(-I, -N)
 %
@@ -73,6 +74,15 @@
 % numlist(1, N, Is), concurrent_maplist(G, Is, Xs).
 concurrent_child(I, N) :-
     '$conc_child'(I, N).
+
+%% concurrent_child_path(-Path)
+%
+% Path ist die Kette der Aufrufe als Liste von Paaren I-N, der innerste
+% zuerst: concurrent_child(I, N) ist concurrent_child_path([I-N|_]).
+% Außerhalb jedes Kinds ist Path = []; length(Path, D) ist also die
+% Schachtelungstiefe.
+concurrent_child_path(Path) :-
+    '$conc_child_path'(Path).
 
 :- use_module(library(lists)).
 :- use_module(library(error)).

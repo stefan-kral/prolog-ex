@@ -44,6 +44,13 @@ defmodule PrologEx.Builtins.Concurrent do
     end
   end
 
+  # concurrent_child_path(-Path): [I-N, ...], innerster Aufruf zuerst;
+  # außerhalb jedes Kinds []
+  defbuiltin "$conc_child_path", [p] do
+    path = for {i, n} <- Process.get(:conc_path, []), do: mk("-", [i, n])
+    {:unify, [{p, path}]}
+  end
+
   defbuiltin "$conc_run", [jobs, mode, max, deadline, budget, mem, r] do
     s = subst()
     jobs = for j <- PrologEx.Builtins.Lists.items(jobs, s), do: PrologEx.resolve(j, s)
@@ -345,6 +352,9 @@ defmodule PrologEx.Builtins.Concurrent do
     parent = self()
     base = Process.get(:conc_seed)
     total = Process.get(:conc_total)
+    # Kette der Aufrufe, innerster zuerst (ist der Aufrufer selbst ein Kind,
+    # steht seine schon hier)
+    path = [{i + 1, total} | Process.get(:conc_path, [])]
 
     pid =
       spawn_link(fn ->
@@ -354,6 +364,7 @@ defmodule PrologEx.Builtins.Concurrent do
         PrologEx.Effects.mark_child!()
         # wer bin ich: Position (1-basiert) und Anzahl (concurrent_child/2)
         Process.put(:conc_child, {i + 1, total})
+        Process.put(:conc_path, path)
         # Ausgabe in einen eigenen Puffer (gehört dem Bereich des Kinds)
         out = PrologEx.Stream.open_memory_out(1)
         PrologEx.Stream.set_output(out)

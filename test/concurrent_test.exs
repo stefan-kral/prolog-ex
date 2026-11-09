@@ -278,6 +278,17 @@ defmodule PrologEx.ConcurrentTest do
 
     # außerhalb eines Kinds: scheitert
     assert ask(c, "concurrent_child(_, _)") == []
+
+    # die ganze Kette, innerster zuerst; außerhalb []
+    assert ask(
+             c,
+             ~S"concurrent_maplist(\_^P^concurrent_maplist(\_^Q^concurrent_child_path(Q), [x, y], P), [a, b], Ps)"
+           ) == ["Ps = [[[1-2,1-2],[2-2,1-2]],[[1-2,2-2],[2-2,2-2]]]"]
+
+    assert ask(c, ~S"concurrent_maplist(\_^P^concurrent_child_path(P), [a], Ps)") ==
+             ["Ps = [[1-1]]"]
+
+    assert ask(c, "concurrent_child_path(P)") == ["P = []"]
   end
 
   test "Brüche reisen zu den Kindern und zurück", c do
@@ -325,8 +336,9 @@ defmodule PrologEx.ConcurrentTest do
 
   test "first_solution/3: Ausgabe des Gewinners; output(all) zeigt die übrigen auf user_error",
        c do
+    # der Gewinner rechnet etwas, damit Ziel 1 schon geschrieben hat
     q =
-      ~S|with_output_to(atom(A), first_solution(X, [(write(a1), repeat, fail), (write(b1), X = b), (write(c1), fail)], [on_fail(continue), output(all)]))|
+      ~S|with_output_to(atom(A), first_solution(X, [(write(a1), repeat, fail), (write(b1), numlist(1, 200000, L), sum_list(L, _), X = b), (write(c1), fail)], [on_fail(continue), output(all)]))|
 
     {[ans], err} = with_err(fn -> ask(c, q) end)
     assert ans == "A = b1, X = b"
