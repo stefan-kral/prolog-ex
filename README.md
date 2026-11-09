@@ -727,6 +727,38 @@ ist jeweils am Dateianfang vermerkt.
     `1.0e-6` wie Scryer (`3.14159265` → `355r113`).
   - `rational_numerator_denominator(+R, -N, -D)`: wie `rational/3` (für
     eine Ganzzahl `D = 1`; Scryer scheitert dort).
+* `library(stats)` (eigene): beschreibende Statistik über Zahlenlisten,
+  Umfang wie SICStus' `library(statistics)` plus Quantile und
+  Rangkorrelation wie Logtalk (der Name `statistics` ist durch
+  `statistics/0,2` belegt).
+  - Lage: `mean/2`, `weighted_mean/3`, `geometric_mean/2`,
+    `harmonic_mean/2`, `trimmed_mean/3`, `median/2` (gerade Anzahl: Mittel
+    der beiden mittleren; SICStus nimmt den kleineren), `modes/2`.
+  - Quantile: `fractile/3` (nächster Rang, wie SICStus), `percentile/3`
+    (0..100, linear interpoliert wie R/NumPy), `quartiles/4`,
+    `interquartile_range/2`.
+  - Streuung: `min/2`, `max/2`, `min_max/3`, `range/2`,
+    `sample_variance/2` (n−1), `population_variance/2` (n),
+    `weighted_variance/3`, `sample_standard_deviation/2`,
+    `population_standard_deviation/2`, `standard_error/2`,
+    `coefficient_of_variation/2`, `mean_deviation/2`,
+    `median_deviation/2`.
+  - Form: `central_moment/3`, `skewness/2`, `kurtosis/2` (Exzess).
+  - Zusammenhang: `sample_covariance/3`, `population_covariance/3`,
+    `correlation/3` (Pearson), `rank_correlation/3` (Spearman, gemittelte
+    Ränge bei Gleichstand).
+  - Sonst: `z_normalization/2`, `min_max_normalization/2`,
+    `frequency_distribution/2`.
+
+  Ohne Floats in der Liste rechnet alles exakt mit Brüchen
+  (`mean([1,2,2], M)` gibt `5r3`, `sample_variance([2,4,4,4,5,5,7,9], V)`
+  gibt `32r7`); Wurzeln, Logarithmen und was davon abhängt
+  (Standardabweichung, Schiefe, Korrelation, geometrisches Mittel,
+  z-Normierung) sind Floats. Mit Floats: Summen nach Neumaier, Varianz und
+  Momente in zwei Durchgängen um das Mittel – numerisch stabil
+  (`sample_variance([1.0e9, 1.0e9+1, 1.0e9+2])` gibt `1.0`). Undefiniertes
+  (leere Liste, `sample_*` mit einem Wert, Varianz 0 bei Schiefe oder
+  Korrelation) gibt `evaluation_error(undefined)`.
 * `library(debug)` (BSD-Lizenz, unverändert): `* G` (Ziel
   wegverallgemeinern), `$ G` und `$- G` (Aufruf und Ausnahmen mit
   `portray_clause/1` zeigen).
