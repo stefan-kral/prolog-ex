@@ -2398,7 +2398,7 @@ beendet werden, ohne etwas halb getan zu haben.
 | `concurrent(N, Goals, Opts)` | alle Ziele, höchstens N gleichzeitig; Bindungen werden zusammengeführt |
 | `concurrent_forall(Cond, Action[, [workers(N)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
-| `first_solution(X, Goals, [on_fail(stop\|continue)])` | der Erste gewinnt, die anderen werden beendet |
+| `first_solution(X, Goals, [on_fail(stop\|continue), output(winner\|all)])` | der Erste gewinnt, die anderen werden beendet |
 
 * **Ausnahmen:** wirft ein Kind – auch den Seiteneffekt-Fehler
   `permission_error(perform, side_effect, G)` –, werden alle anderen sofort
@@ -2414,7 +2414,24 @@ beendet werden, ohne etwas halb getan zu haben.
   zyklische Terme: `representation_error(cyclic_term)`.
 * Teilen Ziele Variablen, rechnet jedes auf seiner Kopie; erst das
   Zusammenführen prüft, ob es passt.
-* Kein memo/tabling in den Kindern (das sind Seiteneffekte).
+* **memo/tabling und `b_setval/2`** sind in den Kindern erlaubt: das Kind
+  hat Kopien der Tabellen und globalen Variablen des Aufrufers, Neues
+  verschwindet mit ihm (der Aufrufer profitiert also nicht davon).
+  `nb_setval/2`, `assertz/1` & Co., Flags, `op/3` und `gensym/2` bleiben
+  verboten: wer sie schreibt, meint meist eine Wirkung über das Kind
+  hinaus. Ein innerer `call_with_no_side_effects/1` im Kind bleibt streng.
+* **Ausgabe:** jedes Kind schreibt in einen eigenen Puffer (die aktuelle
+  Ausgabe; andere Streams wie `user_error` bleiben verboten). Ausgegeben
+  wird beim Aufrufer, wenn alles entschieden ist: nach Erfolg alle Puffer
+  in der Reihenfolge der Ziele – wie bei `maplist` nacheinander, unabhängig
+  vom Scheduler –, bei `first_solution/3` nur der des Gewinners; bei
+  Scheitern oder Ausnahme nichts. Ein beendetes Kind hat also nichts
+  ausgegeben. Zum Debuggen gibt `first_solution/3` mit `output(all)` die
+  übrigen zusätzlich auf `user_error` aus, je mit Kopfzeile
+  (`% Ziel 2: abgebrochen | gescheitert | Ausnahme`, bei abgebrochenen
+  das bis dahin Geschriebene), auch wenn es scheitert oder wirft. Im
+  Bereich ohne Seiteneffekte geht die Ausgabe nur in einen Stream des
+  Bereichs (`with_output_to/2`).
 * **Zufall** ist in den Kindern erlaubt: jedes Kind hat einen eigenen
   Generator, der mit ihm verschwindet. Die Startwerte kommen aus dem
   Generator des Aufrufers (eine Zahl je Aufruf, Kind i bekommt Startwert

@@ -22,7 +22,16 @@ defmodule PrologEx.ConcurrentTest do
   :- use_module(library(time)).
   :- use_module(library(iso_ext)).
   :- use_module(library(random)).
+  :- use_module(library(memo)).
+  :- use_module(library(tabling)).
+  :- use_module(library(swi), [b_setval/2, b_getval/2, nb_setval/2, with_output_to/2]).
   :- dynamic(f/1).
+  :- memo mfib/2.
+  mfib(N, F) :- N < 2 -> F = N ; N1 is N-1, N2 is N-2, mfib(N1, F1), mfib(N2, F2), F is F1+F2.
+  :- table path/2.
+  edge(a, b). edge(b, c). edge(c, a).
+  path(X, Y) :- edge(X, Y).
+  path(X, Y) :- path(X, Z), edge(Z, Y).
   rnd(_, X) :- random_between(1, 1000000000, X).
   sq(X, Y) :- Y is X * X.
   fib(0, 0).
@@ -226,6 +235,114 @@ defmodule PrologEx.ConcurrentTest do
   test "Ausgabe in eigene Speicher-Streams im Kind", c do
     assert ask(c, ~S|concurrent_maplist(\X^A^format(atom(A), "<~w>", [X]), [a, b], As)|) ==
              ["As = ['<a>','<b>']"]
+  end
+
+  test "memo, tabling und b_setval/2 im Kind (Kopien, die mit ihm verschwinden)", c do
+    assert ask(c, ~S"concurrent_maplist(\N^F^mfib(N, F), [80, 90], Fs)") ==
+             ["Fs = [23416728348467685,2880067194370816120]"]
+
+    assert ask(c, "concurrent_findall(Y, [path(a, Y)], [B]), msort(B, S)") |> hd() =~
+             ~S|S = "abc"|
+
+    assert ask(c, ~S"concurrent_maplist(\X^(b_setval(k, X), b_getval(k, Y), Y == X), [1, 2])") ==
+             ["true"]
+
+    # nb_setval/2 bleibt verboten (gemeint ist eine Wirkung über das Kind hinaus)
+    [e] = ask(c, ~S"catch(concurrent_maplist(\X^nb_setval(k, X), [1]), error(E, _), true)")
+    assert e =~ "permission_error(perform,side_effect,nb_setval(k,1))"
+    # ein innerer Bereich im Kind bleibt streng
+    [e] =
+      ask(
+        c,
+        ~S"catch(concurrent_maplist(\N^F^call_with_no_side_effects(mfib(N, F)), [5], _), error(E, _), true)"
+      )
+
+    assert e =~ "permission_error(perform,side_effect"
+  end
+
+  test "Ausgabe der Kinder: gepuffert, nach Erfolg in der Reihenfolge der Ziele", c do
+    assert ask(
+             c,
+             ~S|with_output_to(atom(A), concurrent_maplist(\X^(format("<~w>", [X])), [3, 1, 2]))|
+           ) == ["A = '<3><1><2>'"]
+
+    # bei Scheitern oder Ausnahme: nichts
+    assert ask(
+             c,
+             ~S|with_output_to(atom(A), \+ concurrent_maplist(\X^(write(X), X < 2), [1, 2, 3]))|
+           ) == ["A = ''"]
+
+    assert ask(
+             c,
+             ~S|with_output_to(atom(A), catch(concurrent_maplist(\X^(write(X), X > 0), [1, a]), _, true))|
+           ) == ["A = ''"]
+
+    # andere Streams bleiben verboten
+    [e] =
+      ask(c, ~S|catch(concurrent_maplist(\X^write(user_error, X), [1]), error(E, _), true)|)
+
+    assert e =~ "permission_error(perform,side_effect,write(user_error,1))"
+
+    # im Bereich ohne Seiteneffekte nur in einen Stream des Bereichs
+    [e] =
+      ask(
+        c,
+        ~S|catch(call_with_no_side_effects(concurrent_maplist(\X^write(X), [1])), error(E, _), true)|
+      )
+
+    assert e =~ "permission_error(perform,side_effect,write('1'))"
+
+    assert ask(
+             c,
+             ~S|call_with_no_side_effects(with_output_to(atom(A), concurrent_maplist(\X^write(X), [1, 2])))|
+           ) == ["A = '12'"]
+  end
+
+  test "first_solution/3: Ausgabe des Gewinners; output(all) zeigt die übrigen auf user_error",
+       c do
+    q =
+      ~S|with_output_to(atom(A), first_solution(X, [(write(a1), repeat, fail), (write(b1), X = b), (write(c1), fail)], [on_fail(continue), output(all)]))|
+
+    {[ans], err} = with_err(fn -> ask(c, q) end)
+    assert ans == "A = b1, X = b"
+    assert err =~ "% Ziel 1: abgebrochen\na1\n"
+    assert err =~ "% Ziel 3: gescheitert\nc1\n"
+    refute err =~ "b1"
+
+    # ohne output(all): nur der Gewinner
+    {[ans], err} =
+      with_err(fn ->
+        ask(
+          c,
+          ~S|with_output_to(atom(A), first_solution(X, [(write(a1), repeat, fail), (write(b1), X = b)], []))|
+        )
+      end)
+
+    assert ans == "A = b1, X = b"
+    refute err =~ "Ziel"
+
+    # alle gescheitert: mit output(all) trotzdem alles
+    {[], err} =
+      with_err(fn ->
+        ask(
+          c,
+          ~S|first_solution(_, [(write(f1), fail), (write(f2), fail)], [on_fail(continue), output(all)])|
+        )
+      end)
+
+    assert err =~ "% Ziel 1: gescheitert\nf1\n% Ziel 2: gescheitert\nf2\n"
+
+    [e] = ask(c, "catch(first_solution(X, [X = a], [output(foo)]), error(E, _), true)")
+    assert e =~ "domain_error(output,foo)"
+  end
+
+  defp with_err(f) do
+    me = self()
+    err = ExUnit.CaptureIO.capture_io(:stderr, fn -> send(me, {:res, f.()}) end)
+
+    receive do
+      {:res, r} -> {r, err}
+    end
   end
 
   test "parallel schneller als nacheinander (bei mehr als einem Scheduler)", c do

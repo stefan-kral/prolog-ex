@@ -51,8 +51,34 @@ defmodule PrologEx.Builtins.Concurrent do
     # Zufall in den Kindern: Startwerte aus dem Generator des Aufrufers (im
     # Bereich ohne Seiteneffekte nur angesehen, nicht weitergeschaltet)
     Process.put(:conc_seed, PrologEx.Builtins.Random.split_base(PrologEx.Effects.random_ok?(s)))
+    Process.delete(:conc_prints)
 
-    {:unify, [{r, run(jobs, mode, max, limits)}]}
+    try do
+      res = run(jobs, mode, max, limits)
+      emit(s)
+      {:unify, [{r, res}]}
+    rescue
+      e in Error ->
+        emit(s)
+        reraise e, __STACKTRACE__
+    end
+  end
+
+  # gepufferte Ausgabe der Kinder hier ausgeben (siehe conclude/4); im
+  # Bereich ohne Seiteneffekte nur in einen Stream des Bereichs
+  defp emit(s) do
+    for {kind, text} <- Process.delete(:conc_prints) || [] do
+      {id, name, arity, args} =
+        case kind do
+          :out -> {PrologEx.Stream.current_output(), "write", 1, [a(text)]}
+          :err -> {2, "write", 2, [a("user_error"), a(text)]}
+        end
+
+      PrologEx.Effects.nse_check!(s, "io", name, arity, fn -> mk(name, args) end, args)
+      PrologEx.Stream.put_text(id, text)
+    end
+
+    :ok
   end
 
   defp opt(t, s) do
@@ -64,11 +90,13 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp mode!({:atom, "once"}), do: :once
   defp mode!({:atom, "findall"}), do: :findall
-  defp mode!({:struct, "first", [{:atom, on_fail}]}), do: {:first, on_fail}
+
+  defp mode!({:struct, "first", [{:atom, on_fail}, {:atom, output}]}),
+    do: {:first, on_fail, output}
 
   # --- Elternprozess ----------------------------------------------------------
 
-  defp run([], {:first, _}, _max, _limits), do: a("fail")
+  defp run([], {:first, _, _}, _max, _limits), do: a("fail")
   defp run([], _mode, _max, _limits), do: mk("ok", [[]])
 
   defp run(jobs, mode, max, {deadline, _, _} = limits) do
@@ -91,31 +119,39 @@ defmodule PrologEx.Builtins.Concurrent do
   # results: Index -> Ergebnis
   defp loop(ref, running, waiting, mode, limits, state, deadline, results) do
     if map_size(running) == 0 do
-      finish(mode, results)
+      res = finish(mode, results)
+      conclude(ref, mode, running, if(res == a("fail"), do: nil, else: :all))
+      res
     else
       timeout = if deadline, do: max(div(deadline - now_us(), 1000), 0), else: :infinity
 
       receive do
-        {:conc, ^ref, pid, i, res} ->
+        {:conc, ^ref, pid, i, res, text} ->
           {mon, mons} = Map.pop(Process.get({:conc_mon, ref}, %{}), pid)
           if mon, do: Process.demonitor(mon, [:flush])
           Process.put({:conc_mon, ref}, mons)
           running = Map.delete(running, pid)
+          oc = outcome(res, mode)
+          outs = Process.get({:conc_outs, ref}, %{})
+          Process.put({:conc_outs, ref}, Map.put(outs, i, {status(oc), text}))
 
-          case {outcome(res, mode), mode} do
+          case {oc, mode} do
             {{:error, ball}, _} ->
+              conclude(ref, mode, running, nil)
               Error.throw!(ball)
 
             {:fail, :once} ->
               a("fail")
 
-            {:fail, {:first, "stop"}} ->
+            {:fail, {:first, "stop", _}} ->
+              conclude(ref, mode, running, nil)
               a("fail")
 
             {:fail, _} ->
               next(ref, running, waiting, mode, limits, state, deadline, results)
 
-            {{:ok, t}, {:first, _}} ->
+            {{:ok, t}, {:first, _, _}} ->
+              conclude(ref, mode, running, i)
               mk("ok", [[t]])
 
             {{:ok, t}, _} ->
@@ -126,6 +162,8 @@ defmodule PrologEx.Builtins.Concurrent do
         {:DOWN, _mon, :process, pid, reason} when is_map_key(running, pid) ->
           # (ein Kind, das normal endet, hat seine Nachricht vorher geschickt;
           # hier also ein Absturz)
+          conclude(ref, mode, running, nil)
+
           Error.throw!(
             mk("error", [
               mk("system_error", [mk("concurrent_child", [a(inspect(reason, limit: 5))])]),
@@ -134,6 +172,7 @@ defmodule PrologEx.Builtins.Concurrent do
           )
       after
         timeout ->
+          conclude(ref, mode, running, nil)
           Error.throw!(a("time_limit_exceeded"))
       end
     end
@@ -152,7 +191,7 @@ defmodule PrologEx.Builtins.Concurrent do
     loop(ref, running, waiting, mode, limits, state, deadline, results)
   end
 
-  defp finish({:first, _}, _results), do: a("fail")
+  defp finish({:first, _, _}, _results), do: a("fail")
 
   defp finish(_mode, results) do
     l = results |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
@@ -171,6 +210,95 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp outcome({:struct, "error", [e]}, _mode), do: {:error, e}
 
+  # --- gepufferte Ausgabe ------------------------------------------------------
+  #
+  # Jedes Kind schreibt in einen eigenen Speicher-Stream. Ausgegeben wird
+  # beim Aufrufer, wenn alles entschieden ist (emit/1): bei once/findall nach
+  # Erfolg alle in der Reihenfolge der Ziele, bei first die des Gewinners;
+  # mit output(all) dazu die übrigen (auch abgebrochene: was sie bis dahin
+  # geschrieben hatten) auf user_error, je mit einer Kopfzeile.
+
+  defp status({:ok, _}), do: :ok
+  defp status(:fail), do: :fail
+  defp status({:error, _}), do: :error
+
+  defp conclude(ref, mode, running, winner) do
+    outs = Process.get({:conc_outs, ref}, %{})
+    Process.delete({:conc_outs, ref})
+
+    prints =
+      case {mode, winner} do
+        {{:first, _, out}, _} ->
+          w = if winner, do: [{:out, elem(Map.fetch!(outs, winner), 1)}], else: []
+          if out == "all", do: w ++ others(ref, mode, outs, running, winner), else: w
+
+        {_, :all} ->
+          for {_i, {_, text}} <- Enum.sort(outs), do: {:out, text}
+
+        _ ->
+          []
+      end
+
+    Process.put(:conc_prints, Enum.reject(prints, fn {_, t} -> t == "" end))
+  end
+
+  defp others(ref, mode, outs, running, winner) do
+    done = for {i, {st, text}} <- outs, i != winner, do: {i, st, text}
+
+    cut =
+      for {pid, i} <- running do
+        {st, text} = final(ref, mode, pid)
+        {i, st, text}
+      end
+
+    for {i, st, text} <- Enum.sort(done ++ cut), text != "" do
+      label =
+        case st do
+          :ok -> "fertig"
+          :fail -> "gescheitert"
+          :error -> "Ausnahme"
+          :killed -> "abgebrochen"
+        end
+
+      nl = if String.ends_with?(text, "\n"), do: "", else: "\n"
+      {:err, "% Ziel #{i + 1}: #{label}\n" <> text <> nl}
+    end
+  end
+
+  # ein noch nicht abgeholtes Kind: fertig (Nachricht wartet schon), sonst
+  # was es bisher geschrieben hat (aus seinem Prozess-Wörterbuch, vor dem
+  # Beenden)
+  defp final(ref, mode, pid) do
+    receive do
+      {:conc, ^ref, ^pid, _i, res, text} -> {status(outcome(res, mode)), text}
+    after
+      0 ->
+        case partial(pid) do
+          nil ->
+            # eben beendet: seine Nachricht ist vor dem Ende geschickt
+            receive do
+              {:conc, ^ref, ^pid, _i, res, text} -> {status(outcome(res, mode)), text}
+            after
+              0 -> {:killed, ""}
+            end
+
+          text ->
+            {:killed, text}
+        end
+    end
+  end
+
+  defp partial(pid) do
+    with {:dictionary, d} <- Process.info(pid, :dictionary),
+         {:conc_out, id} <- List.keyfind(d, :conc_out, 0),
+         {_, %{buf: buf}} <- List.keyfind(d, {:prolog_ex_streams, id}, 0) do
+      IO.iodata_to_binary(buf)
+    else
+      nil -> nil
+      _ -> ""
+    end
+  end
+
   defp kill_all(ref) do
     for pid <- Process.get({:conc_pids, ref}, []) do
       Process.unlink(pid)
@@ -180,12 +308,13 @@ defmodule PrologEx.Builtins.Concurrent do
     for {_pid, mon} <- Process.get({:conc_mon, ref}, %{}), do: Process.demonitor(mon, [:flush])
     Process.delete({:conc_pids, ref})
     Process.delete({:conc_mon, ref})
+    Process.delete({:conc_outs, ref})
     flush(ref)
   end
 
   defp flush(ref) do
     receive do
-      {:conc, ^ref, _, _, _} -> flush(ref)
+      {:conc, ^ref, _, _, _, _} -> flush(ref)
     after
       0 -> :ok
     end
@@ -211,8 +340,12 @@ defmodule PrologEx.Builtins.Concurrent do
         # eigener Generator; Zufall ist im Kind erlaubt (PrologEx.Effects)
         PrologEx.Builtins.Random.seed_child(base, i)
         PrologEx.Effects.mark_child!()
+        # Ausgabe in einen eigenen Puffer (gehört dem Bereich des Kinds)
+        out = PrologEx.Stream.open_memory_out(1)
+        PrologEx.Stream.set_output(out)
+        Process.put(:conc_out, out)
         res = child(t, g, mode, limits)
-        send(parent, {:conc, ref, self(), i, res})
+        send(parent, {:conc, ref, self(), i, res, PrologEx.Stream.memory_text(out)})
       end)
 
     mon = Process.monitor(pid)

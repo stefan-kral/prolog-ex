@@ -86,9 +86,10 @@ defmodule PrologEx.Effects do
   # hat und wieder schließt (with_output_to/2, format/3 in eine Senke) –
   # nur auf derselben Tiefe, ein innerer Bereich darf nicht nach außen
   # schreiben.
-  # random: in einem Kind von library(concurrent) gehört der Generator dem
-  # Kind (eigener Startwert, verschwindet mit ihm) – auf der Tiefe des
-  # Kinds (1).
+  # random, memo, tabling, b_setval/2: in einem Kind von library(concurrent)
+  # gehören Generator, Tabellen und globale Variablen dem Kind (Kopien, die
+  # mit ihm verschwinden) – auf der Tiefe des Kinds (1); ein innerer
+  # Bereich im Kind bleibt streng.
 
   @child :prolog_ex_conc_child
 
@@ -99,8 +100,10 @@ defmodule PrologEx.Effects do
   def nse_depth(subst), do: Map.get(subst, @nse, 0)
 
   @doc "Darf hier Zufall gezogen werden (der Generator ändert sich)?"
-  def random_ok?(subst),
-    do: not is_map_key(subst, @nse) or (Process.get(@child) == true and nse_depth(subst) == 1)
+  def random_ok?(subst), do: not is_map_key(subst, @nse) or child_local?(subst)
+
+  # im Kind von library(concurrent), auf seiner eigenen Tiefe
+  defp child_local?(subst), do: Process.get(@child) == true and nse_depth(subst) == 1
 
   # Ausgabe auf den aktuellen Ausgabestream
   @out_current MapSet.new(
@@ -114,6 +117,11 @@ defmodule PrologEx.Effects do
   @wot MapSet.new(~w($wot_sink/1 $wot_open/2 $wot_restore/2 $wot_close/3))
 
   defp allowed?("random", _name, _arity, _args, subst), do: random_ok?(subst)
+
+  defp allowed?(cat, _name, _arity, _args, subst) when cat in ["memo", "tabling"],
+    do: child_local?(subst)
+
+  defp allowed?("state", "b_setval", 2, _args, subst), do: child_local?(subst)
 
   defp allowed?("io", name, arity, args, subst) do
     pi = "#{name}/#{arity}"
