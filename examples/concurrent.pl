@@ -136,11 +136,11 @@ vorteile :-
 
 grenzen :-
     titel('(3) Grenzen'),
-    numlist(1, 500, L),
+    numlist(1, 5000, L),
     ms(concurrent_maplist(quadrat, L, _), Tp),
     ms(maplist(quadrat, L, _), Ts),
-    format("Zu feine Körnung: 500 x quadrat parallel ~w ms, nacheinander ~w ms~n", [Tp, Ts]),
-    format("    (je Element ein Prozess mit einer Kopie des Zustands)~n"),
+    format("Zu feine Körnung: 5000 x quadrat parallel ~w ms, nacheinander ~w ms~n", [Tp, Ts]),
+    format("    (je Element ein Prozess, einige 10 µs; der Zustand selbst wird geteilt)~n"),
     zeige('Keine Wirkung nach außen: assertz im Kind', gelungen,
           concurrent_maplist(\X^assertz(log(X)), [1])),
     zeige('... auch nb_setval/2 (gemeint ist eine Wirkung über das Kind hinaus)', gelungen,

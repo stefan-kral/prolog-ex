@@ -119,18 +119,25 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run(jobs, mode, max, {deadline, _, _} = limits) do
     ref = make_ref()
-    state = child_state()
+    # der Zustand einmal je Aufruf als persistent_term: die Kinder lesen ihn,
+    # ohne ihn in ihren Heap zu kopieren (eine Kopie je Kind kostete bei
+    # 2 MiB Datenbank rund 2 ms, so sind es ~30 µs); am Ende gelöscht
+    state = {:prolog_ex_conc_state, ref}
+    :persistent_term.put(state, child_state())
     indexed = Enum.with_index(jobs)
     {start, waiting} = Enum.split(indexed, max)
 
-    running =
-      Map.new(start, fn {job, i} -> {spawn_child(ref, i, job, mode, limits, state), i} end)
-
     try do
+      running =
+        Map.new(start, fn {job, i} -> {spawn_child(ref, i, job, mode, limits, state), i} end)
+
       loop(ref, running, waiting, mode, limits, state, deadline, %{})
     after
-      # alle noch laufenden beenden (auch bei Ausnahmen hier)
+      # alle noch laufenden beenden (auch bei Ausnahmen hier), dann den
+      # geteilten Zustand freigeben (die Kinder sind entkoppelt: eines, das
+      # ihn noch zu lesen versucht, stirbt allein)
       kill_all(ref)
+      :persistent_term.erase(state)
     end
   end
 
@@ -373,7 +380,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
     pid =
       spawn_link(fn ->
-        Enum.each(state, fn {k, v} -> Process.put(k, v) end)
+        Enum.each(:persistent_term.get(state), fn {k, v} -> Process.put(k, v) end)
         # eigener Generator; Zufall ist im Kind erlaubt (PrologEx.Effects)
         PrologEx.Builtins.Random.seed_child(base, i)
         PrologEx.Effects.mark_child!()

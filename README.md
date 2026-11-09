@@ -2467,6 +2467,14 @@ jedes Kind läuft mit einer Kopie des Interpreter-Zustands, super-strikt ohne
 Seiteneffekte. Darum ist die Reihenfolge egal, und ein Kind kann jederzeit
 beendet werden, ohne etwas halb getan zu haben.
 
+Kosten: Der Zustand (vor allem die Klauseldatenbank samt Bibliotheken, leicht
+einige MiB) liegt je Aufruf einmal als `persistent_term`; die Kinder lesen
+ihn, ohne ihn in ihren Heap zu kopieren (die BEAM kopiert sonst alles, was
+ein Prozess einem anderen gibt). Ein Aufruf kostet damit einmal rund 2 ms
+(Ablegen und Freigeben), jedes Kind einige 10 µs – vorher kostete jedes
+Kind seine eigene Kopie, rund 2 ms. Lohnend ist Parallelität also ab etwa
+einer Millisekunde Arbeit je Ziel.
+
 ```prolog
 ?- use_module(library(concurrent)), use_module(library(iso_ext)).
 ?- concurrent_maplist(succ, [1,2,3], Ys).           % Ys = [2,3,4]
