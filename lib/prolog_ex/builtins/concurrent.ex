@@ -51,6 +51,20 @@ defmodule PrologEx.Builtins.Concurrent do
     {:unify, [{p, path}]}
   end
 
+  # im Kind, vor dem Kopieren des Ergebnisses: keine attributierten
+  # Variablen darin (ihre Bedingungen gingen verloren), sonst
+  # representation_error; atomare Ergebnisse sofort
+  defbuiltin "$conc_no_attvars", [t] do
+    s = subst()
+
+    case PrologEx.Store.walk(t, s) do
+      x when is_number(x) or x == [] -> true
+      {:atom, _} -> true
+      {:rat, _, _} -> true
+      _ -> if PrologEx.term_attvars(t, s) == [], do: true, else: Error.throw!(attv_error())
+    end
+  end
+
   defbuiltin "$conc_run", [jobs, mode, max, deadline, budget, mem, r] do
     s = subst()
     jobs = for j <- PrologEx.Builtins.Lists.items(jobs, s), do: PrologEx.resolve(j, s)
@@ -472,57 +486,14 @@ defmodule PrologEx.Builtins.Concurrent do
   # findall(T, '$nse_call'(G'), L) mit den Grenzen; G' = once(G) außer bei
   # findall; Ausnahmen als error(E)
   defp child(t, g, mode, {deadline, budget, mem}) do
-    g = if mode == :findall, do: g, else: mk("once", [g])
-    g = mk("$nse_call", [g])
-    # Bedingungen auf dem Ergebnis gingen beim Kopieren verloren: Fehler
-    vs = fresh_var()
-
-    g =
-      PrologEx.conj([
-        g,
-        mk(":", [a("swi"), mk("term_attvars", [t, vs])]),
-        mk(";", [
-          mk("->", [mk("==", [vs, []]), a("true")]),
-          mk("throw", [attv_error()])
-        ])
-      ])
-
-    l = fresh_var()
-    goal = mk("findall", [t, g, l])
-
-    goal =
-      if mem,
-        do: mk(":", [a("iso_ext"), mk("call_with_memory_limit", [goal, mem])]),
-        else: goal
-
-    {goal, lr} =
-      if budget do
-        lr = fresh_var()
-        {mk("call_with_inference_limit", [goal, budget, lr]), lr}
-      else
-        {goal, nil}
-      end
-
-    goal =
-      if deadline do
-        us = max(deadline - now_us(), 1)
-        mk("$call_with_timeout", [goal, us, a("cumulative"), a("throw")])
-      else
-        goal
-      end
-
-    e = fresh_var()
+    us = if deadline, do: max(deadline - now_us(), 1), else: a("none")
+    m = if mode == :findall, do: a("findall"), else: a("once")
     out = {:var, {"$conc", PrologEx.Vars.next()}}
 
-    # catch((G -> R = ok(L) ; R = ok([])), E, R = error(E))
     body =
-      mk("catch", [
-        mk(";", [
-          mk("->", [goal, limit_check(lr, acyclic_check(l, mk("=", [out, mk("ok", [l])])))]),
-          mk("=", [out, mk("ok", [[]])])
-        ]),
-        e,
-        mk("=", [out, mk("error", [e])])
+      mk(":", [
+        a("concurrent"),
+        mk("$conc_job", [t, g, m, us, budget || a("none"), mem || a("none"), out])
       ])
 
     try do
@@ -545,26 +516,6 @@ defmodule PrologEx.Builtins.Concurrent do
   # call_with_inference_limit/3 meldet inference_limit_exceeded als
   # Ergebnis: dann als Ausnahme weiter (die Grenze des Elternprozesses
   # fängt sie)
-  defp limit_check(nil, then), do: then
-
-  defp limit_check(lr, then) do
-    mk(";", [
-      mk("->", [
-        mk("==", [lr, a("inference_limit_exceeded")]),
-        mk("throw", [a("inference_limit_exceeded")])
-      ]),
-      then
-    ])
-  end
-
-  # Ergebnisse reisen als aufgelöste Terme: ein Zyklus ginge verloren
-  defp acyclic_check(l, then) do
-    cyc =
-      mk("error", [mk("representation_error", [a("cyclic_term")]), fresh_var()])
-
-    mk(";", [mk("->", [mk("acyclic_term", [l]), then]), mk("throw", [cyc])])
-  end
-
   defp now_us, do: System.monotonic_time(:microsecond)
 
   # --- attributierte Variablen ------------------------------------------------

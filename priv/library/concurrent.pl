@@ -259,3 +259,41 @@ run(Jobs, Mode, Max, R) :-
     '$conc_limits'(D, B, Mem),
     '$conc_run'(Jobs, Mode, Max, D, B, Mem, R0),
     R = R0.
+
+% --- ein Element im Arbeiter ------------------------------------------------
+%
+% '$conc_job'(T, G, Mode, Deadline, Budget, Mem, R): findall(T, G') im
+% Bereich ohne Seiteneffekte (G' = once(G) außer bei findall), ohne
+% attributierte Variablen und Zyklen im Ergebnis; R = ok(L) | error(E).
+% Grenzen: none oder Mikrosekunden / Inferenzen / Bytes. Als Klauseln
+% (beim Laden übersetzt), damit nicht jedes Element seine Hülle neu übersetzt.
+'$conc_job'(T, G, Mode, D, B, M, R) :-
+    catch('$conc_job_'(T, G, Mode, D, B, M, R), E, R = error(E)).
+
+'$conc_job_'(T, G, once, none, none, none, R) :- !,
+    (   findall(T, ('$nse_call'(once(G)), '$conc_no_attvars'(T)), L)
+    ->  '$conc_result'(L, R)
+    ;   R = ok([])
+    ).
+'$conc_job_'(T, G, findall, none, none, none, R) :- !,
+    (   findall(T, ('$nse_call'(G), '$conc_no_attvars'(T)), L)
+    ->  '$conc_result'(L, R)
+    ;   R = ok([])
+    ).
+'$conc_job_'(T, G0, Mode, D, B, M, R) :-
+    (   Mode == findall -> G1 = G0 ; G1 = once(G0) ),
+    F0 = findall(T, ('$nse_call'(G1), '$conc_no_attvars'(T)), L),
+    (   M == none -> F1 = F0 ; F1 = iso_ext:call_with_memory_limit(F0, M) ),
+    (   B == none -> F2 = F1, LR = none ; F2 = call_with_inference_limit(F1, B, LR) ),
+    (   D == none -> F3 = F2 ; F3 = '$call_with_timeout'(F2, D, cumulative, throw) ),
+    (   call(F3)
+    ->  (   LR == inference_limit_exceeded -> throw(inference_limit_exceeded) ; true ),
+        '$conc_result'(L, R)
+    ;   R = ok([])
+    ).
+
+% Ergebnisse reisen als aufgelöste Terme: ein Zyklus ginge verloren
+'$conc_result'(L, R) :-
+    (   acyclic_term(L) -> R = ok(L)
+    ;   throw(error(representation_error(cyclic_term), _))
+    ).
