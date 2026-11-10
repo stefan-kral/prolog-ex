@@ -496,7 +496,7 @@ defmodule PrologEx.Builtins.Concurrent do
     body =
       PrologEx.conj([
         # Tiefengrenzen des Aufrufers: die Ebene zählt vom Aufrufpunkt weiter
-        a("$conc_depth_enter"),
+        mk("$conc_depth_enter", [[]]),
         mk(":", [
           a("concurrent"),
           mk("$conc_job", [t, g, m, us, budget || a("none"), mem || a("none"), out])

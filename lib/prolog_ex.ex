@@ -2297,7 +2297,7 @@ defmodule PrologEx do
   # (Process :conc_depth, vom Arbeiter je Element gesetzt): seine Rahmen
   # (die :atomics für größte Ebene und "überschritten" sind geteilt, das
   # Kind schreibt direkt in die des Aufrufers) und die Ebene am Aufrufpunkt
-  defp step({:atom, "$conc_depth_enter"}, _cutb, _mod, rest, st) do
+  defp step({:struct, "$conc_depth_enter", [_]}, _cutb, _mod, rest, st) do
     st =
       case Process.get(:conc_depth) do
         {cur, frames} ->
