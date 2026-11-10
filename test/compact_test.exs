@@ -23,7 +23,14 @@ defmodule PrologEx.CompactTest do
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
-    db = Enum.reduce(["lists", "apply"], %{}, &PrologEx.use_library(&2, &1, "user"))
+
+    db =
+      Enum.reduce(
+        ["lists", "apply", "iso_ext", "swi"],
+        %{},
+        &PrologEx.use_library(&2, &1, "user")
+      )
+
     {db, []} = PrologEx.Consult.load(db, Reader.read_terms(r, @program))
     {:ok, reader: r, db: db}
   end
@@ -156,5 +163,18 @@ defmodule PrologEx.CompactTest do
     [answer] = both(c, "length(L, 5000), L = [X|_], freeze(X, true), last(L, Y), frozen(X, G).")
     assert answer =~ "G = freeze(X,user:true)"
     assert String.ends_with?(answer, ",_GJF,Y], freeze(X,true)")
+  end
+
+  # Steuerziele tragen Terme: Ziel und Cleanup von setup_call_cleanup/3
+  # nach dem Setup, die Ergebnisvariable der Inferenz- und Tiefengrenze
+  test "Variablen in Steuerzielen überleben die Kompaktierung", c do
+    assert both(c, "setup_call_cleanup((X = 1, build(300, _, [])), Y = X, Z = X).") ==
+             ["X = 1, Y = 1, Z = 1"]
+
+    assert both(c, "X = 7, call_with_inference_limit(build(300, _, []), 100000, R), Y = X.") ==
+             ["R = !, X = 7, Y = 7"]
+
+    assert both(c, "X = 7, call_with_depth_limit(build(300, _, []), 1000, R), Y = X.") ==
+             ["R = 301, X = 7, Y = 7"]
   end
 end

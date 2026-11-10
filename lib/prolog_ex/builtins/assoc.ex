@@ -87,7 +87,7 @@ defmodule PrologEx.Builtins.Assoc do
   defbuiltin "get_assoc", [key, t0, v0, t, v] do
     s = subst()
 
-    case replace(walk(key, s), t0, v, s) do
+    case replace(walk(key, s), t0, walk(v, s), s) do
       {:ok, old, new} -> {:unify, [{v0, old}, {t, new}]}
       :none -> :fail
     end
@@ -212,7 +212,7 @@ defmodule PrologEx.Builtins.Assoc do
 
   defbuiltin "put_assoc", [key, t0, val, t] do
     s = subst()
-    {new, _} = insert(t0, walk(key, s), val, s)
+    {new, _} = insert(t0, walk(key, s), walk(val, s), s)
     {:unify, [{t, new}]}
   end
 
@@ -299,7 +299,7 @@ defmodule PrologEx.Builtins.Assoc do
 
   @doc false
   # für andere Bibliotheken (clpb): put_assoc/4
-  def put_value(t, key, val, s), do: t |> insert(walk(key, s), val, s) |> elem(0)
+  def put_value(t, key, val, s), do: t |> insert(walk(key, s), walk(val, s), s) |> elem(0)
 
   # die Knoten, die wir selbst bauen, direkt (ohne Zwischentupel)
   defp lookup(key, {tag, "t", [k, v, {:atom, b}, l, r]}, s)

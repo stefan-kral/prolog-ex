@@ -43,6 +43,12 @@ Ein Prolog-Kern in Elixir:
   einem Update statt in dreien, jedes eine Kopie) – nrev, loop, between
   −3 bis −6 %, facts −10 %
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
+  Sie läuft früh (ab 256 Bindungen, danach beim Doppelten der lebenden
+  Nicht-ground-Knoten) und kostet ohne `call_nth/2`/`time/1` nichts je
+  Choice Point: nicht mehr erreichbare Zwischenstände (etwa die Bäume
+  `A0, A1, …` einer `foldl`-Schleife mit `put_assoc/4`) halten so die
+  Speicherbereinigung nicht auf – dort rund 40 % schneller, endrekursive
+  Rechenschleifen 6–18 %.
 - Geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
   Knoten eines BDDs) bearbeitet jede Operation, die Terme abläuft, nur
   einmal: Kompaktieren, Auflösen, Kopieren (`copy_term/2,3`, `findall`,

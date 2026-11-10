@@ -1526,7 +1526,7 @@ defmodule PrologEx do
   # Ein Cut entfernt alle Choice Points oberhalb von cut_barrier.
   # ---------------------------------------------------------------------
 
-  @min_threshold 4096
+  @min_threshold 256
 
   # aktuelle Ebene für call_with_depth_limit/3 (ein Eintrag der Substitution)
   @depth_key :"$depth"
@@ -4413,8 +4413,15 @@ defmodule PrologEx do
 
     # Zähler von call_nth/2 und Uhren von time/1, deren Choice Point (z. B.
     # durch einen Cut) verschwunden ist, werden nie mehr gebraucht
-    live = for cp <- st.cps, ref = counter_ref(cp), ref != nil, do: ref
-    counters = Map.take(st.counters, live)
+    # (nur, wenn es welche gibt: sonst kostete das O(Choice Points) je
+    # Kompaktierung)
+    counters =
+      if map_size(st.counters) == 0 do
+        st.counters
+      else
+        live = for cp <- st.cps, ref = counter_ref(cp), ref != nil, do: ref
+        Map.take(st.counters, live)
+      end
 
     %{
       st
@@ -4510,6 +4517,25 @@ defmodule PrologEx do
   defp compact3({:"$nth", ref, n, h}, subst, acc, d) do
     {n2, acc, changed, _} = compact3(n, subst, acc, d)
     {{:"$nth", ref, n2, h}, acc, changed, false}
+  end
+
+  # Steuerziele mit Termen darin: setup_call_cleanup/3 nach dem Setup (Ziel
+  # und Cleanup), Ergebnisvariable von call_with_inference_limit/3 und
+  # call_with_depth_limit/3
+  defp compact3({:"$scc_setup", h, g, c}, subst, acc, d) do
+    {g2, acc, cg, _} = compact3(g, subst, acc, d)
+    {c2, acc, cc, _} = compact3(c, subst, acc, d)
+    {{:"$scc_setup", h, g2, c2}, acc, cg or cc, false}
+  end
+
+  defp compact3({:"$ilimit_exit", id, n, h, r}, subst, acc, d) do
+    {r2, acc, ch, _} = compact3(r, subst, acc, d)
+    {{:"$ilimit_exit", id, n, h, r2}, acc, ch, false}
+  end
+
+  defp compact3({:"$dlimit_exit", frame, h, r}, subst, acc, d) do
+    {r2, acc, ch, _} = compact3(r, subst, acc, d)
+    {{:"$dlimit_exit", frame, h, r2}, acc, ch, false}
   end
 
   defp compact3({:var, _} = var, subst, {memo, size, attvs} = acc, d) do
