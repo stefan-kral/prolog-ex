@@ -29,6 +29,7 @@ defmodule PrologEx.Builtins.Assoc do
   use PrologEx.Builtin, module: "assoc"
   alias PrologEx.Builtins.Lists
   alias PrologEx.{Error, Order}
+  require PrologEx
 
   def meta do
     [
@@ -74,7 +75,9 @@ defmodule PrologEx.Builtins.Assoc do
   end
 
   defbuiltin "get_assoc", [key, t, val] do
-    case lookup(key, t, subst()) do
+    s = subst()
+
+    case lookup(walk(key, s), t, s) do
       {:ok, v} -> {:unify, [{val, v}]}
       :none -> :fail
     end
@@ -84,7 +87,7 @@ defmodule PrologEx.Builtins.Assoc do
   defbuiltin "get_assoc", [key, t0, v0, t, v] do
     s = subst()
 
-    case replace(key, t0, v, s) do
+    case replace(walk(key, s), t0, v, s) do
       {:ok, old, new} -> {:unify, [{v0, old}, {t, new}]}
       :none -> :fail
     end
@@ -208,12 +211,15 @@ defmodule PrologEx.Builtins.Assoc do
   # --- Ändern -----------------------------------------------------------------
 
   defbuiltin "put_assoc", [key, t0, val, t] do
-    {new, _} = insert(t0, key, val, subst())
+    s = subst()
+    {new, _} = insert(t0, walk(key, s), val, s)
     {:unify, [{t, new}]}
   end
 
   defbuiltin "del_assoc", [key, t0, val, t] do
-    case delete(t0, key, subst()) do
+    s = subst()
+
+    case delete(t0, walk(key, s), s) do
       {:ok, v, new, _} -> {:unify, [{val, v}, {t, new}]}
       :none -> :fail
     end
@@ -247,7 +253,26 @@ defmodule PrologEx.Builtins.Assoc do
 
   # --- Bäume lesen -------------------------------------------------------------
 
-  # :empty oder {K, V, Balance, L, R}; Balance als "<", "-", ">"
+  defp walk(t, s), do: PrologEx.Store.walk(t, s)
+
+  # Schlüssel vergleichen: Ganzzahlen und Atome direkt (wie Order.compare)
+  @compile {:inline, kcmp: 3}
+  defp kcmp(x, y, _s) when is_integer(x) and is_integer(y),
+    do: if(x < y, do: :lt, else: if(x > y, do: :gt, else: :eq))
+
+  defp kcmp({:atom, x}, {:atom, y}, _s),
+    do: if(x < y, do: :lt, else: if(x > y, do: :gt, else: :eq))
+
+  defp kcmp(x, y, s), do: Order.compare(x, y, s)
+
+  # :empty oder {K, V, Balance, L, R}; Balance als "<", "-", ">".
+  # Die Knoten, die wir selbst bauen, ohne Umweg
+  defp node!({:atom, "t"}, _s), do: :empty
+
+  defp node!({tag, "t", [k, v, {:atom, b}, l, r]}, _s)
+       when (tag == :gstruct or tag == :struct) and b in ["<", "-", ">"],
+       do: {k, v, b, l, r}
+
   defp node!(t, s) do
     case PrologEx.unmark_top(PrologEx.Store.walk(t, s)) do
       {:atom, "t"} ->
@@ -270,11 +295,23 @@ defmodule PrologEx.Builtins.Assoc do
 
   @doc false
   # für andere Bibliotheken (clpb): Wert zu key oder :none
-  def lookup_value(key, t, s), do: lookup(key, t, s)
+  def lookup_value(key, t, s), do: lookup(walk(key, s), t, s)
 
   @doc false
   # für andere Bibliotheken (clpb): put_assoc/4
-  def put_value(t, key, val, s), do: t |> insert(key, val, s) |> elem(0)
+  def put_value(t, key, val, s), do: t |> insert(walk(key, s), val, s) |> elem(0)
+
+  # die Knoten, die wir selbst bauen, direkt (ohne Zwischentupel)
+  defp lookup(key, {tag, "t", [k, v, {:atom, b}, l, r]}, s)
+       when (tag == :gstruct or tag == :struct) and b in ["<", "-", ">"] do
+    case kcmp(key, k, s) do
+      :eq -> {:ok, v}
+      :lt -> lookup(key, l, s)
+      :gt -> lookup(key, r, s)
+    end
+  end
+
+  defp lookup(_key, {:atom, "t"}, _s), do: :none
 
   defp lookup(key, t, s) do
     case node!(t, s) do
@@ -282,7 +319,7 @@ defmodule PrologEx.Builtins.Assoc do
         :none
 
       {k, v, _, l, r} ->
-        case Order.compare(key, k, s) do
+        case kcmp(key, k, s) do
           :eq -> {:ok, v}
           :lt -> lookup(key, l, s)
           :gt -> lookup(key, r, s)
@@ -296,7 +333,7 @@ defmodule PrologEx.Builtins.Assoc do
         :none
 
       {k, v, b, l, r} ->
-        case Order.compare(key, k, s) do
+        case kcmp(key, k, s) do
           :eq ->
             {:ok, v, node(k, nv, b, l, r)}
 
@@ -381,32 +418,53 @@ defmodule PrologEx.Builtins.Assoc do
 
   # --- Bäume bauen (SWIs Algorithmus) ------------------------------------------
 
-  defp node(k, v, b, l, r), do: mk("t", [k, v, a(b), l, r])
-  defp leaf(k, v), do: node(k, v, "-", a("t"), a("t"))
+  # wie mk/2, aber ohne Listen-Durchlauf; Balance-Atome als Literale
+  defp node(k, v, b, l, r)
+       when PrologEx.is_known_ground(k) and PrologEx.is_known_ground(v) and
+              PrologEx.is_known_ground(l) and
+              PrologEx.is_known_ground(r),
+       do: {:gstruct, "t", [k, v, bal(b), l, r]}
+
+  defp node(k, v, b, l, r), do: {:struct, "t", [k, v, bal(b), l, r]}
+
+  defp bal("<"), do: {:atom, "<"}
+  defp bal("-"), do: {:atom, "-"}
+  defp bal(">"), do: {:atom, ">"}
+
+  defp leaf(k, v), do: node(k, v, "-", {:atom, "t"}, {:atom, "t"})
 
   # Einfügen: {Baum, Höhe gewachsen?}
+  defp insert({tag, "t", [k, v, {:atom, b}, l, r]}, key, val, s)
+       when (tag == :gstruct or tag == :struct) and b in ["<", "-", ">"],
+       do: insert_at(k, v, b, l, r, key, val, s)
+
+  defp insert({:atom, "t"}, key, val, _s), do: {leaf(key, val), true}
+
   defp insert(t, key, val, s) do
     case node!(t, s) do
-      :empty ->
-        {leaf(key, val), true}
-
-      {k, v, b, l, r} ->
-        case Order.compare(key, k, s) do
-          :eq ->
-            {node(k, val, b, l, r), false}
-
-          :lt ->
-            {nl, grown} = insert(l, key, val, s)
-            adjust(grown, {k, v, b, nl, r}, :left, s)
-
-          :gt ->
-            {nr, grown} = insert(r, key, val, s)
-            adjust(grown, {k, v, b, l, nr}, :right, s)
-        end
+      :empty -> {leaf(key, val), true}
+      {k, v, b, l, r} -> insert_at(k, v, b, l, r, key, val, s)
     end
   end
 
-  defp adjust(false, {k, v, b, l, r}, _side, _s), do: {node(k, v, b, l, r), false}
+  defp insert_at(k, v, b, l, r, key, val, s) do
+    case kcmp(key, k, s) do
+      :eq ->
+        {node(k, val, b, l, r), false}
+
+      :lt ->
+        case insert(l, key, val, s) do
+          {nl, false} -> {node(k, v, b, nl, r), false}
+          {nl, true} -> adjust(true, {k, v, b, nl, r}, :left, s)
+        end
+
+      :gt ->
+        case insert(r, key, val, s) do
+          {nr, false} -> {node(k, v, b, l, nr), false}
+          {nr, true} -> adjust(true, {k, v, b, l, nr}, :right, s)
+        end
+    end
+  end
 
   defp adjust(true, {k, v, b0, l, r} = n, side, s) do
     {b1, grown, rebalance} = table(b0, side)
@@ -476,7 +534,7 @@ defmodule PrologEx.Builtins.Assoc do
         :none
 
       {k, v, b, l, r} ->
-        case Order.compare(key, k, s) do
+        case kcmp(key, k, s) do
           :eq ->
             cond do
               node!(l, s) == :empty ->
