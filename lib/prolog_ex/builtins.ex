@@ -65,6 +65,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.FastRW,
     PrologEx.Builtins.Format,
     PrologEx.Builtins.Pio,
+    PrologEx.Builtins.BytesLazy,
     PrologEx.Builtins.Files,
     PrologEx.Builtins.Charsio,
     PrologEx.Builtins.ScryerPrims,
@@ -309,7 +310,18 @@ defmodule PrologEx.Builtins do
   @pl_libraries Path.wildcard(Path.join([__DIR__, "..", "..", "priv", "library", "**", "*.pl"]))
                 |> Enum.map(&Path.basename(&1, ".pl"))
 
-  @system_modules MapSet.new(["system" | Map.keys(@exports)] ++ @pl_libraries)
+  # dazu die Modulnamen aus :- module(Name, ...) (library(dcg/bytes) heißt
+  # dcg_bytes)
+  @pl_module_names for f <-
+                         Path.wildcard(
+                           Path.join([__DIR__, "..", "..", "priv", "library", "**", "*.pl"])
+                         ),
+                       [_, m] <- [
+                         Regex.run(~r/^:-\s*module\(\s*([a-z][a-zA-Z0-9_]*)/m, File.read!(f))
+                       ],
+                       do: m
+
+  @system_modules MapSet.new(["system" | Map.keys(@exports)] ++ @pl_libraries ++ @pl_module_names)
 
   @doc """
   Gehört das Modul zum System (eingebaute Prädikate, Bibliotheken in Elixir

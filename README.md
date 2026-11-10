@@ -500,6 +500,42 @@ Gemessen (20 MB, rund 206 000 Treffer zählen): seriell 819 ms, verteilt auf
 acht Kinder über `sub_bytes/5` 238 ms – als Code-Liste wären es 320 MB, die
 jedes Kind kopieren müsste.
 
+### DCGs über Byte-Folgen: `library(dcg/bytes)`
+
+Eine gewöhnliche Grammatik liest eine Byte-Folge als faule Liste, wie
+`phrase_from_file/2` eine Datei: der noch nicht ausgepackte Rest wartet mit
+`freeze/2`, erst beim Lesen kommt der nächste Block (4096 Bytes) dazu.
+Terminale (`[X]`, `"..."`), `seq//1`, `...//0` und `library(dcg/high_order)`
+laufen unverändert; vorausliegende Bytes werden nie ausgepackt, und nach
+dem Rücksetzen wird ein Block einfach neu erzeugt (die Byte-Folge ist
+unveränderlich).
+
+```prolog
+gif(W, H) --> "GIF89a", u16le(W), u16le(H).
+
+?- read_file_to_bytes('bild.gif', B), phrase_bytes(gif(W, H), B, Rest).
+```
+
+  * `phrase_bytes(G, B)`, `phrase_bytes(G, B, Rest)` (Rest wieder als
+    Byte-Folge, ohne Kopie), `phrase_bytes(G, B, Rest, Optionen)`,
+    `bytes_to_lazy_list(B, Sicht, L)`
+  * Sichten `as(codes)` (Zahlen 0..255), `as(latin1)` (ein Zeichen je
+    Byte: 71 ist `'G'`), `as(utf8)` (dekodierte Zeichen; ungültig:
+    `representation_error(character)`). Ohne Angabe wie `library(pio)` nach
+    `double_quotes`: `codes` bei `codes`, sonst `latin1` – so passt
+    `"GIF89a"` in der Grammatik zur Liste. Für Binärformate, die Zahlen und
+    Text mischen, ist `double_quotes = codes` am bequemsten (`[137]` passt
+    in der Sicht `latin1` nicht, `u8(137)` in beiden)
+  * Für Binärformate: `u8//1`, `s8//1`, `u16le//1`, `u16be//1`, `s16le//1`,
+    `s16be//1`, `u32le//1`, `u32be//1`, `s32le//1`, `s32be//1`,
+    `take(N, B)//` (die nächsten N Bytes als Byte-Folge), `eos//0`
+
+Zum Zerlegen, nicht zum Erzeugen (`phrase_bytes/2` mit freier Byte-Folge
+geht nicht). Wie bei `library(pio)` liegt der gelesene Teil vorübergehend
+als Liste vor; was kein Choice Point mehr braucht, räumt die Kompaktierung
+weg, die Byte-Folge selbst bleibt kompakt. Beispiele (GIF, PNG in Chunks,
+ein Sieb auf einer Bitmenge): `examples/bytes.pl`.
+
 ## Netzwerk: `library(sockets)`
 
 TCP und Unix-Domain-Sockets wie in SICStus 4, dazu `current_hostname/1`
