@@ -96,7 +96,46 @@ defmodule PrologEx.BytesTest do
      ["B = '$bytes'(2), L = [0,1,2], P = '$bytes'(0)"]},
     {"bytes_utf8(B, \"abab\"), bytes_utf8(P, \"ab\"), bytes_search(P, B, 2), \\+ bytes_search(P, B, 1)",
      :succeeds},
-    {"bytes_utf8(B, \"ab\"), bytes_utf8(P, \"x\"), bytes_search(P, B, _)", :fails}
+    {"bytes_utf8(B, \"ab\"), bytes_utf8(P, \"x\"), bytes_search(P, B, _)", :fails},
+    # Bits (Bit 0 ist das höchste Bit des ersten Bytes)
+    {"bytes_list(A, [0xF0, 0xAA]), bytes_list(B, [0xCC, 0xFF]), bytes_and(A, B, C), bl(C, L1), " <>
+       "bytes_or(A, B, D), bl(D, L2), bytes_xor(A, B, E), bl(E, L3), bytes_not(A, F), bl(F, L4)",
+     :succeeds},
+    {"bytes_list(A, [0xF0, 0xAA]), bytes_list(B, [0xCC, 0xFF]), bytes_and(A, B, C), bl(C, L)",
+     ["A = '$bytes'(2), B = '$bytes'(2), C = '$bytes'(2), L = [192,170]"]},
+    {"bytes_list(A, [0xF0, 0xAA]), bytes_list(B, [0xCC, 0xFF]), bytes_or(A, B, C), bl(C, L)",
+     ["A = '$bytes'(2), B = '$bytes'(2), C = '$bytes'(2), L = [252,255]"]},
+    {"bytes_list(A, [0xF0, 0xAA]), bytes_list(B, [0xCC, 0xFF]), bytes_xor(A, B, C), bl(C, L)",
+     ["A = '$bytes'(2), B = '$bytes'(2), C = '$bytes'(2), L = [60,85]"]},
+    {"bytes_list(A, [0xF0, 0xAA]), bytes_not(A, C), bl(C, L)",
+     ["A = '$bytes'(2), C = '$bytes'(2), L = [15,85]"]},
+    {"bytes_list(A, [1]), bytes_list(B, [1,2]), bytes_and(A, B, _)",
+     {:error, "domain_error(same_length,'$bytes'(2))"}},
+    {"bytes_list(A, [1,2,3,4,5,255,7]), bytes_popcount(A, N)", ["A = '$bytes'(7), N = 18"]},
+    {"bytes_list(A, []), bytes_popcount(A, N), bytes_not(A, B), bytes_length(B, M)",
+     ["A = '$bytes'(0), B = '$bytes'(0), M = 0, N = 0"]},
+    {"bytes_list(A, [0xF0, 0xAA]), findall(I, bytes_bit(I, A, 1), L), bytes_bit(8, A, X), " <>
+       "\\+ bytes_bit(16, A, _)", ["A = '$bytes'(2), L = [0,1,2,3,8,10,12,14], X = 1"]},
+    {"bytes_list(A, [0xF0, 0xAA]), bytes_set_bit(15, A, 1, B), bl(B, L), " <>
+       "bytes_set_bit(0, A, 0, C), bl(C, M)",
+     ["A = '$bytes'(2), B = '$bytes'(2), C = '$bytes'(2), L = [240,171], M = [112,170]"]},
+    {"bytes_list(A, [1]), bytes_set_bit(8, A, 1, _)", {:error, "domain_error(bit_index,8)"}},
+    {"bytes_list(A, [1]), bytes_set_bit(0, A, 2, _)", {:error, "type_error(bit,2)"}},
+    {"bytes_fill(3, 255, A), bl(A, L), bytes_popcount(A, N)",
+     ["A = '$bytes'(3), L = [255,255,255], N = 24"]},
+    {"bytes_fill(-1, 0, _)", {:error, "domain_error(not_less_than_zero,-1)"}},
+    {"bytes_fill(1, 256, _)", {:error, "type_error(byte,256)"}},
+    # über mehrere Stücke zu 64 KB (Ganzzahlen sind begrenzt)
+    {"bytes_fill(200001, 0xB1, A), bytes_fill(200001, 0x6C, B), bytes_and(A, B, C), " <>
+       "bytes_popcount(C, N), bytes_xor(A, B, D), bytes_popcount(D, M), bytes_not(A, E), " <>
+       "bytes_popcount(E, K), bytes_at(200000, C, X)", :succeeds},
+    {"bytes_fill(200001, 0xB1, A), bytes_fill(200001, 0x6C, B), bytes_and(A, B, C), " <>
+       "bytes_popcount(C, N), bytes_xor(A, B, D), bytes_popcount(D, M), bytes_not(A, E), " <>
+       "bytes_popcount(E, K), bytes_at(200000, C, X), bytes_at(200000, E, Y)",
+     [
+       "A = '$bytes'(200001), B = '$bytes'(200001), C = '$bytes'(200001), D = '$bytes'(200001), " <>
+         "E = '$bytes'(200001), K = 800004, M = 1200006, N = 200001, X = 32, Y = 78"
+     ]}
   ]
 
   setup_all do

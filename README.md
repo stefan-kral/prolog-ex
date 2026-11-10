@@ -471,6 +471,14 @@ umsonst.
     `sub_bytes/5` (wie `sub_atom/5`), `bytes_concat/3` (die Verbindung
     gegeben: alle Teilungen), `bytes_concat_list/2`, `bytes_search/3` (jedes
     Vorkommen, auch überlappend)
+  * Bits (Bit 0 ist das höchste Bit des ersten Bytes, wie Erlangs
+    Bit-Syntax): `bytes_and/3`, `bytes_or/3`, `bytes_xor/3` (gleich lang,
+    sonst `domain_error(same_length, B)`), `bytes_not/2`,
+    `bytes_popcount/2`, `bytes_bit(I, B, Bit)` (I frei: alle),
+    `bytes_set_bit(I, B0, Bit, B)` (eine neue Folge, O(n)), dazu
+    `bytes_fill(N, Byte, B)` für eine Folge aus N gleichen Bytes. Und, oder,
+    xor und nicht laufen in C (als große Ganzzahlen, in Stücken zu 64 KB):
+    20 Mbit in 7–24 ms, popcount in 2 ms
   * Dateien und Binär-Streams: `read_file_to_bytes/2`, `write_bytes/2`,
     `get_bytes/3` (höchstens N Bytes; am Ende die leere Folge); diese drei
     sind Ein-/Ausgabe für `call_with_no_side_effects/1`

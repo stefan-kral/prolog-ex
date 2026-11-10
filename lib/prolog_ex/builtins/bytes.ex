@@ -26,11 +26,17 @@ defmodule PrologEx.Builtins.Bytes do
     * `bytes_concat(A, B, AB)` (AB gegeben: alle Teilungen),
       `bytes_concat_list(Liste, B)`
     * `bytes_search(Muster, B, Pos)` – jedes Vorkommen, auch überlappend
+    * Bits: `bytes_fill(N, Byte, B)` (N gleiche Bytes),
+      `bytes_and/3`, `bytes_or/3`, `bytes_xor/3` (gleich lang, sonst
+      `domain_error(same_length, B)`), `bytes_not/2`, `bytes_popcount/2`,
+      `bytes_bit(I, B, Bit)` (I frei: alle), `bytes_set_bit(I, B0, Bit, B)`
+      (eine neue Folge, O(n)); Bit 0 ist das höchste Bit des ersten Bytes
     * `read_file_to_bytes(Datei, B)`, `write_bytes(Stream, B)`,
       `get_bytes(Stream, N, B)` (höchstens N; am Ende die leere Folge) auf
       Binär-Streams
   """
   use PrologEx.Builtin, module: "bytes"
+  import Bitwise
   alias PrologEx.{Error, Store}
   alias PrologEx.Stream, as: S
 
@@ -286,6 +292,129 @@ defmodule PrologEx.Builtins.Bytes do
       end
     end)
   end
+
+  # --- Bits -------------------------------------------------------------------
+  #
+  # Bit I: Byte I div 8, darin von oben (Bit 0 ist das höchste Bit des
+  # ersten Bytes, wie Erlangs Bit-Syntax und die Netzwerk-Reihenfolge).
+  # and/or/xor über zwei gleich lange Folgen: als eine große Ganzzahl
+  # gerechnet (in C, ein Durchlauf).
+
+  defbuiltin "bytes_fill", [n, byte, b] do
+    s = subst()
+
+    k =
+      case int_or_var!(n, s) do
+        nil -> Error.instantiation!()
+        k when k < 0 -> Error.domain!("not_less_than_zero", k)
+        k -> k
+      end
+
+    {:unify, [{b, {:bytes, :binary.copy(<<byte!(byte, s)>>, k)}}]}
+  end
+
+  defbuiltin "bytes_and", [x, y, z] do
+    bitwise(x, y, z, subst(), &band/2)
+  end
+
+  defbuiltin "bytes_or", [x, y, z] do
+    bitwise(x, y, z, subst(), &bor/2)
+  end
+
+  defbuiltin "bytes_xor", [x, y, z] do
+    bitwise(x, y, z, subst(), &bxor/2)
+  end
+
+  defbuiltin "bytes_not", [x, z] do
+    a = bytes!(x, subst())
+    ones = :binary.copy(<<255>>, byte_size(a))
+    {:unify, [{z, {:bytes, IO.iodata_to_binary(chunks(a, ones, &bxor/2, 0, []))}}]}
+  end
+
+  defbuiltin "bytes_popcount", [x, c] do
+    {:unify, [{c, popcount(bytes!(x, subst()), 0)}]}
+  end
+
+  defbuiltin "bytes_bit", [i, x, bit], nondet: true do
+    s = subst()
+    a = bytes!(x, s)
+
+    case int_or_var!(i, s) do
+      nil -> bits_all(a, 0, bit_size(a), i, bit)
+      k when k >= 0 and k < bit_size(a) -> [{:unify, [{bit, bit_at(a, k)}]}]
+      _ -> []
+    end
+  end
+
+  defbuiltin "bytes_set_bit", [i, x, bit, z] do
+    s = subst()
+    a = bytes!(x, s)
+
+    k =
+      case int_or_var!(i, s) do
+        nil -> Error.instantiation!()
+        k when k >= 0 and k < bit_size(a) -> k
+        k -> Error.domain!("bit_index", k)
+      end
+
+    v =
+      case walk(bit, s) do
+        b when b in [0, 1] -> b
+        {:var, _} -> Error.instantiation!()
+        other -> Error.type!("bit", PrologEx.resolve(other, s))
+      end
+
+    <<pre::bits-size(^k), _::1, post::bits>> = a
+    {:unify, [{z, {:bytes, <<pre::bits, v::1, post::bits>>}}]}
+  end
+
+  defp bitwise(x, y, z, s, op) do
+    a = bytes!(x, s)
+    b = bytes!(y, s)
+
+    if byte_size(a) != byte_size(b),
+      do: Error.domain!("same_length", PrologEx.resolve(y, s))
+
+    {:unify, [{z, {:bytes, IO.iodata_to_binary(chunks(a, b, op, 0, []))}}]}
+  end
+
+  # Ganzzahlen sind auf einige Millionen Bits begrenzt: in Stücken zu 64 KB
+  @chunk 65536
+
+  defp chunks(a, _b, _op, off, acc) when off >= byte_size(a), do: Enum.reverse(acc)
+
+  defp chunks(a, b, op, off, acc) do
+    k = min(@chunk, byte_size(a) - off)
+    n = 8 * k
+    <<i::size(^n)>> = :binary.part(a, off, k)
+    <<j::size(^n)>> = :binary.part(b, off, k)
+    chunks(a, b, op, off + k, [<<op.(i, j)::size(n)>> | acc])
+  end
+
+  defp bit_at(a, k) do
+    <<_::bits-size(^k), v::1, _::bits>> = a
+    v
+  end
+
+  # mit freiem I: jedes Bit der Reihe nach (lazy)
+  defp bits_all(_a, k, n, _i, _bit) when k >= n, do: []
+
+  defp bits_all(a, k, n, i, bit) do
+    r = {:unify, [{i, k}, {bit, bit_at(a, k)}]}
+    if k + 1 == n, do: [r], else: [r | fn -> bits_all(a, k + 1, n, i, bit) end]
+  end
+
+  # gesetzte Bits: je 32 Bit auf einmal (SWAR, bleibt eine kleine Ganzzahl),
+  # der Rest byteweise
+  defp popcount(<<w::32, rest::binary>>, acc) do
+    w = w - (w >>> 1 &&& 0x55555555)
+    w = (w &&& 0x33333333) + (w >>> 2 &&& 0x33333333)
+    w = w + (w >>> 4) &&& 0x0F0F0F0F
+    popcount(rest, acc + ((w * 0x01010101) >>> 24 &&& 0xFF))
+  end
+
+  defp popcount(<<b, rest::binary>>, acc), do: popcount(<<0, 0, 0, b>> <> rest, acc)
+  defp popcount(<<>>, acc), do: acc
 
   # --- Dateien und Streams ----------------------------------------------------
 
