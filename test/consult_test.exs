@@ -125,6 +125,21 @@ defmodule PrologEx.ConsultTest do
     assert out == "app([],L,L).\napp([H|T],L,[H|R]) :-\n    app(T,L,R).\n"
   end
 
+  # Variablen der DCG-Übersetzung heißen wie bei portray_clause _A, _B, ...
+  # (nicht wie die Namen der Klausel), einmal vorkommende `_`
+  test "listing einer DCG-Regel", %{reader: r} do
+    {db, []} = load(r, "cnt(N0, N) --> [_], !, { N1 is N0+1 }, cnt(N1, N).\ns(_A) --> [x].\n")
+    out = capture_io(fn -> ask(r, db, "listing(cnt/4).") end)
+
+    assert out ==
+             "cnt(N0,N,_A,_B) :-\n    _A=[_|_C],\n    !,\n    _C=_D,\n    N1 is N0+1,\n" <>
+               "    _D=_E,\n    cnt(N1,N,_E,_B).\n"
+
+    # _A ist schon vergeben: weiter mit _B
+    out = capture_io(fn -> ask(r, db, "listing(s/3).") end)
+    assert out == "s(_A,_B,_C) :-\n    _B=[x|_C].\n"
+  end
+
   test "Toplevel: Programm von stdin mit -g" do
     out =
       capture_io("p(1).\np(2).\n", fn ->

@@ -146,11 +146,74 @@ defmodule PrologEx.Listing do
     PrologEx.Builtins.Bytes.no_bytes!(head)
     PrologEx.Builtins.Bytes.no_bytes!(body)
 
+    {head, body} = name_vars(head, body)
+
     case unmark(body) do
       {:atom, "true"} -> q(head, 1199) <> ".\n"
       b -> q(head, 1199) <> " :-\n" <> body(b, "    ") <> ".\n"
     end
   end
+
+  # Variablen ohne Quellnamen (etwa aus der DCG-Übersetzung) heißen wie bei
+  # portray_clause _A, _B, ... (ohne Zusammenstoß mit den Namen der
+  # Klausel); kommen sie nur einmal vor, `_`
+  defp name_vars(head, body) do
+    counts = count(body, count(head, %{}))
+    used = for {{_name, _} = v, _} <- counts, do: elem(v, 0), into: MapSet.new()
+
+    {names, _} =
+      counts
+      |> Enum.filter(fn {v, _} -> is_integer(v) end)
+      |> Enum.sort_by(fn {v, _} -> first_pos(v, head, body) end)
+      |> Enum.reduce({%{}, 0}, fn
+        {v, 1}, {m, k} ->
+          {Map.put(m, v, {"_", {:listing, v}}), k}
+
+        {v, _}, {m, k} ->
+          {name, k} = fresh_name(k, used)
+          {Map.put(m, v, {name, {:listing, v}}), k}
+      end)
+
+    if names == %{}, do: {head, body}, else: {rn(head, names), rn(body, names)}
+  end
+
+  defp count({:var, v}, c), do: Map.update(c, v, 1, &(&1 + 1))
+
+  defp count({tag, _, args}, c) when tag in [:struct, :gstruct],
+    do: Enum.reduce(args, c, &count/2)
+
+  defp count([h | t], c), do: count(t, count(h, c))
+  defp count(_, c), do: c
+
+  # Reihenfolge des ersten Vorkommens (Kopf, dann Rumpf, links nach rechts)
+  defp first_pos(v, head, body) do
+    order = vars_in_order(body, vars_in_order(head, []))
+    Enum.find_index(Enum.reverse(order), &(&1 == v))
+  end
+
+  defp vars_in_order({:var, v}, acc), do: if(v in acc, do: acc, else: [v | acc])
+
+  defp vars_in_order({tag, _, args}, acc) when tag in [:struct, :gstruct],
+    do: Enum.reduce(args, acc, &vars_in_order/2)
+
+  defp vars_in_order([h | t], acc), do: vars_in_order(t, vars_in_order(h, acc))
+  defp vars_in_order(_, acc), do: acc
+
+  defp fresh_name(k, used) do
+    name = "_" <> letters(k)
+    if MapSet.member?(used, name), do: fresh_name(k + 1, used), else: {name, k + 1}
+  end
+
+  # A..Z, dann A1..Z1, ... (wie numbervars)
+  defp letters(k) do
+    l = <<?A + rem(k, 26)>>
+    if k < 26, do: l, else: l <> Integer.to_string(div(k, 26))
+  end
+
+  defp rn({:var, v} = t, names), do: if(Map.has_key?(names, v), do: {:var, names[v]}, else: t)
+  defp rn({tag, f, args}, names) when tag in [:struct, :gstruct], do: {tag, f, rn(args, names)}
+  defp rn([h | t], names), do: [rn(h, names) | rn(t, names)]
+  defp rn(t, _), do: t
 
   # Rumpf ab Einrückung ind; die erste Zeile beginnt mit ind
   defp body({:struct, ",", [a, b]}, ind), do: body(a, ind) <> ",\n" <> body(b, ind)
