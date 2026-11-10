@@ -2509,6 +2509,21 @@ also ab etwa 0,1 ms Arbeit je Element.
 * **Grenzen** des Aufrufers gelten weiter: `call_with_time_limit` als
   gemeinsame Deadline, `call_with_inference_limit` als Budget für alle
   zusammen (die Kinder zählen im selben Zähler), Speichergrenze je Kind.
+* **Fristen** – ohne eigene Optionen, mit `call_with_time_limit/2`:
+  - für den ganzen Aufruf drumherum:
+    `call_with_time_limit(0.3, concurrent_maplist(G, Xs, Ys))` – läuft sie
+    ab, kommt `time_limit_exceeded`, und alle Kinder werden beendet. Die
+    Frist überwacht der Aufrufer: ein Kind kann sie nicht abfangen und
+    weiterlaufen (auch `catch(…, _, true)` im Kind nützt nichts).
+  - je Element innen im Ziel (im Kind erlaubt, der Timer räumt sich selbst
+    ab): `concurrent_maplist(\X^Y^call_with_time_limit(0.2, work(X, Y)),
+    Xs, Ys)` – eine Überschreitung beendet alles; als Wert statt als Fehler:
+    `catch(call_with_time_limit(0.2, work(X, Y)), time_limit_exceeded,
+    Y = timeout)`, dann laufen die übrigen weiter.
+  - bei `first_solution/3` scheidet eine Strategie mit eigener Frist aus,
+    die anderen laufen weiter:
+    `first_solution(X, [S1, call_with_time_limit(0.2, S2), S3],
+    [on_error(continue)])`.
 * **Ergebnisse** kommen als Kopien zurück und werden nach Index unifiziert.
   Geteilte Teilbäume werden dabei ausgerollt (große DAG-Terme werden teuer).
   Attributierte Variablen (`dif`, `freeze`, clpz …) in Zielen oder
