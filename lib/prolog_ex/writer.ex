@@ -128,6 +128,11 @@ defmodule PrologEx.Writer do
     do: plain(l, max, role, d, o, st)
 
   defp plain([_ | _] = l, _max, _role, d, o, st), do: list(l, d, o, st)
+
+  # Byte-Folge: nicht lesbar, wie Streams: '$bytes'(Länge)
+  defp plain({:bytes, b}, max, _role, d, o, st),
+    do: compound("$bytes", [byte_size(b)], max, d, o, st)
+
   defp plain({:glist, l}, _max, _role, d, o, st), do: list(l, d, o, st)
   defp plain(t, _max, role, _d, o, st), do: ret(st, leaf(t, role, o), o)
 

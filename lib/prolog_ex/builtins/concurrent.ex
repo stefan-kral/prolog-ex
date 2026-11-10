@@ -61,6 +61,7 @@ defmodule PrologEx.Builtins.Concurrent do
       x when is_number(x) or x == [] -> true
       {:atom, _} -> true
       {:rat, _, _} -> true
+      {:bytes, _} -> true
       _ -> if PrologEx.term_attvars(t, s) == [], do: true, else: Error.throw!(attv_error())
     end
   end

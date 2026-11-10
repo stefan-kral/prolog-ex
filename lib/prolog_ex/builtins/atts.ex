@@ -237,9 +237,14 @@ defmodule PrologEx.Builtins.Atts do
   defp key!(att, decl, mod) do
     k =
       case att do
-        {:var, _} -> Error.instantiation!()
-        n when is_number(n) or (is_tuple(n) and elem(n, 0) == :rat) -> Error.type!("callable", n)
-        t -> PrologEx.Compiler.key(t)
+        {:var, _} ->
+          Error.instantiation!()
+
+        n when is_number(n) or (is_tuple(n) and elem(n, 0) in [:rat, :bytes]) ->
+          Error.type!("callable", n)
+
+        t ->
+          PrologEx.Compiler.key(t)
       end
 
     if k in decl,

@@ -72,6 +72,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.AggregatePrims,
     PrologEx.Builtins.Ordsets,
     PrologEx.Builtins.Assoc,
+    PrologEx.Builtins.Bytes,
     PrologEx.Builtins.Ugraphs,
     PrologEx.Builtins.Wgraphs,
     PrologEx.Builtins.Heaps,
@@ -209,7 +210,8 @@ defmodule PrologEx.Builtins do
           set_random/1 setrand/1)},
     "gensym" => {"state", ~w(gensym/2 reset_gensym/0 reset_gensym/1)},
     "blackboard" => {"state", ~w(bb_b_put/2 bb_delete/2 bb_put/2 bb_update/3)},
-    "rlimit" => {"external", ~w(rlimit/3)}
+    "rlimit" => {"external", ~w(rlimit/3)},
+    "bytes" => {"io", ~w(read_file_to_bytes/2 write_bytes/2 get_bytes/3)}
   }
 
   pi = fn s ->

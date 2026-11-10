@@ -149,6 +149,7 @@ defmodule PrologEx.Builtins.FastRW do
        do: if(Integer.gcd(n, d) == 1, do: {r, m}, else: Error.syntax!("fast_term"))
 
   defp fresh_vars({:atom, name} = a, m) when is_binary(name), do: {a, m}
+  defp fresh_vars({:bytes, bin} = b, m) when is_binary(bin), do: {b, m}
   defp fresh_vars([], m), do: {[], m}
 
   defp fresh_vars([h | t], m) do

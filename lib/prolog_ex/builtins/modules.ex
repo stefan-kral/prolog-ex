@@ -118,7 +118,7 @@ defmodule PrologEx.Builtins.Modules do
 
   defp candidate_keys(_db, _m, h) do
     case PrologEx.unmark_top(h) do
-      n when is_number(n) or (is_tuple(n) and elem(n, 0) == :rat) ->
+      n when is_number(n) or (is_tuple(n) and elem(n, 0) in [:rat, :bytes]) ->
         PrologEx.Error.type!("callable", n)
 
       t ->

@@ -582,7 +582,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
       1 ->
         restrict(top(high, st.s), vi, value, st)
 
-      n when is_number(n) or (is_tuple(n) and elem(n, 0) == :rat) ->
+      n when is_number(n) or (is_tuple(n) and elem(n, 0) in [:rat, :bytes]) ->
         PrologEx.Error.domain!("clpb_expr", n)
 
       v ->

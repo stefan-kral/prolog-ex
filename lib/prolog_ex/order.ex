@@ -89,6 +89,11 @@ defmodule PrologEx.Order do
   defp c([], _, _, m, _d), do: {:lt, m}
   defp c(_, {:atom, _}, _, m, _d), do: {:gt, m}
   defp c(_, [], _, m, _d), do: {:gt, m}
+  # Byte-Folgen: nach den Atomen, vor dem Zusammengesetzten; untereinander
+  # Byte für Byte (ein Präfix zuerst)
+  defp c({:bytes, x}, {:bytes, y}, _, m, _d), do: {cmp(x, y), m}
+  defp c({:bytes, _}, _, _, m, _d), do: {:lt, m}
+  defp c(_, {:bytes, _}, _, m, _d), do: {:gt, m}
 
   # zusammengesetzt: Stelligkeit, Name, Argumente; Listen sind '.'/2.
   # Markierungen ({:gstruct, ...}, {:glist, ...}) direkt, ohne unmark_top
@@ -698,6 +703,10 @@ defmodule PrologEx.Order do
 
       {:atom, n} ->
         {2, n, 0, 0}
+
+      # zwischen Atomen (2) und Zusammengesetztem (3)
+      {:bytes, b} ->
+        {2.5, b, 0, 0}
     end
   end
 
@@ -705,6 +714,7 @@ defmodule PrologEx.Order do
   defp class(n) when is_number(n) or is_rat(n), do: 1
   defp class([]), do: 2
   defp class({:atom, _}), do: 2
+  defp class({:bytes, _}), do: 2.5
   defp class(_compound), do: 3
 
   defp same_class(0, {:var, x}, {:var, y}, _), do: cmp(var_key(x), var_key(y))
@@ -718,6 +728,7 @@ defmodule PrologEx.Order do
   defp same_class(1, x, y, _) when x > y, do: :gt
   defp same_class(1, _, _, _), do: :eq
   defp same_class(2, x, y, _), do: cmp(atom_name(x), atom_name(y))
+  defp same_class(2.5, {:bytes, x}, {:bytes, y}, _), do: cmp(x, y)
 
   defp same_class(3, x, y, subst) do
     {fx, ax} = parts(x)

@@ -447,6 +447,46 @@ Das eingebaute `delete_file/1` (wie SWI, auch mit Atom) bleibt
 verfügbar. Nach `use_module(library(files))` gilt das aus `files`, das
 nur Zeichenlisten nimmt.
 
+## Byte-Folgen: `library(bytes)`
+
+Ein eigener atomarer Typ für Bytes, ein BEAM-Binary: ein Byte je Byte (eine
+Code-Liste braucht 16), Länge und Zugriff in O(1), ein Teilstück ist ein
+Verweis ohne Kopie, und ab 64 Bytes teilen Prozesse die Daten, statt sie zu
+kopieren – Kinder von `library(concurrent)` bekommen eine große Folge
+umsonst.
+
+```prolog
+?- read_file_to_bytes('log.txt', B), bytes_length(B, N),
+   bytes_utf8(P, "ERROR"), aggregate_all(count, bytes_search(P, B, _), K).
+```
+
+  * Typ: `bytes/1`. Wie eine Zahl atomar (`atomic/1` ja, `atom/1`,
+    `callable/1` nein); Unifikation und `==` vergleichen den Inhalt; in der
+    Standardordnung nach den Atomen und vor dem Zusammengesetzten,
+    untereinander Byte für Byte (ein Präfix zuerst)
+  * Umwandeln (in beide Richtungen): `bytes_list/2` (0..255),
+    `bytes_utf8/2`, `bytes_latin1/2` (Text als Zeichen, umgekehrt auch Codes
+    oder ein Atom), `bytes_hex/2`, `bytes_base64/2`
+  * `bytes_length/2`, `bytes_at/3` (Position ab 0; frei: alle),
+    `sub_bytes/5` (wie `sub_atom/5`), `bytes_concat/3` (die Verbindung
+    gegeben: alle Teilungen), `bytes_concat_list/2`, `bytes_search/3` (jedes
+    Vorkommen, auch überlappend)
+  * Dateien und Binär-Streams: `read_file_to_bytes/2`, `write_bytes/2`,
+    `get_bytes/3` (höchstens N Bytes; am Ende die leere Folge); diese drei
+    sind Ein-/Ausgabe für `call_with_no_side_effects/1`
+
+Kein Literal (noch offen, wie es sich mit der ISO-Syntax verträgt):
+`write/1` und `writeq/1` geben `'$bytes'(Länge)` aus, das nicht wieder als
+Byte-Folge einlesbar ist (wie `'$stream'(N)`). Fehler: keine Folge
+`type_error(bytes, X)`, ein Byte außerhalb 0..255 `type_error(byte, X)`,
+ungültiges UTF-8 und Zeichen über 255 bei Latin-1
+`representation_error(character)`, ungültiges Hex oder Base64
+`domain_error(hex_encoding | base64_encoding, Text)`.
+
+Gemessen (20 MB, rund 206 000 Treffer zählen): seriell 819 ms, verteilt auf
+acht Kinder über `sub_bytes/5` 238 ms – als Code-Liste wären es 320 MB, die
+jedes Kind kopieren müsste.
+
 ## Netzwerk: `library(sockets)`
 
 TCP und Unix-Domain-Sockets wie in SICStus 4, dazu `current_hostname/1`

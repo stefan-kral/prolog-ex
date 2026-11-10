@@ -58,7 +58,8 @@ defmodule PrologEx do
   # atomar oder markiert = sicher ground, ohne hineinzuschauen
   defguard is_known_ground(t)
            when is_number(t) or t == [] or is_marked(t) or
-                  (is_tuple(t) and (elem(t, 0) == :atom or elem(t, 0) == :rat))
+                  (is_tuple(t) and
+                     (elem(t, 0) == :atom or elem(t, 0) == :rat or elem(t, 0) == :bytes))
 
   def v(name), do: {:var, name}
 
@@ -659,6 +660,8 @@ defmodule PrologEx do
     end
   end
 
+  # Byte-Folgen: gleich oder nicht
+  defp unify_struct({:bytes, b}, {:bytes, b}, subst, _mode, m, _c), do: {:ok, subst, m}
   defp unify_struct(_, _, _, _, _, _), do: :error
 
   defp unify_args([], [], subst, _mode, m, _c), do: {:ok, subst, m}
@@ -732,6 +735,7 @@ defmodule PrologEx do
   defp u_cyc_struct([x | xs], [y | ys], subst, mode, seen),
     do: u_cyc_args([x, xs], [y, ys], subst, mode, seen)
 
+  defp u_cyc_struct({:bytes, b}, {:bytes, b}, subst, _mode, seen), do: {:ok, subst, seen}
   defp u_cyc_struct(_, _, _, _, _), do: :error
 
   defp u_cyc_args([], [], subst, _mode, seen), do: {:ok, subst, seen}

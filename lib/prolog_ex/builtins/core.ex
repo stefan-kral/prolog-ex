@@ -129,7 +129,7 @@ defmodule PrologEx.Builtins.Core do
 
   defbuiltin "atomic", [x] do
     t = deref(x)
-    is_number(t) or atom?(t) or PrologEx.Rational.is_rat(t)
+    is_number(t) or atom?(t) or PrologEx.Rational.is_rat(t) or match?({:bytes, _}, t)
   end
 
   defbuiltin "compound", [x] do

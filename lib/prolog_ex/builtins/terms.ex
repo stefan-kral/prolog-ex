@@ -345,7 +345,9 @@ defmodule PrologEx.Builtins.Terms do
           ar < 0 ->
             PrologEx.Error.domain!("not_less_than_zero", ar)
 
-          ar == 0 and (is_number(n) or Core.atom?(n) or match?({:rat, _, _}, n)) ->
+          ar == 0 and
+              (is_number(n) or Core.atom?(n) or match?({:rat, _, _}, n) or
+                 match?({:bytes, _}, n)) ->
             {:unify, [{t, n}]}
 
           ar == 0 ->
