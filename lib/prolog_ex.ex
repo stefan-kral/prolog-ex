@@ -2293,7 +2293,35 @@ defmodule PrologEx do
   # library(concurrent): die Grenzen dieser Maschine für Kindprozesse –
   # Deadline (absolut, µs, monotone Uhr), verbleibendes Inferenzbudget,
   # engste Speichergrenze (Bytes); jeweils none ohne Grenze
+  # library(concurrent): im Kind die Tiefengrenzen des Aufrufers einsetzen
+  # (Process :conc_depth, vom Arbeiter je Element gesetzt): seine Rahmen
+  # (die :atomics für größte Ebene und "überschritten" sind geteilt, das
+  # Kind schreibt direkt in die des Aufrufers) und die Ebene am Aufrufpunkt
+  defp step({:atom, "$conc_depth_enter"}, _cutb, _mod, rest, st) do
+    st =
+      case Process.get(:conc_depth) do
+        {cur, frames} ->
+          %{
+            st
+            | dlimits: frames,
+              dlimit: min_dlimit(frames),
+              subst: Store.put(st.subst, @depth_key, cur)
+          }
+
+        nil ->
+          st
+      end
+
+    run(%{st | goals: rest})
+  end
+
   defp step({:struct, "$conc_limits", [d, b, m]}, _cutb, mod, rest, st) do
+    # Tiefengrenzen für die Kinder (siehe '$conc_depth_enter')
+    Process.put(
+      :conc_depth,
+      if(st.dlimits == [], do: nil, else: {Store.get(st.subst, @depth_key, 0), st.dlimits})
+    )
+
     deadlines =
       Enum.map(st.tlimits, &elem(&1, 1)) ++ List.wrap(Map.get(timers(), st.qref))
 

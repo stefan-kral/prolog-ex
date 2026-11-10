@@ -2508,7 +2508,12 @@ also ab etwa 0,1 ms Arbeit je Element.
   mehrere, entscheidet der Scheduler.
 * **Grenzen** des Aufrufers gelten weiter: `call_with_time_limit` als
   gemeinsame Deadline, `call_with_inference_limit` als Budget für alle
-  zusammen (die Kinder zählen im selben Zähler), Speichergrenze je Kind.
+  zusammen (die Kinder zählen im selben Zähler), Speichergrenze je Kind,
+  `call_with_depth_limit` mit der Ebene, die am Aufrufpunkt erreicht ist (die
+  Kinder schreiben größte Ebene und „überschritten“ direkt in den Rahmen des
+  Aufrufers – `R` ist dasselbe wie nacheinander). Abfangen kann ein Kind
+  keine davon: die Frist überwacht der Aufrufer, Inferenz- und Tiefengrenze
+  setzt die Maschine durch (auch ohne `concurrent` nicht per `catch/3`).
 * **Fristen** – ohne eigene Optionen, mit `call_with_time_limit/2`:
   - für den ganzen Aufruf drumherum:
     `call_with_time_limit(0.3, concurrent_maplist(G, Xs, Ys))` – läuft sie

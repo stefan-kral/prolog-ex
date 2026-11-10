@@ -24,7 +24,11 @@ defmodule PrologEx.ConcurrentTest do
   :- use_module(library(random)).
   :- use_module(library(memo)).
   :- use_module(library(tabling)).
-  :- use_module(library(swi), [b_setval/2, b_getval/2, nb_setval/2, with_output_to/2]).
+  :- use_module(library(swi), [b_setval/2, b_getval/2, nb_setval/2, with_output_to/2,
+                                call_with_depth_limit/3]).
+  deep(0) :- !.
+  deep(N) :- N1 is N-1, deep(N1).
+  dq(X) :- deep(X).
   :- dynamic(f/1).
   :- memo mfib/2.
   mfib(N, F) :- N < 2 -> F = N ; N1 is N-1, N2 is N-2, mfib(N1, F1), mfib(N2, F2), F is F1+F2.
@@ -361,6 +365,26 @@ defmodule PrologEx.ConcurrentTest do
     assert ask(c, "concurrent_forall(between(1, 50, X), X < 20, [threads(2), chunk(10)])") == []
     [e] = ask(c, "catch(concurrent_forall(true, true, [chunk(0)]), error(E, _), true)")
     assert e =~ "domain_error(positive_integer,0)"
+  end
+
+  test "Tiefengrenze des Aufrufers gilt in den Kindern, R wie nacheinander", c do
+    for {seq, par} <- [
+          {"maplist(deep, [3, 7, 5])", "concurrent_maplist(deep, [3, 7, 5])"},
+          {"maplist(dq, [3, 7])", "concurrent_maplist(dq, [3, 7])"},
+          {"(deep(2), maplist(dq, [3]))", "(deep(2), concurrent_maplist(dq, [3]))"},
+          {"maplist(deep, [3, 30])", "concurrent_maplist(deep, [3, 30])"}
+        ] do
+      [a1] = ask(c, "call_with_depth_limit(#{seq}, 20, R)")
+      [a2] = ask(c, "call_with_depth_limit(#{par}, 20, R)")
+      assert a1 == a2, seq
+    end
+
+    assert ask(c, "call_with_depth_limit(concurrent_maplist(deep, [3, 30]), 20, R)") ==
+             ["R = depth_limit_exceeded"]
+
+    # ein Kind, das nichts fängt: die Rekursion scheitert an der Grenze
+    assert ask(c, "call_with_depth_limit(concurrent_maplist(deep, [1000]), 50, R)") ==
+             ["R = depth_limit_exceeded"]
   end
 
   test "Brüche reisen zu den Kindern und zurück", c do

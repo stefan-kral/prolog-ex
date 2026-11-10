@@ -432,9 +432,12 @@ defmodule PrologEx.Builtins.Concurrent do
     base = Process.get(:conc_seed)
     total = Process.get(:conc_total)
     outer = Process.get(:conc_path, [])
+    # Tiefengrenzen des Aufrufers (von '$conc_limits' gesetzt)
+    depth = Process.get(:conc_depth)
 
     pid =
       spawn_link(fn ->
+        Process.put(:conc_depth, depth)
         st = :persistent_term.get(state)
         worker(parent, ref, st, base, total, outer, mode, limits)
       end)
@@ -491,9 +494,13 @@ defmodule PrologEx.Builtins.Concurrent do
     out = {:var, {"$conc", PrologEx.Vars.next()}}
 
     body =
-      mk(":", [
-        a("concurrent"),
-        mk("$conc_job", [t, g, m, us, budget || a("none"), mem || a("none"), out])
+      PrologEx.conj([
+        # Tiefengrenzen des Aufrufers: die Ebene zählt vom Aufrufpunkt weiter
+        a("$conc_depth_enter"),
+        mk(":", [
+          a("concurrent"),
+          mk("$conc_job", [t, g, m, us, budget || a("none"), mem || a("none"), out])
+        ])
       ])
 
     try do
