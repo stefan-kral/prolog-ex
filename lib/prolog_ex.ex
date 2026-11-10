@@ -1162,12 +1162,14 @@ defmodule PrologEx do
   # eingemischt (O(n + Schlüssel × Var-Klauseln) statt O(n × Schlüssel))
   @type_classes [:integer, :float, :rat, :bytes, :atom, :compound]
 
-  def pred_from_entries(entries) do
+  # opt: Wächter und Fassungen (beim Laden); false: schlicht (nach assert
+  # auf ein solches Prädikat, siehe materialize/1)
+  def pred_from_entries(entries, opt \\ true) do
     cls = Enum.map(entries, &elem(&1, 2))
     indexed = Enum.with_index(cls)
     var_only = for {c, _} <- indexed, any_key?(elem(c, 1)), do: c
     any_idx = for {c, i} <- indexed, any_key?(elem(c, 1)), do: {i, c}
-    guards? = Enum.any?(var_only, &match?({:guard, _}, elem(&1, 1)))
+    guards? = opt and Enum.any?(var_only, &match?({:guard, _}, elem(&1, 1)))
 
     by_key =
       indexed
@@ -1187,8 +1189,74 @@ defmodule PrologEx do
            var_only},
         else: var_only
 
+    {by_key, var_only} = if opt, do: specialize_lists(by_key, var_only), else: {by_key, var_only}
     {:pred, cls, by_key, var_only, entries}
   end
+
+  # --- Fassungen je Kandidatenliste ------------------------------------------
+  #
+  # In einer Liste, deren Typklasse ein Wächter sicher erfüllt, fällt der
+  # Typtest weg (der Index hat ihn schon geprüft). Und ist eine Klausel der
+  # letzte Kandidat ihrer Liste und stehen vor einem Schnitt nur Typtests
+  # (sie hinterlassen keine Choice Points), schneidet er nichts ab: er
+  # fällt weg (`f([]) :- !, ... . f([H|T]) :- !, ...`). Aufrufe mit
+  # ungebundenem erstem Argument nehmen die vollständigen Klauseln. Wurde
+  # etwas weggenommen, ist var_only kein Liste mehr: assert baut dann den
+  # Index neu (materialize), denn eine angehängte Klausel machte einen
+  # weggefallenen Schnitt wieder nötig.
+
+  @type_tests ~w(integer float number atom atomic compound callable var nonvar)
+
+  defp specialize_lists(by_key, var_only) do
+    {by_key, ch} =
+      Enum.map_reduce(by_key, false, fn {k, l}, ch ->
+        {l2, c} = specialize(l, key_class(k))
+        {{k, l2}, ch or c}
+      end)
+
+    by_key = Map.new(by_key)
+
+    case var_only do
+      {:classes, m, all} ->
+        m = Map.new(m, fn {c, l} -> {c, elem(specialize(l, c), 0)} end)
+        {by_key, {:classes, m, elem(specialize(all, :other), 0)}}
+
+      l ->
+        {l2, c} = specialize(l, :other)
+        {by_key, if(ch or c, do: {:spec, l2}, else: l)}
+    end
+  end
+
+  defp specialize(list, class) do
+    n = length(list)
+
+    list
+    |> Enum.with_index(1)
+    |> Enum.map_reduce(false, fn {c, i}, ch ->
+      c2 = spec_clause(c, class, i == n)
+      {c2, ch or c2 !== c}
+    end)
+  end
+
+  defp spec_clause({:clause, key, ns, pats, nf, tmpls, nv} = c, class, last?) do
+    t1 =
+      case {key, tmpls} do
+        {{:guard, t}, [{:t_struct, t, [_]} | rest]} when class != :other ->
+          if guard_ok(t, class), do: rest, else: tmpls
+
+        _ ->
+          tmpls
+      end
+
+    t2 = if last?, do: drop_neck_cut(t1, []), else: t1
+    if t2 === tmpls, do: c, else: {:clause, key, ns, pats, nf, t2, nv}
+  end
+
+  defp drop_neck_cut([{:t_struct, t, [_]} = g | rest], acc) when t in @type_tests,
+    do: drop_neck_cut(rest, [g | acc])
+
+  defp drop_neck_cut([{:t_lit, {:atom, "!"}} | rest], acc), do: :lists.reverse(acc, rest)
+  defp drop_neck_cut(rest, acc), do: :lists.reverse(acc, rest)
 
   defp src_key({head, _}) do
     case Compiler.args_of(head) do
@@ -1231,6 +1299,7 @@ defmodule PrologEx do
   defp key_class(_), do: :other
 
   defp fallback(l, _k) when is_list(l), do: l
+  defp fallback({:spec, l}, _k), do: l
 
   defp fallback({:classes, m, all}, k) do
     case key_class(k) do
@@ -1311,19 +1380,20 @@ defmodule PrologEx do
 
   def materialize({:pending, {:pred, cls, _, vo, _} = p, fr, bk} = pending) do
     # viele neue Klauseln: Neubau ist dann billiger als Erweitern (die
-    # Länge von cls nur zählen, wenn es viele sind: sonst O(n) je assert);
-    # mit Wächtern immer Neubau (selten: sie kommen aus dem Quelltext)
+    # Länge von cls nur zählen, wenn es viele sind: sonst O(n) je assert).
+    # Ein Index mit Wächtern oder Fassungen (var_only keine Liste) ist
+    # nicht erweiterbar: einmal schlicht neu bauen (ohne beides), danach
+    # wieder erweitern – so bleibt assert auf solchen Prädikaten billig
     n = length(fr) + length(bk)
 
-    if (n > 16 and n > count(cls)) or not is_list(vo) or guarded?(fr) or guarded?(bk),
-      do: pred_from_entries(pred_entries(pending)),
-      else: extend(p, fr, Enum.reverse(bk))
+    cond do
+      not is_list(vo) -> pred_from_entries(pred_entries(pending), false)
+      n > 16 and n > count(cls) -> pred_from_entries(pred_entries(pending))
+      true -> extend(p, fr, Enum.reverse(bk))
+    end
   end
 
   def materialize(p), do: pred_from_entries(pred_entries(p))
-
-  defp guarded?(entries),
-    do: Enum.any?(entries, fn {_, _, c} -> match?({:guard, _}, elem(c, 1)) end)
 
   # Index um vorn (asserta) und hinten (assertz) angefügte Klauseln
   # erweitern, statt ihn neu aufzubauen (~75× billiger; übrig bleibt das
@@ -1335,8 +1405,11 @@ defmodule PrologEx do
       |> Enum.reverse()
       |> Enum.reduce({by_key, var_only}, fn {_, _, c}, {bk_, vo} ->
         case elem(c, 1) do
-          :any -> {Map.new(bk_, fn {k, l} -> {k, [c | l]} end), [c | vo]}
-          k -> {Map.update(bk_, k, [c | vo], &[c | &1]), vo}
+          k when k == :any or elem(k, 0) == :guard ->
+            {Map.new(bk_, fn {k, l} -> {k, [c | l]} end), [c | vo]}
+
+          k ->
+            {Map.update(bk_, k, [c | vo], &[c | &1]), vo}
         end
       end)
 
@@ -1344,8 +1417,11 @@ defmodule PrologEx do
     {by_key, var_only_rev} =
       Enum.reduce(bk, {by_key, Enum.reverse(var_only)}, fn {_, _, c}, {bk_, vr} ->
         case elem(c, 1) do
-          :any -> {Map.new(bk_, fn {k, l} -> {k, l ++ [c]} end), [c | vr]}
-          k -> {Map.update(bk_, k, Enum.reverse([c | vr]), &(&1 ++ [c])), vr}
+          k when k == :any or elem(k, 0) == :guard ->
+            {Map.new(bk_, fn {k, l} -> {k, l ++ [c]} end), [c | vr]}
+
+          k ->
+            {Map.update(bk_, k, Enum.reverse([c | vr]), &(&1 ++ [c])), vr}
         end
       end)
 

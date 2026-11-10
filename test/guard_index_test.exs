@@ -20,6 +20,16 @@ defmodule PrologEx.GuardIndexTest do
   n(X, a) :- atomic(X).
   n(X, c) :- callable(X).
   det(G, D) :- setup_call_cleanup(true, G, D = ja), ( var(D) -> D = nein ; true ).
+  f([], leer) :- !.
+  f([_|_], voll) :- !.
+  f(_, sonst).
+  g(1, eins) :- !.
+  g(X, zahl) :- integer(X).
+  h(X, z) :- integer(X), !.
+  h(X, a) :- atom(X), !.
+  :- dynamic(d/1).
+  d(X) :- integer(X), !.
+  d(a).
   """
 
   setup_all do
@@ -55,9 +65,25 @@ defmodule PrologEx.GuardIndexTest do
         {"findall(A, clause(art(1, A), _), L)", ["L = [zahl,gleit,atom,liste,struktur,var]"]},
         {"assertz((s(X) :- X = a)), clause(s(b), B)", ["B = (b=a)"]},
         {"assertz((s2(X) :- X = a)), retract((s2(b) :- _)), \\+ clause(s2(_), _)", :succeeds},
-        # mit assertz: Neubau des Index
+        # Schnitt nach dem Kopf: im letzten Kandidaten weg, sonst wirksam
+        {"det(f([], A), D)", ["A = leer, D = ja"]},
+        {"det(f([x], A), D)", ["A = voll, D = ja"]},
+        {"findall(A, f([], A), L)", ["L = [leer]"]},
+        {"findall(A, f(x, A), L)", ["L = [sonst]"]},
+        {"findall(A, f(_, A), L)", ["L = [leer]"]},
+        {"findall(A, g(1, A), L)", ["L = [eins]"]},
+        {"findall(A, g(2, A), L)", ["L = [zahl]"]},
+        {"det(h(1, A), D)", ["A = z, D = ja"]},
+        {"findall(A, h(_, A), L)", ["L = []"]},
+        {"findall(A, h(x, A), L)", ["L = [a]"]},
+        # assert auf ein Prädikat mit weggefallenem Schnitt: wieder wirksam
+        {"assertz(d(5)), findall(X, d(5), L)", ["L = [_A]"]},
+        {"asserta(d(7)), findall(X, d(7), L)", ["L = [_A,_B]"]},
+        # mit assertz: der Index wird erweitert, ohne Wächter (assert bleibt
+        # billig); dieselben Antworten
         {"assertz((q(X) :- integer(X))), assertz((q(X) :- atom(X))), " <>
-           "det(q(1), D1), det(q(a), D2), \\+ q(f(x))", ["D1 = ja, D2 = ja"]},
+           "q(1), q(a), \\+ q(f(x)), findall(Y, (member(Y, [1, a, f(x)]), q(Y)), L)",
+         ["L = [1,a]"]},
         {"assertz((r(X) :- atom(X))), assertz(r(1)), assertz((r(X) :- integer(X))), " <>
            "findall(X, (member(X, [a, 1, 2, f]), r(X)), L)", ["L = [a,1,1,2,f]"]}
       ] do

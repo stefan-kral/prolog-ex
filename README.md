@@ -50,6 +50,15 @@ Ein Prolog-Kern in Elixir:
   Verzweigung über drei Typen −54 % (ohne Schnitt) bzw. −26 % (mit).
   Prädikate ohne Wächter: unverändert. `clause/2` und `retract/1` wählen
   nach dem Kopf der Quelle
+- Fassungen je Kandidatenliste (beim Laden): in einer Liste, deren
+  Typklasse ein Wächter sicher erfüllt, fällt der Typtest weg; und ist eine
+  Klausel der letzte Kandidat ihrer Liste und stehen vor einem Schnitt nur
+  Typtests, fällt der Schnitt weg – er schnitte nichts ab (auch
+  `f([]) :- !, … . f([H|T]) :- !, …`). Aufrufe mit ungebundenem erstem
+  Argument nehmen die vollständigen Klauseln. Eine Typ-Verzweigung mit
+  Wächter und Schnitt −17 bis −20 %, so schnell wie eine ohne beides.
+  Ein assert auf ein solches Prädikat baut den Index einmal schlicht neu
+  (ohne Wächter und Fassungen), danach wird er wie sonst erweitert
 - explizite Ziel- und Choice-Point-Stacks mit Last-Call-Optimierung,
   vorberechneter Index nach dem ersten Argument. Der Zustand der Maschine
   ist ein Struct mit ~25 Feldern; je Inferenz wird er genau einmal
