@@ -186,10 +186,10 @@ defmodule PrologEx.FindallFlagsTest do
     end
 
     # ISO 7.11.2
-    test "debug und char_conversion mit on/off, max_arity 2^16 (nur lesbar)" do
+    test "debug und char_conversion mit on/off, max_arity 255 (nur lesbar)" do
       assert all(s("current_prolog_flag", [a("debug"), @x])) == ["X = off"]
       assert all(s("current_prolog_flag", [a("char_conversion"), @x])) == ["X = off"]
-      assert all(s("current_prolog_flag", [a("max_arity"), @x])) == ["X = 65536"]
+      assert all(s("current_prolog_flag", [a("max_arity"), @x])) == ["X = 255"]
       error(s("set_prolog_flag", [a("max_arity"), 40]))
       error(s("set_prolog_flag", [a("debug"), a("trace")]))
       error(s("set_prolog_flag", [a("debug"), a("true")]))

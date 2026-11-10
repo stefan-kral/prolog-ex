@@ -2875,7 +2875,7 @@ defmodule PrologEx do
           # (call/N über max_arity hinaus: kein Prädikat kann so heißen,
           # Cor.2 8.15.4.3 c)
           # = PrologEx.Flags.max_arity()
-          _ when arity > 65_536 ->
+          _ when arity > 255 ->
             throw_error(st, fn -> PrologEx.Error.representation!("max_arity") end)
 
           _ when mod == "user" and name == "portray" and arity == 1 ->

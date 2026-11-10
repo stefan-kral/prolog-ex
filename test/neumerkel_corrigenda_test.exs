@@ -14,8 +14,8 @@ defmodule PrologEx.NeumerkelCorrigendaTest do
   use ExUnit.Case, async: true
   alias PrologEx.{Reader, TableCase}
 
-  @args65537 "length(L, 65537), maplist(=(a), L), atomic_list_concat(L, ',', A0), " <>
-               "atomic_list_concat(['f(', A0, ').'], A)"
+  @args256 "length(L, 256), maplist(=(a), L), atomic_list_concat(L, ',', A0), " <>
+             "atomic_list_concat(['f(', A0, ').'], A)"
 
   @rows [
     # --- Operatoren (dtc2 C2) ---
@@ -106,8 +106,8 @@ defmodule PrologEx.NeumerkelCorrigendaTest do
     {"call(',', fail, 1)", {:error, "type_error(callable,(fail,1))"}},
     {"Y = (write(3), 3), call(Y)", {:error, "type_error(callable,(write(3),3))"}},
     {"catch(_, error(E, _), true)", ["E = instantiation_error"]},
-    # über max_arity hinaus (Ziel mit 65537 Argumenten)
-    {"functor(F, f, 65536), catch(call(F, a), error(representation_error(R), _), true), R == max_arity",
+    # über max_arity hinaus (Ziel mit 256 Argumenten)
+    {"functor(F, f, 255), catch(call(F, a), error(representation_error(R), _), true), R == max_arity",
      :succeeds},
     # --- Arithmetik (C15–C17, Cor.3 C19) ---
     {"X is +(1)", ["X = 1"]},
@@ -206,15 +206,14 @@ defmodule PrologEx.NeumerkelCorrigendaTest do
     {"abolish(foo/_)", {:error, "instantiation_error"}},
     {"abolish(foo)", {:error, "type_error(predicate_indicator,foo)"}},
     {"abolish(foo/a)", {:error, "type_error(integer,a)"}},
-    {"abolish(foo/65537)", {:error, "representation_error(max_arity)"}},
+    {"abolish(foo/256)", {:error, "representation_error(max_arity)"}},
     # --- nicht darstellbare Zahlen und Stelligkeiten (stc #73, #74) ---
     {"number_chars(N, ['1','.','0',e,'4','0','0'])", {:error, "representation_error(max_float)"}},
     {"number_codes(N, \"1.0e400\")", {:error, "representation_error(max_float)"}},
     {"atom_number('1.0e400', N)", :fails},
     {"read_term_from_atom('1.0e400', T, [])", {:error, "representation_error(max_float)"}},
     {"read_term_from_atom('-1.0e400', T, [])", {:error, "representation_error(max_float)"}},
-    {@args65537 <> ", read_term_from_atom(A, T, [])",
-     {:error, "representation_error(max_arity)"}},
+    {@args256 <> ", read_term_from_atom(A, T, [])", {:error, "representation_error(max_arity)"}},
     {"writeq(244124086793065425827.0)", {:out, "2.4412408679306543e20", true}},
     {"X is 244124086793065425827 - 244124086793065425827.0", ["X = 0.0"]},
     # --- Ziffertrenner im Bruchteil ---

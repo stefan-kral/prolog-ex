@@ -129,7 +129,8 @@ defmodule PrologEx.VarNamesTest do
     # Kopf (anonyme, Slots) und Rumpf zählen zum Bedarf
     args = Enum.map_join(1..3000, ",", &"X#{&1}")
     anon = Enum.map_join(1..3000, ",", fn _ -> "_" end)
-    src = "big([#{vars}]).\nslots(f(#{args}), g(#{args})).\nbody(L) :- L = [#{anon}].\n"
+    # (in Listen: max_arity ist 255)
+    src = "big([#{vars}]).\nslots([#{args}], [#{args}]).\nbody(L) :- L = [#{anon}].\n"
     db = db(c, src)
 
     for q <- ["big(_)", "slots(_, _)", "body(_)", "big(_), slots(_, _), body(_)"] do

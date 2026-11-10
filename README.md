@@ -2950,7 +2950,7 @@ exakt gerechnet, nicht über eine Gleitkommaaddition), und `round/1`,
 `float_fractional_part/1` nehmen nur Floats – eine Ganzzahl ist
 `type_error(float, X)` (SWI und Scryer nehmen sie; unsere Fassung von
 Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
-Float). `max_arity` ist 65 536 (2^16): größere Stelligkeiten bei
+Float). `max_arity` ist 255 wie in SICStus und Scryer: größere Stelligkeiten bei
 `functor/3`, `=../2`, `abolish/1`, `read_term/2,3` und beim Aufruf (`call/N`) sind
 `representation_error(max_arity)` (beim Laden einer Datei ein
 Syntaxfehler). Gesamt: 4 127 bestanden, 80 fehlgeschlagen,

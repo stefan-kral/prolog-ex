@@ -114,7 +114,7 @@ defmodule PrologEx.MemoryLimitTest do
       assert catching(c, "call_with_memory_limit(#{g}, #{@lim})") |> mem!(g)
     end
 
-    # über max_arity (2^16): kein Speicherfehler, die Stelligkeit ist zu groß
+    # über max_arity (255): kein Speicherfehler, die Stelligkeit ist zu groß
     assert catching(c, "call_with_memory_limit(functor(_, f, 50000000), #{@lim})") ==
              ["E = error(representation_error(max_arity),_A)"]
 
@@ -122,7 +122,7 @@ defmodule PrologEx.MemoryLimitTest do
     for g <- [
           "length(_, 20000)",
           "numlist(1, 20000, _)",
-          "functor(_, f, 20000)",
+          "functor(_, f, 255)",
           "_ is 3 ^ 5000",
           "_ is 1 << 100000"
         ] do
