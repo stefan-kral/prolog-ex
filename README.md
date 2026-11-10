@@ -35,7 +35,12 @@ Ein Prolog-Kern in Elixir:
   Konjunktion vorkommt, fallen dabei weg (V wird zu X) – etwa die Ketten
   `S0 = S1` aus DCG-Übersetzungen; `clause/2` und `listing/1` zeigen die
   Quelle. Ein DCG-Zahlenparser −10 % Reduktionen, die clpz-Beispiele
-  −1 bis −4 %
+  −1 bis −4 %. Ebenso wandert eine Unifikation `V = T` am Anfang des
+  Rumpfs in den Kopf, wenn V eine Kopfvariable ist und in T nicht vorkommt
+  (sie geschähe ohnehin gleich nach dem Kopf): jede DCG-Regel, die mit
+  einem Terminal beginnt, spart so einen Schritt (`S0 = [X|S1]` wird
+  Kopfmuster), und `p(X) :- X = a, …` bekommt einen Index. Eine DCG über
+  eine Liste von 200 000 Elementen −31 bis −42 %
 - explizite Ziel- und Choice-Point-Stacks mit Last-Call-Optimierung,
   vorberechneter Index nach dem ersten Argument. Der Zustand der Maschine
   ist ein Struct mit ~25 Feldern; je Inferenz wird er genau einmal

@@ -23,6 +23,13 @@ defmodule PrologEx.CompilerAliasTest do
   p12(X, R) :- Y = X, dif(Y, a), R = Y.
   p13(R) :- X = Y, Y = Z, Z = W, W = 7, R = X.
   p14(R) :- X = Y, R = Y, X = 3.
+  f1(X, Y) :- X = f(Y), !.
+  f1(_, none).
+  f2(X, Y) :- X = a, Y = b.
+  f3(X, W) :- X = 1, write(b), W = done.
+  f4(L) :- L = [_|_], length(L, 2).
+  f5(X, Y) :- f(Y) = X, Y > 0.
+  f6(X) :- X = f(X).
   """
 
   setup_all do
@@ -50,7 +57,19 @@ defmodule PrologEx.CompilerAliasTest do
         {"p12(a, R)", :fails},
         {"p12(b, R)", ["R = b"]},
         {"p13(R)", ["R = 7"]},
-        {"p14(R)", ["R = 3"]}
+        {"p14(R)", ["R = 3"]},
+        # V = T am Anfang in den Kopf
+        {"f1(f(1), Y)", ["Y = 1"]},
+        {"f1(g, Y)", ["Y = none"]},
+        {"f2(a, Y)", ["Y = b"]},
+        {"f2(c, _)", :fails},
+        {"f2(X, Y)", ["X = a, Y = b"]},
+        {"freeze(X, write(w)), f3(X, W)", {:out, "wb"}},
+        {"f4(L), L = [x, y]", :succeeds},
+        {"f4([a])", :fails},
+        {"f5(f(2), Y)", ["Y = 2"]},
+        {"f5(f(-2), _)", :fails},
+        {"f6(X), X = f(Y), X == Y", :succeeds}
       ] do
     test q, c do
       Reader.put_current(c.reader)
@@ -69,6 +88,25 @@ defmodule PrologEx.CompilerAliasTest do
   defp count({:struct, "=", [_, _]}), do: 1
   defp count({:struct, _, args}), do: args |> Enum.map(&count/1) |> Enum.sum()
   defp count(_), do: 0
+
+  # übersetzter Rumpf: Anzahl Ziele
+  defp body_len(clause, c) do
+    Reader.put_current(c.reader)
+    [{:term, {:struct, ":-", [h, b]}, _}] = Reader.read_terms(c.reader, clause <> ".")
+    {:clause, _, _, _, _, tmpls, _} = Compiler.compile_clause({h, b})
+    length(tmpls)
+  end
+
+  test "V = T am Anfang wandert in den Kopf", c do
+    assert body_len("p(S0, S) :- S0 = [x|S1], q(S1, S)", c) == 1
+    assert body_len("p(X, Y) :- X = a, Y = b, q", c) == 1
+    # T enthält V: bleibt
+    assert body_len("p(X) :- X = f(X), q", c) == 2
+    # nicht am Anfang: bleibt
+    assert body_len("p(X) :- q, X = a", c) == 2
+    # V nicht im Kopf: Sache von alias_vars, hier nicht
+    assert body_len("p :- X = f(Y), q(X, Y)", c) == 2
+  end
 
   test "welche Ziele wegfallen", c do
     # Kette aus einer Kopfvariablen: alle weg

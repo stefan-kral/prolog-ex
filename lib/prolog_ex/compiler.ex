@@ -65,6 +65,7 @@ defmodule PrologEx.Compiler do
   """
 
   def compile_clause({head, body}) do
+    {head, body} = fold_head(head, body)
     body = alias_vars(head, body)
     counts = count_vars(body, count_vars(head, %{}))
     st = %{slots: %{}, fresh: %{}, counts: counts, voids: 0}
@@ -203,6 +204,45 @@ defmodule PrologEx.Compiler do
   defp list_conj([]), do: {:atom, "true"}
   defp list_conj([g]), do: g
   defp list_conj([g | gs]), do: {:struct, ",", [g, list_conj(gs)]}
+
+  # --- Unifikation am Anfang des Rumpfs in den Kopf ------------------------
+  #
+  # `H :- V = T, B` mit einer Kopfvariablen V, die in T nicht vorkommt, ist
+  # gleichwertig zu `H[V/T] :- B[V/T]`: die Unifikation geschähe ohnehin
+  # gleich nach dem Kopf, vor jedem anderen Ziel (auch vor einem Schnitt
+  # und vor dem Wecken – geweckt wird nach dem Kopf wie nach dem Ziel). So
+  # spart etwa jede DCG-Regel, die mit einem Terminal beginnt, einen
+  # Schritt (`S0 = [X|S1]` wird Kopfmuster), und `p(X) :- X = a, ...`
+  # bekommt einen Index. Wie bei alias_vars ändert sich nur die übersetzte
+  # Klausel.
+
+  defp fold_head(head, body) do
+    case conj_list(body) do
+      [{:struct, "=", [x, y]} | rest] ->
+        case fold_var(x, y, head) || fold_var(y, x, head) do
+          {v, t} -> fold_head(rename_t(head, v, t), rename_t(list_conj(rest), v, t))
+          nil -> {head, body}
+        end
+
+      _ ->
+        {head, body}
+    end
+  end
+
+  # nicht mit `_` in T: so geschriebene anonyme Variablen (in Elixir
+  # gebaute Bibliotheksklauseln) sind jede für sich verschieden – T an
+  # mehreren Stellen stünde sonst nicht mehr für denselben Term
+  defp fold_var({:var, v}, t, head) when v != "_" do
+    if occ(head, v) > 0 and occ(t, v) == 0 and occ(t, "_") == 0, do: {v, t}
+  end
+
+  defp fold_var(_, _, _), do: nil
+
+  # Variable v durch den Term t ersetzen
+  defp rename_t({:var, v}, v, t), do: t
+  defp rename_t({:struct, f, args}, v, t), do: {:struct, f, rename_t(args, v, t)}
+  defp rename_t([h | r], v, t), do: [rename_t(h, v, t) | rename_t(r, v, t)]
+  defp rename_t(x, _, _), do: x
 
   # --- Kopf -------------------------------------------------------------
 
