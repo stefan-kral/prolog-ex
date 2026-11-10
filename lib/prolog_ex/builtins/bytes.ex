@@ -451,6 +451,27 @@ defmodule PrologEx.Builtins.Bytes do
     {:unify, [{b, {:bytes, S.get_bytes(id, k)}}]}
   end
 
+  # --- Wieder einlesbare Ausgabe ---------------------------------------------
+
+  @doc """
+  Für Ausgaben, die wieder eingelesen werden sollen (`listing/0,1`,
+  `portray_clause/1,2`): eine Byte-Folge darin hat kein Literal – statt
+  `'$bytes'(N)` zu schreiben, das still als Struktur zurückkäme,
+  `representation_error(bytes)`. `t`: aufgelöst (ohne Substitution).
+  """
+  def no_bytes!(t), do: no_bytes([t])
+
+  # Arbeitsliste statt Rekursion (lange Listen, tiefe Terme)
+  defp no_bytes([]), do: :ok
+  defp no_bytes([{:bytes, _} | _]), do: Error.representation!("bytes")
+
+  defp no_bytes([{tag, _, args} | rest]) when tag in [:struct, :gstruct],
+    do: no_bytes(args ++ rest)
+
+  defp no_bytes([{:glist, l} | rest]), do: no_bytes([l | rest])
+  defp no_bytes([[h | t] | rest]), do: no_bytes([h, t | rest])
+  defp no_bytes([_ | rest]), do: no_bytes(rest)
+
   # --- Hilfen -----------------------------------------------------------------
 
   defp walk(t, s), do: PrologEx.unmark_top(Store.walk(t, s))

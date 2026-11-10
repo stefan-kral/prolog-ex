@@ -335,6 +335,11 @@ defmodule PrologEx.Builtins.Core do
     :ok
   end
 
+  # portray_clause/1,2 (library(format)): eine Byte-Folge hat kein Literal
+  defbuiltin "$no_bytes", [t] do
+    PrologEx.Builtins.Bytes.no_bytes!(resolve(t))
+  end
+
   defbuiltin "listing", [] do
     PrologEx.Builtins.IO.out(PrologEx.Listing.listing(db(), :all, context_module()))
     :ok

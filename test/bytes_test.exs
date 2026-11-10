@@ -154,6 +154,29 @@ defmodule PrologEx.BytesTest do
     end
   end
 
+  # Wieder einlesbare Ausgabe: eine Byte-Folge hat kein Literal, also ein
+  # Fehler statt '$bytes'(N), das still als Struktur zurückkäme
+  test "listing/1 und portray_clause/1 verweigern Byte-Folgen", c do
+    q = "bytes_list(B, [1]), assertz(lt(a)), assertz(lt(f([x, g(B)]))), listing(lt/1)"
+    assert {"", {:error, "representation_error(bytes)"}} = TableCase.run(c.reader, c.db, q)
+
+    {out, _} = TableCase.run(c.reader, c.db, "assertz(lt(a)), assertz(lt(b)), listing(lt/1)")
+    assert out =~ "lt(a).\nlt(b).\n"
+
+    db = TableCase.db(c.reader, ~w(bytes format))
+
+    q = "bytes_list(B, [1]), assertz(pt(a)), assertz(pt(B)), listing(pt/1)"
+    assert {"", {:error, "representation_error(bytes)"}} = TableCase.run(c.reader, db, q)
+
+    assert {"", {:error, "representation_error(bytes)"}} =
+             TableCase.run(c.reader, db, "bytes_list(B, [1]), portray_clause(f([x, B]))")
+
+    assert {"f(x).\n", _} = TableCase.run(c.reader, db, "portray_clause(f(x))")
+
+    # writeq und write_canonical zeigen sie weiter (zum Nachsehen)
+    assert {"'$bytes'(1)", _} = TableCase.run(c.reader, db, "bytes_list(B, [1]), writeq(B)")
+  end
+
   @tag :tmp_dir
   test "Dateien und Streams", c do
     path = Path.join(c.tmp_dir, "d.bin")

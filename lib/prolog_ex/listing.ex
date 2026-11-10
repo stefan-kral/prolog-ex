@@ -142,6 +142,10 @@ defmodule PrologEx.Listing do
 
   @doc false
   def clause_text({head, body}) do
+    # eine Byte-Folge hat kein Literal: lieber ein Fehler als still falsch
+    PrologEx.Builtins.Bytes.no_bytes!(head)
+    PrologEx.Builtins.Bytes.no_bytes!(body)
+
     case unmark(body) do
       {:atom, "true"} -> q(head, 1199) <> ".\n"
       b -> q(head, 1199) <> " :-\n" <> body(b, "    ") <> ".\n"

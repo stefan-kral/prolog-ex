@@ -569,6 +569,8 @@ portray_clause(Stream, Term) :-
         flush_output(Stream).
 
 portray_clause_(Term) -->
+        % PrologEx: eine Byte-Folge hat kein Literal (representation_error(bytes))
+        { '$no_bytes'(Term) },
         { unique_variable_names(numbervars, Term, VNs) },
         portray_(Term, VNs), ".\n".
 
@@ -708,6 +710,9 @@ listing(M:PI) :-
         ),
         functor(Head, Name, Arity),
         \+ \+ clause(M:Head, _), % only true if there is at least one clause
+        % PrologEx: erst alle Klauseln prüfen, dann schreiben (keine halbe
+        % Ausgabe, wenn eine Byte-Folge darin ist)
+        \+ ( clause(M:Head, Body0), \+ '$no_bytes'((Head :- Body0)) ),
         (   clause(M:Head, Body),
             (   Body == true ->
                 portray_clause(Head)

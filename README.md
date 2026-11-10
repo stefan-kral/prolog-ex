@@ -485,7 +485,12 @@ umsonst.
 
 Kein Literal (noch offen, wie es sich mit der ISO-Syntax verträgt):
 `write/1` und `writeq/1` geben `'$bytes'(Länge)` aus, das nicht wieder als
-Byte-Folge einlesbar ist (wie `'$stream'(N)`). Fehler: keine Folge
+Byte-Folge einlesbar ist (wie `'$stream'(N)`). Was zum Wiedereinlesen
+geschrieben wird – `listing/0,1` (auch das aus `library(format)`) und
+`portray_clause/1,2` – verweigert darum Byte-Folgen mit
+`representation_error(bytes)`, bevor es etwas ausgibt, statt still eine
+Struktur zu schreiben. Speichern geht mit `fast_write/2` und
+`fast_term_serialized/2`. Fehler: keine Folge
 `type_error(bytes, X)`, ein Byte außerhalb 0..255 `type_error(byte, X)`,
 ungültiges UTF-8 und Zeichen über 255 bei Latin-1
 `representation_error(character)`, ungültiges Hex oder Base64
