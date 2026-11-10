@@ -1030,8 +1030,9 @@ dessen Algorithmus, und ein Test vergleicht zufällige Folgen von
 Operationen mit SWIs Prolog-Fassung (`test/fixtures/assoc_swi.pl`).
 In Elixir, mit einem schnellen Pfad für die selbst gebauten Knoten
 (direkt erkannt, ohne Umweg über die Bindungen) und für Ganzzahl- und
-Atomschlüssel (direkt verglichen): bei 10⁵ Einträgen rund 2 µs je
-`put_assoc/4` und 2 µs je `get_assoc/3`.
+Atomschlüssel (direkt verglichen). Etwa 4–5-mal langsamer als Erlangs
+`gb_trees`: ein Knoten `t/5` ist eine Struktur mit Argumentliste, also
+gut dreimal so groß wie ein Tupel.
 Fehler wie SWI: freier Baum `instantiation_error`, kein Baum
 `type_error(assoc, X)`, doppelte Schlüssel bei `list_to_assoc/2`
 `domain_error(unique_key_pairs, L)`, ungeordnete bei
