@@ -382,6 +382,18 @@ defmodule PrologEx.ConcurrentTest do
     assert ask(c, "call_with_depth_limit(concurrent_maplist(deep, [3, 30]), 20, R)") ==
              ["R = depth_limit_exceeded"]
 
+    # viele Kinder schreiben gleichzeitig in denselben Rahmen: die größte
+    # Ebene darf nicht von einer kleineren überschrieben werden
+    for _ <- 1..5 do
+      assert ask(
+               c,
+               "numlist(1, 60, L0), reverse(L0, L), " <>
+                 "call_with_depth_limit(concurrent_maplist(deep, L), 100, R), " <>
+                 "call_with_depth_limit(maplist(deep, L), 100, R)"
+             )
+             |> length() == 1
+    end
+
     # ein Kind, das nichts fängt: die Rekursion scheitert an der Grenze
     assert ask(c, "call_with_depth_limit(concurrent_maplist(deep, [1000]), 50, R)") ==
              ["R = depth_limit_exceeded"]

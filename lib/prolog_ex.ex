@@ -3325,6 +3325,20 @@ defmodule PrologEx do
   defp min_dlimit([]), do: nil
   defp min_dlimit(ls), do: ls |> Enum.map(&elem(&1, 2)) |> Enum.min()
 
+  # größte Ebene eines Rahmens hochsetzen: mit compare_exchange, denn
+  # Kinder von library(concurrent) schreiben gleichzeitig in denselben
+  # Rahmen (lesen-dann-schreiben könnte einen größeren Wert überschreiben)
+  defp atomic_max(ref, i, v) do
+    cur = :atomics.get(ref, i)
+
+    if v > cur do
+      case :atomics.compare_exchange(ref, i, cur, v) do
+        :ok -> :ok
+        _ -> atomic_max(ref, i, v)
+      end
+    end
+  end
+
   # Aufruf eines Prädikats mit Klauseln aus Modul m: bei aktiver
   # Tiefengrenze Ebene prüfen und für den Rumpf erhöhen
   defp depth_enter(%{dlimit: nil} = st, rest, _m), do: {st, rest}
@@ -3339,10 +3353,7 @@ defmodule PrologEx do
         for {ref, _base, max} <- st.dlimits, level > max, do: :atomics.put(ref, 2, 1)
         :fail
       else
-        for {ref, base, _max} <- st.dlimits do
-          rel = level - base + 1
-          if rel > :atomics.get(ref, 1), do: :atomics.put(ref, 1, rel)
-        end
+        for {ref, base, _max} <- st.dlimits, do: atomic_max(ref, 1, level - base + 1)
 
         rest =
           case rest do
