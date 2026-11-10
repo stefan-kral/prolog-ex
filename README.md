@@ -41,6 +41,15 @@ Ein Prolog-Kern in Elixir:
   einem Terminal beginnt, spart so einen Schritt (`S0 = [X|S1]` wird
   Kopfmuster), und `p(X) :- X = a, …` bekommt einen Index. Eine DCG über
   eine Liste von 200 000 Elementen −31 bis −42 %
+- Wächter im Index: beginnt ein Rumpf mit einem Typtest auf die Variable
+  des ersten Kopfarguments (`integer/1`, `float/1`, `number/1`, `atom/1`,
+  `atomic/1`, `compound/1`, `callable/1`, `var/1`), lässt der Index die
+  Klausel für Argumente anderen Typs weg – auch für Werte, die in keinem
+  Kopf stehen (je Typklasse eine Restliste, beim Laden berechnet). Typ-
+  Verzweigungen werden so deterministisch, auch ohne Schnitt; eine
+  Verzweigung über drei Typen −54 % (ohne Schnitt) bzw. −26 % (mit).
+  Prädikate ohne Wächter: unverändert. `clause/2` und `retract/1` wählen
+  nach dem Kopf der Quelle
 - explizite Ziel- und Choice-Point-Stacks mit Last-Call-Optimierung,
   vorberechneter Index nach dem ersten Argument. Der Zustand der Maschine
   ist ein Struct mit ~25 Feldern; je Inferenz wird er genau einmal

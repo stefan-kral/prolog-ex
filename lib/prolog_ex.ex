@@ -1160,19 +1160,83 @@ defmodule PrologEx do
   # Index in einem Durchgang: Klauseln je Schlüssel, Klauseln mit Variable
   # an erster Stelle werden in jede Schlüsselliste an ihrer Position
   # eingemischt (O(n + Schlüssel × Var-Klauseln) statt O(n × Schlüssel))
+  @type_classes [:integer, :float, :rat, :bytes, :atom, :compound]
+
   def pred_from_entries(entries) do
     cls = Enum.map(entries, &elem(&1, 2))
     indexed = Enum.with_index(cls)
-    var_only = for {c, _} <- indexed, elem(c, 1) == :any, do: c
-    any_idx = for {c, i} <- indexed, elem(c, 1) == :any, do: {i, c}
+    var_only = for {c, _} <- indexed, any_key?(elem(c, 1)), do: c
+    any_idx = for {c, i} <- indexed, any_key?(elem(c, 1)), do: {i, c}
+    guards? = Enum.any?(var_only, &match?({:guard, _}, elem(&1, 1)))
 
     by_key =
       indexed
-      |> Enum.reject(fn {c, _} -> elem(c, 1) == :any end)
+      |> Enum.reject(fn {c, _} -> any_key?(elem(c, 1)) end)
       |> Enum.group_by(fn {c, _} -> elem(c, 1) end, fn {c, i} -> {i, c} end)
-      |> Map.new(fn {k, own} -> {k, merge_by_index(own, any_idx)} end)
+      |> Map.new(fn {k, own} ->
+        any = if guards?, do: guards_for(any_idx, key_class(k)), else: any_idx
+        {k, merge_by_index(own, any)}
+      end)
+
+    # mit Wächtern: die Restliste je Typklasse
+    var_only =
+      if guards?,
+        do:
+          {:classes,
+           Map.new(@type_classes, &{&1, Enum.map(guards_for(any_idx, &1), fn {_, c} -> c end)}),
+           var_only},
+        else: var_only
 
     {:pred, cls, by_key, var_only, entries}
+  end
+
+  defp src_key({head, _}) do
+    case Compiler.args_of(head) do
+      [a | _] -> index_key(a)
+      [] -> :any
+    end
+  end
+
+  defp any_key?(:any), do: true
+  defp any_key?({:guard, _}), do: true
+  defp any_key?(_), do: false
+
+  # --- Wächter (Typtest am Anfang des Rumpfs, siehe PrologEx.Compiler) ----
+
+  defp guards_for(any_idx, class),
+    do: Enum.filter(any_idx, fn {_, c} -> guard_ok?(elem(c, 1), class) end)
+
+  # kann die Klausel für ein Argument dieser Klasse gelingen?
+  defp guard_ok?({:guard, t}, class), do: guard_ok(t, class)
+  defp guard_ok?(_, _), do: true
+
+  defp guard_ok(_, :other), do: true
+  defp guard_ok("integer", c), do: c == :integer
+  defp guard_ok("float", c), do: c == :float
+  defp guard_ok("number", c), do: c in [:integer, :float, :rat]
+  defp guard_ok("atom", c), do: c == :atom
+  defp guard_ok("atomic", c), do: c != :compound
+  defp guard_ok("compound", c), do: c == :compound
+  defp guard_ok("callable", c), do: c in [:atom, :compound]
+  defp guard_ok("var", _), do: false
+
+  # Typklasse eines Indexschlüssels bzw. eines gebundenen Arguments
+  defp key_class(k) when is_integer(k), do: :integer
+  defp key_class(k) when is_float(k), do: :float
+  defp key_class({:rat, _, _}), do: :rat
+  defp key_class({:bytes, _}), do: :bytes
+  defp key_class({:atom, _}), do: :atom
+  defp key_class([]), do: :atom
+  defp key_class({f, n}) when is_binary(f) and is_integer(n), do: :compound
+  defp key_class(_), do: :other
+
+  defp fallback(l, _k) when is_list(l), do: l
+
+  defp fallback({:classes, m, all}, k) do
+    case key_class(k) do
+      :other -> all
+      c -> Map.fetch!(m, c)
+    end
   end
 
   defp merge_by_index([], b), do: Enum.map(b, &elem(&1, 1))
@@ -1230,9 +1294,11 @@ defmodule PrologEx do
           {:var, _} ->
             entries
 
+          # nach dem Kopf der Quelle, nicht dem übersetzten Schlüssel: der
+          # kann genauer sein (V = T am Anfang ist in den Kopf gewandert)
           t ->
             k = index_key(t)
-            for {_, _, c} = e <- entries, (ck = elem(c, 1)) == :any or ck == k, do: e
+            for {_, src, _} = e <- entries, (sk = src_key(src)) == k or sk == :any, do: e
         end
 
       [] ->
@@ -1243,17 +1309,21 @@ defmodule PrologEx do
   @doc false
   def materialize({:pred, _, _, _, _} = p), do: p
 
-  def materialize({:pending, {:pred, cls, _, _, _} = p, fr, bk} = pending) do
+  def materialize({:pending, {:pred, cls, _, vo, _} = p, fr, bk} = pending) do
     # viele neue Klauseln: Neubau ist dann billiger als Erweitern (die
-    # Länge von cls nur zählen, wenn es viele sind: sonst O(n) je assert)
+    # Länge von cls nur zählen, wenn es viele sind: sonst O(n) je assert);
+    # mit Wächtern immer Neubau (selten: sie kommen aus dem Quelltext)
     n = length(fr) + length(bk)
 
-    if n > 16 and n > count(cls),
+    if (n > 16 and n > count(cls)) or not is_list(vo) or guarded?(fr) or guarded?(bk),
       do: pred_from_entries(pred_entries(pending)),
       else: extend(p, fr, Enum.reverse(bk))
   end
 
   def materialize(p), do: pred_from_entries(pred_entries(p))
+
+  defp guarded?(entries),
+    do: Enum.any?(entries, fn {_, _, c} -> match?({:guard, _}, elem(c, 1)) end)
 
   # Index um vorn (asserta) und hinten (assertz) angefügte Klauseln
   # erweitern, statt ihn neu aufzubauen (~75× billiger; übrig bleibt das
@@ -1365,8 +1435,16 @@ defmodule PrologEx do
 
       [x | _] ->
         case Store.walk(x, subst) do
-          {:var, _} -> flat(all)
-          t -> Map.get(by_key, index_key(t), var_only)
+          {:var, _} ->
+            flat(all)
+
+          t ->
+            k = index_key(t)
+
+            case by_key do
+              %{^k => l} -> l
+              _ -> fallback(var_only, k)
+            end
         end
     end
   end

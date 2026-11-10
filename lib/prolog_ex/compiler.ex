@@ -71,12 +71,30 @@ defmodule PrologEx.Compiler do
     st = %{slots: %{}, fresh: %{}, counts: counts, voids: 0}
 
     {pats, st} = Enum.map_reduce(args_of(head), st, &head_pat/2)
-    {tmpls, st} = Enum.map_reduce(flatten_conj(body), st, &goal_tmpl/2)
+    goals = flatten_conj(body)
+    {tmpls, st} = Enum.map_reduce(goals, st, &goal_tmpl/2)
     nslots = map_size(st.slots)
     nfresh = map_size(st.fresh)
+    key = with :any <- index_key_of(pats), do: guard(head, goals)
 
-    {:clause, index_key_of(pats), nslots, pats, nfresh, tmpls, nslots + st.voids + nfresh}
+    {:clause, key, nslots, pats, nfresh, tmpls, nslots + st.voids + nfresh}
   end
+
+  # --- Wächter: Typtest am Anfang -------------------------------------------
+  #
+  # `p(X, ...) :- integer(X), ...`: die Klausel kann nur für eine Ganzzahl
+  # an erster Stelle gelingen. Der Index (PrologEx.pred_from_entries) lässt
+  # sie für andere Schlüssel weg – auch für solche, die in keinem Kopf
+  # vorkommen (je Typklasse eine Restliste). Schlüssel {:guard, test};
+  # sonst wie :any.
+
+  @guards ~w(integer float number atom atomic compound callable var)
+
+  defp guard({:struct, _, [{:var, v} | _]}, [{:struct, t, [{:var, v}]} | _])
+       when t in @guards and v != "_",
+       do: {:guard, t}
+
+  defp guard(_, _), do: :any
 
   @doc "Funktor/Stelligkeit eines aufrufbaren Terms"
   def key({:struct, f, args}), do: {f, length(args)}
