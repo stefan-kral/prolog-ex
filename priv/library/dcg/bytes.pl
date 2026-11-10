@@ -2,7 +2,7 @@
 
    Die Byte-Folge wird zu einer faulen Liste wie bei phrase_from_file/2
    (library(pio)): der noch nicht ausgepackte Rest wartet mit freeze/2,
-   und erst beim Lesen kommt der nächste Block (4096 Bytes) dazu. So laufen
+   und erst beim Lesen kommt der nächste Block (256 Bytes) dazu. So laufen
    gewöhnliche Grammatiken – Terminale [X] und "...", seq//1, ...//0,
    library(dcg/high_order) – unverändert, und vorausliegende Bytes werden
    nie ausgepackt. Nach dem Rücksetzen wird ein Block neu erzeugt (die

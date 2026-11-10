@@ -21,7 +21,7 @@
 % nimmt immer codes.)
 %
 % Die faule Liste: ihr noch nicht gelesener Rest wartet mit freeze/2. Wird
-% er gebunden, kommt der nächste Block des Streams (4096 Zeichen) dazu.
+% er gebunden, kommt der nächste Block des Streams (256 Zeichen) dazu.
 % Gelesene Blöcke merkt sich der Stream, bis er geschlossen wird; nach dem
 % Rücksetzen werden sie nicht neu gelesen. Am Ende ist der Rest [].
 % Nach close/1 lässt sich nicht mehr in die Liste zurücksetzen (Blöcke

@@ -369,7 +369,7 @@ A b und 'A b'
 Reine Eingabe wie in SWI und Scryer: `phrase_from_file(G, Datei)` wendet
 die DCG `G` auf den Inhalt der Datei an, ohne ihn vorher ganz einzulesen.
 Die Liste ist faul: ihr ungelesener Rest wartet mit `freeze/2`, und erst
-wenn die Grammatik ihn braucht, kommt der nächste Block (4096 Zeichen)
+wenn die Grammatik ihn braucht, kommt der nächste Block (256 Zeichen)
 dazu. Backtracking darüber ist normal möglich.
 
 ```prolog
@@ -504,7 +504,7 @@ jedes Kind kopieren müsste.
 
 Eine gewöhnliche Grammatik liest eine Byte-Folge als faule Liste, wie
 `phrase_from_file/2` eine Datei: der noch nicht ausgepackte Rest wartet mit
-`freeze/2`, erst beim Lesen kommt der nächste Block (4096 Bytes) dazu.
+`freeze/2`, erst beim Lesen kommt der nächste Block (256 Bytes) dazu.
 Terminale (`[X]`, `"..."`), `seq//1`, `...//0` und `library(dcg/high_order)`
 laufen unverändert; vorausliegende Bytes werden nie ausgepackt, und nach
 dem Rücksetzen wird ein Block einfach neu erzeugt (die Byte-Folge ist

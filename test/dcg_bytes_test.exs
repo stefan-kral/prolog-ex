@@ -48,14 +48,14 @@ defmodule PrologEx.DcgBytesTest do
      ["B = '$bytes'(4), X = -2147483648, Y = 2147483648"]},
     {"bytes_list(B, [71, 73]), phrase_bytes((u8(X), u8(Y)), B, _, [as(latin1)])",
      ["B = '$bytes'(2), X = 71, Y = 73"]},
-    # über Blockgrenzen (4096)
+    # über Blockgrenzen (256)
     {"bytes_fill(10000, 0'x, B), phrase_bytes((take(5000, T), [C]), B, R), " <>
        "bytes_length(T, N), bytes_length(R, M)",
      ["B = '$bytes'(10000), C = 120, M = 4999, N = 5000, R = '$bytes'(4999), T = '$bytes'(5000)"]},
     {"bytes_fill(9000, 0'x, B), phrase_bytes((..., [0'x], eos), B)", :succeeds},
     # ein UTF-8-Zeichen über der Blockgrenze
-    {"bytes_fill(4095, 0'x, X), bytes_utf8(E, \"€y\"), bytes_concat(X, E, B), " <>
-       "phrase_bytes((seq(L), [Y]), B, R, [as(utf8)]), length(L, N), nth0(4095, L, C), bytes_length(R, M)",
+    {"bytes_fill(255, 0'x, X), bytes_utf8(E, \"€y\"), bytes_concat(X, E, B), " <>
+       "phrase_bytes((seq(L), [Y]), B, R, [as(utf8)]), length(L, N), nth0(255, L, C), bytes_length(R, M)",
      :succeeds},
     {"bytes_list(B, [1]), phrase_bytes(take(-1, _), B, _)",
      {:error, "domain_error(not_less_than_zero,-1)"}},

@@ -3,7 +3,7 @@ defmodule PrologEx.Builtins.BytesLazy do
   Hilfsprädikate für `library(dcg/bytes)` (`priv/library/dcg/bytes.pl`):
   eine Byte-Folge als faule Liste.
 
-  Die Liste besteht aus Blöcken von 4096 Bytes ab einem Versatz. Ihr noch
+  Die Liste besteht aus Blöcken von 256 Bytes ab einem Versatz. Ihr noch
   nicht ausgepackter Rest ist eine Variable, die mit `freeze/2` auf
   `dcg_bytes:'$bytes_fill'(B, Sicht, Versatz, Rest)` wartet. Anders als
   beim Stream (`library(pio)`) ist nichts zu merken: die Byte-Folge ist
@@ -15,7 +15,7 @@ defmodule PrologEx.Builtins.BytesLazy do
   use PrologEx.Builtin
   alias PrologEx.{Error, Store}
 
-  @block 4096
+  @block 256
 
   # '$bytes_block'(B, Sicht, Versatz, L, T, Versatz1): L = die Elemente ab
   # Versatz (ein Block), dahinter T; am Ende L = []

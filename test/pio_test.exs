@@ -34,7 +34,7 @@ defmodule PrologEx.PioTest do
     text = "hallo welt\nzweite zeile\n"
     small = Path.join(c.tmp_dir, "klein.txt")
     File.write!(small, text)
-    # über mehrere Blöcke (4096 Zeichen), mit Umlauten (2 Bytes)
+    # über mehrere Blöcke (256 Zeichen), mit Umlauten (2 Bytes)
     big = Path.join(c.tmp_dir, "gross.txt")
     File.write!(big, Enum.map_join(0..1999, fn i -> "zeile #{i} äöü\n" end))
     {:ok, small: small, big: big}
@@ -125,10 +125,10 @@ defmodule PrologEx.PioTest do
     # (im gescheiterten ersten Zweig)
     assert ask(
              c,
-             "phrase_from_file(((any(_), \"§\" ; []), any(_A), {length(_A, 4096)}, " <>
+             "phrase_from_file(((any(_), \"§\" ; []), any(_A), {length(_A, 256)}, " <>
                "lazy_list_character_count(N), any(_)), GROSS)",
              1
-           ) == ["N = 4096"]
+           ) == ["N = 256"]
 
     # vollständig gelesen (der Rest ist [])
     assert ask(c, "phrase_from_file((any(_), lazy_list_character_count(N)), KLEIN)") ==
@@ -199,7 +199,7 @@ defmodule PrologEx.PioTest do
            stream_to_lazy_list(S, L2), L2 = [X|_],
            lazy_list_character_count(N, L2, _), close(S)
            """)
-           |> hd() =~ "N = 4096"
+           |> hd() =~ "N = 256"
 
     assert ask(c, "open(KLEIN, read, S), stream_to_lazy_codes(S, [C|_]), close(S)") |> hd() =~
              "C = 104"

@@ -14,7 +14,7 @@ defmodule PrologEx.Builtins.Pio do
   alias PrologEx.Builtins.IO, as: PIO
   alias PrologEx.Stream, as: S
 
-  @block 4096
+  @block 256
 
   # '$lazy_start'(S, K): S ist ein Eingabe-Textstream; K = Nr. des nächsten
   # Blocks (eine zweite faule Liste desselben Streams beginnt dort)
