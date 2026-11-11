@@ -63,8 +63,39 @@ defmodule PrologEx.JitTest do
   :- dynamic(dsq/2).
   dsq(X, Y) :- Y is X * X.
   udsq(X, Y) :- dsq(X, Y).
+  app([], L, L).
+  app([H|T], L, [H|R]) :- app(T, L, R).
+  nrev([], []).
+  nrev([H|T], R) :- nrev(T, RT), app(RT, [H], R).
+  len([], 0).
+  len([_|T], N) :- len(T, N0), N is N0 + 1.
+  suml([], 0).
+  suml([X|Xs], S) :- suml(Xs, S0), S is S0 + X.
+  rev([], A, A).
+  rev([H|T], A, R) :- rev(T, [H|A], R).
+  reverse2(L, R) :- rev(L, [], R).
+  maxl([X], X) :- !.
+  maxl([X|Xs], M) :- maxl(Xs, M0), ( X > M0 -> M = X ; M = M0 ).
+  dbl([], []).
+  dbl([X|Xs], [Y|Ys]) :- Y is 2 * X, dbl(Xs, Ys).
+  rng(N, N, [N]) :- !.
+  rng(I, N, [I|T]) :- I < N, I1 is I + 1, rng(I1, N, T).
+  last2([X], X) :- !.
+  last2([_|T], X) :- last2(T, X).
+  avg(L, A) :- suml(L, S), len(L, N), N > 0, A is S / N.
+  al(X, [X], X).
+  first2([X|_], X).
+  nth(0, [X|_], X) :- !.
+  nth(N, [_|T], X) :- N > 0, N1 is N - 1, nth(N1, T, X).
   inf(G, I) :- statistics(inferences, I0), call(G), statistics(inferences, I1), I is I1 - I0.
   """
+
+  # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
+  # übersetzte Rufer ({:jit_info, ...})
+  defp jitted?(db, {m, n, a} = k),
+    do:
+      match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[k]) or
+        Map.has_key?(db, {:jit_info, m, n, a})
 
   setup_all do
     {:ok, r} = Reader.start_link()
@@ -79,7 +110,7 @@ defmodule PrologEx.JitTest do
   end
 
   test "übersetzt wird, was passt; sonst nicht", c do
-    jitted = fn key -> match?({:pred, _, _, {:jit, _, _, _, _}, _}, c.jit[key]) end
+    jitted = &jitted?(c.jit, &1)
 
     for k <- [{"user", "fib", 2}, {"user", "lp", 1}, {"user", "gcd", 3}, {"user", "ack", 3}],
         do: assert(jitted.(k), inspect(k))
@@ -105,11 +136,25 @@ defmodule PrologEx.JitTest do
             for(n <- ~w(sq twice sumsq half hsum dsq), do: {"user", n, 2}),
         do: assert(jitted.(k), inspect(k))
 
+    # Listen
+    for k <-
+          [{"user", "app", 3}, {"user", "rev", 3}, {"user", "rng", 3}, {"user", "nth", 3}] ++
+            for(n <- ~w(nrev len suml reverse2 maxl dbl last2 avg first2), do: {"user", n, 2}),
+        do: assert(jitted.(k), inspect(k))
+
+    # app/3: erste Liste aufgelöst, zweite durchgereicht; Summe: Zahlen
+    # (Floats auch: avg/2 ruft suml/2 und rechnet mit /), dbl/2: Ganzzahlen
+    assert {:pred, _, _, {:jit, _, [{0, :list}, {1, :any}], [2], _}, _} =
+             c.jit[{"user", "app", 3}]
+
+    assert {:pred, _, _, {:jit, _, [{0, :nlist}], [1], _}, _} = c.jit[{"user", "suml", 2}]
+    assert {:pred, _, _, {:jit, _, [{0, :ilist}], [1], _}, _} = c.jit[{"user", "dbl", 2}]
+
     # ein Gerufener nicht übersetzbar (cnj) oder dynamisch (udsq): nein
     refute jitted.({"user", "cnj", 2})
     refute jitted.({"user", "udsq", 2})
     # half rechnet mit /: auch hsum nimmt Floats
-    assert {:pred, _, _, {:jit, _, {:num, _}, _, _}, _} = c.jit[{"user", "hsum", 2}]
+    assert {:pred, _, _, {:jit, _, [{0, :num}], _, _}, _} = c.jit[{"user", "hsum", 2}]
 
     # inf/2 ruft call/1 und statistics/2: nein
     refute jitted.({"user", "inf", 2})
@@ -119,7 +164,7 @@ defmodule PrologEx.JitTest do
     # wd(0, Y) beim Zurücksetzen versuchen): nein
     refute jitted.({"user", "wd", 2})
     # mit Flag jit = false nichts
-    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, c.int[{"user", "fib", 2}])
+    refute jitted?(c.int, {"user", "fib", 2})
   end
 
   for q <- [
@@ -217,6 +262,63 @@ defmodule PrologEx.JitTest do
         "catch(cnj(a, Y), error(E, _), true)",
         "udsq(4, Y)",
         "sumsq(20000, S)",
+        "app([1,2,3], [4,5], L)",
+        "app([a,f(X),Y], [b], L)",
+        "app([1,2], X, L), X = [3]",
+        "app([], foo, L)",
+        "app([1], foo, L)",
+        "once(app([1|T], [2], L))",
+        "findall(X-Y, app(X, Y, [1,2]), Ls)",
+        "app([1,2], [3], [1,2,3])",
+        "app(foo, [1], L)",
+        "freeze(R, true), app([1], [2], R)",
+        "nrev([1,2,3,4,5,6,7,8,9,10], R)",
+        "nrev([a,B,c], R)",
+        "nrev([], R)",
+        "inf(nrev([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30], _), I)",
+        "call_with_inference_limit(nrev([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30], _), 400, R)",
+        "numlist(1, 300, L), nrev(L, R), len(R, N), suml(R, S)",
+        "len([a,b,c], N)",
+        "len([], N)",
+        "once(len(L, 0))",
+        "len(\"abc\", N)",
+        "suml([1,2,3], S)",
+        "suml([1,2,3.5], S)",
+        "catch(suml([1,a], S), error(E, _), true)",
+        "catch(suml([1,X], S), error(E, _), true)",
+        "rev([1,2,3], [], R)",
+        "rev([1,2,3], T, R)",
+        "reverse2([a,b,c], R)",
+        "maxl([3,1,4,1,5,9,2,6], M)",
+        "maxl([], M)",
+        "maxl([2,X], M)",
+        "dbl([1,2,3], L)",
+        "dbl([1,2.5], L)",
+        "rng(1, 5, L)",
+        "rng(5, 1, L)",
+        "last2([1,2,3], X)",
+        "last2([], X)",
+        "avg([1,2,3,4], A)",
+        "avg([], A)",
+        "numlist(1, 50000, L), len(L, N)",
+        # Listen werden erst beim Zerlegen gelesen: ein offener Rest hinter
+        # der gelesenen Stelle stört nicht; davor gibt der Code auf und der
+        # Interpreter fängt neu an (gleiche Inferenzen)
+        "first2([1|_], X)",
+        "nth(1, [a,b|_], X)",
+        "nth(3, [a,b|_], X)",
+        "once(app([1,2|T], [3], L))",
+        "inf(once(app([1,2|T], [3], L)), I)",
+        "X = 2, suml([1,X,3], S)",
+        "inf(catch(suml([1,2,a], _), _, true), I)",
+        "call_with_inference_limit(suml([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,a], _), 30, R)",
+        # Ausgabe zugleich (in) Eingabe: gebunden wird durch Unifikation
+        "al(A, B, A)",
+        "al(A, B, C)",
+        "\\+ \\+ app([1], X, X)",
+        "app([X], [], X), X = [Y|_], Y == X",
+        "set_prolog_flag(occurs_check, true), \\+ app([1], X, X)",
+        "set_prolog_flag(occurs_check, error), catch(app([1], X, X), error(E, _), true)",
         "findall(Y, wd(0, Y), L)"
       ] do
     test q, c do
@@ -237,11 +339,11 @@ defmodule PrologEx.JitTest do
 
     assert {_, {:answers, ["Y = 54"]}} = TableCase.run(c.reader, db, "twice(3, Y)")
     assert {_, {:answers, ["S = 100"]}} = TableCase.run(c.reader, db, "sumsq(4, S)")
-    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "twice", 2}])
-    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "sumsq", 2}])
-    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "sq", 2}])
+    refute jitted?(db, {"user", "twice", 2})
+    refute jitted?(db, {"user", "sumsq", 2})
+    assert jitted?(db, {"user", "sq", 2})
     # unberührt
-    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "ev", 1}])
+    assert jitted?(db, {"user", "ev", 1})
   end
 
   # Ein späterer Ladeschritt ruft schon übersetzte Prädikate direkt
@@ -249,10 +351,10 @@ defmodule PrologEx.JitTest do
     Reader.put_current(c.reader)
     src = "quad(X, Y) :- sq(X, A), sq(A, Y).\nhq(X, Y) :- half(X, A), sq(A, Y)."
     {db, _} = PrologEx.Consult.load(c.jit, Reader.read_terms(c.reader, src))
-    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "quad", 2}])
+    assert jitted?(db, {"user", "quad", 2})
     assert {_, {:answers, ["Y = 81"]}} = TableCase.run(c.reader, db, "quad(3, Y)")
     # hq ist nicht ganzzahlig, sq schon übersetzt und ganzzahlig: nein
-    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "hq", 2}])
+    refute jitted?(db, {"user", "hq", 2})
     assert {_, {:answers, ["Y = 2.25"]}} = TableCase.run(c.reader, db, "hq(3, Y)")
   end
 

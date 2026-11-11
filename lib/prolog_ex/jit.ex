@@ -1,38 +1,50 @@
 defmodule PrologEx.Jit do
   @moduledoc """
-  Übersetzt deterministische, rein arithmetische Prädikate in BEAM-Code.
+  Übersetzt deterministische Prädikate über Zahlen und Listen in BEAM-Code.
   Innerhalb des übersetzten Stücks liegen die Werte in Erlang-Variablen:
   keine Bindungen, kein Zielstapel, keine Kompaktierung. Gebunden wird nur
-  an den Rändern: beim Aufruf die Eingaben lesen (Zahlen), am Ende die
-  Ausgaben binden (frische Variablen). Passt ein Aufruf nicht dazu, nimmt
-  ihn der Interpreter.
+  an den Rändern: beim Aufruf die Eingaben lesen (Zahlen, echte Listen
+  einmal aufgelöst, sonst Terme, die nur durchgereicht werden), am Ende
+  die Ausgaben binden (frische Variablen). Passt ein Aufruf nicht dazu,
+  nimmt ihn der Interpreter.
 
   Was übersetzt wird – jede Klausel:
 
-    * Kopf: Zahlen oder Variablen
-    * Rumpf: `V is E`, arithmetische Vergleiche, `X = Y` (Zahlen oder
-      Variablen), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`,
-      `\\+ G` und Aufrufe des Prädikats selbst (Argumente Zahlen oder
-      Variablen)
+    * Kopf: Zahlen, Variablen, `[]`, `[E1, ..., En | T]` (E Zahlen oder
+      Variablen, T Variable oder `[]`)
+    * Rumpf: `V is E`, arithmetische Vergleiche, `X = Y` (Terme wie im
+      Kopf), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`, `\\+ G`
+      und Aufrufe des Prädikats selbst oder anderer übersetzter (Argumente
+      Terme wie im Kopf)
     * E aus Zahlen, Variablen, `pi`, `e`, `epsilon` und den auswertbaren
       Funktoren (außer random/random_float)
 
+  Werte haben einen Typ: Zahl, Liste, Liste von Zahlen oder beliebig
+  (nur durchgereicht – auch eine ungebundene Variable). Was ein Wert sein
+  muss, ergibt sich aus dem Gebrauch (gerechnet: Zahl; zerlegt: Liste;
+  verglichen: Zahl oder Liste von Zahlen) und wird für Eingaben beim
+  Aufruf geprüft. Ausgabetypen dürfen von Eingaben abhängen: app/3 gibt
+  eine Liste, wenn das zweite Argument eine ist.
+
   Kommen nur Ganzzahlen und ganzzahlige Operationen vor (+ - * // mod rem
   div min max >> << /\\ \\/ xor gcd, einstellig - + abs sign msb \\),
-  rechnet der Code mit + - * direkt und nimmt nur ganzzahlige Eingaben;
+  rechnet der Code mit + - * direkt und nimmt nur ganzzahlige Zahlen;
   sonst rechnet er alles mit PrologEx.Arith (wie der Interpreter, auch
   rationale Zwischenwerte) und nimmt Ganzzahlen und Floats.
 
   Das Prädikat ist nachweislich deterministisch: je zwei Klauseln
   schließen sich aus – durch einen Schnitt in der früheren, verschiedene
-  Konstanten im Kopf (auch `X = c` am Anfang des Rumpfs), einen Vergleich
-  am Anfang, der für die Konstante der anderen falsch ist, oder einander
-  ausschließende Vergleiche am Anfang (`X > 0` / `X =< 0`). Vor dem
-  ausschließenden Vergleich der späteren Klausel darf nichts einen Fehler
-  werfen können (der Interpreter würde sie beim Zurücksetzen versuchen).
-  Die Modi (Eingabe/Ausgabe je Argument) ergeben sich aus dem Rumpf:
-  gelesen heißt Eingabe, von `is` oder dem eigenen Aufruf bestimmt (oder
-  nirgends gelesen) heißt Ausgabe; `=` legt nichts fest.
+  Muster im Kopf (Konstanten, `[]` gegen `[_|_]`; auch `X = c` am Anfang
+  des Rumpfs), einen Vergleich am Anfang, der für die Konstante der
+  anderen falsch ist, oder einander ausschließende Vergleiche am Anfang
+  (`X > 0` / `X =< 0`). Vor dem ausschließenden Vergleich der späteren
+  Klausel darf nichts einen Fehler werfen können (der Interpreter würde
+  sie beim Zurücksetzen versuchen).
+
+  Die Modi (Eingabe/Ausgabe je Argument): steht eine Kopfvariable zuerst
+  in einem Vergleich oder rechts in `is`, ist sie Eingabe, links in `is`
+  Ausgabe, als Argument eines Aufrufs wie dort. Die übrigen Positionen
+  werden durchprobiert, mehr Ausgaben zuerst, Ausgaben eher rechts.
 
   Gleich wie im Interpreter: Antworten, Fehler (dieselben
   Arithmetik-Funktionen), Inferenzen (jeder Aufruf und jedes eingebaute
@@ -40,7 +52,7 @@ defmodule PrologEx.Jit do
   (Inferenz-, Zeit-, Speichergrenzen an denselben Prüfpunkten, siehe
   tick/0).
 
-  Die Module heißen nach einem Hash ihrer Klauseln: dasselbe Programm
+  Die Module heißen nach einem Hash ihres Inhalts: dasselbe Programm
   wieder geladen nimmt das vorhandene Modul.
   """
 
@@ -55,20 +67,28 @@ defmodule PrologEx.Jit do
   @total1 ~w(- + abs sign \\)
   @cmps ~w(< > =< >= =:= =\\=)
   @consts %{"pi" => :math.pi(), "e" => :math.exp(1), "epsilon" => 2.220446049250313e-16}
+  # höchstens so viele Positionen ohne Hinweis werden durchprobiert
+  @max_enum 6
+  @max_vars 200
+  # so viele Ziele (ohne Rekursion), damit sich der Eintritt lohnt
+  @entry_size 1
+  @raise_key :prolog_ex_jit_raise
+  @soft_key :prolog_ex_jit_soft
 
-  # --- Analyse ------------------------------------------------------------
+  # --- Schnittstelle ------------------------------------------------------
 
   @doc """
   Übersetzt die Prädikate eines Ladeschritts (eines Moduls), soweit sie
   passen. `preds`: [{{name, stelligkeit}, [{kopf, rumpf}]}]. `ext`: für ein
   schon geladenes, übersetztes, statisches Prädikat außerhalb des Schritts
-  `%{mod: modul, p: funktion, modes: %{k => :in | :out}, num: bool}`, sonst
-  nil. `dynamic`: die dynamischen unter `preds` – andere dürfen sie nicht
-  rufen (nach einem assert wäre ihr Code falsch).
+  `%{mod: modul, p: funktion, sig: signatur}`, sonst nil. `dynamic`: die
+  dynamischen unter `preds` – andere dürfen sie nicht rufen (nach einem
+  assert wäre ihr Code falsch).
 
-  Ergebnis: %{{name, stelligkeit} => {{modul, eintritt, p, gerufen},
-  eingaben, ausgaben}}; eingaben `{:num, ks}`, wenn auch Floats
-  hineindürfen; gerufen: die anderen Prädikate, die der Code direkt ruft.
+  Ergebnis: %{{name, stelligkeit} => {{modul, eintritt, p, gerufen, sig},
+  eingaben, ausgaben}}: eingaben [{k, prüfung}] mit prüfung :int, :num,
+  :list, :ilist (Ganzzahlen), :nlist (Zahlen) oder :any; ausgaben [k];
+  gerufen: die anderen Prädikate, die der Code direkt ruft.
   """
   def compile_batch(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new()) do
     case settle(preds, ext, dynamic) do
@@ -77,10 +97,7 @@ defmodule PrologEx.Jit do
     end
   end
 
-  @doc """
-  Ein einzelnes Prädikat (Aufrufe nur von sich selbst):
-  `{:ok, {modul, eintritt, p, []}, eingaben, ausgaben}` oder `:no`.
-  """
+  @doc "Ein einzelnes Prädikat (Aufrufe nur von sich selbst), sonst :no"
   def compile(source) do
     with {:ok, key} <- key_of(source),
          %{^key => {mod, ins, outs}} <- compile_batch([{key, source}]) do
@@ -108,8 +125,13 @@ defmodule PrologEx.Jit do
 
   defp key_of(_), do: :no
 
-  # Analyse bis zum Fixpunkt: was nicht passt, fällt heraus, und mit ihm,
-  # wer es ruft
+  # --- Ablauf -------------------------------------------------------------
+  #
+  # Zerlegen; ganzzahlig oder nicht je zusammenhängendem Aufrufgraphen;
+  # dann die stark zusammenhängenden Komponenten, Gerufene zuerst: Modi,
+  # Typen, Fluss, Ausschließlichkeit. Was nicht passt, fällt heraus, und
+  # mit ihm, wer es ruft.
+
   defp settle(preds, ext0, dynamic) do
     batch = MapSet.new(for {k, _} <- preds, do: k)
     ext = fn k -> if MapSet.member?(batch, k), do: nil, else: ext0.(k) end
@@ -119,21 +141,24 @@ defmodule PrologEx.Jit do
     end
 
     parsed = for {k, src} <- preds, p = parse(k, src, callable), p != nil, into: %{}, do: {k, p}
-    settle_loop(parsed, ext)
-  end
+    {parsed, num} = kinds(drop_orphans(parsed, ext), ext)
 
-  defp settle_loop(parsed, ext) do
-    parsed = drop_orphans(parsed, ext)
+    solved =
+      parsed
+      |> sccs()
+      |> Enum.reduce(%{}, fn scc, solved ->
+        ready =
+          Enum.all?(scc, fn k ->
+            Enum.all?(parsed[k].deps, &(&1 in scc or Map.has_key?(solved, &1) or ext.(&1) != nil))
+          end)
 
-    with true <- map_size(parsed) > 0,
-         {:ok, modes} <- global_modes(parsed, ext),
-         {:ok, num} <- kinds(parsed, ext),
-         {:ok, irs} <- flows(parsed, modes, num, ext) do
-      %{parsed: parsed, modes: modes, num: num, irs: irs, ext: ext}
-    else
-      false -> nil
-      {:bad, bad} -> settle_loop(Map.drop(parsed, bad), ext)
-    end
+        case ready && solve(scc, parsed, solved, ext, num) do
+          {:ok, res} -> Map.merge(solved, res)
+          _ -> solved
+        end
+      end)
+
+    if map_size(solved) == 0, do: nil, else: %{parsed: parsed, solved: solved, ext: ext}
   end
 
   # wer etwas ruft, das weder übersetzt wird noch schon übersetzt ist
@@ -146,56 +171,6 @@ defmodule PrologEx.Jit do
     if bad == [], do: parsed, else: drop_orphans(Map.drop(parsed, bad), ext)
   end
 
-  defp parse({_, arity} = key, source, callable) when arity > 0 do
-    source = Enum.map(source, fn {h, b} -> {plain(h), plain(b)} end)
-    ctx = %{self: key, callable: callable}
-
-    clauses =
-      for {h, b} <- source do
-        head = args(h)
-        Enum.each(head, &term!/1)
-        {head, Enum.map(conj(b), &goal(&1, ctx))}
-      end
-
-    deps = clauses |> collect_calls() |> Enum.uniq() |> List.delete(key)
-    %{key: key, arity: arity, clauses: clauses, source: source, deps: deps}
-  catch
-    :no -> nil
-  end
-
-  defp parse(_, _, _), do: nil
-
-  defp collect_calls({:call, k, _}), do: [k]
-  defp collect_calls(t) when is_tuple(t), do: collect_calls(Tuple.to_list(t))
-  defp collect_calls(l) when is_list(l), do: Enum.flat_map(l, &collect_calls/1)
-  defp collect_calls(_), do: []
-
-  # je Prädikat: Fluss und Ausschließlichkeit
-  defp flows(parsed, modes, num, ext) do
-    cm = fn ck ->
-      case parsed do
-        %{^ck => p} -> Map.new(0..(p.arity - 1), &{&1, modes[{ck, &1}]})
-        _ -> ext.(ck).modes
-      end
-    end
-
-    res =
-      for {key, p} <- parsed do
-        try do
-          irs = Enum.map(p.clauses, &flow(&1, cm.(key), cm))
-          exclusive!(irs, MapSet.member?(num, key))
-          {key, irs}
-        catch
-          :no -> {key, :no}
-        end
-      end
-
-    case for {k, :no} <- res, do: k do
-      [] -> {:ok, Map.new(res)}
-      bad -> {:bad, bad}
-    end
-  end
-
   # Ganzzahlig oder nicht: über Aufrufe hinweg einheitlich (ein Ergebnis
   # kann ein Float sein, ein Argument auch) – je zusammenhängendem Teil
   # des Aufrufgraphen; ein ganzzahliges schon übersetztes Prädikat darf
@@ -204,7 +179,7 @@ defmodule PrologEx.Jit do
     ext_num = fn d ->
       case ext.(d) do
         nil -> nil
-        e -> e.num
+        e -> e.sig.num
       end
     end
 
@@ -218,8 +193,8 @@ defmodule PrologEx.Jit do
     num = spread(seed, edges)
 
     case for k <- num, d <- parsed[k].deps, ext_num.(d) == false, do: k do
-      [] -> {:ok, num}
-      bad -> {:bad, Enum.uniq(bad)}
+      [] -> {parsed, num}
+      bad -> kinds(drop_orphans(Map.drop(parsed, bad), ext), ext)
     end
   end
 
@@ -235,6 +210,75 @@ defmodule PrologEx.Jit do
 
     if MapSet.equal?(set2, set), do: set, else: spread(set2, edges)
   end
+
+  # Gerufene zuerst
+  defp sccs(parsed) do
+    g = :digraph.new()
+
+    try do
+      for k <- Map.keys(parsed), do: :digraph.add_vertex(g, k)
+
+      for {k, p} <- parsed, d <- p.deps, Map.has_key?(parsed, d), do: :digraph.add_edge(g, k, d)
+
+      c = :digraph_utils.condensation(g)
+
+      try do
+        c |> :digraph_utils.topsort() |> Enum.reverse() |> Enum.map(&Enum.sort/1)
+      after
+        :digraph.delete(c)
+      end
+    after
+      :digraph.delete(g)
+    end
+  end
+
+  # --- Zerlegen -----------------------------------------------------------
+
+  defp parse({_, arity} = key, source, callable) when arity > 0 do
+    source = Enum.map(source, fn {h, b} -> {plain(h), plain(b)} end)
+    ctx = %{self: key, callable: callable}
+
+    clauses =
+      for {h, b} <- source do
+        # Variablen einer Klausel liegen in BEAM-Registern (höchstens 1024)
+        if {h, b} |> raw_vars([]) |> Enum.uniq() |> length() > @max_vars, do: throw(:no)
+        {Enum.map(args(h), &pat!/1), Enum.map(conj(b), &goal(&1, ctx))}
+      end
+
+    calls = clauses |> collect_calls() |> Enum.uniq()
+    deps = List.delete(calls, key)
+    size = clauses |> Enum.map(fn {_, gs} -> goal_count(gs) end) |> Enum.sum()
+
+    %{
+      key: key,
+      arity: arity,
+      clauses: clauses,
+      source: source,
+      deps: deps,
+      rec: key in calls,
+      size: size
+    }
+  catch
+    :no -> nil
+  end
+
+  defp parse(_, _, _), do: nil
+
+  # Variablen eines Terms (Listen auch mit Variablen als Rest)
+  defp raw_vars({:var, _} = v, acc), do: [v | acc]
+  defp raw_vars([h | t], acc), do: raw_vars(t, raw_vars(h, acc))
+  defp raw_vars(t, acc) when is_tuple(t), do: Enum.reduce(Tuple.to_list(t), acc, &raw_vars/2)
+  defp raw_vars(_, acc), do: acc
+
+  defp goal_count(gs) when is_list(gs), do: Enum.reduce(gs, 0, &(goal_count(&1) + &2))
+  defp goal_count({:ite, c, t, e}), do: goal_count(c) + goal_count(t) + goal_count(e)
+  defp goal_count({:not, g}), do: 1 + goal_count(g)
+  defp goal_count(_), do: 1
+
+  defp collect_calls({:call, k, _}), do: [k]
+  defp collect_calls(t) when is_tuple(t), do: collect_calls(Tuple.to_list(t))
+  defp collect_calls(l) when is_list(l), do: Enum.flat_map(l, &collect_calls/1)
+  defp collect_calls(_), do: []
 
   defp args({:struct, _, a}), do: a
 
@@ -256,9 +300,9 @@ defmodule PrologEx.Jit do
   defp goal({:atom, "!"}, _), do: :cut
   defp goal({:atom, "true"}, _), do: true
   defp goal({:atom, f}, _) when f in ["fail", "false"], do: :fail
-  defp goal({:struct, "is", [l, r]}, _), do: {:is, term!(l), expr!(r)}
+  defp goal({:struct, "is", [l, r]}, _), do: {:is, num_term!(l), expr!(r)}
   defp goal({:struct, op, [a, b]}, _) when op in @cmps, do: {:cmp, op, expr!(a), expr!(b)}
-  defp goal({:struct, "=", [a, b]}, _), do: {:unify, term!(a), term!(b)}
+  defp goal({:struct, "=", [a, b]}, _), do: {:unify, pat!(a), pat!(b)}
 
   defp goal({:struct, ";", [{:struct, "->", [c, t]}, e]}, ctx),
     do: {:ite, seq(c, ctx), seq(t, ctx), seq(e, ctx)}
@@ -275,16 +319,23 @@ defmodule PrologEx.Jit do
     key = {name, length(a)}
 
     if key == ctx.self or ctx.callable.(key),
-      do: {:call, key, Enum.map(a, &term!/1)},
+      do: {:call, key, Enum.map(a, &pat!/1)},
       else: throw(:no)
   end
 
   defp goal(_, _), do: throw(:no)
 
-  # Argument: Zahl oder Variable
-  defp term!(n) when is_integer(n) or is_float(n), do: n
-  defp term!({:var, _} = v), do: v
-  defp term!(_), do: throw(:no)
+  # Term: Zahl, Variable, :nl ([]) oder {:cons, Element, Rest}; Elemente
+  # Zahlen oder Variablen
+  defp pat!(n) when is_integer(n) or is_float(n), do: n
+  defp pat!({:var, _} = v), do: v
+  defp pat!([]), do: :nl
+  defp pat!([h | t]), do: {:cons, num_term!(h), pat!(t)}
+  defp pat!(_), do: throw(:no)
+
+  defp num_term!(n) when is_integer(n) or is_float(n), do: n
+  defp num_term!({:var, _} = v), do: v
+  defp num_term!(_), do: throw(:no)
 
   defp expr!(n) when is_integer(n) or is_float(n), do: n
   defp expr!({:var, _} = v), do: v
@@ -296,6 +347,7 @@ defmodule PrologEx.Jit do
   defp vars({:var, _} = v), do: [v]
   defp vars({:op2, _, a, b}), do: vars(a) ++ vars(b)
   defp vars({:op1, _, a}), do: vars(a)
+  defp vars({:cons, a, b}), do: vars(a) ++ vars(b)
   defp vars(_), do: []
 
   defp anon?({:var, {"_", _}}), do: true
@@ -311,25 +363,100 @@ defmodule PrologEx.Jit do
   defp int_only?(l) when is_list(l), do: Enum.all?(l, &int_only?/1)
   defp int_only?(_), do: true
 
-  # --- Modi ---------------------------------------------------------------
+  # --- Eine Komponente lösen ----------------------------------------------
   #
-  # Je Kopfposition mit Variable V: der erste Gebrauch von V im Rumpf –
-  # gelesen (Vergleich, rechte Seite von is) heißt Eingabe, bestimmt (linke
-  # Seite von is) Ausgabe, als Argument j eines Aufrufs: wie Position j des
-  # Gerufenen; in `=` legt er nichts fest. Für alle Prädikate des Schritts
-  # zugleich; Widerspruch: das Prädikat fällt heraus.
+  # Modi aus Hinweisen im Rumpf (erster Gebrauch einer Kopfvariablen); die
+  # übrigen Positionen durchprobieren. Je Versuch Typen bis zum Fixpunkt,
+  # dann die Ausschließlichkeit.
 
-  defp global_modes(parsed, ext) do
+  defp solve(scc, parsed, solved, ext, num) do
+    other = fn ck ->
+      case solved do
+        %{^ck => r} -> r.sig
+        _ -> ext.(ck).sig
+      end
+    end
+
+    with {:ok, fixed} <- evidence(scc, parsed, other) do
+      open =
+        for key <- scc,
+            k <- 0..(parsed[key].arity - 1),
+            not Map.has_key?(fixed, {key, k}),
+            do: {key, k}
+
+      open
+      |> candidates()
+      |> Enum.find_value(fn assign ->
+        modes = Map.merge(fixed, assign)
+
+        try do
+          {reqs, outs, irs} = types(scc, parsed, modes, other)
+
+          for key <- scc,
+              do: exclusive!(Enum.map(irs[key], & &1.ir), MapSet.member?(num, key))
+
+          {:ok,
+           Map.new(scc, fn key ->
+             p = parsed[key]
+
+             sig = %{
+               modes: Map.new(0..(p.arity - 1), &{&1, modes[{key, &1}]}),
+               req:
+                 for(
+                   k <- 0..(p.arity - 1),
+                   modes[{key, k}] == :in,
+                   into: %{},
+                   do: {k, reqs[{key, k}]}
+                 ),
+               out:
+                 for(
+                   k <- 0..(p.arity - 1),
+                   modes[{key, k}] == :out,
+                   into: %{},
+                   do: {k, outs[{key, k}]}
+                 ),
+               num: MapSet.member?(num, key)
+             }
+
+             {key, %{sig: sig, irs: Enum.map(irs[key], & &1.ir), p: p}}
+           end)}
+        catch
+          :no -> nil
+        end
+      end)
+    end
+  end
+
+  # alle Belegungen der offenen Positionen: mehr Ausgaben zuerst, dann
+  # Ausgaben eher rechts
+  defp candidates(open) when length(open) > @max_enum, do: [Map.new(open, &{&1, :out})]
+
+  defp candidates(open) do
+    n = length(open)
+
+    for mask <- 0..(Bitwise.bsl(1, n) - 1) do
+      outs =
+        for {pos, i} <- Enum.with_index(open), Bitwise.band(mask, Bitwise.bsl(1, i)) != 0, do: pos
+
+      {mask, outs}
+    end
+    |> Enum.sort_by(fn {mask, outs} -> {-length(outs), -mask} end)
+    |> Enum.map(fn {_, outs} ->
+      Map.new(open, &{&1, if(&1 in outs, do: :out, else: :in)})
+    end)
+  end
+
+  defp evidence(scc, parsed, other) do
     ev =
-      for {key, p} <- parsed,
-          {head, goals} <- p.clauses,
+      for key <- scc,
+          {head, goals} <- parsed[key].clauses,
           {a, k} <- Enum.with_index(head),
           match?({:var, _}, a),
           not anon?(a),
           e = first_use(a, goals),
           e not in [nil, :none] do
         case e do
-          {:as, ck, j} when not is_map_key(parsed, ck) -> {{key, k}, ext.(ck).modes[j]}
+          {:as, ck, j} -> if ck in scc, do: {{key, k}, e}, else: {{key, k}, other.(ck).modes[j]}
           _ -> {{key, k}, e}
         end
       end
@@ -341,19 +468,8 @@ defmodule PrologEx.Jit do
       end)
 
     case fix_modes(m0, ev, bad) do
-      {m, []} ->
-        # unbestimmt (nirgends gelesen): Ausgabe – etwa gcd(X, 0, X); passt
-        # ein Aufruf nicht dazu, nimmt ihn der Interpreter
-        m =
-          for {key, p} <- parsed,
-              k <- 0..(p.arity - 1),
-              into: m,
-              do: {{key, k}, Map.get(m, {key, k}, :out)}
-
-        {:ok, m}
-
-      {_, bad} ->
-        {:bad, bad |> Enum.map(&elem(&1, 0)) |> Enum.uniq()}
+      {m, []} -> {:ok, m}
+      _ -> :no
     end
   end
 
@@ -394,11 +510,11 @@ defmodule PrologEx.Jit do
     end
   end
 
-  defp use_in(v, {:unify, a, b}), do: if(v == a or v == b, do: :none)
+  defp use_in(v, {:unify, a, b}), do: if(v in (vars(a) ++ vars(b)), do: :none)
 
   defp use_in(v, {:call, ck, as}) do
     case Enum.find_index(as, &(&1 == v)) do
-      nil -> nil
+      nil -> if v in Enum.flat_map(as, &vars/1), do: :none
       j -> {:as, ck, j}
     end
   end
@@ -407,147 +523,418 @@ defmodule PrologEx.Jit do
   defp use_in(v, {:not, g}), do: first_use(v, g)
   defp use_in(_, _), do: nil
 
+  # --- Typen --------------------------------------------------------------
+  #
+  # Ein Wert: {t, herkunft}. t: :bot (noch unbekannt), :num, :nlist (Liste
+  # von Zahlen), :list, :any. herkunft: {:arg, key, k} (die Eingabe k oder
+  # ein Rest davon), {:elem, key, k} (ein Element der Eingabe k). Der Typ
+  # ist t vereinigt mit dem der Herkunft; braucht der Code mehr, steigt die
+  # Anforderung an die Herkunft (an die Eingabe, beim Aufruf geprüft).
+  # Anforderungen: :any < :num, :any < :list < :nlist.
+  #
+  # Ausgaben: {t, ps} – t vereinigt mit den Typen der Eingaben ps (deren
+  # Anforderung :any ist: durchgereicht), am Aufrufort eingesetzt.
+
+  defp types(scc, parsed, modes, other) do
+    reqs0 =
+      for key <- scc,
+          k <- 0..(parsed[key].arity - 1),
+          modes[{key, k}] == :in,
+          into: %{},
+          do: {{key, k}, :any}
+
+    outs0 =
+      for key <- scc,
+          k <- 0..(parsed[key].arity - 1),
+          modes[{key, k}] == :out,
+          into: %{},
+          do: {{key, k}, {:bot, []}}
+
+    types_fix(scc, parsed, modes, other, reqs0, outs0, 12)
+  end
+
+  defp types_fix(_, _, _, _, _, _, 0), do: throw(:no)
+
+  defp types_fix(scc, parsed, modes, other, reqs, outs, n) do
+    sig = fn ck ->
+      if ck in scc do
+        ar = parsed[ck].arity
+
+        %{
+          modes: Map.new(0..(ar - 1), &{&1, modes[{ck, &1}]}),
+          req: for(k <- 0..(ar - 1), modes[{ck, k}] == :in, into: %{}, do: {k, reqs[{ck, k}]}),
+          out: for(k <- 0..(ar - 1), modes[{ck, k}] == :out, into: %{}, do: {k, outs[{ck, k}]})
+        }
+      else
+        other.(ck)
+      end
+    end
+
+    Process.put(@raise_key, reqs)
+    Process.delete(@soft_key)
+
+    irs =
+      try do
+        Map.new(scc, fn key ->
+          ctx = %{key: key, sig: sig, reqs: reqs}
+          {key, Enum.map(parsed[key].clauses, &flow(&1, ctx))}
+        end)
+      catch
+        :no ->
+          Process.delete(@raise_key)
+          Process.delete(@soft_key)
+          throw(:no)
+      end
+
+    reqs2 = Process.delete(@raise_key)
+    soft = Process.delete(@soft_key)
+
+    outs2 =
+      for {{key, k}, _} <- outs, into: %{} do
+        o =
+          irs[key]
+          |> Enum.flat_map(fn c -> Map.get(c.otypes, k, []) end)
+          |> Enum.map(&out_sig(&1, key, reqs2))
+          |> Enum.reduce({:bot, []}, &oj/2)
+
+        {{key, k}, o}
+      end
+
+    cond do
+      reqs2 != reqs or outs2 != outs -> types_fix(scc, parsed, modes, other, reqs2, outs2, n - 1)
+      soft -> throw(:no)
+      true -> {reqs, outs, irs}
+    end
+  end
+
+  defp tj(:bot, x), do: x
+  defp tj(x, :bot), do: x
+  defp tj(x, x), do: x
+  defp tj(a, b) when a in [:list, :nlist] and b in [:list, :nlist], do: :list
+  defp tj(_, _), do: :any
+
+  defp vj({t1, o1}, {t2, o2}), do: {tj(t1, t2), Enum.uniq(o1 ++ o2)}
+
+  defp oj({t1, p1}, {t2, p2}), do: {tj(t1, t2), Enum.sort(Enum.uniq(p1 ++ p2))}
+
+  # Anforderungen: Zahl gegen Liste unvereinbar
+  defp rj(a, a), do: a
+  defp rj(:any, b), do: b
+  defp rj(a, :any), do: a
+  defp rj(a, b) when a in [:list, :nlist] and b in [:list, :nlist], do: :nlist
+  defp rj(_, _), do: throw(:no)
+
+  # was der Typ t schon garantiert
+  defp sat?(:bot, _), do: true
+  defp sat?(t, t), do: true
+  defp sat?(:nlist, :list), do: true
+  defp sat?(_, _), do: false
+
+  # der Wert muss r sein. Passt t nicht, zählt das erst, wenn sich die
+  # Typen nicht mehr ändern (vorher kann t aus einer älteren Runde sein)
+  defp need(:any, _), do: :ok
+
+  defp need(r, {t, os}) do
+    unless sat?(t, r), do: Process.put(@soft_key, true)
+    Enum.each(os, &raise_req(&1, r))
+  end
+
+  defp raise_req({:arg, key, k}, r) do
+    reqs = Process.get(@raise_key)
+    Process.put(@raise_key, Map.put(reqs, {key, k}, rj(Map.fetch!(reqs, {key, k}), r)))
+  end
+
+  defp raise_req({:elem, key, k}, :num), do: raise_req({:arg, key, k}, :nlist)
+  defp raise_req({:elem, _, _}, _), do: throw(:no)
+
+  # Typ, den der Wert jetzt hat (nach den Anforderungen dieser Runde)
+  defp eff({t, os}, reqs), do: Enum.reduce(os, t, &tj(origin_t(&1, reqs), &2))
+
+  defp origin_t({:arg, key, k}, reqs), do: Map.fetch!(reqs, {key, k})
+
+  defp origin_t({:elem, key, k}, reqs),
+    do: if(Map.fetch!(reqs, {key, k}) == :nlist, do: :num, else: :any)
+
+  # Ausgabe als Signatur: Eingaben mit Anforderung :any bleiben Parameter
+  defp out_sig({t, os}, key, reqs) do
+    Enum.reduce(os, {t, []}, fn
+      {:arg, ^key, k} = o, {t, ps} ->
+        case reqs[{key, k}] do
+          :any -> {t, [k | ps]}
+          _ -> {tj(t, origin_t(o, reqs)), ps}
+        end
+
+      o, {t, ps} ->
+        {tj(t, origin_t(o, reqs)), ps}
+    end)
+    |> then(fn {t, ps} -> {t, Enum.sort(Enum.uniq(ps))} end)
+  end
+
+  # Elemente und Rest eines Listenwerts
+  defp elem_of({t, os}) do
+    et =
+      case t do
+        :nlist -> :num
+        :bot -> :bot
+        _ -> :any
+      end
+
+    {et, for({:arg, key, k} <- os, do: {:elem, key, k})}
+  end
+
   # --- Datenfluss je Klausel: Zwischenform für die Codeerzeugung ----------
   #
-  # d: die bestimmten Variablen (MapSet) oder :all hinter einem sicheren
-  # Scheitern (alles Weitere ist toter Code). {:poison, V}: V ist nur in
-  # einem Zweig eines If-then-else bestimmt – jeder spätere Gebrauch macht
-  # die Klausel unübersetzbar.
+  # d: Variable => Wert (Typ) oder :all hinter einem sicheren Scheitern
+  # (alles Weitere ist toter Code). {:poison, V}: V ist nur in einem Zweig
+  # eines If-then-else bestimmt – jeder spätere Gebrauch macht die Klausel
+  # unübersetzbar.
+  #
+  # Muster (gegen einen bekannten Wert): {:const, c}, {:bind, V}, {:eq, V},
+  # :ignore, :nl, {:cons, Muster, Muster}. Bau (aus bekannten Werten):
+  # Zahl, {:var, V}, :nl, {:cons, Bau, Bau}.
 
-  # modes: die des Prädikats; cm: Gerufener -> seine Modi
-  defp flow({head, goals}, modes, cm) do
+  defp flow({head, goals}, ctx) do
+    modes = ctx.sig.(ctx.key).modes
+
     {hin, d} =
       head
       |> Enum.with_index()
       |> Enum.filter(fn {_, k} -> modes[k] == :in end)
-      |> Enum.map_reduce(MapSet.new(), fn {a, k}, d ->
-        cond do
-          is_number(a) -> {{k, {:const, a}}, d}
-          anon?(a) -> {{k, :ignore}, d}
-          MapSet.member?(d, a) -> {{k, {:eq, a}}, d}
-          true -> {{k, {:bind, a}}, MapSet.put(d, a)}
-        end
+      |> Enum.map_reduce(%{}, fn {a, k}, d ->
+        {mp, d} = match_pat(a, {:bot, [{:arg, ctx.key, k}]}, d, ctx)
+        {{k, mp}, d}
       end)
 
-    hout =
-      for {a, k} <- Enum.with_index(head), modes[k] == :out do
-        cond do
-          is_number(a) -> {k, {:const, a}}
-          anon?(a) -> throw(:no)
-          true -> {k, {:var, a}}
-        end
+    {irs, d} = flow_seq(goals, d, ctx)
+
+    {hout, otypes} =
+      for {a, k} <- Enum.with_index(head), modes[k] == :out, reduce: {[], %{}} do
+        {hout, ot} ->
+          if anon?(a), do: throw(:no)
+          {bt, vt} = build!(a, d, ctx)
+          {[{k, bt} | hout], if(d == :all, do: ot, else: Map.put(ot, k, [vt]))}
       end
 
-    {irs, d} = flow_seq(goals, d, cm)
-    for {_, {:var, v}} <- hout, not defd?(d, v), do: throw(:no)
-    %{hin: hin, hout: hout, goals: irs}
+    %{ir: %{hin: hin, hout: Enum.reverse(hout), goals: irs}, otypes: otypes}
   end
 
   defp flow_seq(_, :all, _), do: {[], :all}
   defp flow_seq([], d, _), do: {[], d}
 
-  defp flow_seq([g | gs], d, m) do
-    {ir, d1} = goal_flow(g, d, m)
-    {irs, d2} = flow_seq(gs, d1, m)
+  defp flow_seq([g | gs], d, ctx) do
+    {ir, d1} = goal_flow(g, d, ctx)
+    {irs, d2} = flow_seq(gs, d1, ctx)
     {[ir | irs], d2}
   end
 
   defp defd?(:all, _), do: true
-  defp defd?(d, v), do: MapSet.member?(d, v)
+  defp defd?(d, v), do: Map.has_key?(d, v)
 
-  defp add(d, v) do
-    if MapSet.member?(d, {:poison, v}), do: throw(:no)
-    MapSet.put(d, v)
+  defp add(d, v, t) do
+    if Map.has_key?(d, {:poison, v}), do: throw(:no)
+    Map.put(d, v, t)
   end
 
   defp meet(:all, d), do: d
   defp meet(d, :all), do: d
 
   defp meet(a, b) do
-    i = MapSet.intersection(a, b)
+    keys = MapSet.new(Map.keys(a) ++ Map.keys(b))
 
-    for x <- MapSet.difference(MapSet.union(a, b), i), into: i do
-      case x do
-        {:poison, _} -> x
-        v -> {:poison, v}
-      end
-    end
+    Map.new(keys, fn
+      {:poison, _} = p ->
+        {p, true}
+
+      v ->
+        case {a, b} do
+          {%{^v => x}, %{^v => y}} -> {v, vj(x, y)}
+          _ -> {{:poison, v}, true}
+        end
+    end)
   end
 
   defp new_vars(d1, d0),
-    do: for({:var, _} = v <- MapSet.difference(d1, d0), do: v) |> Enum.sort()
+    do: for({:var, _} = v <- Map.keys(d1), not Map.has_key?(d0, v), do: v) |> Enum.sort()
 
-  defp known?(t, d), do: is_number(t) or defd?(d, t)
+  # Muster gegen einen bekannten Wert vom Typ vt
+  defp match_pat(n, vt, d, _ctx) when is_number(n) do
+    need(:num, vt)
+    {{:const, n}, d}
+  end
+
+  defp match_pat({:var, _} = v, vt, d, ctx) do
+    cond do
+      anon?(v) ->
+        {:ignore, d}
+
+      defd?(d, v) ->
+        eq_types!(vt, d[v], ctx)
+        {{:eq, v}, d}
+
+      true ->
+        {{:bind, v}, add(d, v, vt)}
+    end
+  end
+
+  defp match_pat(:nl, vt, d, _ctx) do
+    need(:list, vt)
+    {:nl, d}
+  end
+
+  # Elemente einer Liste von Zahlen: erst zur Zahl machen (aus der Eingabe
+  # kommen sie ungelesen, PrologEx.Jit.num/1)
+  defp match_pat({:cons, h, t}, vt, d, ctx) do
+    need(:list, vt)
+    et = elem_of(vt)
+    {hm, d} = match_pat(h, et, d, ctx)
+    hm = if eff(et, ctx.reqs) == :num and hm != :ignore, do: {:num, hm}, else: hm
+    {tm, d} = match_pat(t, vt, d, ctx)
+    {{:cons, hm, tm}, d}
+  end
+
+  # Gleichheit zweier Werte mit ===: nur Zahlen (beliebige Terme könnten
+  # ungebundene Variablen sein, Listen aus der Eingabe sind ungelesen)
+  defp eq_types!(a, b, ctx) do
+    if eff(a, ctx.reqs) in [:list, :nlist] or eff(b, ctx.reqs) in [:list, :nlist], do: throw(:no)
+    need(:num, a)
+    need(:num, b)
+  end
+
+  # Bau aus bekannten Werten: {bau, typ}. Eine Liste aus Zahlen ist
+  # :nlist, sonst :list; ein Rest, der keine Liste ist, macht sie beliebig;
+  # ein Rest unbekannten Typs gibt seine Herkunft weiter
+  defp build!(n, _d, _ctx) when is_number(n), do: {n, {:num, []}}
+
+  defp build!({:var, _} = v, d, _ctx) do
+    if anon?(v) or not defd?(d, v), do: throw(:no)
+    {v, if(d == :all, do: {:bot, []}, else: Map.fetch!(d, v))}
+  end
+
+  defp build!(:nl, _d, _ctx), do: {:nl, {:nlist, []}}
+
+  defp build!({:cons, h, t}, d, ctx) do
+    {hb, ht} = build!(h, d, ctx)
+    {tb, {tt, tos}} = build!(t, d, ctx)
+    base = if eff(ht, ctx.reqs) in [:num, :bot], do: :nlist, else: :list
+
+    t2 =
+      case tt do
+        x when x in [:num, :any] -> :any
+        :bot -> base
+        x -> tj(base, x)
+      end
+
+    {{:cons, hb, tb}, {t2, tos}}
+  end
+
+  defp build_ok?(t, d, ctx) do
+    build!(t, d, ctx)
+    true
+  catch
+    :no -> false
+  end
 
   defp goal_flow(:cut, d, _), do: {:cut, d}
   defp goal_flow(true, d, _), do: {true, d}
   defp goal_flow(:fail, _d, _), do: {:fail, :all}
 
   defp goal_flow({:cmp, op, a, b}, d, _) do
-    defined!(vars(a) ++ vars(b), d)
+    nums!(vars(a) ++ vars(b), d)
     {{:cmp, op, a, b}, d}
   end
 
-  defp goal_flow({:is, l, r}, d, _) do
-    defined!(vars(r), d)
+  defp goal_flow({:is, l, r}, d, ctx) do
+    nums!(vars(r), d)
 
     cond do
-      known?(l, d) -> {{:is_eq, l, r}, d}
-      anon?(l) -> {{:is_eq, :ignore, r}, d}
-      true -> {{:is_def, l, r}, add(d, l)}
+      is_number(l) ->
+        {{:is_eq, l, r}, d}
+
+      anon?(l) ->
+        {{:is_eq, :ignore, r}, d}
+
+      defd?(d, l) ->
+        eq_types!({:num, []}, d[l], ctx)
+        {{:is_eq, l, r}, d}
+
+      true ->
+        {{:is_def, l, r}, add(d, l, {:num, []})}
     end
   end
 
-  defp goal_flow({:unify, a, b}, d, _) do
-    cond do
-      a == b or anon?(a) or anon?(b) -> {:u_nop, d}
-      known?(a, d) and known?(b, d) -> {{:u_eq, a, b}, d}
-      known?(a, d) -> {{:u_def, b, a}, add(d, b)}
-      known?(b, d) -> {{:u_def, a, b}, add(d, a)}
-      true -> throw(:no)
-    end
+  # X = Y: eine Seite ganz bekannt (Bau), die andere Muster dagegen
+  defp goal_flow({:unify, a, b}, d, ctx) do
+    {bt, mp, d} =
+      cond do
+        build_ok?(a, d, ctx) ->
+          {bt, vt} = build!(a, d, ctx)
+          {mp, d} = match_pat(b, vt, d, ctx)
+          {bt, mp, d}
+
+        build_ok?(b, d, ctx) ->
+          {bt, vt} = build!(b, d, ctx)
+          {mp, d} = match_pat(a, vt, d, ctx)
+          {bt, mp, d}
+
+        true ->
+          throw(:no)
+      end
+
+    {{:u, bt, mp}, d}
   end
 
-  defp goal_flow({:call, ck, as}, d, cm) do
-    modes = cm.(ck)
-    ins = for {a, k} <- Enum.with_index(as), modes[k] == :in, do: a
-    defined!(Enum.filter(ins, &match?({:var, _}, &1)), d)
+  # Aufruf: Eingaben bauen (Anforderungen des Gerufenen), Ausgaben als
+  # Muster gegen die Ergebnisse (Typ am Aufrufort eingesetzt)
+  defp goal_flow({:call, ck, as}, d, ctx) do
+    sig = ctx.sig.(ck)
+    indexed = Enum.with_index(as)
+
+    ins =
+      for {a, k} <- indexed, sig.modes[k] == :in do
+        {bt, vt} = build!(a, d, ctx)
+        need(sig.req[k], vt)
+        {k, bt, vt}
+      end
+
+    actual = Map.new(ins, fn {k, _, vt} -> {k, vt} end)
 
     {outs, d2} =
-      as
-      |> Enum.with_index()
-      |> Enum.filter(fn {_, k} -> modes[k] == :out end)
-      |> Enum.map_reduce(d, fn {a, _}, acc ->
-        cond do
-          known?(a, d) -> {{:eq, a}, acc}
-          anon?(a) -> {:ignore, acc}
-          defd?(acc, a) -> throw(:no)
-          true -> {{:def, a}, add(acc, a)}
-        end
+      indexed
+      |> Enum.filter(fn {_, k} -> sig.modes[k] == :out end)
+      |> Enum.map_reduce(d, fn {a, k}, acc ->
+        {t, ps} = sig.out[k]
+        vt = Enum.reduce(ps, {t, []}, &vj(Map.fetch!(actual, &1), &2))
+        match_pat(a, vt, acc, ctx)
       end)
 
-    {{:call, ck, ins, outs}, d2}
+    {{:call, ck, Enum.map(ins, &elem(&1, 1)), outs}, d2}
   end
 
   # die Bedingung sieht d, Then sieht zusätzlich, was die Bedingung bestimmt,
   # Else nur d; danach gilt, was beide Zweige bestimmen
-  defp goal_flow({:ite, c, t, e}, d, m) do
-    {ci, dc} = flow_seq(c, d, m)
+  defp goal_flow({:ite, c, t, e}, d, ctx) do
+    {ci, dc} = flow_seq(c, d, ctx)
     if dc == :all, do: throw(:no)
-    {ti, dt} = flow_seq(t, dc, m)
-    {ei, de} = flow_seq(e, d, m)
+    {ti, dt} = flow_seq(t, dc, ctx)
+    {ei, de} = flow_seq(e, d, ctx)
     dn = meet(dt, de)
     nvars = if dn == :all, do: :dead, else: new_vars(dn, d)
     {{:ite, ci, new_vars(dc, d), ti, ei, nvars}, dn}
   end
 
   # was G bestimmt, gilt danach nicht
-  defp goal_flow({:not, g}, d, m) do
-    {gi, _} = flow_seq(g, d, m)
+  defp goal_flow({:not, g}, d, ctx) do
+    {gi, _} = flow_seq(g, d, ctx)
     {{:not, gi}, d}
   end
 
-  defp defined!(vs, d), do: for(v <- vs, not defd?(d, v), do: throw(:no))
+  # bestimmt und Zahlen
+  defp nums!(vs, d) do
+    for v <- vs do
+      if not defd?(d, v), do: throw(:no)
+      need(:num, Map.get(d, v, {:bot, []}))
+    end
+  end
 
   # --- Ausschließlichkeit -------------------------------------------------
 
@@ -559,13 +946,13 @@ defmodule PrologEx.Jit do
 
   # a vor b: hat a eine Lösung, scheitert b sicher (ohne Fehler davor)
   defp exclusive?(a, b, num) do
-    :cut in a.goals or consts_differ?(a, b) or const_vs_guard?(a, b, num) or
+    :cut in a.goals or pats_differ?(a, b) or const_vs_guard?(a, b, num) or
       complementary?(a, b, num)
   end
 
   # Vergleiche und `=` am Anfang des Rumpfs
   defp guards(c),
-    do: Enum.take_while(c.goals, &(match?({:cmp, _, _, _}, &1) or match?({:u_eq, _, _}, &1)))
+    do: Enum.take_while(c.goals, &(match?({:cmp, _, _, _}, &1) or match?({:u, _, _}, &1)))
 
   # die Wächter von b, die b erreicht, ohne dass einer davor werfen kann
   defp reachable(c, num) do
@@ -575,7 +962,7 @@ defmodule PrologEx.Jit do
     |> Enum.reverse()
   end
 
-  defp safe?({:u_eq, _, _}, _), do: true
+  defp safe?({:u, _, _}, _), do: true
   defp safe?({:cmp, _, x, y}, num), do: safe_ex?(x, num) and safe_ex?(y, num)
 
   defp safe_ex?(n, _) when is_number(n), do: true
@@ -587,27 +974,30 @@ defmodule PrologEx.Jit do
   defp safe_ex?({:op1, op, a}, false) when op in @total1, do: safe_ex?(a, false)
   defp safe_ex?(_, _), do: false
 
-  # Kopfeingaben, mit `V = c` am Anfang als Konstante
+  # Kopfeingaben, mit `V = Muster` am Anfang als Muster an V's Stelle
   defp eff_hin(c) do
-    eqs =
-      for {:u_eq, x, y} <- guards(c),
-          {v, n} <- [{x, y}, {y, x}],
-          is_number(n),
-          into: %{},
-          do: {v, n}
+    eqs = for {:u, {:var, _} = v, mp} <- guards(c), into: %{}, do: {v, mp}
 
     Enum.map(c.hin, fn
-      {k, {:bind, v}} = e -> if Map.has_key?(eqs, v), do: {k, {:const, eqs[v]}}, else: e
+      {k, {:bind, v}} = e -> if Map.has_key?(eqs, v), do: {k, eqs[v]}, else: e
       e -> e
     end)
   end
 
-  defp consts_differ?(a, b) do
-    Enum.any?(Enum.zip(eff_hin(a), eff_hin(b)), fn
-      {{k, {:const, x}}, {k, {:const, y}}} -> x !== y
-      _ -> false
-    end)
+  defp pats_differ?(a, b) do
+    Enum.any?(Enum.zip(eff_hin(a), eff_hin(b)), fn {{k, x}, {k, y}} -> pat_differ?(x, y) end)
   end
+
+  defp pat_differ?({:const, x}, {:const, y}), do: x !== y
+  defp pat_differ?(:nl, {:cons, _, _}), do: true
+  defp pat_differ?({:cons, _, _}, :nl), do: true
+
+  defp pat_differ?({:cons, h1, t1}, {:cons, h2, t2}),
+    do: pat_differ?(h1, h2) or pat_differ?(t1, t2)
+
+  defp pat_differ?({:const, _}, x) when x == :nl or elem(x, 0) == :cons, do: true
+  defp pat_differ?(x, {:const, _}) when x == :nl or elem(x, 0) == :cons, do: true
+  defp pat_differ?(_, _), do: false
 
   # a hat an k die Konstante c, b dort die Variable V und am Anfang einen
   # Wächter nur über V, der für V = c falsch ist
@@ -615,7 +1005,8 @@ defmodule PrologEx.Jit do
     Enum.any?(Enum.zip(eff_hin(a), b.hin), fn
       {{k, {:const, c}}, {k, {:bind, v}}} ->
         Enum.any?(reachable(b, num), fn g ->
-          Enum.all?(guard_vars(g), &(&1 == v)) and guard_val(g, %{v => c}) == false
+          gv = guard_vars(g)
+          gv != :unknown and Enum.all?(gv, &(&1 == v)) and guard_val(g, %{v => c}) == false
         end)
 
       _ ->
@@ -624,7 +1015,8 @@ defmodule PrologEx.Jit do
   end
 
   defp guard_vars({:cmp, _, x, y}), do: vars(x) ++ vars(y)
-  defp guard_vars({:u_eq, x, y}), do: vars(x) ++ vars(y)
+  defp guard_vars({:u, {:var, _} = v, {:const, _}}), do: [v]
+  defp guard_vars(_), do: :unknown
 
   defp guard_val({:cmp, op, x, y}, env) do
     PrologEx.compare(op, ceval(x, env), ceval(y, env))
@@ -634,7 +1026,7 @@ defmodule PrologEx.Jit do
     _ -> :unknown
   end
 
-  defp guard_val({:u_eq, x, y}, env), do: ceval(x, env) === ceval(y, env)
+  defp guard_val({:u, v, {:const, c}}, env), do: Map.fetch!(env, v) === c
 
   defp ceval(n, _) when is_number(n), do: n
   defp ceval({:var, _} = v, env), do: Map.fetch!(env, v)
@@ -699,114 +1091,196 @@ defmodule PrologEx.Jit do
   # nach Schnitt); scheitern sie, mit B. Nach den Zweigen folgt der Rest der
   # Klausel einmal. Enthält ein Zweig einen Schnitt, folgt der Rest in jedem
   # Zweig (der Schnitt ändert, wie danach Scheitern aussieht).
+  #
+  # Module: je Komponente eines, Gerufene zuerst – so steht der Name (Hash
+  # des Inhalts, samt der Namen gerufener Module) jedes Moduls fest, bevor
+  # ein Rufer ihn braucht. Im Modul je Prädikat j: e<j> (Eintritt), p<j>
+  # (Klauselwahl), c<j>_<i>.
 
-  # Module: je stark zusammenhängender Komponente des Aufrufgraphen eines,
-  # Gerufene zuerst – so kann der Name (Hash des Inhalts, samt der Namen
-  # gerufener Module) jedes Moduls feststehen, bevor es ein Rufer braucht.
-  # Im Modul je Prädikat j: e<j> (Eintritt), p<j> (Klauselwahl), c<j>_<i>.
   defp build(s, how) do
-    s
+    s.parsed
+    |> Map.take(Map.keys(s.solved))
     |> sccs()
-    |> Enum.reduce({%{}, []}, fn scc, {done, shown} ->
-      infos =
-        scc
-        |> Enum.with_index()
-        |> Enum.map(fn {key, j} ->
-          p = s.parsed[key]
-          ins = for k <- 0..(p.arity - 1), s.modes[{key, k}] == :in, do: k
-          outs = for k <- 0..(p.arity - 1), s.modes[{key, k}] == :out, do: k
-
-          %{
-            key: key,
-            j: j,
-            ins: ins,
-            outs: outs,
-            clauses: s.irs[key],
-            source: p.source,
-            num: MapSet.member?(s.num, key),
-            deps: p.deps
-          }
-        end)
-
-      local = Map.new(infos, &{&1.key, {:local, :"p#{&1.j}"}})
-
-      remote =
-        for i <- infos, d <- i.deps, not Map.has_key?(local, d), into: %{} do
-          case done do
-            %{^d => {{mod, _, pf, _}, _, _}} -> {d, {:remote, mod, pf}}
-            _ -> (e = s.ext.(d)) && {d, {:remote, e.mod, e.p}}
-          end
-        end
-
-      targets = Map.merge(remote, local)
-
-      hash =
-        :crypto.hash(
-          :sha256,
-          :erlang.term_to_binary(
-            {Enum.map(infos, &{&1.source, &1.ins, &1.outs, &1.num}), Enum.sort(remote)}
-          )
-        )
-        |> Base.encode16(case: :lower)
-        |> binary_part(0, 20)
-
-      mod = Module.concat(PrologEx.Jit.Code, "P" <> hash)
-      ast = gen(mod, infos, targets)
-
-      case how do
-        :show ->
-          {done, [Macro.to_string(ast) | shown]}
-
-        :load ->
-          unless Code.ensure_loaded?(mod) do
-            {_, _} = Code.with_diagnostics([log: false], fn -> Code.compile_quoted(ast) end)
-          end
-
-          done =
-            for i <- infos,
-                into: done,
-                do:
-                  {i.key,
-                   {{mod, :"e#{i.j}", :"p#{i.j}", i.deps},
-                    if(i.num, do: {:num, i.ins}, else: i.ins), i.outs}}
-
-          {done, shown}
-      end
-    end)
+    |> Enum.reduce({%{}, []}, fn scc, {done, shown} -> build_scc(scc, s, how, done, shown) end)
     |> case do
       {_, shown} when how == :show -> shown |> Enum.reverse() |> Enum.join("\n")
       {done, _} -> done
     end
   end
 
-  defp sccs(s) do
-    g = :digraph.new()
+  defp build_scc(scc, s, how, done, shown) do
+    infos =
+      scc
+      |> Enum.with_index()
+      |> Enum.map(fn {key, j} ->
+        r = s.solved[key]
+        sig = r.sig
 
-    try do
-      for k <- Map.keys(s.parsed), do: :digraph.add_vertex(g, k)
+        ins =
+          for {k, req} <- Enum.sort(sig.req),
+              do: {k, check_code(req, sig.num)}
 
-      for {k, p} <- s.parsed,
-          d <- p.deps,
-          Map.has_key?(s.parsed, d),
-          do: :digraph.add_edge(g, k, d)
+        outs = for {k, _} <- Enum.sort(sig.out), do: k
 
-      c = :digraph_utils.condensation(g)
+        %{
+          key: key,
+          j: j,
+          ins: ins,
+          outs: outs,
+          clauses: r.irs,
+          source: r.p.source,
+          num: sig.num,
+          deps: r.p.deps,
+          sig: sig
+        }
+      end)
 
-      try do
-        # Rufer vor Gerufenen; umgekehrt: Gerufene zuerst
-        c |> :digraph_utils.topsort() |> Enum.reverse() |> Enum.map(&Enum.sort/1)
-      after
-        :digraph.delete(c)
+    local = Map.new(infos, &{&1.key, {:local, :"p#{&1.j}"}})
+
+    # Aus dem Interpreter lohnt der Eintritt, wo der Code wenigstens ein
+    # Ziel hat oder etwas wiederholt (rekursiv, oder ruft Rekursives) –
+    # schon ein Vergleich spart mehr, als der Wechsel kostet; ein Fakt
+    # nicht. Übersetzt wird trotzdem – für übersetzte Rufer
+    entry =
+      length(scc) > 1 or Enum.any?(scc, &s.parsed[&1].rec) or
+        Enum.sum(Enum.map(scc, &s.parsed[&1].size)) >= @entry_size or
+        Enum.any?(infos, fn i ->
+          Enum.any?(i.deps, fn d ->
+            case done do
+              %{^d => {{_, _, _, _, sig}, _, _}} -> sig.entry
+              _ -> (e = s.ext.(d)) != nil and e.sig.entry
+            end
+          end)
+        end)
+
+    infos = Enum.map(infos, &%{&1 | sig: Map.put(&1.sig, :entry, entry)})
+
+    remote =
+      for i <- infos, d <- i.deps, not Map.has_key?(local, d), into: %{} do
+        case done do
+          %{^d => {{mod, _, pf, _, _}, _, _}} -> {d, {:remote, mod, pf}}
+          _ -> (e = s.ext.(d)) && {d, {:remote, e.mod, e.p}}
+        end
       end
-    after
-      :digraph.delete(g)
+
+    targets = Map.merge(remote, local)
+
+    # der Name: Hash der Zwischenform mit Variablen in kanonischer
+    # Reihenfolge (dasselbe Programm neu gelesen: derselbe Name)
+    hash =
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary(
+          {Enum.map(
+             infos,
+             &{Enum.map(&1.clauses, fn c -> canon(c) end), &1.ins, &1.outs, &1.num}
+           ), Enum.sort(remote)}
+        )
+      )
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 20)
+
+    mod = Module.concat(PrologEx.Jit.Code, "P" <> hash)
+
+    case how do
+      :show ->
+        {done, [Macro.to_string(gen(mod, infos, targets)) | shown]}
+
+      :load ->
+        register(mod, infos, targets)
+
+        done =
+          for i <- infos,
+              into: done,
+              do: {i.key, {{mod, :"e#{i.j}", :"p#{i.j}", i.deps, i.sig}, i.ins, i.outs}}
+
+        {done, shown}
     end
   end
+
+  defp canon(%{hin: hin, hout: hout, goals: goals}) do
+    {t, _} = canon_t({hin, hout, goals}, %{})
+    t
+  end
+
+  defp canon_t({:var, _} = v, m) do
+    case m do
+      %{^v => n} -> {{:var, n}, m}
+      _ -> {{:var, map_size(m)}, Map.put(m, v, map_size(m))}
+    end
+  end
+
+  defp canon_t(t, m) when is_tuple(t) do
+    {l, m} = canon_t(Tuple.to_list(t), m)
+    {List.to_tuple(l), m}
+  end
+
+  defp canon_t(l, m) when is_list(l), do: Enum.map_reduce(l, m, &canon_t/2)
+  defp canon_t(x, m), do: {x, m}
+
+  # Übersetzt wird erst beim ersten Aufruf (ensure/1): beim Laden nur die
+  # Zwischenform ablegen (persistent_term, wie die Module selbst für alle
+  # Prozesse); viele übersetzbare Prädikate einer Bibliothek werden nie
+  # gerufen, und der BEAM-Compiler ist das Teure
+  defp register(mod, infos, targets) do
+    key = {__MODULE__, mod}
+
+    unless :erlang.module_loaded(mod) or :persistent_term.get(key, nil) != nil do
+      callees = for({_, {:remote, m, _}} <- targets, do: m) |> Enum.uniq()
+      slim = Enum.map(infos, &Map.take(&1, [:j, :ins, :clauses, :num]))
+      :persistent_term.put(key, {:ir, slim, targets, callees})
+    end
+  end
+
+  @doc false
+  # das Modul geladen? Sonst jetzt übersetzen (Gerufene zuerst); scheitert
+  # der Compiler (etwa an einer Grenze der BEAM), bleibt es beim
+  # Interpreter (false)
+  def ensure(mod), do: :erlang.module_loaded(mod) or compile_now(mod)
+
+  defp compile_now(mod) do
+    case :persistent_term.get({__MODULE__, mod}, nil) do
+      {:ir, infos, targets, callees} ->
+        (Enum.all?(callees, &ensure/1) and compiled?(gen(mod, infos, targets))) or
+          stub(mod, infos)
+
+      _ ->
+        false
+    end
+  end
+
+  # Ließ sich ein Modul nicht übersetzen: ein Ersatz, dessen Funktionen
+  # gleich aufgeben – jeder Aufruf nimmt dann ohne weiteren Versuch den
+  # Interpreter (false: auch dieser)
+  defp stub(mod, infos) do
+    funs =
+      for i <- infos, f <- [:"e#{i.j}", :"p#{i.j}"] do
+        args = Enum.map(0..length(i.ins), &Macro.var(:"a#{&1}", __MODULE__))
+        quote(do: def(unquote(f)(unquote_splicing(args)), do: throw(:jit_deopt)))
+      end
+
+    compiled?(quote(do: defmodule(unquote(mod), do: (unquote_splicing(funs)))))
+    false
+  end
+
+  defp compiled?(ast) do
+    {_, _} = Code.with_diagnostics([log: false], fn -> Code.compile_quoted(ast) end)
+    true
+  rescue
+    _ -> false
+  end
+
+  # Prüfung einer Eingabe beim Aufruf (siehe PrologEx: jit_ins)
+  defp check_code(:num, false), do: :int
+  defp check_code(:num, true), do: :num
+  defp check_code(:nlist, false), do: :ilist
+  defp check_code(:nlist, true), do: :nlist
+  defp check_code(r, _), do: r
 
   defp gen(mod, infos, targets) do
     funs =
       Enum.flat_map(infos, fn info ->
-        ins = Enum.map(info.ins, &in_var/1)
+        ins = Enum.map(info.ins, fn {k, _} -> in_var(k) end)
         n = length(info.clauses)
         e = :"e#{info.j}"
         pf = :"p#{info.j}"
@@ -856,11 +1330,16 @@ defmodule PrologEx.Jit do
   defp ccall(j, i, ins), do: {:"c#{j}_#{i}", [], ins ++ [Macro.var(:b, __MODULE__)]}
 
   defp gen_clause(c, i, info, targets) do
-    ins = Enum.map(info.ins, &in_var/1)
+    ins = Enum.map(info.ins, fn {k, _} -> in_var(k) end)
     vmap = var_map(c)
     st = %{vmap: vmap, cut: false, local: false, num: info.num, hout: c.hout, targets: targets}
     body = gen_goals(c.goals ++ [:end], st)
-    head = gen_head(c.hin, vmap, body)
+
+    head =
+      Enum.reduce(Enum.reverse(c.hin), body, fn {k, mp}, acc ->
+        match_ast(in_var(k), mp, acc, st)
+      end)
+
     name = :"c#{info.j}_#{i}"
 
     quote do
@@ -885,29 +1364,56 @@ defmodule PrologEx.Jit do
   defp collect(l) when is_list(l), do: Enum.flat_map(l, &collect/1)
   defp collect(_), do: []
 
-  defp gen_head([], _vmap, body), do: body
+  # Muster gegen einen Wert (AST): weiter mit then, sonst Scheitern
+  defp match_ast(_v, :ignore, then, _st), do: then
 
-  defp gen_head([{k, spec} | rest], vmap, body) do
-    i = in_var(k)
-    inner = gen_head(rest, vmap, body)
-
-    case spec do
-      :ignore ->
-        inner
-
-      {:const, c} ->
-        quote(do: if(unquote(i) === unquote(c), do: unquote(inner), else: b))
-
-      {:bind, v} ->
-        quote do
-          unquote(vmap[v]) = unquote(i)
-          unquote(inner)
-        end
-
-      {:eq, v} ->
-        quote(do: if(unquote(i) === unquote(vmap[v]), do: unquote(inner), else: b))
+  defp match_ast(v, {:bind, x}, then, st) do
+    quote do
+      unquote(st.vmap[x]) = unquote(v)
+      unquote(then)
     end
   end
+
+  defp match_ast(v, {:eq, x}, then, st),
+    do: test_ast(quote(do: unquote(v) === unquote(st.vmap[x])), then, st)
+
+  defp match_ast(v, {:const, c}, then, st),
+    do: test_ast(quote(do: unquote(v) === unquote(c)), then, st)
+
+  # Listen werden erst beim Zerlegen gelesen (PrologEx.Jit.list/1)
+  defp match_ast(v, :nl, then, st),
+    do: test_ast(quote(do: PrologEx.Jit.list(unquote(v)) === []), then, st)
+
+  defp match_ast(v, {:cons, h, t}, then, st) do
+    hv = Macro.unique_var(:h, __MODULE__)
+    tv = Macro.unique_var(:t, __MODULE__)
+
+    quote do
+      case PrologEx.Jit.list(unquote(v)) do
+        [unquote(hv) | unquote(tv)] -> unquote(match_ast(hv, h, match_ast(tv, t, then, st), st))
+        _ -> unquote(failure(st))
+      end
+    end
+  end
+
+  defp match_ast(v, {:num, mp}, then, st) do
+    n = Macro.unique_var(:n, __MODULE__)
+    f = if st.num, do: :num, else: :int
+
+    quote do
+      unquote(n) = PrologEx.Jit.unquote(f)(unquote(v))
+      unquote(match_ast(n, mp, then, st))
+    end
+  end
+
+  defp test_ast(t, then, st),
+    do: quote(do: if(unquote(t), do: unquote(then), else: unquote(failure(st))))
+
+  # Bau (AST)
+  defp build_ast(n, _st) when is_number(n), do: n
+  defp build_ast({:var, _} = v, st), do: Map.fetch!(st.vmap, v)
+  defp build_ast(:nl, _st), do: []
+  defp build_ast({:cons, h, t}, st), do: [{:|, [], [build_ast(h, st), build_ast(t, st)]}]
 
   # Scheitern: nach einem Schnitt (nicht lokal in einer Bedingung oder
   # unter \+) -b-1, sonst b
@@ -927,13 +1433,12 @@ defmodule PrologEx.Jit do
     end
   end
 
-  defp test(t, rest, st),
-    do: counted(quote(do: if(unquote(t), do: unquote(rest), else: unquote(failure(st)))))
+  defp test(t, rest, st), do: counted(test_ast(t, rest, st))
 
   defp vs(vars, st), do: Enum.map(vars, &Map.fetch!(st.vmap, &1))
 
   defp gen_goals([:end], st) do
-    outs = for {_, spec} <- st.hout, do: out_ast(spec, st.vmap)
+    outs = for {_, bt} <- st.hout, do: build_ast(bt, st)
     quote(do: {b, unquote_splicing(outs)})
   end
 
@@ -945,7 +1450,6 @@ defmodule PrologEx.Jit do
   defp gen_goals([:cut | gs], st), do: gen_goals(gs, st)
   defp gen_goals([true | gs], st), do: counted(gen_goals(gs, st))
   defp gen_goals([:fail | _], st), do: counted(failure(st))
-  defp gen_goals([:u_nop | gs], st), do: counted(gen_goals(gs, st))
 
   defp gen_goals([{:cmp, op, x, y} | gs], st),
     do: test(cmp_ast(op, ex(x, st), ex(y, st), st), gen_goals(gs, st), st)
@@ -969,63 +1473,27 @@ defmodule PrologEx.Jit do
   end
 
   defp gen_goals([{:is_eq, l, r} | gs], st),
-    do: test(quote(do: unquote(ex(r, st)) === unquote(term_ast(l, st))), gen_goals(gs, st), st)
+    do: test(quote(do: unquote(ex(r, st)) === unquote(build_ast(l, st))), gen_goals(gs, st), st)
 
-  defp gen_goals([{:u_eq, a, b} | gs], st),
-    do:
-      test(
-        quote(do: unquote(term_ast(a, st)) === unquote(term_ast(b, st))),
-        gen_goals(gs, st),
-        st
-      )
-
-  defp gen_goals([{:u_def, v, t} | gs], st) do
-    counted(
-      quote do
-        unquote(st.vmap[v]) = unquote(term_ast(t, st))
-        unquote(gen_goals(gs, st))
-      end
-    )
-  end
+  defp gen_goals([{:u, bt, mp} | gs], st),
+    do: counted(match_ast(build_ast(bt, st), mp, gen_goals(gs, st), st))
 
   defp gen_goals([{:call, ck, ins, outs} | gs], st) do
-    args = Enum.map(ins, &term_ast(&1, st))
-
-    {pats, checks} =
-      outs
-      |> Enum.with_index()
-      |> Enum.map(fn
-        {{:def, v}, _} ->
-          {st.vmap[v], nil}
-
-        {:ignore, _} ->
-          {Macro.var(:_, nil), nil}
-
-        {{:eq, t}, j} ->
-          tmp = Macro.var(:"o#{j}", __MODULE__)
-          {tmp, quote(do: unquote(tmp) === unquote(term_ast(t, st)))}
-      end)
-      |> Enum.unzip()
-
-    checks = Enum.reject(checks, &is_nil/1)
-    rest = gen_goals(gs, st)
+    args = Enum.map(ins, &build_ast(&1, st))
+    tmps = for {_, j} <- Enum.with_index(outs), do: Macro.var(:"o#{j}", __MODULE__)
 
     rest =
-      case checks do
-        [] ->
-          rest
-
-        _ ->
-          t = Enum.reduce(checks, fn x, acc -> quote(do: unquote(acc) and unquote(x)) end)
-          quote(do: if(unquote(t), do: unquote(rest), else: unquote(failure(st))))
-      end
+      outs
+      |> Enum.zip(tmps)
+      |> Enum.reverse()
+      |> Enum.reduce(gen_goals(gs, st), fn {mp, tmp}, acc -> match_ast(tmp, mp, acc, st) end)
 
     r = Macro.var(:r, __MODULE__)
 
     counted(
       quote do
         case unquote(call_ast(st.targets[ck], args)) do
-          {b, unquote_splicing(pats)} ->
+          {b, unquote_splicing(tmps)} ->
             unquote(rest)
 
           unquote(r) ->
@@ -1054,8 +1522,10 @@ defmodule PrologEx.Jit do
   end
 
   defp gen_goals([{:ite, c, cvars, t, e, nvars} | gs], st) do
+    dup = nvars == :dead or (not st.local and (cut_in?(t) or cut_in?(e)))
+
     {th, el} =
-      if nvars == :dead or (not st.local and (cut_in?(t) or cut_in?(e))),
+      if dup,
         do: {gen_goals(t ++ gs, st), gen_goals(e ++ gs, st)},
         else:
           {gen_goals(t ++ [{:yield, :join, nvars}], st),
@@ -1086,7 +1556,7 @@ defmodule PrologEx.Jit do
           end
       end
 
-    if nvars == :dead or (not st.local and (cut_in?(t) or cut_in?(e))) do
+    if dup do
       branches
     else
       quote do
@@ -1110,12 +1580,6 @@ defmodule PrologEx.Jit do
       _ -> false
     end)
   end
-
-  defp out_ast({:const, c}, _vmap), do: c
-  defp out_ast({:var, v}, vmap), do: vmap[v]
-
-  defp term_ast(n, _st) when is_number(n), do: n
-  defp term_ast(v, st), do: Map.fetch!(st.vmap, v)
 
   # Ausdruck: nur Ganzzahlen – + - * direkt; sonst genau wie der
   # Interpreter (PrologEx.Arith)
@@ -1144,76 +1608,128 @@ defmodule PrologEx.Jit do
   defp cmp_ast("=\\=", x, y, _), do: quote(do: unquote(x) !== unquote(y))
 
   # --- Laufzeit -----------------------------------------------------------
+  #
+  # Während ein übersetztes Prädikat läuft, liegt unter @run_key
+  # {Blockgröße, Prüffunktion, Bindungsspeicher, min_heap_size vorher | nil}
+  # – ein Eintrag, einmal gesetzt und einmal entfernt.
 
-  @tick_key :prolog_ex_jit
-  @heap_key :prolog_ex_jit_heap
+  @run_key :prolog_ex_jit
 
   @doc false
-  # Prüfpunkt: der laufende Block ist verbraucht. Die Maschine hat vorher
-  # {Blockgröße, Prüffunktion} hinterlegt; die Prüffunktion verbucht den
-  # Block, prüft die Grenzen (wirft wie der Interpreter) und gibt den
+  # Prüfpunkt: der laufende Block ist verbraucht. Die Prüffunktion verbucht
+  # den Block, prüft die Grenzen (wirft wie der Interpreter) und gibt den
   # nächsten Block zurück (>= 1)
   def tick do
-    {chunk, check} = Process.get(@tick_key)
+    {chunk, check, store, heap} = Process.get(@run_key)
     next = check.(chunk)
-    Process.put(@tick_key, {next, check})
-    deep_stack()
+    Process.put(@run_key, {next, check, store, deep_stack(heap)})
     next
   end
 
   # Tiefe Rekursion: jede Garbage Collection durchsucht den ganzen Stack.
   # Ist er tief, bekommt der Heap Luft im Verhältnis (min_heap_size), damit
-  # die Collections selten bleiben; nach dem Aufruf wieder wie vorher
+  # die Collections selten bleiben; nach dem Aufruf wieder wie vorher.
+  # heap: nil oder {min_heap_size vorher, jetzt}
   @deep 50_000
-  defp deep_stack do
+  defp deep_stack(heap) do
     {:stack_size, s} = Process.info(self(), :stack_size)
+    want = 4 * s
 
-    if s > @deep do
-      want = 4 * s
+    case heap do
+      _ when s <= @deep ->
+        heap
 
-      case Process.get(@heap_key) do
-        nil ->
-          Process.put(@heap_key, {Process.flag(:min_heap_size, want), want})
+      nil ->
+        {Process.flag(:min_heap_size, want), want}
 
-        {old, have} when want > 2 * have ->
-          Process.flag(:min_heap_size, want)
-          Process.put(@heap_key, {old, want})
+      {old, have} when want > 2 * have ->
+        Process.flag(:min_heap_size, want)
+        {old, want}
 
-        _ ->
-          :ok
-      end
+      _ ->
+        heap
     end
   end
 
   @doc false
-  # ein übersetztes Prädikat rufen: {:ok, Ausgaben, verbraucht} | {:fail, verbraucht}
-  def run({mod, entry, _, _}, ins, chunk, check) do
-    Process.put(@tick_key, {chunk, check})
+  # ein übersetztes Prädikat rufen: {:ok, Ausgaben, verbraucht} |
+  # {:fail, verbraucht} | :deopt.
+  #
+  # Eine Liste aus der Eingabe oder einem Ergebnis ist ein gewöhnlicher Term
+  # und wird erst beim Zerlegen gelesen: so viel wie der Interpreter auch
+  # liest. Stößt der Code auf etwas, das er nicht kann (ein ungebundener
+  # Rest, ein Element, das keine Zahl ist), gibt er auf (:deopt): er hat
+  # nichts gebunden, der Interpreter fängt den Aufruf neu an. Noch nicht
+  # übersetzt (das Modul fehlt): jetzt übersetzen, dann noch einmal.
+  def run({mod, entry, _, _, _} = m, ins, chunk, check, store, retry \\ true) do
+    Process.put(@run_key, {chunk, check, store, nil})
 
     try do
       case apply(mod, entry, ins ++ [chunk]) do
         r when is_tuple(r) ->
           [b | outs] = Tuple.to_list(r)
-          {:ok, outs, used(b)}
+          {:ok, outs, chunk_now() - b}
 
         b when b >= 0 ->
-          {:fail, used(b)}
+          {:fail, chunk_now() - b}
 
         b ->
-          {:fail, used(-b - 1)}
+          {:fail, chunk_now() + b + 1}
       end
+    rescue
+      e in UndefinedFunctionError ->
+        cond do
+          e.module != mod or not retry -> reraise e, __STACKTRACE__
+          ensure(mod) -> :retry
+          true -> :deopt
+        end
+    catch
+      :jit_deopt -> :deopt
     after
-      Process.delete(@tick_key)
-
-      case Process.delete(@heap_key) do
-        nil -> :ok
-        {old, _} -> Process.flag(:min_heap_size, old)
+      case Process.delete(@run_key) do
+        {_, _, _, {old, _}} -> Process.flag(:min_heap_size, old)
+        _ -> :ok
       end
+    end
+    |> case do
+      :retry -> run(m, ins, chunk, check, store, false)
+      r -> r
     end
   end
 
-  defp used(b) do
-    {chunk, _} = Process.get(@tick_key)
-    chunk - b
+  defp chunk_now, do: elem(Process.get(@run_key), 0)
+
+  defp store, do: elem(Process.get(@run_key), 2)
+
+  @doc false
+  # eine Listenzelle lesen: [K | R], [] oder ein anderer Term (dann passt
+  # kein Muster); ein ungebundener Rest: aufgeben
+  def list([_ | _] = l), do: l
+  def list([]), do: []
+  def list({:glist, l}), do: l
+
+  def list({:var, _} = v) do
+    case PrologEx.Store.walk(v, store()) do
+      {:var, _} -> throw(:jit_deopt)
+      t -> list(t)
+    end
+  end
+
+  def list(t), do: t
+
+  @doc false
+  # ein Element als Zahl (num) bzw. Ganzzahl (int); sonst aufgeben – der
+  # Interpreter meldet dann den Fehler oder scheitert an derselben Stelle
+  def num(n) when is_integer(n) or is_float(n), do: n
+  def num({:var, _} = v), do: walked(v, &(is_integer(&1) or is_float(&1)))
+  def num(_), do: throw(:jit_deopt)
+
+  def int(n) when is_integer(n), do: n
+  def int({:var, _} = v), do: walked(v, &is_integer/1)
+  def int(_), do: throw(:jit_deopt)
+
+  defp walked(v, ok?) do
+    x = PrologEx.Store.walk(v, store())
+    if ok?.(x), do: x, else: throw(:jit_deopt)
   end
 end

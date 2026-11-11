@@ -41,53 +41,79 @@ Ein Prolog-Kern in Elixir:
   einem Terminal beginnt, spart so einen Schritt (`S0 = [X|S1]` wird
   Kopfmuster), und `p(X) :- X = a, …` bekommt einen Index. Eine DCG über
   eine Liste von 200 000 Elementen −31 bis −42 %
-- JIT für deterministische, rein arithmetische Prädikate (Flag `jit`,
-  Vorgabe `true`): beim Laden in BEAM-Code übersetzt, die Werte in
-  Erlang-Variablen statt in Bindungen. fib(23) 390 → 1–2 ms, eine
-  Zählschleife über 10⁶ 1,1 s → 9 ms, eine nicht endrekursive Summe über
-  200 000 1,6 s → 6 ms, eine Float-Rekursion 1,3 s → 70 ms. Übersetzt
-  wird ein Prädikat, wenn jede Klausel im Kopf nur Zahlen und Variablen
-  hat und im Rumpf nur `is`, arithmetische Vergleiche, `X = Y` (Zahlen
-  oder Variablen), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`,
-  `\+ G` und Aufrufe von sich selbst oder anderen übersetzten Prädikaten
-  desselben Moduls, mit allen auswertbaren Funktoren
-  außer `random`/`random_float` (dazu `pi`, `e`, `epsilon`), und wenn je
-  zwei Klauseln sich nachweislich ausschließen (Schnitt in der früheren,
-  verschiedene Konstanten – auch `X = 0` am Anfang des Rumpfs –, ein
-  Vergleich am Anfang, der für die Konstante der anderen falsch ist, oder
-  einander ausschließende Vergleiche wie `X > 0` / `X =< 0`; davor darf
-  in der späteren Klausel nichts werfen können). Eine Variable, die nur
-  ein Zweig eines If-then-else bestimmt, darf danach nicht mehr vorkommen.
-  Die Prädikate eines Ladeschritts werden zusammen analysiert (Modi über
-  Aufrufe hinweg; wechselseitig rekursive teilen sich ein Modul); gerufen
-  werden dürfen auch schon übersetzte statische Prädikate früherer
-  Schritte, direkt. Wird ein Gerufener neu geladen (oder dynamic/1),
-  verlieren seine Rufer ihren Code und rufen die neue Fassung über den
-  Interpreter; dynamische Prädikate ruft übersetzter Code nie.
-  Rechnet das Prädikat nur mit Ganzzahlen und ganzzahligen Operationen
-  (+ - * // mod rem div min max >> << /\ \/ xor gcd abs sign msb \),
-  rechnet der Code + - * direkt und nimmt ganzzahlige Eingaben; sonst
-  alles über dieselben Funktionen wie der Interpreter (Floats, auch
-  rationale Zwischenwerte) und nimmt Ganzzahlen und Floats – einheitlich
-  für alles, was sich gegenseitig ruft. Die Modi
-  ergeben sich aus dem Rumpf (gelesen: Eingabe; von `is` oder dem eigenen
-  Aufruf bestimmt oder nirgends gelesen: Ausgabe; `=` legt nichts fest).
-  Benutzt wird der Code nur, wenn der Aufruf passt – Eingaben Zahlen,
-  Ausgaben verschiedene frische Variablen ohne Attribute, keine
-  Tiefengrenze –, sonst rechnet der Interpreter. Gleich wie dort:
-  Antworten, Fehler, Inferenzen und Grenzen (Inferenz-, Zeit-,
-  Speichergrenzen an denselben Prüfpunkten). Zwei Unterschiede, beide zum
-  Besseren: das übersetzte Prädikat hinterlässt keine Choice Points
-  (`call_with_inference_limit/3` gibt `!` statt `true`), und beim
-  Zurücksetzen zählt es keine Versuche von Klauseln, die ohnehin nichts
-  finden. Tiefe Rekursion: jede Garbage Collection durchsucht den ganzen
-  Stack. Darum legt Scheitern im übersetzten Code nichts auf den Heap
-  (die Summe über 200 000 100 → 10 ms), und ist der Stack an einem
-  Prüfpunkt (spätestens alle 65 536 Inferenzen) tief, bekommt der Heap
-  Luft im Verhältnis (`min_heap_size`, nach dem Aufruf wieder wie vorher):
-  eine Summe von Quadraten über 200 000 mit einem Hilfsprädikat
-  2,3 s → 12 ms statt 110 ms, die Float-Rekursion 59 → 28 ms. Die Module heißen nach einem
-  Hash ihrer Klauseln (dasselbe Programm neu geladen nimmt das vorhandene)
+- JIT für deterministische Prädikate über Zahlen und Listen (Flag `jit`,
+  Vorgabe `true`): in BEAM-Code übersetzt, die Werte in Erlang-Variablen
+  statt in Bindungen. fib(23) 390 → 1–2 ms, eine Zählschleife über 10⁶
+  1,1 s → 9 ms, eine nicht endrekursive Summe über 200 000 1,6 s → 5 ms,
+  eine Float-Rekursion 1,3 s → 28 ms, nrev über 500 Elemente
+  190 → 3 ms (≈ 40 Mio. LIPS), app/len/sum/rev über 300 000 Elemente
+  2,6 s → 50 ms.
+  - Was übersetzt wird – jede Klausel: im Kopf Zahlen, Variablen, `[]`
+    und `[E1, …, En | T]` (E Zahlen oder Variablen); im Rumpf `is`,
+    arithmetische Vergleiche, `X = Y` (Terme wie im Kopf), `!`, `true`,
+    `fail`, `( C -> T ; E )`, `( C -> T )`, `\+ G` und Aufrufe von sich
+    selbst oder anderen übersetzten Prädikaten desselben Moduls; alle
+    auswertbaren Funktoren außer `random`/`random_float` (dazu `pi`, `e`,
+    `epsilon`). Je zwei Klauseln müssen sich nachweislich ausschließen
+    (Schnitt in der früheren, verschiedene Muster – Konstanten, `[]`
+    gegen `[_|_]`, auch `X = 0` am Anfang des Rumpfs –, ein Vergleich am
+    Anfang, der für die Konstante der anderen falsch ist, oder einander
+    ausschließende Vergleiche wie `X > 0` / `X =< 0`; davor darf in der
+    späteren Klausel nichts werfen können). Eine Variable, die nur ein
+    Zweig eines If-then-else bestimmt, darf danach nicht mehr vorkommen.
+  - Modi und Typen: steht eine Kopfvariable zuerst in einem Vergleich
+    oder rechts in `is`, ist sie Eingabe, links in `is` Ausgabe, als
+    Argument eines Aufrufs wie dort; die übrigen Positionen werden
+    durchprobiert (mehr Ausgaben zuerst, Ausgaben eher rechts: app/3 wird
+    app(+, +, -)). Ein Wert ist eine Zahl, eine Liste, eine Liste von
+    Zahlen oder beliebig – dann wird er nur durchgereicht, auch als
+    ungebundene Variable (app([1], X, L) gibt L = [1|X]). Was ein Wert
+    sein muss, folgt aus dem Gebrauch (gerechnet, zerlegt, verglichen);
+    Ausgabetypen dürfen von Eingaben abhängen (app/3 gibt eine Liste,
+    wenn das zweite Argument eine ist).
+  - Listen werden erst beim Zerlegen gelesen – so weit wie der
+    Interpreter auch (`first([X|_], X)` liest eine Zelle, nicht die ganze
+    Liste). Stößt der Code auf etwas, das er nicht kann (ein offener Rest,
+    ein Element, das keine Zahl ist), gibt er auf: er hat nichts gebunden,
+    die Inferenzen werden zurückgesetzt, und der Interpreter fängt den
+    Aufruf neu an (und meldet etwa denselben Fehler).
+  - Rechnet alles, was sich gegenseitig ruft, nur mit Ganzzahlen und
+    ganzzahligen Operationen (+ - * // mod rem div min max >> << /\ \/
+    xor gcd abs sign msb \), rechnet der Code + - * direkt und nimmt
+    ganzzahlige Eingaben; sonst alles über dieselben Funktionen wie der
+    Interpreter (Floats, auch rationale Zwischenwerte).
+  - Die Prädikate eines Ladeschritts werden zusammen analysiert;
+    wechselseitig rekursive teilen sich ein Modul. Gerufen werden dürfen
+    auch schon übersetzte statische Prädikate früherer Schritte, direkt.
+    Wird ein Gerufener neu geladen (oder dynamic/1), verlieren seine Rufer
+    ihren Code und rufen die neue Fassung über den Interpreter;
+    dynamische Prädikate ruft übersetzter Code nie.
+  - Beim Laden wird nur analysiert (clpz: im Rauschen); der
+    BEAM-Compiler läuft beim ersten Aufruf. Die Module heißen nach einem
+    Hash der Zwischenform mit kanonisch benannten Variablen: dasselbe
+    Programm neu geladen nimmt das vorhandene Modul. Lässt sich eines nicht
+    übersetzen (Grenzen der BEAM), rechnet der Interpreter.
+  - Benutzt wird der Code nur, wenn der Aufruf passt (Eingaben vom
+    richtigen Typ, Ausgaben verschiedene frische Variablen ohne Attribute,
+    keine Tiefengrenze) und das Prädikat wenigstens ein Ziel hat – bei
+    einem Fakt kostet der Wechsel mehr, als er spart (übersetzt wird er
+    trotzdem, für übersetzte Rufer). Die Ausgaben werden unifiziert (sie
+    dürfen in Eingaben vorkommen, samt Occurs-Check wie sonst). Kosten,
+    wo es nicht passt: eine rekursive DCG-Regel über `phrase/2` (der Rest
+    ist dort `[]`, gebunden) prüft je Aufruf vergeblich, +2 % Reduktionen.
+  - Gleich wie im Interpreter: Antworten, Fehler, Inferenzen und Grenzen
+    (Inferenz-, Zeit-, Speichergrenzen an denselben Prüfpunkten,
+    spätestens alle 65 536 Inferenzen). Zwei Unterschiede, beide zum
+    Besseren: das übersetzte Prädikat hinterlässt keine Choice Points
+    (`call_with_inference_limit/3` gibt `!` statt `true`), und beim
+    Zurücksetzen zählt es keine Versuche von Klauseln, die ohnehin nichts
+    finden.
+  - Tiefe Rekursion: jede Garbage Collection durchsucht den ganzen Stack.
+    Darum legt Scheitern im übersetzten Code nichts auf den Heap (die
+    Summe über 200 000 100 → 10 ms), und ist der Stack an einem Prüfpunkt
+    tief, bekommt der Heap Luft im Verhältnis (`min_heap_size`, nach dem
+    Aufruf wieder wie vorher): eine Summe von Quadraten mit einem
+    Hilfsprädikat 110 → 12 ms
 - Deterministische eingebaute Ziele am Anfang eines Rumpfs (`is`,
   arithmetische Vergleiche, `=`, `==`, `\==`, Typtests, ein Neck-Cut)
   laufen gleich beim Eintritt in die Klausel, direkt aus den Vorlagen –

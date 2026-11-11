@@ -1030,27 +1030,36 @@ defmodule PrologEx do
         do: jit_batch(preds, db, module),
         else: Map.new(preds, fn {{n, a}, p} -> {{module, n, a}, p} end)
 
-    db |> unjit_callers(Map.keys(new)) |> Map.merge(new) |> note_callers(new)
+    keys = for {{n, a}, _} <- preds, do: {module, n, a}
+
+    db
+    |> unjit_callers(keys)
+    |> Map.drop(for {m, n, a} <- keys, do: {:jit_info, m, n, a})
+    |> Map.merge(new)
+    |> note_callers(new)
   end
 
-  # übersetzbar (PrologEx.Jit)? Dann trägt var_only das Modul:
-  # {:jit, {modul, eintritt, p, gerufen}, eingaben, ausgaben, var_only}.
-  # Gerufen werden dürfen auch schon übersetzte statische Prädikate
-  # desselben Moduls außerhalb dieses Schritts
+  # übersetzbar (PrologEx.Jit)? Lohnt der Eintritt aus dem Interpreter,
+  # trägt var_only das Modul: {:jit, {modul, eintritt, p, gerufen,
+  # signatur}, eingaben, ausgaben, var_only}; sonst bleibt das Prädikat wie
+  # es ist (der Interpreter nimmt seine Schnellwege), und die Übersetzung
+  # steht für übersetzte Rufer unter {:jit_info, m, n, a}. Gerufen werden
+  # dürfen auch schon übersetzte statische Prädikate desselben Moduls
+  # außerhalb dieses Schritts
   defp jit_batch(preds, db, module) do
     ext = fn {n, a} ->
       k = {module, n, a}
 
-      case db do
-        %{^k => {:pred, _, _, {:jit, {mod, _, pf, _}, ins, outs, _}, _}} ->
-          unless dynamic?(db, k) do
-            {num, ks} = if is_list(ins), do: {false, ins}, else: {true, elem(ins, 1)}
-            modes = Map.merge(Map.new(ks, &{&1, :in}), Map.new(outs, &{&1, :out}))
-            %{mod: mod, p: pf, modes: modes, num: num}
-          end
+      info =
+        case db do
+          %{^k => {:pred, _, _, {:jit, i, _, _, _}, _}} -> i
+          %{{:jit_info, ^module, ^n, ^a} => i} -> i
+          _ -> nil
+        end
 
-        _ ->
-          nil
+      case info do
+        {mod, _, pf, _, sig} -> unless dynamic?(db, k), do: %{mod: mod, p: pf, sig: sig}
+        nil -> nil
       end
     end
 
@@ -1063,17 +1072,24 @@ defmodule PrologEx do
 
     res = PrologEx.Jit.compile_batch(src, ext, dyn)
 
-    Map.new(preds, fn {{n, a} = k, p} ->
+    Enum.reduce(preds, %{}, fn {{n, a} = k, p}, acc ->
       case res do
-        %{^k => {{mod, e, pf, deps}, ins, outs}} ->
+        %{^k => {{mod, e, pf, deps, sig}, ins, outs}} ->
           {:pred, cls, by_key, vo, entries} = p
           deps = Enum.map(deps, fn {dn, da} -> {module, dn, da} end)
+          info = {mod, e, pf, deps, sig}
 
-          {{module, n, a},
-           {:pred, cls, by_key, {:jit, {mod, e, pf, deps}, ins, outs, vo}, entries}}
+          if sig.entry,
+            do:
+              Map.put(
+                acc,
+                {module, n, a},
+                {:pred, cls, by_key, {:jit, info, ins, outs, vo}, entries}
+              ),
+            else: acc |> Map.put({module, n, a}, p) |> Map.put({:jit_info, module, n, a}, info)
 
         _ ->
-          {{module, n, a}, p}
+          Map.put(acc, {module, n, a}, p)
       end
     end)
   end
@@ -1083,7 +1099,7 @@ defmodule PrologEx do
   # ihren Code (der Interpreter ruft dann die neue Fassung)
   defp note_callers(db, new) do
     edges =
-      for {k, {:pred, _, _, {:jit, {_, _, _, deps}, _, _, _}, _}} <- new, d <- deps, do: {d, k}
+      for {k, v} <- new, {caller, deps} <- jit_deps(k, v), d <- deps, do: {d, caller}
 
     case edges do
       [] ->
@@ -1096,6 +1112,10 @@ defmodule PrologEx do
     end
   end
 
+  defp jit_deps(k, {:pred, _, _, {:jit, {_, _, _, deps, _}, _, _, _}, _}), do: [{k, deps}]
+  defp jit_deps({:jit_info, m, n, a}, {_, _, _, deps, _}), do: [{{m, n, a}, deps}]
+  defp jit_deps(_, _), do: []
+
   defp unjit_callers(db, keys) do
     case db do
       %{:jit_callers => calls} ->
@@ -1107,7 +1127,9 @@ defmodule PrologEx do
             db = Map.put(db, :jit_callers, Map.drop(calls, keys))
 
             db =
-              Enum.reduce(hit, db, fn k, db ->
+              Enum.reduce(hit, db, fn {m, n, a} = k, db ->
+                db = Map.delete(db, {:jit_info, m, n, a})
+
                 case db do
                   %{^k => {:pred, cls, by_key, {:jit, _, _, _, vo}, entries}} ->
                     Map.put(db, k, {:pred, cls, by_key, vo, entries})
@@ -3195,70 +3217,120 @@ defmodule PrologEx do
 
   defp jit_call({:jit, mod, ins, outs, _}, args, rest, %{dlimit: nil} = st) do
     s = st.subst
-    a = List.to_tuple(args)
 
-    with {:ok, iv} <- jit_ins(ins, a, s, []),
-         {:ok, ov} <- jit_outs(outs, a, s, []) do
-      chunk =
-        if st.ilimit == nil,
-          do: @jit_chunk,
-          else: min(st.ilimit - :atomics.get(st.icount, 1), @jit_chunk)
-
-      if chunk < 1 do
-        :no
-      else
-        check = fn consumed -> jit_check(consumed, st) end
-
-        case guarded(fn -> PrologEx.Jit.run(mod, iv, chunk, check) end) do
-          {:ok, {:ok, values, used}} ->
-            :atomics.add(st.icount, 1, used)
-            s1 = Enum.zip_reduce(ov, values, s, fn v, x, acc -> Store.bind(v, x, acc) end)
-            run(%{st | goals: rest, subst: s1})
-
-          {:ok, {:fail, used}} ->
-            :atomics.add(st.icount, 1, used)
-            backtrack(st)
-
-          {:thrown, ball} ->
-            throw_ball(ball, st)
-        end
-      end
-    else
-      _ -> :no
+    case jit_outs(outs, args, 0, s, []) do
+      {:ok, ov} -> jit_enter(mod, ins, ov, args, rest, st)
+      :no -> :no
     end
   end
 
   defp jit_call(_, _, _, _), do: :no
 
-  # Eingaben: Ganzzahlen; {:num, ks}: Zahlen (Ganzzahlen oder Floats)
-  defp jit_ins({:num, ks}, a, s, acc), do: jit_nums(ks, a, s, acc)
-  defp jit_ins([], _a, _s, acc), do: {:ok, Enum.reverse(acc)}
+  defp jit_enter(mod, ins, ov, args, rest, st) do
+    s = st.subst
 
-  defp jit_ins([k | ks], a, s, acc) do
-    case Store.walk(elem(a, k), s) do
-      n when is_integer(n) -> jit_ins(ks, a, s, [n | acc])
-      _ -> :no
+    case jit_ins(ins, args, 0, s, []) do
+      :no -> :no
+      {:ok, iv} -> jit_run(mod, iv, ov, rest, st)
     end
   end
 
-  defp jit_nums([], _a, _s, acc), do: {:ok, Enum.reverse(acc)}
+  defp jit_run(mod, iv, ov, rest, st) do
+    s = st.subst
 
-  defp jit_nums([k | ks], a, s, acc) do
-    case Store.walk(elem(a, k), s) do
-      n when is_integer(n) or is_float(n) -> jit_nums(ks, a, s, [n | acc])
-      _ -> :no
+    chunk =
+      if st.ilimit == nil,
+        do: @jit_chunk,
+        else: min(st.ilimit - :atomics.get(st.icount, 1), @jit_chunk)
+
+    if chunk < 1 do
+      :no
+    else
+      check = fn consumed -> jit_check(consumed, st) end
+      n0 = :atomics.get(st.icount, 1)
+
+      case guarded(fn -> PrologEx.Jit.run(mod, iv, chunk, check, s) end) do
+        {:ok, {:ok, values, used}} ->
+          :atomics.add(st.icount, 1, used)
+
+          case guarded(fn -> jit_bind(ov, values, s) end) do
+            {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
+            {:ok, :error} -> backtrack(st)
+            {:thrown, ball} -> throw_ball(ball, st)
+          end
+
+        {:ok, {:fail, used}} ->
+          :atomics.add(st.icount, 1, used)
+          backtrack(st)
+
+        # aufgegeben: nichts gebunden; die Inferenzen wie vorher, der
+        # Interpreter fängt neu an
+        {:ok, :deopt} ->
+          :atomics.put(st.icount, 1, n0)
+          :no
+
+        {:thrown, ball} ->
+          throw_ball(ball, st)
+      end
     end
   end
 
-  defp jit_outs([], _a, _s, acc), do: {:ok, Enum.reverse(acc)}
+  # Ausgaben binden. Eine Zahl direkt; sonst unifizieren: der Wert kann
+  # Eingabeterme enthalten, auch die Ausgabevariable selbst (p(A, B, A)
+  # mit A Eingabe und Ausgabe) – wie im Interpreter, samt Occurs-Check
+  defp jit_bind([], [], s), do: {:ok, s}
 
-  defp jit_outs([k | ks], a, s, acc) do
-    case Store.walk(elem(a, k), s) do
-      {:var, {:attv, _}} -> :no
-      {:var, _} = v -> if v in acc, do: :no, else: jit_outs(ks, a, s, [v | acc])
-      _ -> :no
+  defp jit_bind([v | vs], [x | xs], s) when is_number(x),
+    do: jit_bind(vs, xs, Store.bind(v, x, s))
+
+  defp jit_bind([v | vs], [x | xs], s) do
+    case unify(v, x, s) do
+      {:ok, s} -> jit_bind(vs, xs, s)
+      :error -> :error
     end
   end
+
+  # Eingaben je Prüfung (PrologEx.Jit.compile_batch/3): :int, :num (auch
+  # Floats), :any (wie es ist), :list, :ilist, :nlist (Listen; Elemente
+  # beliebig, Ganzzahlen, Zahlen – geprüft erst beim Lesen)
+  # (Positionen aufsteigend; die Argumentliste einmal entlang)
+  defp jit_ins([], _args, _i, _s, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp jit_ins([{i, c} | ks], [a | as], i, s, acc) do
+    case jit_in(c, Store.walk(a, s), s) do
+      :no -> :no
+      v -> jit_ins(ks, as, i + 1, s, [v | acc])
+    end
+  end
+
+  defp jit_ins(ks, [_ | as], i, s, acc), do: jit_ins(ks, as, i + 1, s, acc)
+
+  defp jit_in(:int, n, _s) when is_integer(n), do: n
+  defp jit_in(:num, n, _s) when is_integer(n) or is_float(n), do: n
+  defp jit_in(:any, t, _s), do: t
+  # Listen: erst beim Zerlegen gelesen (PrologEx.Jit.list/1); eine
+  # ungebundene Variable gleich dem Interpreter
+  defp jit_in(c, {:var, _}, _s) when c in [:list, :ilist, :nlist], do: :no
+  defp jit_in(c, t, _s) when c in [:list, :ilist, :nlist], do: t
+  defp jit_in(_, _, _), do: :no
+
+  defp jit_outs([], _args, _i, _s, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp jit_outs([i | ks], [a | as], i, s, acc) do
+    # (gebunden und kein Variablenterm: gleich nein, ohne walk)
+    case if(is_tuple(a) and elem(a, 0) == :var, do: Store.walk(a, s), else: a) do
+      {:var, {:attv, _}} ->
+        :no
+
+      {:var, _} = v ->
+        if :lists.member(v, acc), do: :no, else: jit_outs(ks, as, i + 1, s, [v | acc])
+
+      _ ->
+        :no
+    end
+  end
+
+  defp jit_outs(ks, [_ | as], i, s, acc), do: jit_outs(ks, as, i + 1, s, acc)
 
   # Prüfpunkt im übersetzten Stück: den verbrauchten Block verbuchen, dann
   # wie limit_hit/5 für die nächste Inferenz prüfen (wirft wie dort);
