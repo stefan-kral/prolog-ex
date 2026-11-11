@@ -1265,6 +1265,15 @@ goal_expansion(activate_propagator(A,S0,S), '$clpz_activate'(A,S0,S)).
 goal_expansion(variables_same_queue(Vs), '$clpz_variables_same_queue'(Vs)).
 goal_expansion(init_propagator_(Vs,P,S0,S), '$clpz_init_propagator_'(Vs,P,S0,S)).
 goal_expansion(reinforce(X), '$clpz_reinforce'(X)).
+% PrologEx: weitere Hüllen um Builtins – direkte Aufrufe gehen gleich an
+% das Builtin (eine Inferenz weniger je Aufruf); die Klauseln bleiben für
+% Meta-Aufrufe
+goal_expansion(fd_put(X,Dom,Ps), '$clpz_fd_put'(X,Dom,Ps)).
+goal_expansion(trigger_once_(Prop,Q), '$clpz_trigger_once'(Prop,Q)).
+goal_expansion(pit(Vs,P,Prop,Q), '$clpz_pit'(Vs,P,Prop,Q)).
+goal_expansion(v_or_i(V), '$clpz_v_or_i'(V)).
+goal_expansion(reifiable(E), '$clpz_reifiable'(E)).
+goal_expansion(gcc_neq_goals(Vs,KNs,Gs), '$clpz_gcc_goals'(Vs,KNs,Gs)).
 activate_propagator(A,S0,S) :- '$clpz_activate'(A,S0,S).
 
 
@@ -2466,7 +2475,12 @@ non_monotonic(X) :-
 % Here, we compile the committed choice language to a single
 % predicate, parse_clpz/2.
 
-make_parse_clpz(Clauses) :-
+% PrologEx: vor den Klauseln ein Abkürzer für den häufigsten Fall – eine
+% ganze Zahl oder eine Variable, die schon eine Domäne hat: dort scheitert
+% cyclic_term/1, non_monotonic/1 ist wirkungslos und constrain_to_integer/1
+% schreibt dieselbe Domäne zurück, ohne zu wecken; es bleibt R = E
+% ('$clpz_parse_simple'/2). Sonst die Klauseln wie bisher.
+make_parse_clpz([(parse_clpz(E, R) :- '$clpz_parse_simple'(E, R), !)|Clauses]) :-
         parse_clpz_clauses(Clauses0),
         maplist(goals_goal, Clauses0, Clauses).
 

@@ -2121,6 +2121,15 @@ Bisher in Elixir:
     ohne Wirkung scheitern, und es läuft gleich der Rumpf der Klausel, die
     das Original nähme; sonst der Matcher wie bisher. 30 Damen aufstellen
     143 → 83 ms (Scryer 51 ms).
+  * Abkürzer für `parse_clpz/2` (zerlegt jeden Teilausdruck): eine Zahl
+    oder eine Variable, die schon eine Domäne hat, gibt gleich `R = E` –
+    dort scheitert `cyclic_term/1`, ist `non_monotonic/1` wirkungslos und
+    schreibt `constrain_to_integer/1` nur dieselbe Domäne zurück, ohne zu
+    wecken; sonst die Klauseln wie bisher. Dazu gehen direkte Aufrufe von
+    `fd_put/3`, `trigger_once_/2`, `pit/4`, `v_or_i/1`, `reifiable/1` und
+    `gcc_neq_goals/3` per `goal_expansion` gleich an ihre Builtins (eine
+    Inferenz weniger). n Damen −12 % (20), −22 % (40), −24 % (100)
+    Reduktionen; SEND+MORE, Sudoku, magisches Quadrat unverändert.
   * `left_right_linsum_const/5` (zerlegt beide Seiten von `#=`, `#\=`,
     `#>=` in Σ C·V + Konstante; `#>=` ruft es immer, die anderen für
     lineare Ausdrücke) in Elixir. Eine Variable ohne Domäne bei

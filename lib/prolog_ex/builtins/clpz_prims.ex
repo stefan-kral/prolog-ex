@@ -2190,6 +2190,26 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # '$clpz_parse_simple'(E, R): E ist eine ganze Zahl oder eine Variable
+  # mit clpz-Attribut (also schon eine Domäne): R = E (der Abkürzer vor
+  # parse_clpz/2, siehe make_parse_clpz/1); sonst scheitern
+  defbuiltin "$clpz_parse_simple", [e, r] do
+    s = subst()
+
+    case PrologEx.Store.walk(e, s) do
+      i when is_integer(i) ->
+        {:unify, [{r, i}]}
+
+      {:var, _} = v ->
+        if Process.get(:clpz_no_fast) == nil and att(v, s, "clpz", 1) != nil,
+          do: {:unify, [{r, v}]},
+          else: false
+
+      _ ->
+        false
+    end
+  end
+
   defbuiltin "$clpz_trigger_once", [p, q0] do
     run("trigger_once_", [p, q0], subst(), fn ->
       s = subst_now()
