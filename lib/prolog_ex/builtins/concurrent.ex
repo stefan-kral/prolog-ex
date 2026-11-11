@@ -24,8 +24,8 @@ defmodule PrologEx.Builtins.Concurrent do
   Grenzen der aufrufenden Maschine gelten weiter: die Deadline (für die
   Kinder und das Warten hier), das restliche Inferenzbudget (für alle
   zusammen: die Kinder erben den Inferenzzähler – ein `:atomics`, das die
-  Prozesse teilen – und zählen dort mit), die engste Speichergrenze je
-  Kind.
+  Prozesse teilen – und zählen dort mit; jedes Kind rechnet beim Start aus,
+  was von der Grenze noch übrig ist), die engste Speichergrenze je Kind.
 
   Ergebnisse kommen als aufgelöste Kopien zurück (Nachrichten; geteilte
   Teilbäume werden dabei ausgerollt). Attributierte Variablen in Jobs oder
@@ -489,8 +489,11 @@ defmodule PrologEx.Builtins.Concurrent do
 
   # findall(T, '$nse_call'(G'), L) mit den Grenzen; G' = once(G) außer bei
   # findall; Ausnahmen als error(E)
-  defp child(t, g, mode, {deadline, budget, mem}) do
+  defp child(t, g, mode, {deadline, limit, mem}) do
     us = if deadline, do: max(deadline - now_us(), 1), else: a("none")
+    # die Inferenzgrenze des Aufrufers ist absolut (geteilter Zähler): was
+    # davon jetzt noch übrig ist
+    budget = if limit, do: max(limit - PrologEx.inferences(), 0)
     m = if mode == :findall, do: a("findall"), else: a("once")
     out = {:var, {"$conc", PrologEx.Vars.next()}}
 

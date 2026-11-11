@@ -2625,8 +2625,10 @@ defmodule PrologEx do
     deadlines =
       Enum.map(st.tlimits, &elem(&1, 1)) ++ List.wrap(Map.get(timers(), st.qref))
 
-    n = :atomics.get(st.icount, 1)
-    budgets = for {_, l} <- st.ilimits, do: max(l - n, 0)
+    # Inferenzgrenzen absolut (auf dem Zähler, den die Kinder teilen): jedes
+    # Kind rechnet sein Budget erst beim Start aus – laufen sie nacheinander,
+    # zählt, was die früheren verbraucht haben
+    budgets = for {_, l} <- st.ilimits, do: l
     mems = for {_, _, bytes} <- mlimits(), do: bytes
     none = {:atom, "none"}
 
@@ -3267,15 +3269,24 @@ defmodule PrologEx do
         {:ok, {:ok, values, used}} ->
           :atomics.add(st.icount, 1, used)
 
-          case guarded(fn -> jit_bind(ov, values, s) end) do
-            {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
-            {:ok, :error} -> backtrack(st)
-            {:thrown, ball} -> throw_ball(ball, st)
+          cond do
+            jit_over?(st) ->
+              throw_ball({:atom, "inference_limit_exceeded"}, st)
+
+            true ->
+              case guarded(fn -> jit_bind(ov, values, s) end) do
+                {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
+                {:ok, :error} -> backtrack(st)
+                {:thrown, ball} -> throw_ball(ball, st)
+              end
           end
 
         {:ok, {:fail, used}} ->
           :atomics.add(st.icount, 1, used)
-          backtrack(st)
+
+          if jit_over?(st),
+            do: throw_ball({:atom, "inference_limit_exceeded"}, st),
+            else: backtrack(st)
 
         # aufgegeben: nichts gebunden; die Inferenzen wie vorher, der
         # Interpreter fängt neu an
@@ -3349,6 +3360,16 @@ defmodule PrologEx do
   # Prüfpunkt im übersetzten Stück: den verbrauchten Block verbuchen, dann
   # wie limit_hit/5 für die nächste Inferenz prüfen (wirft wie dort);
   # sonst der nächste Block bis zum nächsten Prüfpunkt
+  # Nach dem Lauf: über einer Inferenzgrenze? Allein nie (der Prüfpunkt
+  # hält sie genau ein), aber nebenläufige Kinder zählen auf denselben
+  # Zähler – der Block beim Eintritt war dann zu groß geschätzt
+  defp jit_over?(%{ilimit: nil}), do: false
+
+  defp jit_over?(st) do
+    n = :atomics.get(st.icount, 1)
+    Enum.any?(st.ilimits, fn {_, l} -> n > l end)
+  end
+
   defp jit_check(consumed, st) do
     :atomics.add(st.icount, 1, consumed)
     n = :atomics.get(st.icount, 1) + 1

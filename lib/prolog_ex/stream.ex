@@ -764,6 +764,11 @@ defmodule PrologEx.Stream do
     end
   end
 
+  @doc "Datei an der jetzigen Position abschneiden"
+  def truncate(id) do
+    :ok = :file.truncate(get(id).dev)
+  end
+
   @doc "Position setzen (nur Dateien mit reposition(true))"
   def set_position(id, chars, lines, line_pos, bytes) do
     s = get(id)

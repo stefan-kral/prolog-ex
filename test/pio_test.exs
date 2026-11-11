@@ -20,6 +20,12 @@ defmodule PrologEx.PioTest do
   zahl --> [].
   pruefe --> "a", ( "b" -> [] ; syntax_error(b_erwartet) ).
   offen([a|_], _).
+  :- use_module(library(between)).
+  :- use_module(library(dcgs)).
+  zahlen(X) --> { between(1, 3, X), number_chars(X, Cs) }, seq(Cs).
+  offen_am_ende(X) --> { ( between(1, 3, X) ; fail ), number_chars(X, Cs) }, seq(Cs).
+  worte(W) --> { member(W, ["lang und breit", "kurz"]) }, seq(W).
+  wirft(X) --> { between(1, 3, X), ( X =:= 2 -> throw(halt_bei(2)) ; true ) }, "x".
   """
 
   setup_all do
@@ -260,5 +266,50 @@ defmodule PrologEx.PioTest do
            phrase_from_file(any(L), '#{out}')
            """)
            |> hd() =~ "L = \"hi\""
+  end
+
+  # Backtracking nimmt das Geschriebene zurück: jede Lösung schreibt ab der
+  # Stelle, an der die vorige begonnen hat; es gilt die zuletzt gültige
+  test "phrase_to_file/2: Backtracking setzt die Datei zurück", c do
+    out = Path.join(c.tmp_dir, "bt.txt")
+    f = "'#{out}'"
+
+    assert ask(c, "once(phrase_to_file(zahlen(X), #{f}))") == ["X = 1"]
+    assert File.read!(out) == "1"
+
+    # zurück in die zweite Lösung, dann abgeschnitten
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}), X =:= 2, !") == ["X = 2"]
+    assert File.read!(out) == "2"
+
+    # die letzte Lösung ist deterministisch: "3", nicht "123"
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}), X =:= 3") == ["X = 3"]
+    assert File.read!(out) == "3"
+
+    # kürzer nach länger: der Rest wird abgeschnitten
+    assert ask(c, "phrase_to_file(worte(W), #{f}), W = [k|_]") == ["W = \"kurz\""]
+    assert File.read!(out) == "kurz"
+
+    # endet die Grammatik deterministisch, ist die Datei dort geschlossen:
+    # es bleibt die letzte Lösung, auch wenn danach zurückgesetzt wird
+    assert ask(c, "findall(X, phrase_to_file(zahlen(X), #{f}), Xs)") == ["Xs = [1,2,3]"]
+    assert File.read!(out) == "3"
+
+    # bleibt ein Choice Point, nimmt das Erschöpfen alles zurück
+    assert ask(c, "findall(X, phrase_to_file(offen_am_ende(X), #{f}), Xs)") == ["Xs = [1,2,3]"]
+    assert File.read!(out) == ""
+    assert ask(c, "\\+ phrase_to_file(zahlen(4), #{f})") == ["true"]
+    assert File.read!(out) == ""
+
+    # ein Fehler beim Zurücksetzen in die zweite Lösung: geschlossen wird
+    # mit dem Stand davor
+    assert ask(c, "catch((phrase_to_file(wirft(X), #{f}), X > 1), E, true)") == [
+             "E = halt_bei(2)"
+           ]
+
+    # (die erste Lösung war beim Zurücksetzen schon zurückgenommen)
+    assert File.read!(out) == ""
+
+    # mehrere Antworten nacheinander (wie ; im Toplevel)
+    assert ask(c, "phrase_to_file(zahlen(X), #{f})", 2) == ["X = 1", "X = 2"]
   end
 end

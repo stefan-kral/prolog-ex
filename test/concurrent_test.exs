@@ -42,8 +42,8 @@ defmodule PrologEx.ConcurrentTest do
   fib(1, 1).
   fib(N, F) :- N > 1, N1 is N-1, N2 is N-2, fib(N1, F1), fib(N2, F2), F is F1+F2.
   loop :- loop.
-  % wie fib/2, aber nicht übersetzbar (integer/1): hier soll Rechenzeit vergehen
-  sfib(N, F) :- N < 2, !, integer(N), F = N.
+  % wie fib/2, aber nicht übersetzbar (functor/3): hier soll Rechenzeit vergehen
+  sfib(N, F) :- N < 2, !, functor(N, _, 0), F = N.
   sfib(N, F) :- N1 is N-1, N2 is N-2, sfib(N1, F1), sfib(N2, F2), F is F1+F2.
   slow(X) :- sfib(20, _), X = slow.
   big(L) :- numlist(1, 2000000, L).

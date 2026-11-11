@@ -13,7 +13,9 @@
 %                                       oder stream(S, Zeile, Spalte, Zeichen)
 %   syntax_error(E)//                   throw(error(syntax_error(E), Ort))
 %   phrase_to_file(G, Datei), phrase_to_file(G, Datei, Opts),
-%   phrase_to_stream(G, S)              phrase(G, Ls), Ls schreiben (Scryer)
+%   phrase_to_stream(G, S)              phrase(G, Ls), Ls schreiben (Scryer);
+%                                       phrase_to_file/2,3: Backtracking
+%                                       nimmt Geschriebenes zurück
 %
 % Ohne as(...) richtet sich die Liste nach dem Flag double_quotes: codes
 % bei double_quotes = codes, sonst chars (Voreinstellung; wie Scryer). So
@@ -169,19 +171,34 @@ syntax_error(E, Here, _) :-
 phrase_to_file(G, File) :-
    phrase_to_file(G, File, []).
 
+% Backtracking nimmt das Geschriebene zurück: jede Lösung schreibt ab der
+% Stelle, an der die vorige Lösung begonnen hat (die Datei wird dort
+% abgeschnitten), und beim Schließen gilt, was die zuletzt gültige Lösung
+% geschrieben hat – nach dem Erschöpfen aller Lösungen also nichts.
+% (Scryer und SWI lassen das Geschriebene stehen.)
 phrase_to_file(G, File, Options) :-
-   setup_call_cleanup(open(File, write, S, Options),
-                      phrase_to_stream(G, S),
-                      close(S)).
+   setup_call_cleanup(( open(File, write, S, Options), '$pio_mark'(S) ),
+                      '$pio_to_file'(G, S),
+                      ( '$pio_rewind'(S), close(S) )).
+
+'$pio_to_file'(G, S) :-
+   phrase(G, Ls),
+   '$pio_list'(Ls, phrase_to_file/2),
+   '$pio_rewind'(S),
+   '$pio_put'(Ls, S),
+   '$pio_mark'(S).
 
 phrase_to_stream(G, S) :-
    phrase(G, Ls),
-   '$skip_list'(_, Ls, Tail),
-   (  var(Tail) -> throw(error(instantiation_error, phrase_to_stream/2))
-   ;  Tail == [] -> true
-   ;  throw(error(type_error(list, Ls), phrase_to_stream/2))
-   ),
+   '$pio_list'(Ls, phrase_to_stream/2),
    '$pio_put'(Ls, S).
+
+'$pio_list'(Ls, PI) :-
+   '$skip_list'(_, Ls, Tail),
+   (  var(Tail) -> throw(error(instantiation_error, PI))
+   ;  Tail == [] -> true
+   ;  throw(error(type_error(list, Ls), PI))
+   ).
 
 '$pio_put'([], _).
 '$pio_put'([C|Cs], S) :-

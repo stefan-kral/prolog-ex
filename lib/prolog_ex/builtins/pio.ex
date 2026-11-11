@@ -12,7 +12,41 @@ defmodule PrologEx.Builtins.Pio do
   """
   use PrologEx.Builtin
   alias PrologEx.Builtins.IO, as: PIO
+  alias PrologEx.Builtins.Blackboard
   alias PrologEx.Stream, as: S
+
+  # --- phrase_to_file/2,3: Schreiben, das Backtracking zurücknimmt ---------
+  #
+  # Die Position, bis zu der eine Lösung geschrieben hat, steht backtrackbar
+  # in der Substitution (wie b_setval/2). Vor dem Schreiben der nächsten
+  # Lösung und beim Schließen geht der Stream dorthin zurück und die Datei
+  # wird dort abgeschnitten: am Ende steht nur, was die zuletzt gültige
+  # Lösung geschrieben hat. Nur für Dateien, die sich positionieren lassen
+  # (open(..., write, ...) mit reposition(true), der Vorgabe); sonst wie
+  # bisher.
+
+  # '$pio_mark'(S): jetzige Position merken (backtrackbar)
+  defbuiltin "$pio_mark", [stream] do
+    id = S.lookup!(deref(stream))
+    S.flush(id)
+    s = S.get(id)
+    mark = {:struct, "$p", [s.chars, s.lines, s.line_pos, s.bytes]}
+    {:subst, Blackboard.b_put(subst(), "$pio", "#{id}", mark)}
+  end
+
+  # '$pio_rewind'(S): zur gemerkten Position, dahinter abschneiden
+  defbuiltin "$pio_rewind", [stream] do
+    id = S.lookup!(deref(stream))
+    s = S.get(id)
+
+    with true <- s.kind == :file and s.reposition and s.mode == :write,
+         {:ok, {:struct, "$p", [c, l, lp, b]}} <- Blackboard.b_value("$pio", "#{id}", subst()) do
+      S.set_position(id, c, l, lp, b)
+      S.truncate(id)
+    end
+
+    true
+  end
 
   @block 256
 

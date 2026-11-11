@@ -515,6 +515,17 @@ Was die Bibliothek bietet:
   `lazy_list_character_count//1` die Zeichennummer und `syntax_error//1`
   wirft mit diesem Ort.
 * `phrase_to_file/2,3` und `phrase_to_stream/2` schreiben, wie in Scryer.
+  Bei `phrase_to_file/2,3` nimmt Backtracking das Geschriebene zurück:
+  jede Lösung schreibt ab der Stelle, an der die vorige begonnen hat (die
+  Datei wird dort abgeschnitten). `phrase_to_file(({between(1,3,X),
+  number_chars(X,Cs)}, seq(Cs)), F)` mit `;` bis X = 3 hinterlässt `3`,
+  nicht `123` (Scryer, SWI). Endet die Grammatik deterministisch, wird
+  dort geschlossen und die letzte Lösung bleibt; bleibt ein Choice Point
+  und werden alle Lösungen erschöpft, ist die Datei am Ende leer. Die
+  gemerkte Position steht backtrackbar in der Substitution (wie
+  `b_setval/2`), es entsteht kein zusätzlicher Choice Point. Nur für
+  Dateien, die sich positionieren lassen (Vorgabe bei `open/4` mit
+  `write`).
 
 Mit `as(chars)` oder `as(codes)` wählt man Zeichen oder Codes. Ohne diese
 Option richtet sich die Liste nach dem Flag `double_quotes`: Codes, wenn
