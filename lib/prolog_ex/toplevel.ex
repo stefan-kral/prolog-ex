@@ -2,13 +2,16 @@ defmodule PrologEx.Toplevel do
   @moduledoc """
   Interaktiver Toplevel und Kommandozeile.
 
-      mix prolog [DATEI ...] [-] [-g ZIEL ...] [-q]
+      mix prolog [DATEI ...] [-] [-g ZIEL ...] [-q] [--no-jit]
 
     * `DATEI` – wird geladen (`.pl` darf fehlen)
     * `-`     – Programm von stdin laden (bis Dateiende); danach kein
                 interaktiver Toplevel, sondern nur die `-g`-Ziele
     * `-g Z`  – Ziel Z nach dem Laden ausführen (mehrfach möglich)
     * `-q`    – keine Begrüßung
+    * `--no-jit` – nichts übersetzen, alles interpretieren (wie
+                `set_prolog_flag(jit, false)` vor dem Laden; für
+                Vorher/nachher-Vergleiche)
 
   Im Toplevel:
 
@@ -47,8 +50,9 @@ defmodule PrologEx.Toplevel do
 
   def main(args) do
     Application.put_env(:prolog_ex, :argv, args)
-    {files, goals, quiet} = parse_args(args, [], [], false)
+    {files, goals, quiet, flags} = parse_args(args)
     quiet_load(quiet)
+    set_flags(flags)
     {:ok, reader} = Reader.start_link()
     Reader.put_current(reader)
     PrologEx.put_db(%{})
@@ -73,7 +77,7 @@ defmodule PrologEx.Toplevel do
   @doc "Toplevel in iex mit Sitzung, die einen Abbruch (Ctrl-C mit +Bc) übersteht"
   def repl(args \\ []) do
     Application.put_env(:prolog_ex, :argv, args)
-    {files, goals, quiet} = parse_args(args, [], [], false)
+    {files, goals, quiet, flags} = parse_args(args)
     quiet_load(quiet)
     session = session()
 
@@ -89,6 +93,9 @@ defmodule PrologEx.Toplevel do
           Enum.each(pdict, fn {k, v} -> Process.put(k, v) end)
           {st, true}
       end
+
+    # nach der Sitzung: die Schalter dieses Aufrufs gelten
+    set_flags(flags)
 
     save = fn st -> Agent.update(session, fn _ -> %{st: st, pdict: state_snapshot()} end) end
 
@@ -151,12 +158,26 @@ defmodule PrologEx.Toplevel do
   defp quiet_load(true), do: PrologEx.Flags.set("verbose_load", {:atom, "silent"})
   defp quiet_load(false), do: :ok
 
-  defp parse_args([], files, goals, q), do: {Enum.reverse(files), Enum.reverse(goals), q}
+  # Schalter, die ein Flag setzen
+  @flag_switches %{"--no-jit" => {"jit", {:atom, "false"}}}
+
+  defp set_flags(flags), do: Enum.each(flags, fn {k, v} -> PrologEx.Flags.set(k, v) end)
+
+  defp parse_args(args) do
+    {files, goals, q, flags} = parse_args(args, [], [], false, [])
+    {Enum.reverse(files), Enum.reverse(goals), q, Enum.reverse(flags)}
+  end
+
+  defp parse_args([], f, gs, q, fl), do: {f, gs, q, fl}
   # dahinter: Argumente für das Programm (argv/1 aus library(os))
-  defp parse_args(["--" | _], files, goals, q), do: parse_args([], files, goals, q)
-  defp parse_args(["-g", g | rest], f, gs, q), do: parse_args(rest, f, [g | gs], q)
-  defp parse_args(["-q" | rest], f, gs, _), do: parse_args(rest, f, gs, true)
-  defp parse_args([file | rest], f, gs, q), do: parse_args(rest, [file | f], gs, q)
+  defp parse_args(["--" | _], f, gs, q, fl), do: {f, gs, q, fl}
+  defp parse_args(["-g", g | rest], f, gs, q, fl), do: parse_args(rest, f, [g | gs], q, fl)
+  defp parse_args(["-q" | rest], f, gs, _, fl), do: parse_args(rest, f, gs, true, fl)
+
+  defp parse_args([a | rest], f, gs, q, fl) when is_map_key(@flag_switches, a),
+    do: parse_args(rest, f, gs, q, [@flag_switches[a] | fl])
+
+  defp parse_args([file | rest], f, gs, q, fl), do: parse_args(rest, [file | f], gs, q, fl)
 
   # ---------------------------------------------------------------------
   # Laden

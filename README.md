@@ -43,7 +43,8 @@ Ein Prolog-Kern in Elixir:
   eine Liste von 200 000 Elementen −31 bis −42 %
 - JIT für deterministische Prädikate über Zahlen und Listen (Flag `jit`,
   Vorgabe `true`; beim Laden aus: nichts übersetzt, beim Aufruf aus: der
-  Interpreter rechnet – so lässt sich in einer Sitzung vergleichen):
+  Interpreter rechnet – so lässt sich in einer Sitzung vergleichen;
+  `mix prolog --no-jit` setzt es schon vor dem Laden):
   in BEAM-Code übersetzt, die Werte in Erlang-Variablen
   statt in Bindungen. fib(23) 390 → 1–2 ms, eine Zählschleife über 10⁶
   1,1 s → 9 ms, eine nicht endrekursive Summe über 200 000 1,6 s → 5 ms,
@@ -219,6 +220,7 @@ mix prolog examples/demo.pl          # Datei laden, dann Toplevel
 mix prolog examples/demo.pl -g main -q   # laden, main ausführen, Ende
                                      # (-q: still, auch beim Laden)
 cat prog.pl | mix prolog - -g main   # Programm von stdin
+mix prolog --no-jit prog.pl          # ohne JIT (alles interpretiert)
 ```
 
 `mix rebuild` baut alles neu (wie `make clean && make all`).

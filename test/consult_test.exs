@@ -149,6 +149,24 @@ defmodule PrologEx.ConsultTest do
     assert out == "2\n"
   end
 
+  # --no-jit: schon beim Laden aus – nichts übersetzt; nach "--" nur argv
+  test "Toplevel: --no-jit" do
+    prog = "f(0, 0) :- !.\nf(N, F) :- M is N - 1, f(M, G), F is G + N.\n"
+    goal = "f(10, X), current_prolog_flag(jit, J), write(X-J), nl"
+
+    out =
+      capture_io(prog, fn ->
+        assert PrologEx.Toplevel.main(["-", "--no-jit", "-g", goal, "--", "--no-jit"]) == 0
+      end)
+
+    assert out == "55-false\n"
+    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, PrologEx.current_db()[{"user", "f", 2}])
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    out = capture_io(prog, fn -> PrologEx.Toplevel.main(["-", "-g", goal]) end)
+    assert out == "55-true\n"
+    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, PrologEx.current_db()[{"user", "f", 2}])
+  end
+
   test "double_quotes: Direktive in der Datei und im Toplevel" do
     out =
       capture_io(
