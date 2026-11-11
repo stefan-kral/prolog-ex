@@ -105,7 +105,13 @@ Ein Prolog-Kern in Elixir:
     ihren Code und rufen die neue Fassung über den Interpreter;
     dynamische Prädikate ruft übersetzter Code nie.
   - Beim Laden wird nur analysiert (clpz: im Rauschen); der
-    BEAM-Compiler läuft beim ersten Aufruf. Die Module heißen nach einem
+    BEAM-Compiler läuft erst beim 1000. Aufruf (Flag `jit_threshold`, je
+    Modul gezählt; 1: gleich beim ersten). Ein Modul übersetzen kostet
+    15–30 ms, so viel wie einige zehntausend interpretierte Inferenzen;
+    selten gerufene Prädikate – die meisten einer Bibliothek wie clpz –
+    kosten so nichts, rekursive erreichen die Schwelle schnell (jeder
+    rekursive Aufruf zählt; fib(23) wechselt mitten in der Rekursion in
+    den übersetzten Code). Die Module heißen nach einem
     Hash der Zwischenform mit kanonisch benannten Variablen: dasselbe
     Programm neu geladen nimmt das vorhandene Modul. Lässt sich eines nicht
     übersetzen (Grenzen der BEAM), rechnet der Interpreter.

@@ -129,6 +129,13 @@ defmodule PrologEx.JitTest do
     {:ok, reader: r, jit: jit, int: int}
   end
 
+  # übersetzt gleich beim ersten Aufruf (sonst rechnete bis zur Schwelle der
+  # Interpreter, und die Tests sähen den übersetzten Code oft gar nicht)
+  setup do
+    PrologEx.Flags.set("jit_threshold", 1)
+    :ok
+  end
+
   test "übersetzt wird, was passt; sonst nicht", c do
     jitted = &jitted?(c.jit, &1)
 
@@ -494,6 +501,27 @@ defmodule PrologEx.JitTest do
     assert {_, {:answers, ["R = true"]}} = TableCase.run(c.reader, c.jit, q)
     q = "set_prolog_flag(jit, true), call_with_inference_limit(fib(15, _), 10000, R)"
     assert {_, {:answers, ["R = !"]}} = TableCase.run(c.reader, c.jit, q)
+  end
+
+  # erst ab dem n-ten Aufruf übersetzt; vorher der Interpreter (gleiche
+  # Antworten). Eigenes Prädikat: Module gelten für alle Tests
+  test "Schwelle jit_threshold", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    prog = "schw_#{System.unique_integer([:positive])}"
+    src = "#{prog}(N, M) :- M is N * 7 + #{System.unique_integer([:positive])}."
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+    {:pred, _, _, {:jit, {mod, _, _, _, _}, _, _, _}, _} = db[{"user", prog, 2}]
+    PrologEx.Flags.set("jit_threshold", 5)
+
+    for i <- 1..4 do
+      assert {_, {:answers, [_]}} = TableCase.run(c.reader, db, "#{prog}(#{i}, _)")
+    end
+
+    refute :erlang.module_loaded(mod)
+    assert {_, {:answers, [_]}} = TableCase.run(c.reader, db, "#{prog}(5, _)")
+    assert :erlang.module_loaded(mod)
+    assert_raise PrologEx.Error, fn -> PrologEx.Flags.set("jit_threshold", 0) end
   end
 
   test "schneller (grob)", c do

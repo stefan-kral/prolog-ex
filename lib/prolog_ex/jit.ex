@@ -1492,7 +1492,7 @@ defmodule PrologEx.Jit do
   defp canon_t(l, m) when is_list(l), do: Enum.map_reduce(l, m, &canon_t/2)
   defp canon_t(x, m), do: {x, m}
 
-  # Übersetzt wird erst beim ersten Aufruf (ensure/1): beim Laden nur die
+  # Übersetzt wird erst beim Aufruf (run/7, ensure/1): beim Laden nur die
   # Zwischenform ablegen (persistent_term, wie die Module selbst für alle
   # Prozesse); viele übersetzbare Prädikate einer Bibliothek werden nie
   # gerufen, und der BEAM-Compiler ist das Teure
@@ -1502,7 +1502,8 @@ defmodule PrologEx.Jit do
     unless :erlang.module_loaded(mod) or :persistent_term.get(key, nil) != nil do
       callees = for({_, {:remote, m, _}} <- targets, do: m) |> Enum.uniq()
       slim = Enum.map(infos, &Map.take(&1, [:j, :ins, :clauses, :num]))
-      :persistent_term.put(key, {:ir, slim, targets, callees})
+      # Aufrufzähler bis zur Schwelle (Flag jit_threshold, siehe run/7)
+      :persistent_term.put(key, {:ir, slim, targets, callees, :atomics.new(1, [])})
     end
   end
 
@@ -1514,7 +1515,7 @@ defmodule PrologEx.Jit do
 
   defp compile_now(mod) do
     case :persistent_term.get({__MODULE__, mod}, nil) do
-      {:ir, infos, targets, callees} ->
+      {:ir, infos, targets, callees, _} ->
         (Enum.all?(callees, &ensure/1) and compiled?(gen(mod, infos, targets))) or
           stub(mod, infos)
 
@@ -2009,8 +2010,28 @@ defmodule PrologEx.Jit do
   # liest. Stößt der Code auf etwas, das er nicht kann (ein ungebundener
   # Rest, ein Element, das keine Zahl ist), gibt er auf (:deopt): er hat
   # nichts gebunden, der Interpreter fängt den Aufruf neu an. Noch nicht
-  # übersetzt (das Modul fehlt): jetzt übersetzen, dann noch einmal.
-  def run({mod, entry, _, _, _} = m, ins, chunk, check, store, outs, retry \\ true) do
+  # übersetzt (das Modul fehlt): erst ab dem n-ten Aufruf (Flag
+  # jit_threshold) übersetzen, vorher :deopt – der Interpreter; selten
+  # gerufene Prädikate kosten so keinen Compilerlauf.
+  def run({mod, _, _, _, _} = m, ins, chunk, check, store, outs) do
+    if :erlang.module_loaded(mod) or warm?(mod),
+      do: go(m, ins, chunk, check, store, outs, true),
+      else: :deopt
+  end
+
+  # noch nicht geladen: zählen; an der Schwelle übersetzen (false: der
+  # Compiler scheiterte – dann bleibt es beim Interpreter)
+  defp warm?(mod) do
+    case :persistent_term.get({__MODULE__, mod}, nil) do
+      {:ir, _, _, _, c} ->
+        :atomics.add_get(c, 1, 1) >= PrologEx.Flags.get("jit_threshold") and ensure(mod)
+
+      _ ->
+        false
+    end
+  end
+
+  defp go({mod, entry, _, _, _} = m, ins, chunk, check, store, outs, retry) do
     Process.put(@run_key, {chunk, check, store, nil, outs})
 
     try do
@@ -2041,7 +2062,7 @@ defmodule PrologEx.Jit do
       end
     end
     |> case do
-      :retry -> run(m, ins, chunk, check, store, outs, false)
+      :retry -> go(m, ins, chunk, check, store, outs, false)
       r -> r
     end
   end

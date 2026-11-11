@@ -8,8 +8,8 @@ defmodule PrologEx.JitListing do
       % sq/2        nur für Rufer      sq(+int, -int)
       % klasse/2    nein               Klausel 2: Ziel is_list/1
 
-  Status: „übersetzt“ (Code geladen), „analysiert“ (übersetzt beim ersten
-  Aufruf), „nur für Rufer“ (übersetzt, aber der Interpreter tritt nicht ein:
+  Status: „übersetzt“ (Code geladen), „analysiert“ (übersetzt ab dem n-ten
+  Aufruf, Flag jit_threshold), „nur für Rufer“ (übersetzt, aber der Interpreter tritt nicht ein:
   ein Fakt), „wäre übersetzbar“ (beim Laden war das Flag jit aus), „nein“
   mit Grund. Typen: int/num (Zahl; Ganzzahl im ganzzahligen Code), list,
   list(int), list(num), any (nur durchgereicht); eine Ausgabe ohne Typ

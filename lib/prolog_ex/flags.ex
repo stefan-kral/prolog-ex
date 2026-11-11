@@ -30,6 +30,9 @@ defmodule PrologEx.Flags do
     # deterministische, rein arithmetische Prädikate beim Laden in
     # BEAM-Code übersetzen (PrologEx.Jit)
     "jit" => {true, [false, true]},
+    # übersetzt wird erst beim n-ten Aufruf eines Prädikats (1: gleich beim
+    # ersten); selten gerufene kosten so keinen Compilerlauf
+    "jit_threshold" => {1000, [:positive_integer]},
     # ISO 7.11.2: debug und char_conversion mit on/off; char_conversion
     # schaltet die Zeichenumsetzung beim Lesen ein (PrologEx.CharConversion)
     "debug" => {:off, [:off, :on]},
