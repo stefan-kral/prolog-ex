@@ -381,6 +381,16 @@ defmodule PrologEx.JitTest do
     assert {_, {:answers, ["R = true"]}} = TableCase.run(c.reader, c.int, q)
   end
 
+  # das Flag wirkt auch beim Aufruf: übersetzt geladen, aber abgeschaltet
+  # rechnet der Interpreter (Choice Point offen: true statt !)
+  test "Flag jit beim Aufruf", c do
+    Reader.put_current(c.reader)
+    q = "set_prolog_flag(jit, false), call_with_inference_limit(fib(15, _), 10000, R)"
+    assert {_, {:answers, ["R = true"]}} = TableCase.run(c.reader, c.jit, q)
+    q = "set_prolog_flag(jit, true), call_with_inference_limit(fib(15, _), 10000, R)"
+    assert {_, {:answers, ["R = !"]}} = TableCase.run(c.reader, c.jit, q)
+  end
+
   test "schneller (grob)", c do
     Reader.put_current(c.reader)
     {tj, _} = :timer.tc(fn -> TableCase.run(c.reader, c.jit, "fib(20, _)") end)

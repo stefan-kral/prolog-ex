@@ -42,7 +42,9 @@ Ein Prolog-Kern in Elixir:
   Kopfmuster), und `p(X) :- X = a, …` bekommt einen Index. Eine DCG über
   eine Liste von 200 000 Elementen −31 bis −42 %
 - JIT für deterministische Prädikate über Zahlen und Listen (Flag `jit`,
-  Vorgabe `true`): in BEAM-Code übersetzt, die Werte in Erlang-Variablen
+  Vorgabe `true`; beim Laden aus: nichts übersetzt, beim Aufruf aus: der
+  Interpreter rechnet – so lässt sich in einer Sitzung vergleichen):
+  in BEAM-Code übersetzt, die Werte in Erlang-Variablen
   statt in Bindungen. fib(23) 390 → 1–2 ms, eine Zählschleife über 10⁶
   1,1 s → 9 ms, eine nicht endrekursive Summe über 200 000 1,6 s → 5 ms,
   eine Float-Rekursion 1,3 s → 28 ms, nrev über 500 Elemente

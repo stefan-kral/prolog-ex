@@ -3243,7 +3243,9 @@ defmodule PrologEx do
         do: @jit_chunk,
         else: min(st.ilimit - :atomics.get(st.icount, 1), @jit_chunk)
 
-    if chunk < 1 do
+    # Flag jit: beim Laden aus – nichts übersetzt; beim Aufruf aus – der
+    # Interpreter (Vorher/nachher-Vergleiche in einer Sitzung)
+    if chunk < 1 or PrologEx.Flags.get("jit") == {:atom, "false"} do
       :no
     else
       check = fn consumed -> jit_check(consumed, st) end
