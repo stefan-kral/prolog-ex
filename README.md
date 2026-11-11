@@ -3371,19 +3371,27 @@ GPROLOG_RECORD=1 mix test test/writer_ops_test.exs  # fehlende writeq-Werte
 ## Laufzeit
 
 `mix run bench/suite.exs` misst kleine klassische Programme (beste von N
-Läufen; `--save`/`--compare` für vorher/nachher). Stand (OTP 25, eine
-Maschine im Rechenzentrum, ±5 % Rauschen):
+Läufen; `--save`/`--compare` für vorher/nachher; `--only a,b` wählt
+Fälle). Stand 11. November 2026 (OTP 28, JIT an, eine Maschine im
+Rechenzentrum, ±5 % Rauschen):
 
 | Programm | Zeit | MLIPS |
 |---|---|---|
-| nrev (30 Elemente, 400-mal) | 271 ms | 0,74 |
-| loop (deterministisch, `is`) | 469 ms | 1,28 |
-| between (Backtracking) | 117 ms | 2,58 |
-| member (300 000 Lösungen) | 199 ms | 1,51 |
-| facts (Klausel-Backtracking) | 176 ms | 1,87 |
-| queens (8, alle) | 77 ms | 0,98 |
-| tak (18, 12, 6) | 193 ms | 1,16 |
-| deriv | 171 ms | 0,65 |
+| nrev (30 Elemente, 400-mal) | 8 ms | 24,9 |
+| loop (deterministisch, `is`) | 2,6 ms | 228 |
+| between (Backtracking) | 116 ms | 2,58 |
+| member (300 000 Lösungen) | 137 ms | 2,19 |
+| facts (Klausel-Backtracking) | 128 ms | 2,58 |
+| queens (8, alle) | 27 ms | 2,75 |
+| tak (18, 12, 6) | 1,0 ms | 232 |
+| deriv | 87 ms | 1,28 |
+| clpz_q40 (40 Damen, erste Lösung) | 96 ms | 0,30 |
+| clpz_q8all (8 Damen, alle 92) | 84 ms | 0,46 |
+| clpz_send (SEND+MORE=MONEY) | 1,9 ms | 0,53 |
+| clpz_sudoku | 37 ms | 0,34 |
+
+nrev, loop und tak laufen ganz im JIT; bei clpz zählen die Inferenzen nur
+die Prolog-Ebene, die Arbeit steckt in Propagatoren und Attributen.
 
 ### Vergleich mit Scryer Prolog
 

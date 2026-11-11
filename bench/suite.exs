@@ -9,8 +9,13 @@
 # gezählt wie SWI: jeder Prädikataufruf, auch eingebaute).
 
 defmodule Suite do
-  @program """
+  # zuerst geladen: danach kennt der Leser die Operatoren von clpz
+  @prelude """
   :- use_module(library(between)).
+  :- use_module(library(clpz)).
+  """
+
+  @program """
 
   % naive reverse (30 Elemente: 496 Inferenzen)
   app([], L, L).
@@ -56,6 +61,33 @@ defmodule Suite do
   deriv_bench(N) :-
       d(((x+1)*(x^2+2)*(x^3+3))*((x+1)*(x^2+2)*(x^3+3)), x, _),
       N1 is N - 1, deriv_bench(N1).
+
+  % clpz: Bedingungen aufstellen, propagieren, beschriften
+  clpz_queens(N, Qs) :-
+      length(Qs, N), Qs ins 1..N, clpz_safe(Qs), labeling([ff], Qs).
+  clpz_safe([]).
+  clpz_safe([Q|Qs]) :- clpz_no_attack(Q, Qs, 1), clpz_safe(Qs).
+  clpz_no_attack(_, [], _).
+  clpz_no_attack(Q, [Q1|Qs], D) :-
+      Q #\\= Q1, abs(Q - Q1) #\\= D, D1 is D + 1, clpz_no_attack(Q, Qs, D1).
+  send([S,E,N,D,M,O,R,Y]) :-
+      Vs = [S,E,N,D,M,O,R,Y], Vs ins 0..9, all_different(Vs),
+      S*1000 + E*100 + N*10 + D + M*1000 + O*100 + R*10 + E #=
+      M*10000 + O*1000 + N*100 + E*10 + Y, M #\\= 0, S #\\= 0, label(Vs).
+  sudoku(Rows) :-
+      length(Rows, 9), maplist(same_length(Rows), Rows),
+      append(Rows, Vs), Vs ins 1..9,
+      maplist(all_distinct, Rows),
+      transpose(Rows, Columns), maplist(all_distinct, Columns),
+      Rows = [As,Bs,Cs,Ds,Es,Fs,Gs,Hs,Is],
+      blocks(As, Bs, Cs), blocks(Ds, Es, Fs), blocks(Gs, Hs, Is),
+      maplist(labeling([ff]), Rows).
+  blocks([], [], []).
+  blocks([N1,N2,N3|Ns1], [N4,N5,N6|Ns2], [N7,N8,N9|Ns3]) :-
+      all_distinct([N1,N2,N3,N4,N5,N6,N7,N8,N9]), blocks(Ns1, Ns2, Ns3).
+  sudoku_problem([[_,_,_,_,_,_,_,_,_],[_,_,_,_,_,3,_,8,5],[_,_,1,_,2,_,_,_,_],
+                  [_,_,_,5,_,7,_,_,_],[_,_,4,_,_,_,1,_,_],[_,9,_,_,_,_,_,_,_],
+                  [5,_,_,_,_,_,_,7,3],[_,_,2,_,1,_,_,_,_],[_,_,_,_,4,_,_,_,9]]).
   """
 
   @cases [
@@ -66,7 +98,11 @@ defmodule Suite do
     {"facts", "(between(1, 30000, _), p(_), fail ; true)"},
     {"queens", "findall(Q, queens(8, Q), L), length(L, 92)"},
     {"tak", "tak(18, 12, 6, _)"},
-    {"deriv", "deriv_bench(3000)"}
+    {"deriv", "deriv_bench(3000)"},
+    {"clpz_q40", "clpz_queens(40, _)"},
+    {"clpz_q8all", "findall(Q, clpz_queens(8, Q), L), length(L, 92)"},
+    {"clpz_send", "send(_)"},
+    {"clpz_sudoku", "sudoku_problem(Rows), sudoku(Rows)"}
   ]
 
   def main(args) do
@@ -79,6 +115,8 @@ defmodule Suite do
     only = if o = opts[:only], do: String.split(o, ","), else: nil
 
     db = PrologEx.use_library(%{}, "lists", "user")
+    {db, []} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(@prelude))
+    PrologEx.put_db(db)
     {db, []} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(@program))
     PrologEx.put_db(db)
 
@@ -108,7 +146,7 @@ defmodule Suite do
             _ -> ""
           end
 
-        :io.format("~-8s ~9.1f ms ~11w Inf. ~8.2f MLIPS~s~n", [name, ms, inf, lips / 1.0e6, cmp])
+        :io.format("~-12s ~9.1f ms ~11w Inf. ~8.2f MLIPS~s~n", [name, ms, inf, lips / 1.0e6, cmp])
         {name, ms}
       end
 
