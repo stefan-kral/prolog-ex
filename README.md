@@ -49,7 +49,8 @@ Ein Prolog-Kern in Elixir:
   wird ein Prädikat, wenn jede Klausel im Kopf nur Zahlen und Variablen
   hat und im Rumpf nur `is`, arithmetische Vergleiche, `X = Y` (Zahlen
   oder Variablen), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`,
-  `\+ G` und Aufrufe von sich selbst, mit allen auswertbaren Funktoren
+  `\+ G` und Aufrufe von sich selbst oder anderen übersetzten Prädikaten
+  desselben Moduls, mit allen auswertbaren Funktoren
   außer `random`/`random_float` (dazu `pi`, `e`, `epsilon`), und wenn je
   zwei Klauseln sich nachweislich ausschließen (Schnitt in der früheren,
   verschiedene Konstanten – auch `X = 0` am Anfang des Rumpfs –, ein
@@ -57,11 +58,18 @@ Ein Prolog-Kern in Elixir:
   einander ausschließende Vergleiche wie `X > 0` / `X =< 0`; davor darf
   in der späteren Klausel nichts werfen können). Eine Variable, die nur
   ein Zweig eines If-then-else bestimmt, darf danach nicht mehr vorkommen.
+  Die Prädikate eines Ladeschritts werden zusammen analysiert (Modi über
+  Aufrufe hinweg; wechselseitig rekursive teilen sich ein Modul); gerufen
+  werden dürfen auch schon übersetzte statische Prädikate früherer
+  Schritte, direkt. Wird ein Gerufener neu geladen (oder dynamic/1),
+  verlieren seine Rufer ihren Code und rufen die neue Fassung über den
+  Interpreter; dynamische Prädikate ruft übersetzter Code nie.
   Rechnet das Prädikat nur mit Ganzzahlen und ganzzahligen Operationen
   (+ - * // mod rem div min max >> << /\ \/ xor gcd abs sign msb \),
   rechnet der Code + - * direkt und nimmt ganzzahlige Eingaben; sonst
   alles über dieselben Funktionen wie der Interpreter (Floats, auch
-  rationale Zwischenwerte) und nimmt Ganzzahlen und Floats. Die Modi
+  rationale Zwischenwerte) und nimmt Ganzzahlen und Floats – einheitlich
+  für alles, was sich gegenseitig ruft. Die Modi
   ergeben sich aus dem Rumpf (gelesen: Eingabe; von `is` oder dem eigenen
   Aufruf bestimmt oder nirgends gelesen: Ausgabe; `=` legt nichts fest).
   Benutzt wird der Code nur, wenn der Aufruf passt – Eingaben Zahlen,
@@ -72,9 +80,13 @@ Ein Prolog-Kern in Elixir:
   Besseren: das übersetzte Prädikat hinterlässt keine Choice Points
   (`call_with_inference_limit/3` gibt `!` statt `true`), und beim
   Zurücksetzen zählt es keine Versuche von Klauseln, die ohnehin nichts
-  finden. Scheitern legt im übersetzten Code nichts auf den Heap (bei
-  tiefer Rekursion durchsucht jede Garbage Collection den ganzen Stack:
-  die Summe über 200 000 so 100 → 10 ms). Die Module heißen nach einem
+  finden. Tiefe Rekursion: jede Garbage Collection durchsucht den ganzen
+  Stack. Darum legt Scheitern im übersetzten Code nichts auf den Heap
+  (die Summe über 200 000 100 → 10 ms), und ist der Stack an einem
+  Prüfpunkt (spätestens alle 65 536 Inferenzen) tief, bekommt der Heap
+  Luft im Verhältnis (`min_heap_size`, nach dem Aufruf wieder wie vorher):
+  eine Summe von Quadraten über 200 000 mit einem Hilfsprädikat
+  2,3 s → 12 ms statt 110 ms, die Float-Rekursion 59 → 28 ms. Die Module heißen nach einem
   Hash ihrer Klauseln (dasselbe Programm neu geladen nimmt das vorhandene)
 - Deterministische eingebaute Ziele am Anfang eines Rumpfs (`is`,
   arithmetische Vergleiche, `=`, `==`, `\==`, Typtests, ein Neck-Cut)
