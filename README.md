@@ -3412,28 +3412,39 @@ scryer-prolog -g main -g halt bench/compare.pl
 swipl -g main -t halt bench/compare.pl
 ```
 
-Stand 1. November 2026 (OTP 28, Scryer `master` b7066b4 als Release-Build,
-dieselbe Maschine; Zeiten in ms):
+Stand 11. November 2026 (OTP 28, Scryer `master` b7066b4 als
+Release-Build, SWI-Prolog 9.0.4 aus Ubuntu, dieselbe Maschine; Zeiten in
+ms, beste von zwei Runden; „ohne JIT“: `mix prolog --no-jit`; Faktor:
+PrologEx mit JIT durch Scryer):
 
-| Fall | PrologEx | Scryer | Faktor |
-|---|---|---|---|
-| nrev (30, 2000-mal) | 1248 | 142 | 8,8 |
-| loop (1 Mio., `is`) | 1525 | 121 | 12,6 |
-| tak (18, 12, 6) | 181 | 10 | ≈ 18 |
-| queens (8, alle) | 64 | 7 | ≈ 9 |
-| deriv (20 000) | 714 | 115 | 6,2 |
-| facts (Backtracking) | 722 | 79 | 9,1 |
-| foldl/4 (300 000) | 720 | 172 | 4,2 |
-| dieselbe Summe von Hand | 623 | 138 | 4,5 |
-| findall + sort (200 000) | 588 | 266 | 2,2 |
-| clpb (kleine Formeln) | 80 | 265 | 0,3 |
+| Fall | PrologEx | ohne JIT | Scryer | SWI | Faktor |
+|---|---|---|---|---|---|
+| nrev (30, 2000-mal) | 31 | 840 | 111 | 20 | 0,28 |
+| loop (1 Mio., `is`) | 7 | 901 | 93 | 12 | 0,08 |
+| tak (18, 12, 6) | < 1 | 120 | 7 | 4 | < 0,15 |
+| queens (8, alle) | 21 | 40 | 6 | 4 | ≈ 3,5 |
+| deriv (20 000) | 354 | 385 | 78 | 19 | 4,5 |
+| facts (Backtracking) | 502 | 517 | 61 | 25 | 8,2 |
+| foldl/4 (300 000) | 441 | 384 | 121 | 59 | 3,6 |
+| dieselbe Summe von Hand | 6 | 292 | 99 | 46 | 0,06 |
+| findall + sort (200 000) | 433 | 414 | 184 | 58 | 2,4 |
+| clpb (kleine Formeln) | 31 | 30 | 185 | 48 | 0,17 |
 
-Im geometrischen Mittel ist PrologEx rund 5-mal langsamer als Scryer
-(clpb: Stand mit `sat/1` in Elixir, siehe dort);
-reine Maschinenarbeit (Schleifen, Arithmetik, Klauselwahl) 9–18-mal,
-wo eingebaute Prädikate einen großen Teil tragen (findall, sort, Listen)
-nur 2–4-mal. tak und queens sind bei Scryer so kurz, dass ihre Faktoren
-grob sind.
+Wo der JIT greift (deterministische Rekursion über Zahlen und Listen:
+nrev, loop, tak, die Summe), ist PrologEx jetzt 3,5- bis 16-mal
+schneller als Scryer und liegt bei SWI (nrev 1,6-mal dessen Zeit, loop
+und die Summe darunter).
+Wo er nicht greift – Backtracking (facts, queens zum Teil), Strukturen
+(deriv), eingebaute Prädikate (findall, sort, foldl mit einem Schritt
+aus einem einzigen `is`) –, bleibt es beim Interpreter: 2,4- bis 8-mal
+langsamer als Scryer, 7- bis 20-mal als SWI. Im geometrischen Mittel
+(ohne tak) 0,85-mal die Zeit von Scryer (ohne JIT 3,5-mal) und 2,7-mal
+die von SWI (ohne JIT 11-mal). tak und queens sind bei Scryer und SWI so
+kurz, dass ihre Faktoren grob sind.
+
+Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
+tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist
+seitdem schneller geworden.
 
 Mit `set_prolog_flag(occurs_check, error)` (Messung vom 6. 11. 2026,
 geometrische Mittel, Faktor gegenüber `false`):
