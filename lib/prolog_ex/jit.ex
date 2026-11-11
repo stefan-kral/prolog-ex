@@ -66,6 +66,7 @@ defmodule PrologEx.Jit do
   @total2 ~w(+ - * min max /\\ \\/ xor gcd)
   @total1 ~w(- + abs sign \\)
   @cmps ~w(< > =< >= =:= =\\=)
+  @type_tests ~w(var nonvar atom number integer float atomic compound callable is_list)
   @consts %{"pi" => :math.pi(), "e" => :math.exp(1), "epsilon" => 2.220446049250313e-16}
   # höchstens so viele Positionen ohne Hinweis werden durchprobiert
   @max_enum 6
@@ -320,7 +321,7 @@ defmodule PrologEx.Jit do
           if {h, b} |> raw_vars([]) |> Enum.uniq() |> length() > @max_vars,
             do: no!("mehr als #{@max_vars} Variablen")
 
-          {Enum.map(args(h), &pat!/1), Enum.map(conj(b), &goal(&1, ctx))}
+          {Enum.map(args(h), &pat!/1), index_guard(args(h), Enum.map(conj(b), &goal(&1, ctx)))}
         catch
           {:no, r} -> no!("Klausel #{i}: #{r}")
         end
@@ -361,6 +362,16 @@ defmodule PrologEx.Jit do
   defp goal_count({:not, g}), do: 1 + goal_count(g)
   defp goal_count(_), do: 1
 
+  # Wie PrologEx.Compiler: ein Typtest als erstes Ziel auf der Variablen des
+  # ersten Kopfarguments ist Wächter des Index – der Interpreter lässt die
+  # Klausel bei gebundenem Argument weg oder den Test aus, zählt ihn also
+  # nicht
+  @guards ~w(integer float number atom atomic compound callable var)
+  defp index_guard([{:var, v} = x | _], [{:tt, t, x} = g | gs]) when t in @guards and v != "_",
+    do: [{:idx, g} | gs]
+
+  defp index_guard(_, gs), do: gs
+
   defp collect_calls({:call, k, _}), do: [k]
   defp collect_calls(t) when is_tuple(t), do: collect_calls(Tuple.to_list(t))
   defp collect_calls(l) when is_list(l), do: Enum.flat_map(l, &collect_calls/1)
@@ -389,6 +400,9 @@ defmodule PrologEx.Jit do
   defp goal({:struct, "is", [l, r]}, _), do: {:is, num_term!(l), expr!(r)}
   defp goal({:struct, op, [a, b]}, _) when op in @cmps, do: {:cmp, op, expr!(a), expr!(b)}
   defp goal({:struct, "=", [a, b]}, _), do: {:unify, pat!(a), pat!(b)}
+  defp goal({:struct, t, [x]}, _) when t in @type_tests, do: {:tt, t, num_term!(x)}
+  defp goal({:struct, "==", [a, b]}, _), do: {:teq, true, pat!(a), pat!(b)}
+  defp goal({:struct, "\\==", [a, b]}, _), do: {:teq, false, pat!(a), pat!(b)}
 
   defp goal({:struct, ";", [{:struct, "->", [c, t]}, e]}, ctx),
     do: {:ite, seq(c, ctx), seq(t, ctx), seq(e, ctx)}
@@ -445,6 +459,7 @@ defmodule PrologEx.Jit do
   # nur Ganzzahlen und ganzzahlig abgeschlossene Operationen?
   defp int_only?(f) when is_float(f), do: false
   defp int_only?({:var, _}), do: true
+  defp int_only?({:tt, t, _}) when t in ["float", "number"], do: false
   defp int_only?({:op2, op, a, b}), do: op in @iops2 and int_only?(a) and int_only?(b)
   defp int_only?({:op1, op, a}), do: op in @iops1 and int_only?(a)
   defp int_only?(t) when is_tuple(t), do: int_only?(Tuple.to_list(t))
@@ -488,7 +503,7 @@ defmodule PrologEx.Jit do
       modes = Map.merge(fixed, assign)
 
       try do
-        {reqs, outs, irs} = types(scc, parsed, modes, other)
+        {reqs, outs, irs} = types(scc, parsed, modes, other, num)
 
         for key <- scc,
             do: exclusive!(Enum.map(irs[key], & &1.ir), MapSet.member?(num, key))
@@ -612,6 +627,9 @@ defmodule PrologEx.Jit do
   end
 
   defp use_in(v, {:unify, a, b}), do: if(v in (vars(a) ++ vars(b)), do: :none)
+  defp use_in(v, {:tt, _, x}), do: if(v == x, do: :in)
+  defp use_in(v, {:idx, g}), do: use_in(v, g)
+  defp use_in(v, {:teq, _, a, b}), do: if(v in (vars(a) ++ vars(b)), do: :in)
 
   defp use_in(v, {:call, ck, as}) do
     case Enum.find_index(as, &(&1 == v)) do
@@ -636,7 +654,7 @@ defmodule PrologEx.Jit do
   # Ausgaben: {t, ps} – t vereinigt mit den Typen der Eingaben ps (deren
   # Anforderung :any ist: durchgereicht), am Aufrufort eingesetzt.
 
-  defp types(scc, parsed, modes, other) do
+  defp types(scc, parsed, modes, other, num) do
     reqs0 =
       for key <- scc,
           k <- 0..(parsed[key].arity - 1),
@@ -651,12 +669,12 @@ defmodule PrologEx.Jit do
           into: %{},
           do: {{key, k}, {:bot, []}}
 
-    types_fix(scc, parsed, modes, other, reqs0, outs0, 12)
+    types_fix(scc, parsed, modes, {other, num}, reqs0, outs0, 12)
   end
 
   defp types_fix(_, _, _, _, _, _, 0), do: no!("Typen kommen zu keinem Fixpunkt")
 
-  defp types_fix(scc, parsed, modes, other, reqs, outs, n) do
+  defp types_fix(scc, parsed, modes, {other, num} = on, reqs, outs, n) do
     sig = fn ck ->
       if ck in scc do
         ar = parsed[ck].arity
@@ -677,7 +695,7 @@ defmodule PrologEx.Jit do
     irs =
       try do
         Map.new(scc, fn key ->
-          ctx = %{key: key, sig: sig, reqs: reqs}
+          ctx = %{key: key, sig: sig, reqs: reqs, num: MapSet.member?(num, key)}
           pre = if length(scc) > 1, do: "#{pi(key)}, ", else: ""
 
           {key,
@@ -713,7 +731,7 @@ defmodule PrologEx.Jit do
       end
 
     cond do
-      reqs2 != reqs or outs2 != outs -> types_fix(scc, parsed, modes, other, reqs2, outs2, n - 1)
+      reqs2 != reqs or outs2 != outs -> types_fix(scc, parsed, modes, on, reqs2, outs2, n - 1)
       soft -> no!(soft)
       true -> {reqs, outs, irs}
     end
@@ -1035,12 +1053,17 @@ defmodule PrologEx.Jit do
 
   # die Bedingung sieht d, Then sieht zusätzlich, was die Bedingung bestimmt,
   # Else nur d; danach gilt, was beide Zweige bestimmen
+  #
+  # Ein Typtest kann einen schon bestimmten Wert verfeinern (integer(X): X
+  # ist danach eine gelesene Zahl) – im Code eine neue Bindung, sichtbar nur
+  # im Rest derselben Folge. Was eine Bedingung oder ein Zweig verfeinert,
+  # gilt danach also wieder mit dem Typ von vorher (restore/2)
   defp goal_flow({:ite, c, t, e}, d, ctx) do
     {ci, dc} = flow_seq(c, d, ctx)
     if dc == :all, do: no!("Bedingung scheitert immer")
-    {ti, dt} = flow_seq(t, dc, ctx)
+    {ti, dt} = flow_seq(t, restore(dc, d), ctx)
     {ei, de} = flow_seq(e, d, ctx)
-    dn = meet(dt, de)
+    dn = restore(meet(dt, de), d)
     nvars = if dn == :all, do: :dead, else: new_vars(dn, d)
     {{:ite, ci, new_vars(dc, d), ti, ei, nvars}, dn}
   end
@@ -1049,6 +1072,69 @@ defmodule PrologEx.Jit do
   defp goal_flow({:not, g}, d, ctx) do
     {gi, _} = flow_seq(g, d, ctx)
     {{:not, gi}, d}
+  end
+
+  # Typtest. Unbestimmt: eine frische Variable (der übersetzte Code bindet
+  # Eingaben nie, und Ausgaben erst am Ende). Eine Zahl: meist fest. Sonst
+  # zur Laufzeit (PrologEx.Jit.tt/2); integer/1 (float/1, number/1 im Code
+  # mit Floats) macht den Wert danach zur Zahl
+  defp goal_flow({:tt, t, x}, d, ctx) do
+    how =
+      cond do
+        is_number(x) -> PrologEx.type_test(t, x)
+        anon?(x) or not defd?(d, x) -> t == "var"
+        eff(d[x], ctx.reqs) == :num -> num_test(t, ctx.num)
+        refines?(t, ctx.num) -> :refine
+        true -> :rt
+      end
+
+    d = if how == :refine, do: Map.put(d, x, {:num, []}), else: d
+    {{:tt, t, x, how}, d}
+  end
+
+  # Wächter des Index: gebunden (eine Zahl), frisch, oder erst zur Laufzeit
+  defp goal_flow({:idx, {:tt, _, x} = g}, d, ctx) do
+    {{:tt, _, _, how} = ir, d2} = goal_flow(g, d, ctx)
+
+    bound =
+      cond do
+        is_number(x) -> true
+        anon?(x) or not defd?(d, x) -> false
+        how in [:rt, :refine] -> :rt
+        true -> true
+      end
+
+    {{:idx, ir, bound}, d2}
+  end
+
+  # ==, \==: beide Seiten bestimmt; Zahlen mit ===, sonst zur Laufzeit
+  # (PrologEx.Jit.teq/2, wie der Interpreter)
+  defp goal_flow({:teq, pos, a, b}, d, ctx) do
+    {ba, ta} = build!(a, d, ctx)
+    {bb, tb} = build!(b, d, ctx)
+    how = if eff(ta, ctx.reqs) == :num and eff(tb, ctx.reqs) == :num, do: :num, else: :rt
+    {{:teq, pos, ba, bb, how}, d}
+  end
+
+  # Typtest auf einer Zahl: true/false, oder (Code mit Floats) :num
+  defp num_test(t, _) when t in ["number", "atomic", "nonvar"], do: true
+  defp num_test(t, false) when t in ["integer"], do: true
+  defp num_test(t, false) when t in ["float"], do: false
+  defp num_test(t, true) when t in ["integer", "float"], do: :num
+  defp num_test(_, _), do: false
+
+  defp refines?("integer", _), do: true
+  defp refines?(t, true) when t in ["float", "number"], do: true
+  defp refines?(_, _), do: false
+
+  # Typen bestimmter Variablen wie in d0 (neue bleiben)
+  defp restore(:all, _), do: :all
+
+  defp restore(d, d0) do
+    Enum.reduce(d0, d, fn
+      {{:var, _} = v, t}, acc -> if Map.has_key?(acc, v), do: Map.put(acc, v, t), else: acc
+      _, acc -> acc
+    end)
   end
 
   # bestimmt und Zahlen
@@ -1078,12 +1164,68 @@ defmodule PrologEx.Jit do
   # a vor b: hat a eine Lösung, scheitert b sicher (ohne Fehler davor)
   defp exclusive?(a, b, num) do
     :cut in a.goals or pats_differ?(a, b) or const_vs_guard?(a, b, num) or
-      complementary?(a, b, num)
+      complementary?(a, b, num) or classes_differ?(a, b, num)
   end
 
-  # Vergleiche und `=` am Anfang des Rumpfs
-  defp guards(c),
-    do: Enum.take_while(c.goals, &(match?({:cmp, _, _, _}, &1) or match?({:u, _, _}, &1)))
+  # Vergleiche, `=` und Typtests am Anfang des Rumpfs
+  defp guards(c) do
+    c.goals
+    |> Enum.map(fn
+      {:idx, g, _} -> g
+      g -> g
+    end)
+    |> Enum.take_while(fn
+      {:cmp, _, _, _} -> true
+      {:u, _, _} -> true
+      {:tt, _, _, _} -> true
+      _ -> false
+    end)
+  end
+
+  # Typklassen: was ein Argument nach Muster und Typtests am Anfang noch
+  # sein kann; haben a und b an einer Stelle nichts gemeinsam, schließen
+  # sie sich aus
+  @all ~w(var int float rat nil atom cons struct bytes other)a
+  defp classes_differ?(a, b, num) do
+    ca = classes(a, guards(a))
+    cb = classes(b, reachable(b, num))
+    Enum.any?(Enum.zip(ca, cb), fn {x, y} -> MapSet.disjoint?(x, y) end)
+  end
+
+  defp classes(c, gs) do
+    falsum = Enum.any?(gs, &match?({:tt, _, _, false}, &1))
+
+    for {{_, mp0}, {_, mp}} <- Enum.zip(c.hin, eff_hin(c)) do
+      base =
+        case mp do
+          {:const, n} when is_integer(n) -> [:int]
+          {:const, n} when is_float(n) -> [:float]
+          :nl -> [nil]
+          {:cons, _, _} -> [:cons]
+          _ -> @all
+        end
+
+      v = with {:bind, v} <- mp0, do: v
+
+      gs
+      |> Enum.reduce(MapSet.new(base), fn
+        {:tt, t, ^v, how}, acc when how != true -> MapSet.intersection(acc, MapSet.new(tclass(t)))
+        _, acc -> acc
+      end)
+      |> then(&if(falsum, do: MapSet.new(), else: &1))
+    end
+  end
+
+  defp tclass("var"), do: [:var]
+  defp tclass("nonvar"), do: @all -- [:var]
+  defp tclass("integer"), do: [:int]
+  defp tclass("float"), do: [:float]
+  defp tclass("number"), do: [:int, :float, :rat]
+  defp tclass("atom"), do: [nil, :atom]
+  defp tclass("atomic"), do: [:int, :float, :rat, nil, :atom, :bytes]
+  defp tclass("compound"), do: [:cons, :struct]
+  defp tclass("callable"), do: [nil, :atom, :cons, :struct]
+  defp tclass("is_list"), do: [nil, :cons]
 
   # die Wächter von b, die b erreicht, ohne dass einer davor werfen kann
   defp reachable(c, num) do
@@ -1094,6 +1236,7 @@ defmodule PrologEx.Jit do
   end
 
   defp safe?({:u, _, _}, _), do: true
+  defp safe?({:tt, _, _, _}, _), do: true
   defp safe?({:cmp, _, x, y}, num), do: safe_ex?(x, num) and safe_ex?(y, num)
 
   defp safe_ex?(n, _) when is_number(n), do: true
@@ -1582,6 +1725,42 @@ defmodule PrologEx.Jit do
   defp gen_goals([true | gs], st), do: counted(gen_goals(gs, st))
   defp gen_goals([:fail | _], st), do: counted(failure(st))
 
+  defp gen_goals([{:tt, _, _, _} = g | gs], st), do: counted(tt_code(g, gs, st))
+
+  # Wächter des Interpreter-Index (siehe parse/3): gezählt nur, wenn das
+  # erste Argument ungebunden ist
+  defp gen_goals([{:idx, g, true} | gs], st), do: tt_code(g, gs, st)
+  defp gen_goals([{:idx, g, false} | gs], st), do: gen_goals([g | gs], st)
+
+  defp gen_goals([{:idx, {:tt, _, x, _} = g, :rt} | gs], st) do
+    quote do
+      b =
+        if PrologEx.Jit.var?(unquote(st.vmap[x])),
+          do: if(b == 0, do: PrologEx.Jit.tick() - 1, else: b - 1),
+          else: b
+
+      unquote(tt_code(g, gs, st))
+    end
+  end
+
+  defp gen_goals([{:teq, pos, a, b, :num} | gs], st) do
+    {a, b} = {build_ast(a, st), build_ast(b, st)}
+
+    t =
+      if pos, do: quote(do: unquote(a) === unquote(b)), else: quote(do: unquote(a) !== unquote(b))
+
+    test(t, gen_goals(gs, st), st)
+  end
+
+  defp gen_goals([{:teq, pos, a, b, :rt} | gs], st) do
+    t =
+      quote(
+        do: PrologEx.Jit.teq(unquote(build_ast(a, st)), unquote(build_ast(b, st))) == unquote(pos)
+      )
+
+    test(t, gen_goals(gs, st), st)
+  end
+
   defp gen_goals([{:cmp, op, x, y} | gs], st),
     do: test(cmp_ast(op, ex(x, st), ex(y, st), st), gen_goals(gs, st), st)
 
@@ -1699,6 +1878,45 @@ defmodule PrologEx.Jit do
     end
   end
 
+  # ein Typtest (ohne die Inferenz)
+  defp tt_code({:tt, _, _, true}, gs, st), do: gen_goals(gs, st)
+  defp tt_code({:tt, _, _, false}, _, st), do: failure(st)
+
+  defp tt_code({:tt, t, x, :num}, gs, st) do
+    v = st.vmap[x]
+
+    t =
+      if t == "integer",
+        do: quote(do: is_integer(unquote(v))),
+        else: quote(do: is_float(unquote(v)))
+
+    test_ast(t, gen_goals(gs, st), st)
+  end
+
+  defp tt_code({:tt, t, x, :rt}, gs, st),
+    do:
+      test_ast(
+        quote(do: PrologEx.Jit.tt(unquote(t), unquote(st.vmap[x])) != false),
+        gen_goals(gs, st),
+        st
+      )
+
+  defp tt_code({:tt, t, x, :refine}, gs, st) do
+    v = st.vmap[x]
+    w = Macro.unique_var(:w, __MODULE__)
+
+    quote do
+      case PrologEx.Jit.tt(unquote(t), unquote(v)) do
+        false ->
+          unquote(failure(st))
+
+        unquote(w) ->
+          unquote(v) = unquote(w)
+          unquote(gen_goals(gs, st))
+      end
+    end
+  end
+
   defp call_ast({:local, f}, args), do: {f, [], args ++ [Macro.var(:b, __MODULE__)]}
 
   defp call_ast({:remote, mod, f}, args),
@@ -1741,8 +1959,8 @@ defmodule PrologEx.Jit do
   # --- Laufzeit -----------------------------------------------------------
   #
   # Während ein übersetztes Prädikat läuft, liegt unter @run_key
-  # {Blockgröße, Prüffunktion, Bindungsspeicher, min_heap_size vorher | nil}
-  # – ein Eintrag, einmal gesetzt und einmal entfernt.
+  # {Blockgröße, Prüffunktion, Bindungsspeicher, min_heap_size vorher | nil,
+  # Ausgabevariablen} – ein Eintrag, einmal gesetzt und einmal entfernt.
 
   @run_key :prolog_ex_jit
 
@@ -1751,9 +1969,9 @@ defmodule PrologEx.Jit do
   # den Block, prüft die Grenzen (wirft wie der Interpreter) und gibt den
   # nächsten Block zurück (>= 1)
   def tick do
-    {chunk, check, store, heap} = Process.get(@run_key)
+    {chunk, check, store, heap, outs} = Process.get(@run_key)
     next = check.(chunk)
-    Process.put(@run_key, {next, check, store, deep_stack(heap)})
+    Process.put(@run_key, {next, check, store, deep_stack(heap), outs})
     next
   end
 
@@ -1792,8 +2010,8 @@ defmodule PrologEx.Jit do
   # Rest, ein Element, das keine Zahl ist), gibt er auf (:deopt): er hat
   # nichts gebunden, der Interpreter fängt den Aufruf neu an. Noch nicht
   # übersetzt (das Modul fehlt): jetzt übersetzen, dann noch einmal.
-  def run({mod, entry, _, _, _} = m, ins, chunk, check, store, retry \\ true) do
-    Process.put(@run_key, {chunk, check, store, nil})
+  def run({mod, entry, _, _, _} = m, ins, chunk, check, store, outs, retry \\ true) do
+    Process.put(@run_key, {chunk, check, store, nil, outs})
 
     try do
       case apply(mod, entry, ins ++ [chunk]) do
@@ -1818,12 +2036,12 @@ defmodule PrologEx.Jit do
       :jit_deopt -> :deopt
     after
       case Process.delete(@run_key) do
-        {_, _, _, {old, _}} -> Process.flag(:min_heap_size, old)
+        {_, _, _, {old, _}, _} -> Process.flag(:min_heap_size, old)
         _ -> :ok
       end
     end
     |> case do
-      :retry -> run(m, ins, chunk, check, store, false)
+      :retry -> run(m, ins, chunk, check, store, outs, false)
       r -> r
     end
   end
@@ -1831,6 +2049,48 @@ defmodule PrologEx.Jit do
   defp chunk_now, do: elem(Process.get(@run_key), 0)
 
   defp store, do: elem(Process.get(@run_key), 2)
+
+  @doc false
+  # ungebunden?
+  def var?({:var, _} = v), do: match?({:var, _}, PrologEx.Store.walk(v, store()))
+  def var?(_), do: false
+
+  @doc false
+  # Typtest auf einem Term (wie der Interpreter): false oder der gelesene
+  # Term. Ist er eine Ausgabevariable des Aufrufs (oder enthält is_list/1
+  # eine als Rest), aufgeben: der Interpreter hätte sie vielleicht schon
+  # gebunden, der übersetzte Code bindet erst am Ende
+  def tt(t, x) do
+    {_, _, store, _, outs} = Process.get(@run_key)
+    w = PrologEx.Store.walk(x, store)
+    if outs != [] and :lists.member(w, outs), do: throw(:jit_deopt)
+
+    ok =
+      case t do
+        "is_list" ->
+          {_, rest} = PrologEx.Builtins.Lists.skip_list(w, store)
+          if outs != [] and :lists.member(rest, outs), do: throw(:jit_deopt)
+          rest == []
+
+        _ ->
+          PrologEx.type_test(t, w)
+      end
+
+    if ok, do: w, else: false
+  end
+
+  @doc false
+  # ==/2 wie der Interpreter; enthält ein Term eine Ausgabevariable:
+  # aufgeben (wie tt/2; die Variablen wie term_variables/2, auch zyklisch)
+  def teq(a, b) do
+    {_, _, store, _, outs} = Process.get(@run_key)
+
+    if outs != [] and
+         Enum.any?(PrologEx.Builtins.Order.variables([a, b], store), &:lists.member(&1, outs)),
+       do: throw(:jit_deopt)
+
+    PrologEx.Order.equal?(a, b, store)
+  end
 
   @doc false
   # eine Listenzelle lesen: [K | R], [] oder ein anderer Term (dann passt

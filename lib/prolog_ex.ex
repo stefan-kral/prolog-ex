@@ -3263,7 +3263,7 @@ defmodule PrologEx do
       check = fn consumed -> jit_check(consumed, st) end
       n0 = :atomics.get(st.icount, 1)
 
-      case guarded(fn -> PrologEx.Jit.run(mod, iv, chunk, check, s) end) do
+      case guarded(fn -> PrologEx.Jit.run(mod, iv, chunk, check, s, ov) end) do
         {:ok, {:ok, values, used}} ->
           :atomics.add(st.icount, 1, used)
 
@@ -4700,22 +4700,23 @@ defmodule PrologEx do
     if type_test(t, Store.walk(inst(x, env, nv), s)), do: {:ok, s}, else: :fail
   end
 
-  # wie die Builtins in PrologEx.Builtins.Core
-  defp type_test("var", t), do: match?({:var, _}, t)
-  defp type_test("nonvar", t), do: not match?({:var, _}, t)
-  defp type_test("atom", t), do: PrologEx.Builtins.Core.atom?(t)
-  defp type_test("number", t), do: is_number(t) or match?({:rat, _, _}, t)
-  defp type_test("integer", t), do: is_integer(t)
-  defp type_test("float", t), do: is_float(t)
+  @doc false
+  # wie die Builtins in PrologEx.Builtins.Core (auch PrologEx.Jit); t gelesen
+  def type_test("var", t), do: match?({:var, _}, t)
+  def type_test("nonvar", t), do: not match?({:var, _}, t)
+  def type_test("atom", t), do: PrologEx.Builtins.Core.atom?(t)
+  def type_test("number", t), do: is_number(t) or match?({:rat, _, _}, t)
+  def type_test("integer", t), do: is_integer(t)
+  def type_test("float", t), do: is_float(t)
 
-  defp type_test("atomic", t),
+  def type_test("atomic", t),
     do:
       is_number(t) or PrologEx.Builtins.Core.atom?(t) or match?({:rat, _, _}, t) or
         match?({:bytes, _}, t)
 
-  defp type_test("compound", t), do: PrologEx.Builtins.Core.compound?(t)
+  def type_test("compound", t), do: PrologEx.Builtins.Core.compound?(t)
 
-  defp type_test("callable", t),
+  def type_test("callable", t),
     do: PrologEx.Builtins.Core.compound?(t) or PrologEx.Builtins.Core.atom?(t)
 
   @var_block 4096

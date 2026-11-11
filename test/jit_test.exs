@@ -85,6 +85,26 @@ defmodule PrologEx.JitTest do
   avg(L, A) :- suml(L, S), len(L, N), N > 0, A is S / N.
   al(X, [X], X).
   first2([X|_], X).
+  fact(N, F) :- integer(N), N >= 0, fact_(N, 1, F).
+  fact_(0, A, A) :- !.
+  fact_(N, A, F) :- A1 is A * N, N1 is N - 1, fact_(N1, A1, F).
+  kl(X, Y) :- integer(X), !, Y is X * 2.
+  kl(X, Y) :- float(X), !, Y is X / 2.
+  kl(_, 0).
+  tw(X, Y) :- integer(X), Y is X + 1.
+  tw(X, Y) :- float(X), Y is X * 2.0.
+  vv(X, Y) :- var(X), !, Y = 0.
+  vv(X, Y) :- ( integer(X) -> Y = 1 ; Y = 2 ).
+  eqn(X, Y, Z) :- ( X == Y -> Z = 1 ; Z = 0 ).
+  eqt(X, Y, Z) :- ( X \\== Y -> Z = 1 ; Z = 0 ).
+  il(L, N) :- is_list(L), !, len(L, N).
+  il(_, -1).
+  avar(X, Y) :- Y = 1, var(X).
+  aeq(X, Y) :- Y = 1, X == 1.
+  cnt([], 0).
+  cnt([X|Xs], N) :- cnt(Xs, N0), ( integer(X) -> N is N0 + 1 ; N = N0 ).
+  nz(X, Y) :- number(X), X =\\= 0, Y is 1 / X.
+  nz(X, Y) :- atom(X), Y = 0.
   nth(0, [X|_], X) :- !.
   nth(N, [_|T], X) :- N > 0, N1 is N - 1, nth(N1, T, X).
   inf(G, I) :- statistics(inferences, I0), call(G), statistics(inferences, I1), I is I1 - I0.
@@ -149,6 +169,12 @@ defmodule PrologEx.JitTest do
 
     assert {:pred, _, _, {:jit, _, [{0, :nlist}], [1], _}, _} = c.jit[{"user", "suml", 2}]
     assert {:pred, _, _, {:jit, _, [{0, :ilist}], [1], _}, _} = c.jit[{"user", "dbl", 2}]
+
+    # Typtests
+    for k <-
+          [{"user", "fact_", 3}, {"user", "eqn", 3}, {"user", "eqt", 3}] ++
+            for(n <- ~w(fact kl tw vv il avar aeq cnt nz), do: {"user", n, 2}),
+        do: assert(jitted.(k), inspect(k))
 
     # ein Gerufener nicht übersetzbar (cnj) oder dynamisch (udsq): nein
     refute jitted.({"user", "cnj", 2})
@@ -312,6 +338,61 @@ defmodule PrologEx.JitTest do
         "X = 2, suml([1,X,3], S)",
         "inf(catch(suml([1,2,a], _), _, true), I)",
         "call_with_inference_limit(suml([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,a], _), 30, R)",
+        # Typtests (auch als Wächter), ==, \\==
+        "fact(20, F)",
+        "fact(-1, F)",
+        "fact(a, F)",
+        "fact(2.0, F)",
+        "fact(X, F)",
+        "inf(fact(20, _), I)",
+        "inf(fact(X, _), I)",
+        "inf(findall(Y, kl(2.5, Y), _), I)",
+        "inf(findall(Y, kl(a, Y), _), I)",
+        "inf(findall(Y, kl(_, Y), _), I)",
+        "inf(vv(_, _), I)",
+        "inf(vv(3, _), I)",
+        "inf(findall(Y, tw(1.5, Y), _), I)",
+        "findall(Y, kl(3, Y), L)",
+        "findall(Y, kl(2.5, Y), L)",
+        "findall(Y, kl(a, Y), L)",
+        "findall(Y, kl(_, Y), L)",
+        "X = 5, kl(X, Y)",
+        "findall(Y, tw(3, Y), L)",
+        "findall(Y, tw(1.5, Y), L)",
+        "findall(Y, tw(a, Y), L)",
+        "vv(X, Y)",
+        "vv(3, Y)",
+        "vv(a, Y)",
+        "vv(f(Z), Y)",
+        "eqn(1, 1, Z)",
+        "eqn(1, 1.0, Z)",
+        "eqn(a, a, Z)",
+        "eqn(f(X), f(X), Z)",
+        "eqn(f(X), f(Y), Z)",
+        "eqn(X, Y, Z)",
+        "eqn(X, X, Z)",
+        "eqn([1,2], [1,2], Z)",
+        "eqt(1, 1, Z)",
+        "eqt(f(X), f(Y), Z)",
+        "il([a,b], N)",
+        "il(foo, N)",
+        "il([a|T], N)",
+        "il(X, N)",
+        "cnt([1, a, 2, f(x), 3.0, X], N)",
+        "inf(cnt([1, a, 2], _), I)",
+        "nz(4, Y)",
+        "nz(0, Y)",
+        "nz(a, Y)",
+        "nz(2.0, Y)",
+        "nz(f(x), Y)",
+        # Bindungsreihenfolge: der Interpreter bindet Y (= X) vor dem Test,
+        # der übersetzte Code erst am Ende – er gibt auf, der Interpreter
+        # rechnet neu
+        "avar(A, A)",
+        "avar(A, B)",
+        "aeq(A, A)",
+        "aeq(A, B)",
+        "aeq(1, B)",
         # Ausgabe zugleich (in) Eingabe: gebunden wird durch Unifikation
         "al(A, B, A)",
         "al(A, B, C)",
@@ -379,6 +460,14 @@ defmodule PrologEx.JitTest do
     q = "call_with_inference_limit(fib(15, _), 10000, R)"
     assert {_, {:answers, ["R = !"]}} = TableCase.run(c.reader, c.jit, q)
     assert {_, {:answers, ["R = true"]}} = TableCase.run(c.reader, c.int, q)
+  end
+
+  # Typtests als Wächter: integer/float schließen sich aus, ohne Schnitt
+  # (im Interpreter dank des Index ebenso)
+  test "deterministisch über Typtests", c do
+    Reader.put_current(c.reader)
+    q = "call_with_inference_limit(tw(3, _), 100, R)"
+    assert {_, {:answers, ["R = !"]}} = TableCase.run(c.reader, c.jit, q)
   end
 
   test "jit_listing", c do
