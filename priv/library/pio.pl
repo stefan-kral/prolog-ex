@@ -16,6 +16,8 @@
 %   phrase_to_stream(G, S)              phrase(G, Ls), Ls schreiben (Scryer);
 %                                       phrase_to_file/2,3: Backtracking
 %                                       nimmt Geschriebenes zurück
+%   phrase_to_stream(G, S, Opts)        ebenso auf einem offenen Stream;
+%                                       Opts: undo(true|false)
 %
 % Ohne as(...) richtet sich die Liste nach dem Flag double_quotes: codes
 % bei double_quotes = codes, sonst chars (Voreinstellung; wie Scryer). So
@@ -36,7 +38,8 @@
                 stream_to_lazy_codes/2,
                 lazy_list_character_count//1, lazy_list_location//1,
                 syntax_error//1,
-                phrase_to_file/2, phrase_to_file/3, phrase_to_stream/2]).
+                phrase_to_file/2, phrase_to_file/3, phrase_to_stream/2,
+                phrase_to_stream/3]).
 
 :- meta_predicate
        phrase_from_file(//, +),
@@ -45,7 +48,8 @@
        phrase_from_stream(//, +, +),
        phrase_to_file(//, +),
        phrase_to_file(//, +, +),
-       phrase_to_stream(//, +).
+       phrase_to_stream(//, +),
+       phrase_to_stream(//, +, +).
 
 phrase_from_file(G, File) :-
    phrase_from_file(G, File, []).
@@ -173,20 +177,80 @@ phrase_to_file(G, File) :-
 
 % Backtracking nimmt das Geschriebene zurück: jede Lösung schreibt ab der
 % Stelle, an der die vorige Lösung begonnen hat (die Datei wird dort
-% abgeschnitten), und beim Schließen gilt, was die zuletzt gültige Lösung
+% abgeschnitten), und am Ende gilt, was die zuletzt gültige Lösung
 % geschrieben hat – nach dem Erschöpfen aller Lösungen also nichts.
-% (Scryer und SWI lassen das Geschriebene stehen.)
+% (Scryer und SWI lassen das Geschriebene stehen; so mit undo(false).)
+% undo(B): true – zurücknehmen (Fehler, wenn der Stream es nicht kann);
+% false – stehen lassen; ohne die Option: zurücknehmen, wo es geht.
 phrase_to_file(G, File, Options) :-
-   setup_call_cleanup(( open(File, write, S, Options), '$pio_mark'(S) ),
-                      '$pio_to_file'(G, S),
-                      ( '$pio_rewind'(S), close(S) )).
+   '$pio_undo_option'(Options, Undo, Open, phrase_to_file/3),
+   (  Undo == false
+   -> setup_call_cleanup(open(File, write, S, Open),
+                         phrase_to_stream(G, S),
+                         close(S))
+   ;  '$pio_key'(K),
+      setup_call_cleanup(( open(File, write, S, Open), '$pio_mark'(S, K) ),
+                         ( '$pio_check_undo'(Undo, S, phrase_to_file/3),
+                           '$pio_to_stream'(G, S, K, phrase_to_file/2) ),
+                         ( '$pio_rewind'(S, K), close(S) ))
+   ).
 
-'$pio_to_file'(G, S) :-
+% dasselbe auf einem offenen Stream: zurückgenommen wird bis zur Stelle,
+% an der der Aufruf begonnen hat (auch was danach sonst in den Stream kam –
+% es gehört zu dem, was das Zurücksetzen ungeschehen macht). Schneidet
+% ab: nur für Dateien, die sich positionieren lassen
+phrase_to_stream(G, S, Options) :-
+   '$pio_undo_option'(Options, Undo, Rest, phrase_to_stream/3),
+   (  Rest == [] -> true
+   ;  Rest = [O|_],
+      throw(error(domain_error(phrase_to_stream_option, O), phrase_to_stream/3))
+   ),
+   (  Undo == false
+   -> phrase_to_stream(G, S)
+   ;  Undo == default, \+ '$pio_undoable'(S)
+   -> phrase_to_stream(G, S)
+   ;  '$pio_check_undo'(Undo, S, phrase_to_stream/3),
+      '$pio_key'(K),
+      setup_call_cleanup('$pio_mark'(S, K),
+                         '$pio_to_stream'(G, S, K, phrase_to_stream/3),
+                         '$pio_rewind'(S, K))
+   ).
+
+'$pio_to_stream'(G, S, K, PI) :-
    phrase(G, Ls),
-   '$pio_list'(Ls, phrase_to_file/2),
-   '$pio_rewind'(S),
+   '$pio_list'(Ls, PI),
+   '$pio_rewind'(S, K),
    '$pio_put'(Ls, S),
-   '$pio_mark'(S).
+   '$pio_mark'(S, K).
+
+'$pio_check_undo'(Undo, S, PI) :-
+   (  Undo == true, \+ '$pio_undoable'(S)
+   -> throw(error(permission_error(reposition, stream, S), PI))
+   ;  true
+   ).
+
+% undo(B) herausnehmen (das erste gilt; default ohne), der Rest bleibt
+'$pio_undo_option'(Os, Undo, Rest, PI) :-
+   '$skip_list'(_, Os, Tail),
+   (  Tail == [] -> '$pio_undo_opts'(Os, default, Undo, Rest, PI)
+   ;  var(Tail) -> throw(error(instantiation_error, PI))
+   ;  throw(error(type_error(list, Os), PI))
+   ).
+
+'$pio_undo_opts'([], U, U, [], _).
+'$pio_undo_opts'([O|Os], U0, U, Rest, PI) :-
+   (  var(O) -> throw(error(instantiation_error, PI))
+   ;  O = undo(B)
+   -> (  var(B) -> throw(error(instantiation_error, PI))
+      ;  B == true -> true
+      ;  B == false -> true
+      ;  throw(error(domain_error(oneof([true,false]), B), PI))
+      ),
+      ( U0 == default -> U1 = B ; U1 = U0 ),
+      '$pio_undo_opts'(Os, U1, U, Rest, PI)
+   ;  Rest = [O|Rest1],
+      '$pio_undo_opts'(Os, U0, U, Rest1, PI)
+   ).
 
 phrase_to_stream(G, S) :-
    phrase(G, Ls),

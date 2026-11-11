@@ -764,9 +764,34 @@ defmodule PrologEx.Stream do
     end
   end
 
-  @doc "Datei an der jetzigen Position abschneiden"
-  def truncate(id) do
-    :ok = :file.truncate(get(id).dev)
+  @doc """
+  Datei-Offset, an dem als Nächstes geschrieben wird (bei append das Ende:
+  die Zähler des Streams beginnen dort bei 0)
+  """
+  def write_offset(id) do
+    s = get(id)
+    {:ok, off} = :file.position(s.dev, if(s.mode == :append, do: :eof, else: :cur))
+    off
+  end
+
+  @doc "Zurück an den Offset off, dort abschneiden; die Zähler wie angegeben"
+  def truncate_at(id, chars, lines, line_pos, bytes, off) do
+    s = get(id)
+    {:ok, _} = :file.position(s.dev, off)
+    :ok = :file.truncate(s.dev)
+
+    update(%{
+      s
+      | buf: "",
+        eof: false,
+        past: false,
+        chars: chars,
+        lines: lines,
+        line_pos: line_pos,
+        bytes: bytes
+    })
+
+    :ok
   end
 
   @doc "Position setzen (nur Dateien mit reposition(true))"

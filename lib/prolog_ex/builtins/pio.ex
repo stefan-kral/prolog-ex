@@ -15,37 +15,60 @@ defmodule PrologEx.Builtins.Pio do
   alias PrologEx.Builtins.Blackboard
   alias PrologEx.Stream, as: S
 
-  # --- phrase_to_file/2,3: Schreiben, das Backtracking zurücknimmt ---------
+  # --- phrase_to_file/2,3, phrase_to_stream/3: Schreiben, das Backtracking
+  # zurücknimmt -----------------------------------------------------------
   #
   # Die Position, bis zu der eine Lösung geschrieben hat, steht backtrackbar
-  # in der Substitution (wie b_setval/2). Vor dem Schreiben der nächsten
-  # Lösung und beim Schließen geht der Stream dorthin zurück und die Datei
-  # wird dort abgeschnitten: am Ende steht nur, was die zuletzt gültige
-  # Lösung geschrieben hat. Nur für Dateien, die sich positionieren lassen
-  # (open(..., write, ...) mit reposition(true), der Vorgabe); sonst wie
-  # bisher.
+  # in der Substitution (wie b_setval/2), unter einem Schlüssel je Aufruf.
+  # Vor dem Schreiben der nächsten Lösung und am Ende (Schließen bzw.
+  # Scheitern) geht der Stream dorthin zurück und die Datei wird dort
+  # abgeschnitten: am Ende steht nur, was die zuletzt gültige Lösung
+  # geschrieben hat. Nur für Dateien, die sich positionieren lassen
+  # (reposition(true), Vorgabe bei open/4 mit write oder append).
 
-  # '$pio_mark'(S): jetzige Position merken (backtrackbar)
-  defbuiltin "$pio_mark", [stream] do
+  # '$pio_key'(K): K = neuer Schlüssel für einen Aufruf
+  defbuiltin "$pio_key", [k] do
+    {:unify, [{k, System.unique_integer([:positive])}]}
+  end
+
+  # '$pio_undoable'(S): lässt sich das Geschriebene zurücknehmen?
+  defbuiltin "$pio_undoable", [stream] do
+    undoable?(S.get(S.lookup!(deref(stream))))
+  end
+
+  # '$pio_mark'(S, K): jetzige Position merken (backtrackbar)
+  defbuiltin "$pio_mark", [stream, key] do
     id = S.lookup!(deref(stream))
     S.flush(id)
     s = S.get(id)
-    mark = {:struct, "$p", [s.chars, s.lines, s.line_pos, s.bytes]}
-    {:subst, Blackboard.b_put(subst(), "$pio", "#{id}", mark)}
+    off = if undoable?(s), do: S.write_offset(id), else: 0
+    mark = {:struct, "$p", [s.chars, s.lines, s.line_pos, s.bytes, off]}
+    {:subst, Blackboard.b_put(subst(), "$pio", "#{deref(key)}", mark)}
   end
 
-  # '$pio_rewind'(S): zur gemerkten Position, dahinter abschneiden
-  defbuiltin "$pio_rewind", [stream] do
-    id = S.lookup!(deref(stream))
-    s = S.get(id)
-
-    with true <- s.kind == :file and s.reposition and s.mode == :write,
-         {:ok, {:struct, "$p", [c, l, lp, b]}} <- Blackboard.b_value("$pio", "#{id}", subst()) do
-      S.set_position(id, c, l, lp, b)
-      S.truncate(id)
+  # '$pio_rewind'(S, K): zur gemerkten Position, dahinter abschneiden (ein
+  # inzwischen geschlossener Stream: nichts zu tun)
+  defbuiltin "$pio_rewind", [stream, key] do
+    with {:ok, id} <- lookup(deref(stream)),
+         s when s != nil <- S.get(id),
+         true <- undoable?(s),
+         {:ok, {:struct, "$p", [c, l, lp, b, off]}} <-
+           Blackboard.b_value("$pio", "#{deref(key)}", subst()) do
+      S.flush(id)
+      S.truncate_at(id, c, l, lp, b, off)
     end
 
     true
+  end
+
+  defp undoable?(s), do: s.kind == :file and s.reposition and s.mode in [:write, :append]
+
+  defp lookup(t) do
+    {:ok, S.lookup!(t)}
+  rescue
+    _ -> :error
+  catch
+    _ -> :error
   end
 
   @block 256

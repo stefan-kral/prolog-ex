@@ -523,9 +523,18 @@ Was die Bibliothek bietet:
   dort geschlossen und die letzte Lösung bleibt; bleibt ein Choice Point
   und werden alle Lösungen erschöpft, ist die Datei am Ende leer. Die
   gemerkte Position steht backtrackbar in der Substitution (wie
-  `b_setval/2`), es entsteht kein zusätzlicher Choice Point. Nur für
-  Dateien, die sich positionieren lassen (Vorgabe bei `open/4` mit
-  `write`).
+  `b_setval/2`), es entsteht kein zusätzlicher Choice Point.
+* `phrase_to_stream/3` macht dasselbe auf einem offenen Stream:
+  zurückgenommen wird bis zur Stelle, an der der Aufruf begonnen hat
+  (davor und nach dem endgültigen Erfolg Geschriebenes bleibt; nach dem
+  Erschöpfen aller Lösungen steht der Stream wieder dort). Option
+  `undo(B)`, auch für `phrase_to_file/3`: `true` – zurücknehmen
+  (`permission_error(reposition, stream, S)`, wenn der Stream es nicht
+  kann), `false` – stehen lassen wie Scryer; ohne die Option: zurücknehmen,
+  wo es geht. Das geht bei Dateien, die sich positionieren lassen
+  (Vorgabe bei `open/4` mit `write` oder `append`), nicht bei Terminal,
+  Pipes oder Speicher-Streams. `phrase_to_stream/2` (und damit `format/3`)
+  bleibt wie Scryer.
 
 Mit `as(chars)` oder `as(codes)` wählt man Zeichen oder Codes. Ohne diese
 Option richtet sich die Liste nach dem Flag `double_quotes`: Codes, wenn

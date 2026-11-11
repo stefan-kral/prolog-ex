@@ -26,6 +26,19 @@ defmodule PrologEx.PioTest do
   offen_am_ende(X) --> { ( between(1, 3, X) ; fail ), number_chars(X, Cs) }, seq(Cs).
   worte(W) --> { member(W, ["lang und breit", "kurz"]) }, seq(W).
   wirft(X) --> { between(1, 3, X), ( X =:= 2 -> throw(halt_bei(2)) ; true ) }, "x".
+  :- use_module(library(iso_ext)).
+  :- use_module(library(swi)).
+  % in einen offenen Stream: davor und danach Geschriebenes
+  st(F, Modus, Opts, X) :-
+     setup_call_cleanup(open(F, Modus, S),
+                        ( write(S, 'a:'), phrase_to_stream(zahlen(X), S, Opts),
+                          X =:= 3, write(S, '.') ),
+                        close(S)).
+  st_leer(F) :-
+     setup_call_cleanup(open(F, write, S),
+                        ( write(S, 'a:'),
+                          ( phrase_to_stream(offen_am_ende(_), S, []), fail ; write(S, b) ) ),
+                        close(S)).
   """
 
   setup_all do
@@ -311,5 +324,53 @@ defmodule PrologEx.PioTest do
 
     # mehrere Antworten nacheinander (wie ; im Toplevel)
     assert ask(c, "phrase_to_file(zahlen(X), #{f})", 2) == ["X = 1", "X = 2"]
+
+    # undo(false): wie Scryer und SWI
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}, [undo(false)]), X =:= 3") == ["X = 3"]
+    assert File.read!(out) == "123"
+
+    assert ask(c, "catch(phrase_to_file(zahlen(_), #{f}, [undo(vielleicht)]), error(E, _), true)") ==
+             ["E = domain_error(oneof([true,false]),vielleicht)"]
+  end
+
+  test "phrase_to_stream/3: Backtracking setzt den Stream zurück", c do
+    out = Path.join(c.tmp_dir, "st.txt")
+    f = "'#{out}'"
+
+    # die Lösungen ersetzen einander; davor und danach Geschriebenes bleibt
+    assert ask(c, "st(#{f}, write, [], X)") == ["X = 3"]
+    assert File.read!(out) == "a:3."
+    assert ask(c, "st(#{f}, write, [undo(true)], X)") == ["X = 3"]
+    assert File.read!(out) == "a:3."
+    assert ask(c, "st(#{f}, write, [undo(false)], X)") == ["X = 3"]
+    assert File.read!(out) == "a:123."
+
+    # erschöpft: zurück bis zum Anfang des Aufrufs, danach geht es weiter
+    assert ask(c, "st_leer(#{f})") == ["true"]
+    assert File.read!(out) == "a:b"
+
+    # auch im Modus append
+    File.write!(out, "x")
+    assert ask(c, "st(#{f}, append, [], X)") == ["X = 3"]
+    assert File.read!(out) == "xa:3."
+
+    # nicht positionierbar (Speicher): ohne Option wie phrase_to_stream/2,
+    # mit undo(true) ein Fehler
+    assert ask(
+             c,
+             "with_output_to(atom(A), (current_output(_S), phrase_to_stream(zahlen(X), _S, []), X =:= 2))"
+           ) == ["A = '12', X = 2"]
+
+    assert ask(
+             c,
+             "catch(with_output_to(atom(_), (current_output(S), phrase_to_stream(zahlen(_), S, [undo(true)]))), error(E, _), true)"
+           )
+           |> hd() =~ "E = permission_error(reposition,stream,"
+
+    assert ask(c, "catch(phrase_to_stream(zahlen(_), user_output, [foo]), error(E, _), true)") ==
+             ["E = domain_error(phrase_to_stream_option,foo)"]
+
+    assert ask(c, "catch(phrase_to_stream(zahlen(_), user_output, nix), error(E, _), true)") ==
+             ["E = type_error(list,nix)"]
   end
 end
