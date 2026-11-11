@@ -1047,29 +1047,7 @@ defmodule PrologEx do
   # dürfen auch schon übersetzte statische Prädikate desselben Moduls
   # außerhalb dieses Schritts
   defp jit_batch(preds, db, module) do
-    ext = fn {n, a} ->
-      k = {module, n, a}
-
-      info =
-        case db do
-          %{^k => {:pred, _, _, {:jit, i, _, _, _}, _}} -> i
-          %{{:jit_info, ^module, ^n, ^a} => i} -> i
-          _ -> nil
-        end
-
-      case info do
-        {mod, _, pf, _, sig} -> unless dynamic?(db, k), do: %{mod: mod, p: pf, sig: sig}
-        nil -> nil
-      end
-    end
-
-    dyn = for {{n, a} = k, _} <- preds, dynamic?(db, {module, n, a}), into: MapSet.new(), do: k
-
-    src =
-      for {k, {:pred, cls, _, _, entries}} <- preds,
-          cls != [],
-          do: {k, Enum.map(entries, &elem(&1, 1))}
-
+    {src, ext, dyn} = jit_input(preds, db, module)
     res = PrologEx.Jit.compile_batch(src, ext, dyn)
 
     Enum.reduce(preds, %{}, fn {{n, a} = k, p}, acc ->
@@ -1092,6 +1070,40 @@ defmodule PrologEx do
           Map.put(acc, {module, n, a}, p)
       end
     end)
+  end
+
+  @doc false
+  # Eingabe für PrologEx.Jit (compile_batch/3, explain/3): die Klauseln, die
+  # schon übersetzten statischen Prädikate des Moduls, die dynamischen
+  def jit_input(preds, db, module) do
+    ext = fn {n, a} ->
+      k = {module, n, a}
+
+      info =
+        case db do
+          %{^k => {:pred, _, _, {:jit, i, _, _, _}, _}} -> i
+          %{{:jit_info, ^module, ^n, ^a} => i} -> i
+          _ -> nil
+        end
+
+      case info do
+        {mod, _, pf, _, sig} -> unless dynamic?(db, k), do: %{mod: mod, p: pf, sig: sig}
+        nil -> nil
+      end
+    end
+
+    # alle dynamischen des Moduls (rufen darf übersetzter Code keines)
+    dyn =
+      for {^module, n, a} <- Map.get(db, :dynamic, MapSet.new()),
+          into: MapSet.new(),
+          do: {n, a}
+
+    src =
+      for {k, {:pred, cls, _, _, entries}} <- preds,
+          cls != [],
+          do: {k, Enum.map(entries, &elem(&1, 1))}
+
+    {src, ext, dyn}
   end
 
   # :jit_callers: Gerufener => übersetzte Prädikate, deren Code ihn direkt

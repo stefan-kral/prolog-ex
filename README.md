@@ -103,6 +103,10 @@ Ein Prolog-Kern in Elixir:
     dürfen in Eingaben vorkommen, samt Occurs-Check wie sonst). Kosten,
     wo es nicht passt: eine rekursive DCG-Regel über `phrase/2` (der Rest
     ist dort `[]`, gebunden) prüft je Aufruf vergeblich, +2 % Reduktionen.
+  - `jit_listing/0,1` zeigt je Prädikat eines Moduls, ob es übersetzt ist
+    (Modi und Typen, etwa `app(+list, +any, -)`) oder warum nicht
+    („Klausel 2: Ziel is_list/1“, „Klauseln 1 und 2 schließen sich nicht
+    nachweislich aus“, „ruft r/2, das nicht übersetzt wird“).
   - Gleich wie im Interpreter: Antworten, Fehler, Inferenzen und Grenzen
     (Inferenz-, Zeit-, Speichergrenzen an denselben Prüfpunkten,
     spätestens alle 65 536 Inferenzen). Zwei Unterschiede, beide zum

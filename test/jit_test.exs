@@ -381,6 +381,22 @@ defmodule PrologEx.JitTest do
     assert {_, {:answers, ["R = true"]}} = TableCase.run(c.reader, c.int, q)
   end
 
+  test "jit_listing", c do
+    Reader.put_current(c.reader)
+    {out, _} = TableCase.run(c.reader, c.jit, "fib(5, _), jit_listing")
+    assert out =~ ~r"% fib/2 +übersetzt +fib\(\+int, -int\)"
+    assert out =~ ~r"% app/3 +\S+ +app\(\+list, \+any, -\)"
+    assert out =~ ~r"% first2/2 +nur für Rufer +first2\(\+list, -any\)"
+    assert out =~ ~r"% pz/2 +nein +Klausel 1: Z ist nur in einem Zweig"
+    assert out =~ ~r"% cnj/2 +nein +ruft nj/2, das nicht übersetzt wird"
+    assert out =~ ~r"% nj/2 +nein +Klausel 1: Ziel atom_length/2"
+    assert out =~ ~r"% wd/2 +nein +Klauseln 1 und 2 schließen sich nicht nachweislich aus"
+    assert out =~ ~r"% udsq/2 +nein +Klausel 1: ruft das dynamische dsq/2"
+    {out, _} = TableCase.run(c.reader, c.int, "jit_listing(fib/2)")
+    assert out =~ ~r"% fib/2 +wäre übersetzbar"
+    refute out =~ "app/3"
+  end
+
   # das Flag wirkt auch beim Aufruf: übersetzt geladen, aber abgeschaltet
   # rechnet der Interpreter (Choice Point offen: true statt !)
   test "Flag jit beim Aufruf", c do

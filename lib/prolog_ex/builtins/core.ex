@@ -351,6 +351,17 @@ defmodule PrologEx.Builtins.Core do
     :ok
   end
 
+  # was der JIT übersetzt hat, und warum nicht (PrologEx.JitListing)
+  defbuiltin "jit_listing", [] do
+    PrologEx.Builtins.IO.out(PrologEx.JitListing.listing(db(), :all, context_module()))
+    :ok
+  end
+
+  defbuiltin "jit_listing", [spec] do
+    PrologEx.Builtins.IO.out(PrologEx.JitListing.listing(db(), resolve(spec), context_module()))
+    :ok
+  end
+
   # --- DCG ---------------------------------------------------------------
 
   defbuiltin "phrase", [g, l] do
