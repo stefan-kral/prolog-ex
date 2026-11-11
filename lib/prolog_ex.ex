@@ -4182,6 +4182,9 @@ defmodule PrologEx do
     end
   end
 
+  # Typtests, die inline_body selbst ausführt
+  @inline_tests ~w(var nonvar atom number integer float atomic compound callable)
+
   defp clause_matched(matched, goal, args, more, rest, nfresh, body, key, mod, st) do
     case matched do
       :error ->
@@ -4200,22 +4203,39 @@ defmodule PrologEx do
                  | st.cps
                ], barrier + 1}
 
-        goals = inst_goals(body, env, nv, barrier, mod, rest)
-
         # ein einziges Update des Zustands je Inferenz (statt push, next_var
         # und cont nacheinander: jedes kopiert den ganzen Struct)
         case Store.take_wake(s1) do
           :none ->
-            run(%{
-              st
-              | cps: cps,
-                height: height,
-                next_var: nv + nfresh,
-                goals: goals,
-                subst: s1
-            })
+            # beginnt der Rumpf mit etwas, das inline_body ausführt? (als
+            # Muster hier, ohne Funktionsaufruf: der kostete jede Klausel)
+            case body do
+              [{:t_arith, _, _, _, _} | _] ->
+                inline_body(body, env, nv, barrier, mod, rest, s1, st, {cps, height, nv + nfresh})
+
+              [{:t_lit, {:atom, "!"}} | _] ->
+                inline_body(body, env, nv, barrier, mod, rest, s1, st, {cps, height, nv + nfresh})
+
+              [{:t_struct, f, [_, _]} | _] when f in ["=", "==", "\\=="] ->
+                inline_body(body, env, nv, barrier, mod, rest, s1, st, {cps, height, nv + nfresh})
+
+              [{:t_struct, f, [_]} | _] when f in @inline_tests ->
+                inline_body(body, env, nv, barrier, mod, rest, s1, st, {cps, height, nv + nfresh})
+
+              _ ->
+                run(%{
+                  st
+                  | cps: cps,
+                    height: height,
+                    next_var: nv + nfresh,
+                    goals: inst_goals(body, env, nv, barrier, mod, rest),
+                    subst: s1
+                })
+            end
 
           {ws, s1} ->
+            goals = inst_goals(body, env, nv, barrier, mod, rest)
+
             # Fassung ohne Neck-Cut/Wächter: geweckte Ziele können Choice
             # Points hinterlassen – dann der vollständige Rumpf
             goals =
@@ -4228,6 +4248,148 @@ defmodule PrologEx do
         end
     end
   end
+
+  # --- Deterministische eingebaute Ziele am Anfang des Rumpfs gleich hier --
+  #
+  # `is`, arithmetische Vergleiche, `=`, `==`, `\\==` und Typtests am Anfang
+  # des Rumpfs laufen direkt aus den Vorlagen: ohne sie als Terme zu bauen,
+  # auf den Zielstapel zu legen und einzeln durch run/run_step/step zu
+  # schicken. Sonst genau wie dort: jedes zählt als Inferenz (an einem
+  # Prüfpunkt – Inferenz-, Zeit-, Speichergrenze – weiter über
+  # limit_hit/5 wie in run_step), Scheitern ist backtrack, ein Fehler
+  # throw_ball mit dem Zustand vor dem Ziel, und bindet eines eine
+  # attributierte Variable, laufen die Weckziele vor dem Rest (woken/4).
+  # Der erste andere Ziel beendet das: der Rest wie bisher als Terme.
+
+  # st: der Zustand vor der Klausel; fr = {cps, height, next_var} danach.
+  # Erst am Ende (oder beim Abbruch) ein einziges Update des Structs.
+  defp inline_body([], _env, _nv, _barrier, _mod, rest, s, st, {cps, height, next}),
+    do: run(%{st | cps: cps, height: height, next_var: next, goals: rest, subst: s})
+
+  # Neck-Cut (im Präfix): darüber liegt höchstens der eigene Choice Point
+  # der Klausel (die Ziele davor legen keine an) – also einfach wieder die
+  # Choice Points von vor der Klausel; kein Cleanup nötig
+  defp inline_body(
+         [{:t_lit, {:atom, "!"}} | gs],
+         env,
+         nv,
+         barrier,
+         mod,
+         rest,
+         s,
+         st,
+         {_, _, next}
+       ),
+       do: inline_body(gs, env, nv, barrier, mod, rest, s, st, {st.cps, barrier, next})
+
+  defp inline_body([g | gs] = body, env, nv, barrier, mod, rest, s, st, fr) do
+    {cps, height, next} = fr
+
+    if inline?(g) do
+      n = :atomics.add_get(st.icount, 1, 1)
+
+      if st.ilimit != nil and n > st.ilimit do
+        rest = inst_goals(gs, env, nv, barrier, mod, rest)
+        # wie run_step: das Ziel ohne Ground-Markierung (step erkennt nur
+        # {:struct, ...})
+        goal = unmark_top(inst(g, env, nv))
+
+        st = %{
+          st
+          | cps: cps,
+            height: height,
+            next_var: next,
+            goals: [{goal, barrier, mod} | rest],
+            subst: s
+        }
+
+        limit_hit(goal, barrier, mod, rest, st)
+      else
+        case exec_inline(g, env, nv, s) do
+          {:ok, s1} ->
+            case Store.take_wake(s1) do
+              :none ->
+                inline_body(gs, env, nv, barrier, mod, rest, s1, st, fr)
+
+              {ws, s1} ->
+                st = %{st | cps: cps, height: height, next_var: next}
+                woken(ws, s1, inst_goals(gs, env, nv, barrier, mod, rest), st)
+            end
+
+          :fail ->
+            backtrack(%{st | cps: cps, height: height, next_var: next})
+
+          {:thrown, ball} ->
+            throw_ball(ball, %{st | cps: cps, height: height, next_var: next, subst: s})
+        end
+      end
+    else
+      goals = inst_goals(body, env, nv, barrier, mod, rest)
+      run(%{st | cps: cps, height: height, next_var: next, goals: goals, subst: s})
+    end
+  end
+
+  defp inline?({:t_arith, _, _, _, _}), do: true
+  defp inline?({:t_struct, f, [_, _]}) when f in ["=", "==", "\\=="], do: true
+  defp inline?({:t_struct, f, [_]}) when f in @inline_tests, do: true
+  defp inline?(_), do: false
+
+  # {:ok, s} | :fail | {:thrown, ball}
+  defp exec_inline({:t_arith, :is, out, code, leaves}, env, nv, s) do
+    x = inst(out, env, nv)
+    l = List.to_tuple(inst_args(leaves, env, nv))
+
+    case guarded(fn -> unify(x, PrologEx.Arith.run(code, l, s), s) end) do
+      {:ok, {:ok, s1}} -> {:ok, s1}
+      {:ok, :error} -> :fail
+      thrown -> thrown
+    end
+  end
+
+  defp exec_inline({:t_arith, :cmp, nil, {:cmp, op, a, b}, leaves}, env, nv, s) do
+    l = List.to_tuple(inst_args(leaves, env, nv))
+
+    case guarded(fn -> compare(op, PrologEx.Arith.run(a, l, s), PrologEx.Arith.run(b, l, s)) end) do
+      {:ok, true} -> {:ok, s}
+      {:ok, false} -> :fail
+      thrown -> thrown
+    end
+  end
+
+  defp exec_inline({:t_struct, "=", [x, y]}, env, nv, s) do
+    case guarded(fn -> unify(inst(x, env, nv), inst(y, env, nv), s) end) do
+      {:ok, {:ok, s1}} -> {:ok, s1}
+      {:ok, :error} -> :fail
+      thrown -> thrown
+    end
+  end
+
+  defp exec_inline({:t_struct, eq, [x, y]}, env, nv, s) when eq in ["==", "\\=="] do
+    e = PrologEx.Order.equal?(inst(x, env, nv), inst(y, env, nv), s)
+    if e == (eq == "=="), do: {:ok, s}, else: :fail
+  end
+
+  defp exec_inline({:t_struct, t, [x]}, env, nv, s) do
+    if type_test(t, Store.walk(inst(x, env, nv), s)), do: {:ok, s}, else: :fail
+  end
+
+  # wie die Builtins in PrologEx.Builtins.Core
+  defp type_test("var", t), do: match?({:var, _}, t)
+  defp type_test("nonvar", t), do: not match?({:var, _}, t)
+  defp type_test("atom", t), do: PrologEx.Builtins.Core.atom?(t)
+  defp type_test("number", t), do: is_number(t) or match?({:rat, _, _}, t)
+  defp type_test("integer", t), do: is_integer(t)
+  defp type_test("float", t), do: is_float(t)
+
+  defp type_test("atomic", t),
+    do:
+      is_number(t) or PrologEx.Builtins.Core.atom?(t) or match?({:rat, _, _}, t) or
+        match?({:bytes, _}, t)
+
+  defp type_test("compound", t), do: PrologEx.Builtins.Core.compound?(t)
+
+  defp type_test("callable", t),
+    do: PrologEx.Builtins.Core.compound?(t) or PrologEx.Builtins.Core.atom?(t)
 
   @var_block 4096
 

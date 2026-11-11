@@ -41,6 +41,12 @@ Ein Prolog-Kern in Elixir:
   einem Terminal beginnt, spart so einen Schritt (`S0 = [X|S1]` wird
   Kopfmuster), und `p(X) :- X = a, …` bekommt einen Index. Eine DCG über
   eine Liste von 200 000 Elementen −31 bis −42 %
+- Deterministische eingebaute Ziele am Anfang eines Rumpfs (`is`,
+  arithmetische Vergleiche, `=`, `==`, `\==`, Typtests, ein Neck-Cut)
+  laufen gleich beim Eintritt in die Klausel, direkt aus den Vorlagen –
+  ohne Term, Zielstapel und Schritt-Schleife; Inferenzen, Grenzen,
+  Weckziele und Fehler wie sonst. Zählschleifen −8 %, eine DCG −14 %
+  (BEAM-Reduktionen; die Zeit schwankt mehr)
 - Wächter im Index: beginnt ein Rumpf mit einem Typtest auf die Variable
   des ersten Kopfarguments (`integer/1`, `float/1`, `number/1`, `atom/1`,
   `atomic/1`, `compound/1`, `callable/1`, `var/1`), lässt der Index die
