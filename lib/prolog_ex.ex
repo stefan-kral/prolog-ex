@@ -3083,6 +3083,10 @@ defmodule PrologEx do
 
     case Map.fetch(db, {mod, name, arity}) do
       {:ok, {:pred, _, _, {:jit, _, _, _, _} = jit, _} = pred} ->
+        # jeder Zweig ein Tail Call: ginge es nach dem übersetzten Aufruf
+        # innerhalb von jit_call weiter, legte jeder einen Stackframe an,
+        # der bis zum Ende bleibt (foldl über 300 000 Elemente: so viele
+        # Frames, jede GC durchsucht sie)
         case jit_call(jit, args, rest, st) do
           :no ->
             pred = flat_for_call(pred, {mod, name, arity}, args, st.subst)
@@ -3095,8 +3099,14 @@ defmodule PrologEx do
                 backtrack(st)
             end
 
-          done ->
-            done
+          {:run, st} ->
+            run(st)
+
+          :backtrack ->
+            backtrack(st)
+
+          {:throw, ball} ->
+            throw_ball(ball, st)
         end
 
       {:ok, {:pred, _, _, _, _} = pred} ->
@@ -3249,6 +3259,8 @@ defmodule PrologEx do
     end
   end
 
+  # :no (der Interpreter), {:run, st}, :backtrack oder {:throw, ball} –
+  # weiter macht call_pred/4 (Tail Call)
   defp jit_run(mod, iv, ov, rest, st) do
     s = st.subst
 
@@ -3271,13 +3283,13 @@ defmodule PrologEx do
 
           cond do
             jit_over?(st) ->
-              throw_ball({:atom, "inference_limit_exceeded"}, st)
+              {:throw, {:atom, "inference_limit_exceeded"}}
 
             true ->
               case guarded(fn -> jit_bind(ov, values, s) end) do
-                {:ok, {:ok, s1}} -> run(%{st | goals: rest, subst: s1})
-                {:ok, :error} -> backtrack(st)
-                {:thrown, ball} -> throw_ball(ball, st)
+                {:ok, {:ok, s1}} -> {:run, %{st | goals: rest, subst: s1}}
+                {:ok, :error} -> :backtrack
+                {:thrown, ball} -> {:throw, ball}
               end
           end
 
@@ -3285,8 +3297,8 @@ defmodule PrologEx do
           :atomics.add(st.icount, 1, used)
 
           if jit_over?(st),
-            do: throw_ball({:atom, "inference_limit_exceeded"}, st),
-            else: backtrack(st)
+            do: {:throw, {:atom, "inference_limit_exceeded"}},
+            else: :backtrack
 
         # aufgegeben: nichts gebunden; die Inferenzen wie vorher, der
         # Interpreter fängt neu an
@@ -3295,7 +3307,7 @@ defmodule PrologEx do
           :no
 
         {:thrown, ball} ->
-          throw_ball(ball, st)
+          {:throw, ball}
       end
     end
   end
