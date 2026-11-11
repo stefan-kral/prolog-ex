@@ -48,6 +48,21 @@ defmodule PrologEx.JitTest do
   pz(X, Y) :- ( X > 0 -> Z = 1 ; true ), Y = Z.
   wd(X, Y) :- X = 0, Y = 1.
   wd(X, Y) :- Y is 1 // X, X > 0.
+  ev(N) :- N =:= 0, !.
+  ev(N) :- N > 0, M is N - 1, od(M).
+  od(N) :- N > 0, M is N - 1, ev(M).
+  sq(X, Y) :- Y is X * X.
+  twice(X, Y) :- sq(X, A), Y is A * 2.
+  sumsq(N, S) :- N =< 0, S = 0.
+  sumsq(N, S) :- N > 0, sq(N, Q), M is N - 1, sumsq(M, S0), S is S0 + Q.
+  half(X, Y) :- Y is X / 2.
+  hsum(N, S) :- N =< 0, S = 0.
+  hsum(N, S) :- N > 0, half(N, H), M is N - 1, hsum(M, S0), S is S0 + H.
+  nj(X, Y) :- atom_length(X, Y).
+  cnj(X, Y) :- X > 0, nj(X, Y).
+  :- dynamic(dsq/2).
+  dsq(X, Y) :- Y is X * X.
+  udsq(X, Y) :- dsq(X, Y).
   inf(G, I) :- statistics(inferences, I0), call(G), statistics(inferences, I1), I is I1 - I0.
   """
 
@@ -83,6 +98,18 @@ defmodule PrologEx.JitTest do
           {"user", "cb", 2}
         ],
         do: assert(jitted.(k), inspect(k))
+
+    # Aufrufe anderer übersetzter Prädikate (auch wechselseitig)
+    for k <-
+          [{"user", "ev", 1}, {"user", "od", 1}] ++
+            for(n <- ~w(sq twice sumsq half hsum dsq), do: {"user", n, 2}),
+        do: assert(jitted.(k), inspect(k))
+
+    # ein Gerufener nicht übersetzbar (cnj) oder dynamisch (udsq): nein
+    refute jitted.({"user", "cnj", 2})
+    refute jitted.({"user", "udsq", 2})
+    # half rechnet mit /: auch hsum nimmt Floats
+    assert {:pred, _, _, {:jit, _, {:num, _}, _, _}, _} = c.jit[{"user", "hsum", 2}]
 
     # inf/2 ruft call/1 und statistics/2: nein
     refute jitted.({"user", "inf", 2})
@@ -174,6 +201,22 @@ defmodule PrologEx.JitTest do
         "cr(7, Y)",
         "cr(-1, Y)",
         "pz(1, Y)",
+        "ev(10)",
+        "ev(7)",
+        "od(7)",
+        "inf(ev(100), I)",
+        "call_with_inference_limit(ev(1000), 500, R)",
+        "twice(7, Y)",
+        "twice(1.5, Y)",
+        "sumsq(100, S)",
+        "inf(sumsq(30, _), I)",
+        "hsum(10, S)",
+        "hsum(9, S)",
+        "hsum(9.0, S)",
+        "cnj(3, Y)",
+        "catch(cnj(a, Y), error(E, _), true)",
+        "udsq(4, Y)",
+        "sumsq(20000, S)",
         "findall(Y, wd(0, Y), L)"
       ] do
     test q, c do
@@ -182,6 +225,35 @@ defmodule PrologEx.JitTest do
       b = TableCase.run(c.reader, c.int, unquote(q))
       assert a == b
     end
+  end
+
+  # Ein Gerufener wird neu geladen: wer ihn direkt rief, verliert seinen
+  # Code und ruft die neue Fassung (über den Interpreter)
+  test "Gerufener neu geladen", c do
+    Reader.put_current(c.reader)
+
+    {db, _} =
+      PrologEx.Consult.load(c.jit, Reader.read_terms(c.reader, "sq(X, Y) :- Y is X * X * X."))
+
+    assert {_, {:answers, ["Y = 54"]}} = TableCase.run(c.reader, db, "twice(3, Y)")
+    assert {_, {:answers, ["S = 100"]}} = TableCase.run(c.reader, db, "sumsq(4, S)")
+    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "twice", 2}])
+    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "sumsq", 2}])
+    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "sq", 2}])
+    # unberührt
+    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "ev", 1}])
+  end
+
+  # Ein späterer Ladeschritt ruft schon übersetzte Prädikate direkt
+  test "Aufruf über Ladeschritte hinweg", c do
+    Reader.put_current(c.reader)
+    src = "quad(X, Y) :- sq(X, A), sq(A, Y).\nhq(X, Y) :- half(X, A), sq(A, Y)."
+    {db, _} = PrologEx.Consult.load(c.jit, Reader.read_terms(c.reader, src))
+    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "quad", 2}])
+    assert {_, {:answers, ["Y = 81"]}} = TableCase.run(c.reader, db, "quad(3, Y)")
+    # hq ist nicht ganzzahlig, sq schon übersetzt und ganzzahlig: nein
+    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[{"user", "hq", 2}])
+    assert {_, {:answers, ["Y = 2.25"]}} = TableCase.run(c.reader, db, "hq(3, Y)")
   end
 
   # Einzige Abweichung: setzt der Interpreter in Aufrufe zurück, die

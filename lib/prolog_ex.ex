@@ -1023,21 +1023,107 @@ defmodule PrologEx do
   (Reconsult-Semantik); andere bleiben erhalten.
   """
   def consult(db, clauses, module \\ "user") do
-    jit? = PrologEx.Flags.get("jit") == {:atom, "true"}
-    new = Map.new(build_preds(clauses), fn {{n, a}, p} -> {{module, n, a}, jit(p, jit?)} end)
-    Map.merge(db, new)
+    preds = build_preds(clauses)
+
+    new =
+      if PrologEx.Flags.get("jit") == {:atom, "true"},
+        do: jit_batch(preds, db, module),
+        else: Map.new(preds, fn {{n, a}, p} -> {{module, n, a}, p} end)
+
+    db |> unjit_callers(Map.keys(new)) |> Map.merge(new) |> note_callers(new)
   end
 
   # übersetzbar (PrologEx.Jit)? Dann trägt var_only das Modul:
-  # {:jit, modul, eingaben, ausgaben, var_only}
-  defp jit({:pred, cls, by_key, vo, entries} = p, true) when cls != [] do
-    case PrologEx.Jit.compile(Enum.map(entries, &elem(&1, 1))) do
-      {:ok, mod, ins, outs} -> {:pred, cls, by_key, {:jit, mod, ins, outs, vo}, entries}
-      :no -> p
+  # {:jit, {modul, eintritt, p, gerufen}, eingaben, ausgaben, var_only}.
+  # Gerufen werden dürfen auch schon übersetzte statische Prädikate
+  # desselben Moduls außerhalb dieses Schritts
+  defp jit_batch(preds, db, module) do
+    ext = fn {n, a} ->
+      k = {module, n, a}
+
+      case db do
+        %{^k => {:pred, _, _, {:jit, {mod, _, pf, _}, ins, outs, _}, _}} ->
+          unless dynamic?(db, k) do
+            {num, ks} = if is_list(ins), do: {false, ins}, else: {true, elem(ins, 1)}
+            modes = Map.merge(Map.new(ks, &{&1, :in}), Map.new(outs, &{&1, :out}))
+            %{mod: mod, p: pf, modes: modes, num: num}
+          end
+
+        _ ->
+          nil
+      end
+    end
+
+    dyn = for {{n, a} = k, _} <- preds, dynamic?(db, {module, n, a}), into: MapSet.new(), do: k
+
+    src =
+      for {k, {:pred, cls, _, _, entries}} <- preds,
+          cls != [],
+          do: {k, Enum.map(entries, &elem(&1, 1))}
+
+    res = PrologEx.Jit.compile_batch(src, ext, dyn)
+
+    Map.new(preds, fn {{n, a} = k, p} ->
+      case res do
+        %{^k => {{mod, e, pf, deps}, ins, outs}} ->
+          {:pred, cls, by_key, vo, entries} = p
+          deps = Enum.map(deps, fn {dn, da} -> {module, dn, da} end)
+
+          {{module, n, a},
+           {:pred, cls, by_key, {:jit, {mod, e, pf, deps}, ins, outs, vo}, entries}}
+
+        _ ->
+          {{module, n, a}, p}
+      end
+    end)
+  end
+
+  # :jit_callers: Gerufener => übersetzte Prädikate, deren Code ihn direkt
+  # ruft. Ändert sich der Gerufene (neu geladen, dynamic/1), verlieren sie
+  # ihren Code (der Interpreter ruft dann die neue Fassung)
+  defp note_callers(db, new) do
+    edges =
+      for {k, {:pred, _, _, {:jit, {_, _, _, deps}, _, _, _}, _}} <- new, d <- deps, do: {d, k}
+
+    case edges do
+      [] ->
+        db
+
+      _ ->
+        Map.update(db, :jit_callers, Enum.group_by(edges, &elem(&1, 0), &elem(&1, 1)), fn m ->
+          Enum.reduce(edges, m, fn {d, k}, m -> Map.update(m, d, [k], &[k | &1]) end)
+        end)
     end
   end
 
-  defp jit(p, _), do: p
+  defp unjit_callers(db, keys) do
+    case db do
+      %{:jit_callers => calls} ->
+        case for k <- keys, c <- Map.get(calls, k, []), do: c do
+          [] ->
+            db
+
+          hit ->
+            db = Map.put(db, :jit_callers, Map.drop(calls, keys))
+
+            db =
+              Enum.reduce(hit, db, fn k, db ->
+                case db do
+                  %{^k => {:pred, cls, by_key, {:jit, _, _, _, vo}, entries}} ->
+                    Map.put(db, k, {:pred, cls, by_key, vo, entries})
+
+                  _ ->
+                    db
+                end
+              end)
+
+            unjit_callers(db, hit)
+        end
+
+      _ ->
+        db
+    end
+  end
 
   @doc "Klauseln zu Prädikaten: %{{name, arity} => prädikat}"
   def build_preds(clauses) do
@@ -1054,6 +1140,7 @@ defmodule PrologEx do
     key = pkey(key)
 
     db
+    |> unjit_callers([key])
     |> Map.put_new(key, build_pred([]))
     |> Map.update(:dynamic, MapSet.new([key]), &MapSet.put(&1, key))
   end
@@ -3096,13 +3183,15 @@ defmodule PrologEx do
 
   # --- übersetzte Prädikate (PrologEx.Jit) ---------------------------------
   #
-  # Nur, wenn der Aufruf passt: Eingaben Ganzzahlen, Ausgaben verschiedene
+  # Nur, wenn der Aufruf passt: Eingaben Zahlen, Ausgaben verschiedene
   # gewöhnliche (nicht attributierte) ungebundene Variablen, keine
   # Tiefengrenze. Sonst :no – dann der Interpreter. Inferenzen zählt das
   # übersetzte Stück selbst; an den Prüfpunkten (Inferenz-, Zeit-,
-  # Speichergrenzen) ruft es jit_check/2, wie run_step limit_hit/5.
+  # Speichergrenzen) ruft es jit_check/2, wie run_step limit_hit/5 –
+  # spätestens alle @jit_chunk Inferenzen (dort sieht PrologEx.Jit.tick/0
+  # auch nach der Tiefe des Stacks).
 
-  @jit_big 1_099_511_627_776
+  @jit_chunk 65_536
 
   defp jit_call({:jit, mod, ins, outs, _}, args, rest, %{dlimit: nil} = st) do
     s = st.subst
@@ -3110,7 +3199,10 @@ defmodule PrologEx do
 
     with {:ok, iv} <- jit_ins(ins, a, s, []),
          {:ok, ov} <- jit_outs(outs, a, s, []) do
-      chunk = if st.ilimit == nil, do: @jit_big, else: st.ilimit - :atomics.get(st.icount, 1)
+      chunk =
+        if st.ilimit == nil,
+          do: @jit_chunk,
+          else: min(st.ilimit - :atomics.get(st.icount, 1), @jit_chunk)
 
       if chunk < 1 do
         :no
@@ -3196,8 +3288,8 @@ defmodule PrologEx do
           if st.tlimits != [] or timer_set?(st) or mem_active?(), do: n - 1 + @tcheck
 
         case min_limit(min_ilimit(st.ilimits), timed) do
-          nil -> @jit_big
-          lim -> max(lim - (n - 1), 1)
+          nil -> @jit_chunk
+          lim -> min(max(lim - (n - 1), 1), @jit_chunk)
         end
     end
   end
