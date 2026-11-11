@@ -938,8 +938,11 @@ Wie SWI (`fast_write/2`, `fast_read/2`, `fast_term_serialized/2`) und SICStus
 Datensätze im External Term Format der BEAM auf einen Binärstream
 (`open(F, write, S, [type(binary)])`); am Ende liest `fast_read` den Term
 `end_of_file`. Variablen bleiben geteilt, Attribute fallen weg. Gelesen
-wird sicher (`:safe`, nur Prolog-Terme) – kaputte oder fremde Daten geben
-`syntax_error(fast_term)`, eine andere Formatversion
+wird sicher, auch gegen absichtlich manipulierte Daten: `:safe` (keine
+neuen Atome, keine Funktionsverweise), kein komprimiertes ETF (keine
+Zip-Bombe), nur Prolog-Terme (Namen gültiges UTF-8, Stelligkeit höchstens
+`max_arity`), und als ground markiert wird erst beim Aufbau – kaputte oder
+fremde Daten geben `syntax_error(fast_term)`, eine andere Formatversion
 `syntax_error(fast_term_version)`. 100 000 Terme: `fast_write` 0,7 s statt
 `writeq` 3,1 s, `fast_read` 1,6 s statt `read` 17 s.
 

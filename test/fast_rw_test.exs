@@ -172,6 +172,40 @@ defmodule PrologEx.FastRWTest do
     assert_raise ArgumentError, fn -> String.to_existing_atom("atom_gibt_es_nicht_1") end
   end
 
+  # Datensatz um ein selbst gebautes ETF lesen
+  defp read_etf(c, etf) do
+    bytes = :erlang.binary_to_list(<<"PXT", 1, byte_size(etf)::32, etf::binary>>)
+
+    ask(
+      c,
+      "catch(fast_term_serialized(T, #{inspect(bytes, limit: :infinity)}), error(E, _), true)"
+    )
+  end
+
+  test "Sabotage: Zip-Bombe, ungültiges UTF-8, zu große Stelligkeit", c do
+    # komprimiert (wir schreiben nie so): abgelehnt, nicht entpackt
+    big = {:atom, String.duplicate("a", 100_000)}
+    etf = :erlang.term_to_binary(big, compressed: 9)
+    assert byte_size(etf) < 1000
+    assert read_etf(c, etf) == ["E = syntax_error(fast_term)"]
+    # dasselbe unkomprimiert geht
+    assert read_etf(c, :erlang.term_to_binary(big)) |> hd() =~ "T = aaaa"
+
+    # Namen in ungültigem UTF-8
+    assert read_etf(c, :erlang.term_to_binary({:atom, <<255, 254>>})) ==
+             ["E = syntax_error(fast_term)"]
+
+    assert read_etf(c, :erlang.term_to_binary({:struct, <<0xC3>>, [1]})) ==
+             ["E = syntax_error(fast_term)"]
+
+    # Stelligkeit über max_arity (255)
+    assert read_etf(c, :erlang.term_to_binary({:struct, "f", List.duplicate(1, 256)})) ==
+             ["E = syntax_error(fast_term)"]
+
+    assert read_etf(c, :erlang.term_to_binary({:struct, "f", List.duplicate(1, 255)}))
+           |> hd() =~ "T = f(1,"
+  end
+
   test "Dateinamen als Zeichenliste auch fuer open/3,4 (Pfad ohne Umlaut: siehe README)", c do
     assert [_] = ask(c, "open(\"#{c.f}\", write, S), write(S, hallo), close(S)")
     assert File.read!(c.f) == "hallo"

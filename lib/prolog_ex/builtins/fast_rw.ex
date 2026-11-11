@@ -17,8 +17,10 @@ defmodule PrologEx.Builtins.FastRW do
   (`term_to_binary`) – geschrieben und gelesen in C, viel schneller als
   `writeq`/`read`. Variablen werden nach ihrem ersten Auftreten nummeriert
   (gleiche Variablen bleiben gleich), Attribute fallen weg (wie
-  copy_term/2). Gelesen wird mit der Option `:safe` und geprüft, dass nur
-  Prolog-Terme darin stehen – eine fremde oder kaputte Datei gibt
+  copy_term/2). Gelesen wird mit der Option `:safe` (keine neuen Atome,
+  keine fremden Funktionsverweise), ohne komprimiertes ETF (keine
+  Zip-Bombe) und geprüft, dass nur Prolog-Terme darin stehen (Namen
+  gültiges UTF-8, Stelligkeit höchstens `max_arity`) – eine fremde oder kaputte Datei gibt
   `syntax_error(fast_term)`, eine andere Formatversion
   `syntax_error(fast_term_version)`.
 
@@ -118,6 +120,10 @@ defmodule PrologEx.Builtins.FastRW do
 
   def decode_record(_), do: Error.syntax!("fast_term")
 
+  # komprimiertes ETF (Kennung 80) schreiben wir nie: abgelehnt, denn
+  # binary_to_term entpackte es ungefragt (aus 1 MB können ~1 GB werden)
+  defp decode(<<131, 80, _::binary>>), do: Error.syntax!("fast_term")
+
   defp decode(etf) do
     term =
       try do
@@ -148,7 +154,10 @@ defmodule PrologEx.Builtins.FastRW do
        when is_integer(n) and is_integer(d) and d > 1 and n != 0,
        do: if(Integer.gcd(n, d) == 1, do: {r, m}, else: Error.syntax!("fast_term"))
 
-  defp fresh_vars({:atom, name} = a, m) when is_binary(name), do: {a, m}
+  # Namen: gültiges UTF-8 (das nimmt die ganze Maschine an)
+  defp fresh_vars({:atom, name} = a, m) when is_binary(name),
+    do: if(String.valid?(name), do: {a, m}, else: Error.syntax!("fast_term"))
+
   defp fresh_vars({:bytes, bin} = b, m) when is_binary(bin), do: {b, m}
   defp fresh_vars([], m), do: {[], m}
 
@@ -159,6 +168,9 @@ defmodule PrologEx.Builtins.FastRW do
   end
 
   defp fresh_vars({:struct, f, [_ | _] = args}, m) when is_binary(f) do
+    unless String.valid?(f) and length(args) <= PrologEx.Flags.max_arity(),
+      do: Error.syntax!("fast_term")
+
     {args, m} = Enum.map_reduce(args, m, &fresh_vars/2)
     {mk(f, args), m}
   end
