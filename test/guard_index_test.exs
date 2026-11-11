@@ -27,6 +27,11 @@ defmodule PrologEx.GuardIndexTest do
   g(X, zahl) :- integer(X).
   h(X, z) :- integer(X), !.
   h(X, a) :- atom(X), !.
+  p(x, g(1)).
+  q(1, a) :- !.
+  q(2, b).
+  w(X, Y) :- integer(X), !, Y = z.
+  w(X, a) :- atom(X).
   :- dynamic(d/1).
   d(X) :- integer(X), !.
   d(a).
@@ -76,6 +81,14 @@ defmodule PrologEx.GuardIndexTest do
         {"det(h(1, A), D)", ["A = z, D = ja"]},
         {"findall(A, h(_, A), L)", ["L = []"]},
         {"findall(A, h(x, A), L)", ["L = [a]"]},
+        # weckt die Kopfunifikation Ziele, gilt der vollständige Rumpf: der
+        # Schnitt nimmt ihre Choice Points weg (wie ohne Fassungen)
+        {"findall(Y, (freeze(Y, (true ; true)), q(1, Y)), L)", ["L = [a]"]},
+        # hier weckt erst Y = z nach dem Schnitt: zwei Lösungen (richtig)
+        {"findall(Y, (freeze(Y, (true ; true)), w(1, Y)), L)", ["L = [z,z]"]},
+        # ein Fakt, aber zwei Lösungen: die des geweckten Ziels
+        {"findall(X-Y, (freeze(X, (Y = g(1) ; Y = h(2) ; Y = g(1))), p(X, Y)), L)",
+         ["L = [x-g(1),x-g(1)]"]},
         # assert auf ein Prädikat mit weggefallenem Schnitt: wieder wirksam
         {"assertz(d(5)), findall(X, d(5), L)", ["L = [_A]"]},
         {"asserta(d(7)), findall(X, d(7), L)", ["L = [_A,_B]"]},

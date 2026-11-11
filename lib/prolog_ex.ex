@@ -1249,7 +1249,10 @@ defmodule PrologEx do
       end
 
     t2 = if last?, do: drop_neck_cut(t1, []), else: t1
-    if t2 === tmpls, do: c, else: {:clause, key, ns, pats, nf, t2, nv}
+    # der Schlüssel trägt den vollständigen Rumpf: weckt die Kopfunifikation
+    # Ziele, gilt der (sie können Choice Points hinterlassen, die der
+    # Schnitt wegnähme; siehe clause_matched/10)
+    if t2 === tmpls, do: c, else: {:clause, {:spec, tmpls}, ns, pats, nf, t2, nv}
   end
 
   defp drop_neck_cut([{:t_struct, t, [_]} = g | rest], acc) when t in @type_tests,
@@ -4156,7 +4159,7 @@ defmodule PrologEx do
 
   # mod: Modul, in dem das Prädikat definiert ist (Kontext für den Rumpf)
   defp try_clauses(goal, args, [cl | more], rest, mod, st) do
-    {:clause, _key, nslots, pats, nfresh, body, nvars} = cl
+    {:clause, key, nslots, pats, nfresh, body, nvars} = cl
     env = :erlang.make_tuple(nslots, nil)
     # reicht der Block von Kennungen für die frischen Variablen?
     st = if st.next_var + nvars > st.var_end, do: new_block(st, nvars), else: st
@@ -4167,16 +4170,19 @@ defmodule PrologEx do
 
     if mode == :error do
       case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var, mode) end) do
-        {:ok, matched} -> clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
-        {:thrown, ball} -> throw_ball(ball, st)
+        {:ok, matched} ->
+          clause_matched(matched, goal, args, more, rest, nfresh, body, key, mod, st)
+
+        {:thrown, ball} ->
+          throw_ball(ball, st)
       end
     else
       matched = match_args(pats, args, env, st.subst, st.next_var, mode)
-      clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st)
+      clause_matched(matched, goal, args, more, rest, nfresh, body, key, mod, st)
     end
   end
 
-  defp clause_matched(matched, goal, args, more, rest, nfresh, body, mod, st) do
+  defp clause_matched(matched, goal, args, more, rest, nfresh, body, key, mod, st) do
     case matched do
       :error ->
         try_clauses(goal, args, more, rest, mod, st)
@@ -4210,6 +4216,14 @@ defmodule PrologEx do
             })
 
           {ws, s1} ->
+            # Fassung ohne Neck-Cut/Wächter: geweckte Ziele können Choice
+            # Points hinterlassen – dann der vollständige Rumpf
+            goals =
+              case key do
+                {:spec, full} -> inst_goals(full, env, nv, barrier, mod, rest)
+                _ -> goals
+              end
+
             woken(ws, s1, goals, %{st | cps: cps, height: height, next_var: nv + nfresh})
         end
     end
