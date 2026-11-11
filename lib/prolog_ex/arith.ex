@@ -299,6 +299,10 @@ defmodule PrologEx.Arith do
   end
 
   @doc false
+  # für PrologEx.Jit: die auswertbaren Funktoren {zweistellig, einstellig}
+  def ops, do: {@ops2, @ops1}
+
+  @doc false
   # für PrologEx.Jit: eine Operation auf Werten, genau wie im Interpreter
   # (Fehler, Grenzen); Aufrufer fängt ArithmeticError/SystemLimitError wie run/3
   def op2(op, x, y), do: eval2(op, x, y)

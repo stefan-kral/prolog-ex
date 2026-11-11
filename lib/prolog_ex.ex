@@ -3138,11 +3138,22 @@ defmodule PrologEx do
 
   defp jit_call(_, _, _, _), do: :no
 
+  # Eingaben: Ganzzahlen; {:num, ks}: Zahlen (Ganzzahlen oder Floats)
+  defp jit_ins({:num, ks}, a, s, acc), do: jit_nums(ks, a, s, acc)
   defp jit_ins([], _a, _s, acc), do: {:ok, Enum.reverse(acc)}
 
   defp jit_ins([k | ks], a, s, acc) do
     case Store.walk(elem(a, k), s) do
       n when is_integer(n) -> jit_ins(ks, a, s, [n | acc])
+      _ -> :no
+    end
+  end
+
+  defp jit_nums([], _a, _s, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp jit_nums([k | ks], a, s, acc) do
+    case Store.walk(elem(a, k), s) do
+      n when is_integer(n) or is_float(n) -> jit_nums(ks, a, s, [n | acc])
       _ -> :no
     end
   end
@@ -5141,13 +5152,15 @@ defmodule PrologEx do
   defp eval(t, subst), do: PrologEx.Arith.eval(t, subst)
 
   # Brüche (Tupel): PrologEx.Arith.compare_num/3
-  defp compare(op, x, y) when is_tuple(x) or is_tuple(y), do: PrologEx.Arith.compare_num(op, x, y)
-  defp compare("<", x, y), do: x < y
-  defp compare(">", x, y), do: x > y
-  defp compare(">=", x, y), do: x >= y
-  defp compare("=<", x, y), do: x <= y
-  defp compare("=:=", x, y), do: x == y
-  defp compare("=\\=", x, y), do: x != y
+  @doc false
+  # arithmetischer Vergleich zweier Werte (auch von PrologEx.Jit benutzt)
+  def compare(op, x, y) when is_tuple(x) or is_tuple(y), do: PrologEx.Arith.compare_num(op, x, y)
+  def compare("<", x, y), do: x < y
+  def compare(">", x, y), do: x > y
+  def compare(">=", x, y), do: x >= y
+  def compare("=<", x, y), do: x <= y
+  def compare("=:=", x, y), do: x == y
+  def compare("=\\=", x, y), do: x != y
 
   # ---------------------------------------------------------------------
   # Top-Level: Lösungen als lazy Stream

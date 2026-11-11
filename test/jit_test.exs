@@ -27,6 +27,27 @@ defmodule PrologEx.JitTest do
   d(X, Y) :- Y is 10 // X.
   p2(0, 1) :- !.
   p2(N, R) :- N1 is N - 1, p2(N1, R1), R is R1 * 2.
+  sum(N, S) :- N =< 0, S = 0.
+  sum(N, S) :- N > 0, M is N - 1, sum(M, S0), S is S0 + N.
+  fibi(N, F) :- ( N < 2 -> F = N ; A is N-1, B is N-2, fibi(A, FA), fibi(B, FB), F is FA+FB ).
+  mx(X, Y, Z) :- ( X >= Y -> Z = X ; Z = Y ).
+  sg(X, S) :- ( X > 0 -> S = 1 ; X < 0 -> S = -1 ; S = 0 ).
+  fl(N, X) :- N =< 0, !, X = 1.0.
+  fl(N, X) :- M is N - 1, fl(M, Y), X is Y * 1.5.
+  hyp(A, B, C) :- C is sqrt(A*A + B*B).
+  dv(X, Y) :- Y is X / 2.
+  nt(X, Y) :- \+ X > 10, Y is X * 2.
+  w(X, Y) :- X = 0, Y = 10.
+  w(X, Y) :- X > 0, Y is X + 1.
+  z(X, Y) :- X = 0, !, Y = 10.
+  z(X, Y) :- Y is X + 1.
+  it(X) :- ( X > 0 -> true ).
+  nf(X) :- ( X > 5 -> fail ; true ).
+  cb(X, Y) :- ( X > 0 -> !, Y = 1 ; Y = 2 ), Y > 1.
+  cr(X, Y) :- ( X > 0, Z is X * 2, Z < 10 -> Y is Z + 1 ; Y = 0 ).
+  pz(X, Y) :- ( X > 0 -> Z = 1 ; true ), Y = Z.
+  wd(X, Y) :- X = 0, Y = 1.
+  wd(X, Y) :- Y is 1 // X, X > 0.
   inf(G, I) :- statistics(inferences, I0), call(G), statistics(inferences, I1), I is I1 - I0.
   """
 
@@ -51,8 +72,25 @@ defmodule PrologEx.JitTest do
     for k <- [{"user", "col", 2}, {"user", "ab", 2}, {"user", "d", 2}, {"user", "p2", 2}],
         do: assert(jitted.(k), inspect(k))
 
+    for k <- ~w(sum fibi sg fl dv nt w z cr),
+        do: assert(jitted.({"user", k, 2}), k)
+
+    for k <- [
+          {"user", "mx", 3},
+          {"user", "hyp", 3},
+          {"user", "it", 1},
+          {"user", "nf", 1},
+          {"user", "cb", 2}
+        ],
+        do: assert(jitted.(k), inspect(k))
+
     # inf/2 ruft call/1 und statistics/2: nein
     refute jitted.({"user", "inf", 2})
+    # Z nur in einem Zweig bestimmt: nein
+    refute jitted.({"user", "pz", 2})
+    # vor X > 0 kann 1 // X werfen (der Interpreter würde die Klausel nach
+    # wd(0, Y) beim Zurücksetzen versuchen): nein
+    refute jitted.({"user", "wd", 2})
     # mit Flag jit = false nichts
     refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, c.int[{"user", "fib", 2}])
   end
@@ -89,7 +127,54 @@ defmodule PrologEx.JitTest do
         "catch(call_with_time_limit(0.05, lp(100000000)), E, true)",
         "call_with_depth_limit(fib(10, F), 100, R)",
         "freeze(F, true), fib(10, F)",
-        "findall(F, (member(N, [5, 6, 7]), fib(N, F)), L)"
+        "findall(F, (member(N, [5, 6, 7]), fib(N, F)), L)",
+        "sum(100, S)",
+        "sum(0, S)",
+        "sum(3.0, S)",
+        "inf(sum(50, _), I)",
+        "fibi(20, F)",
+        "inf(fibi(12, _), I)",
+        "call_with_inference_limit(fibi(12, _), 500, R)",
+        "call_with_inference_limit(fibi(12, _), 2000, R)",
+        "mx(3, 5, Z)",
+        "mx(5, 3, Z)",
+        "mx(5.0, 5, Z)",
+        "findall(S, (member(X, [-3, 0, 7]), sg(X, S)), L)",
+        "inf(sg(0, _), I)",
+        "fl(10, X)",
+        "fl(3, 3.375)",
+        "fl(3, 3.4)",
+        "fl(2.5, X)",
+        "inf(fl(20, _), I)",
+        "hyp(3, 4, C)",
+        "hyp(3.0, 4, C)",
+        "catch(hyp(1.0e200, 1.0e200, C), error(E, _), true)",
+        "dv(7, Y)",
+        "dv(8, Y)",
+        "dv(7.0, Y)",
+        "nt(5, Y)",
+        "nt(50, Y)",
+        "inf(nt(5, _), I)",
+        "w(0, Y)",
+        "w(5, Y)",
+        "w(-1, Y)",
+        "w(0.0, Y)",
+        "z(0, Y)",
+        "z(3, Y)",
+        "it(1)",
+        "it(-1)",
+        "inf(\\+ it(-1), I)",
+        "nf(3)",
+        "nf(9)",
+        "inf(nf(3), I)",
+        "inf(\\+ nf(9), I)",
+        "cb(1, Y)",
+        "cb(-1, Y)",
+        "cr(3, Y)",
+        "cr(7, Y)",
+        "cr(-1, Y)",
+        "pz(1, Y)",
+        "findall(Y, wd(0, Y), L)"
       ] do
     test q, c do
       Reader.put_current(c.reader)

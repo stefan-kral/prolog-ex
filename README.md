@@ -43,26 +43,39 @@ Ein Prolog-Kern in Elixir:
   eine Liste von 200 000 Elementen −31 bis −42 %
 - JIT für deterministische, rein arithmetische Prädikate (Flag `jit`,
   Vorgabe `true`): beim Laden in BEAM-Code übersetzt, die Werte in
-  Erlang-Variablen statt in Bindungen. fib(21) 155 → 1–2 ms, eine
-  Zählschleife über 10⁶ 1,3 s → 8 ms. Übersetzt wird ein Prädikat, wenn
-  jede Klausel im Kopf nur Ganzzahlen und Variablen hat und im Rumpf nur
-  `is`, arithmetische Vergleiche, `!` und Aufrufe von sich selbst, mit
-  ganzzahligen Operationen (+ - * // mod rem div min max >> << /\ \/ xor
-  gcd abs sign msb \), und wenn je zwei Klauseln sich nachweislich
-  ausschließen (Schnitt in der früheren, verschiedene Konstanten,
-  ein Vergleich am Anfang, der für die Konstante der anderen falsch ist,
-  oder einander ausschließende Vergleiche wie `X > 0` / `X =< 0`). Die
-  Modi ergeben sich aus dem Rumpf (gelesen: Eingabe; von `is` oder dem
-  eigenen Aufruf bestimmt oder nirgends gelesen: Ausgabe). Benutzt wird
-  der Code nur, wenn der Aufruf passt – Eingaben Ganzzahlen, Ausgaben
-  verschiedene frische Variablen ohne Attribute, keine Tiefengrenze –,
-  sonst rechnet der Interpreter. Gleich wie dort: Antworten, Fehler,
-  Inferenzen und Grenzen (Inferenz-, Zeit-, Speichergrenzen an denselben
-  Prüfpunkten). Zwei Unterschiede, beide zum Besseren: das übersetzte
-  Prädikat hinterlässt keine Choice Points (`call_with_inference_limit/3`
-  gibt `!` statt `true`), und beim Zurücksetzen zählt es keine Versuche von
-  Klauseln, die ohnehin nichts finden. Die Module heißen nach einem Hash
-  ihrer Klauseln (dasselbe Programm neu geladen nimmt das vorhandene)
+  Erlang-Variablen statt in Bindungen. fib(23) 390 → 1–2 ms, eine
+  Zählschleife über 10⁶ 1,1 s → 9 ms, eine nicht endrekursive Summe über
+  200 000 1,6 s → 6 ms, eine Float-Rekursion 1,3 s → 70 ms. Übersetzt
+  wird ein Prädikat, wenn jede Klausel im Kopf nur Zahlen und Variablen
+  hat und im Rumpf nur `is`, arithmetische Vergleiche, `X = Y` (Zahlen
+  oder Variablen), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`,
+  `\+ G` und Aufrufe von sich selbst, mit allen auswertbaren Funktoren
+  außer `random`/`random_float` (dazu `pi`, `e`, `epsilon`), und wenn je
+  zwei Klauseln sich nachweislich ausschließen (Schnitt in der früheren,
+  verschiedene Konstanten – auch `X = 0` am Anfang des Rumpfs –, ein
+  Vergleich am Anfang, der für die Konstante der anderen falsch ist, oder
+  einander ausschließende Vergleiche wie `X > 0` / `X =< 0`; davor darf
+  in der späteren Klausel nichts werfen können). Eine Variable, die nur
+  ein Zweig eines If-then-else bestimmt, darf danach nicht mehr vorkommen.
+  Rechnet das Prädikat nur mit Ganzzahlen und ganzzahligen Operationen
+  (+ - * // mod rem div min max >> << /\ \/ xor gcd abs sign msb \),
+  rechnet der Code + - * direkt und nimmt ganzzahlige Eingaben; sonst
+  alles über dieselben Funktionen wie der Interpreter (Floats, auch
+  rationale Zwischenwerte) und nimmt Ganzzahlen und Floats. Die Modi
+  ergeben sich aus dem Rumpf (gelesen: Eingabe; von `is` oder dem eigenen
+  Aufruf bestimmt oder nirgends gelesen: Ausgabe; `=` legt nichts fest).
+  Benutzt wird der Code nur, wenn der Aufruf passt – Eingaben Zahlen,
+  Ausgaben verschiedene frische Variablen ohne Attribute, keine
+  Tiefengrenze –, sonst rechnet der Interpreter. Gleich wie dort:
+  Antworten, Fehler, Inferenzen und Grenzen (Inferenz-, Zeit-,
+  Speichergrenzen an denselben Prüfpunkten). Zwei Unterschiede, beide zum
+  Besseren: das übersetzte Prädikat hinterlässt keine Choice Points
+  (`call_with_inference_limit/3` gibt `!` statt `true`), und beim
+  Zurücksetzen zählt es keine Versuche von Klauseln, die ohnehin nichts
+  finden. Scheitern legt im übersetzten Code nichts auf den Heap (bei
+  tiefer Rekursion durchsucht jede Garbage Collection den ganzen Stack:
+  die Summe über 200 000 so 100 → 10 ms). Die Module heißen nach einem
+  Hash ihrer Klauseln (dasselbe Programm neu geladen nimmt das vorhandene)
 - Deterministische eingebaute Ziele am Anfang eines Rumpfs (`is`,
   arithmetische Vergleiche, `=`, `==`, `\==`, Typtests, ein Neck-Cut)
   laufen gleich beim Eintritt in die Klausel, direkt aus den Vorlagen –
