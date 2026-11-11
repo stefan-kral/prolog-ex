@@ -1772,7 +1772,12 @@ defmodule PrologEx do
   # und is/2; nicht: Steuerkonstrukte und call/N (das gerufene Ziel zählt
   # selbst), interne Ziele der Maschine
   # Ergebnis: der neue Zählerstand, nil für ungezählte Schritte
-  defp count_inference({:struct, f, _}, _ref) when f in [",", ";", "->", ":", "call"], do: nil
+  # (erst die Länge: die meisten Namen sind länger als 4 Bytes, dann
+  # entfallen die fünf Vergleiche)
+  defp count_inference({:struct, f, _}, _ref)
+       when byte_size(f) <= 4 and f in [",", ";", "->", ":", "call"],
+       do: nil
+
   defp count_inference({:struct, _, _}, ref), do: :atomics.add_get(ref, 1, 1)
   defp count_inference({:atom, "!"}, _ref), do: nil
   defp count_inference({:atom, _}, ref), do: :atomics.add_get(ref, 1, 1)
@@ -4282,57 +4287,63 @@ defmodule PrologEx do
        ),
        do: inline_body(gs, env, nv, barrier, mod, rest, s, st, {st.cps, barrier, next})
 
-  defp inline_body([g | gs] = body, env, nv, barrier, mod, rest, s, st, fr) do
-    {cps, height, next} = fr
+  # (als Muster in den Köpfen, ohne Funktionsaufruf je Ziel)
+  defp inline_body([{:t_arith, _, _, _, _} = g | gs], env, nv, barrier, mod, rest, s, st, fr),
+    do: inline_one(g, gs, env, nv, barrier, mod, rest, s, st, fr)
 
-    if inline?(g) do
-      n = :atomics.add_get(st.icount, 1, 1)
+  defp inline_body([{:t_struct, f, [_, _]} = g | gs], env, nv, barrier, mod, rest, s, st, fr)
+       when f in ["=", "==", "\\=="],
+       do: inline_one(g, gs, env, nv, barrier, mod, rest, s, st, fr)
 
-      if st.ilimit != nil and n > st.ilimit do
-        rest = inst_goals(gs, env, nv, barrier, mod, rest)
-        # wie run_step: das Ziel ohne Ground-Markierung (step erkennt nur
-        # {:struct, ...})
-        goal = unmark_top(inst(g, env, nv))
+  defp inline_body([{:t_struct, f, [_]} = g | gs], env, nv, barrier, mod, rest, s, st, fr)
+       when f in @inline_tests,
+       do: inline_one(g, gs, env, nv, barrier, mod, rest, s, st, fr)
 
-        st = %{
-          st
-          | cps: cps,
-            height: height,
-            next_var: next,
-            goals: [{goal, barrier, mod} | rest],
-            subst: s
-        }
-
-        limit_hit(goal, barrier, mod, rest, st)
-      else
-        case exec_inline(g, env, nv, s) do
-          {:ok, s1} ->
-            case Store.take_wake(s1) do
-              :none ->
-                inline_body(gs, env, nv, barrier, mod, rest, s1, st, fr)
-
-              {ws, s1} ->
-                st = %{st | cps: cps, height: height, next_var: next}
-                woken(ws, s1, inst_goals(gs, env, nv, barrier, mod, rest), st)
-            end
-
-          :fail ->
-            backtrack(%{st | cps: cps, height: height, next_var: next})
-
-          {:thrown, ball} ->
-            throw_ball(ball, %{st | cps: cps, height: height, next_var: next, subst: s})
-        end
-      end
-    else
-      goals = inst_goals(body, env, nv, barrier, mod, rest)
-      run(%{st | cps: cps, height: height, next_var: next, goals: goals, subst: s})
-    end
+  defp inline_body(body, env, nv, barrier, mod, rest, s, st, {cps, height, next}) do
+    goals = inst_goals(body, env, nv, barrier, mod, rest)
+    run(%{st | cps: cps, height: height, next_var: next, goals: goals, subst: s})
   end
 
-  defp inline?({:t_arith, _, _, _, _}), do: true
-  defp inline?({:t_struct, f, [_, _]}) when f in ["=", "==", "\\=="], do: true
-  defp inline?({:t_struct, f, [_]}) when f in @inline_tests, do: true
-  defp inline?(_), do: false
+  defp inline_one(g, gs, env, nv, barrier, mod, rest, s, st, fr) do
+    {cps, height, next} = fr
+    n = :atomics.add_get(st.icount, 1, 1)
+
+    if st.ilimit != nil and n > st.ilimit do
+      rest = inst_goals(gs, env, nv, barrier, mod, rest)
+      # wie run_step: das Ziel ohne Ground-Markierung (step erkennt nur
+      # {:struct, ...})
+      goal = unmark_top(inst(g, env, nv))
+
+      st = %{
+        st
+        | cps: cps,
+          height: height,
+          next_var: next,
+          goals: [{goal, barrier, mod} | rest],
+          subst: s
+      }
+
+      limit_hit(goal, barrier, mod, rest, st)
+    else
+      case exec_inline(g, env, nv, s) do
+        {:ok, s1} ->
+          case Store.take_wake(s1) do
+            :none ->
+              inline_body(gs, env, nv, barrier, mod, rest, s1, st, fr)
+
+            {ws, s1} ->
+              st = %{st | cps: cps, height: height, next_var: next}
+              woken(ws, s1, inst_goals(gs, env, nv, barrier, mod, rest), st)
+          end
+
+        :fail ->
+          backtrack(%{st | cps: cps, height: height, next_var: next})
+
+        {:thrown, ball} ->
+          throw_ball(ball, %{st | cps: cps, height: height, next_var: next, subst: s})
+      end
+    end
+  end
 
   # {:ok, s} | :fail | {:thrown, ball}
   defp exec_inline({:t_arith, :is, out, code, leaves}, env, nv, s) do
