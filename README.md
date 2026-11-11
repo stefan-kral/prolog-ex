@@ -53,15 +53,18 @@ Ein Prolog-Kern in Elixir:
   - Was übersetzt wird – jede Klausel: im Kopf Zahlen, Variablen, `[]`
     und `[E1, …, En | T]` (E Zahlen oder Variablen); im Rumpf `is`,
     arithmetische Vergleiche, `X = Y` (Terme wie im Kopf), `!`, `true`,
-    `fail`, `( C -> T ; E )`, `( C -> T )`, `\+ G` und Aufrufe von sich
-    selbst oder anderen übersetzten Prädikaten desselben Moduls; alle
+    `fail`, `( C -> T ; E )`, `( C -> T )`, `\+ G`, Typtests (`var`,
+    `nonvar`, `atom`, `number`, `integer`, `float`, `atomic`, `compound`,
+    `callable`, `is_list`), `==`, `\==` und Aufrufe von sich selbst oder
+    anderen übersetzten Prädikaten desselben Moduls; alle
     auswertbaren Funktoren außer `random`/`random_float` (dazu `pi`, `e`,
     `epsilon`). Je zwei Klauseln müssen sich nachweislich ausschließen
     (Schnitt in der früheren, verschiedene Muster – Konstanten, `[]`
     gegen `[_|_]`, auch `X = 0` am Anfang des Rumpfs –, ein Vergleich am
-    Anfang, der für die Konstante der anderen falsch ist, oder einander
-    ausschließende Vergleiche wie `X > 0` / `X =< 0`; davor darf in der
-    späteren Klausel nichts werfen können). Eine Variable, die nur ein
+    Anfang, der für die Konstante der anderen falsch ist, einander
+    ausschließende Vergleiche wie `X > 0` / `X =< 0`, oder Typtests und
+    Muster ohne Gemeinsames wie `integer(X)` / `float(X)` / `[]`; davor
+    darf in der späteren Klausel nichts werfen können). Eine Variable, die nur ein
     Zweig eines If-then-else bestimmt, darf danach nicht mehr vorkommen.
   - Modi und Typen: steht eine Kopfvariable zuerst in einem Vergleich
     oder rechts in `is`, ist sie Eingabe, links in `is` Ausgabe, als
@@ -73,6 +76,17 @@ Ein Prolog-Kern in Elixir:
     sein muss, folgt aus dem Gebrauch (gerechnet, zerlegt, verglichen);
     Ausgabetypen dürfen von Eingaben abhängen (app/3 gibt eine Liste,
     wenn das zweite Argument eine ist).
+  - Typtests: auf einer Zahl meist schon beim Übersetzen entschieden,
+    sonst zur Laufzeit wie im Interpreter; nach `integer(X)` (im Code mit
+    Floats auch `float/number`) ist X eine Zahl, mit der gerechnet werden
+    darf – eine Eingabe, die nur getestet wird, wird beim Aufruf nicht
+    geprüft. Ein Typtest als erstes Ziel auf dem ersten Kopfargument zählt
+    wie im Interpreter nur bei ungebundenem Argument (dort übernimmt ihn
+    der Index). Weil der übersetzte Code Ausgaben erst am Ende bindet,
+    gibt er auf, wenn ein Typtest oder `==` auf eine Ausgabevariable des
+    Aufrufs stößt (`p(X, Y) :- Y = 1, var(X)` mit `p(A, A)`): der
+    Interpreter hätte sie schon gebunden. 200 000 gemischte Elemente nach
+    Typ zählen: 1,5 s → 50 ms.
   - Listen werden erst beim Zerlegen gelesen – so weit wie der
     Interpreter auch (`first([X|_], X)` liest eine Zelle, nicht die ganze
     Liste). Stößt der Code auf etwas, das er nicht kann (ein offener Rest,
