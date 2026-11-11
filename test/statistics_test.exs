@@ -218,6 +218,10 @@ defmodule PrologEx.StatisticsTest do
   end
 
   test "time/1: gelaufene Zeit wird über die Lösungen summiert", c do
+    # ohne JIT: sonst übersetzte er nrev mitten im ersten Abschnitt (an der
+    # Schwelle jit_threshold), und die Abschnitte wären nicht gleich teuer
+    PrologEx.Flags.set("jit", {:atom, "false"})
+
     [{:term, g, _}] =
       Reader.read_terms(c.reader, "time((member(X, [1, 2]), numlist(1, 300, L), nrev(L, _))).")
 
