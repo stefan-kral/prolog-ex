@@ -298,6 +298,12 @@ defmodule PrologEx.Arith do
     SystemLimitError -> Error.resource!("memory")
   end
 
+  @doc false
+  # für PrologEx.Jit: eine Operation auf Werten, genau wie im Interpreter
+  # (Fehler, Grenzen); Aufrufer fängt ArithmeticError/SystemLimitError wie run/3
+  def op2(op, x, y), do: eval2(op, x, y)
+  def op1(op, x), do: eval1(op, x, nil)
+
   defp rn({:num, n}, _l, _s), do: n
 
   defp rn({:leaf, i}, l, s) do

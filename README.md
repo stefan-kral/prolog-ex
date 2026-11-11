@@ -41,6 +41,28 @@ Ein Prolog-Kern in Elixir:
   einem Terminal beginnt, spart so einen Schritt (`S0 = [X|S1]` wird
   Kopfmuster), und `p(X) :- X = a, …` bekommt einen Index. Eine DCG über
   eine Liste von 200 000 Elementen −31 bis −42 %
+- JIT für deterministische, rein arithmetische Prädikate (Flag `jit`,
+  Vorgabe `true`): beim Laden in BEAM-Code übersetzt, die Werte in
+  Erlang-Variablen statt in Bindungen. fib(21) 155 → 1–2 ms, eine
+  Zählschleife über 10⁶ 1,3 s → 8 ms. Übersetzt wird ein Prädikat, wenn
+  jede Klausel im Kopf nur Ganzzahlen und Variablen hat und im Rumpf nur
+  `is`, arithmetische Vergleiche, `!` und Aufrufe von sich selbst, mit
+  ganzzahligen Operationen (+ - * // mod rem div min max >> << /\ \/ xor
+  gcd abs sign msb \), und wenn je zwei Klauseln sich nachweislich
+  ausschließen (Schnitt in der früheren, verschiedene Konstanten,
+  ein Vergleich am Anfang, der für die Konstante der anderen falsch ist,
+  oder einander ausschließende Vergleiche wie `X > 0` / `X =< 0`). Die
+  Modi ergeben sich aus dem Rumpf (gelesen: Eingabe; von `is` oder dem
+  eigenen Aufruf bestimmt oder nirgends gelesen: Ausgabe). Benutzt wird
+  der Code nur, wenn der Aufruf passt – Eingaben Ganzzahlen, Ausgaben
+  verschiedene frische Variablen ohne Attribute, keine Tiefengrenze –,
+  sonst rechnet der Interpreter. Gleich wie dort: Antworten, Fehler,
+  Inferenzen und Grenzen (Inferenz-, Zeit-, Speichergrenzen an denselben
+  Prüfpunkten). Zwei Unterschiede, beide zum Besseren: das übersetzte
+  Prädikat hinterlässt keine Choice Points (`call_with_inference_limit/3`
+  gibt `!` statt `true`), und beim Zurücksetzen zählt es keine Versuche von
+  Klauseln, die ohnehin nichts finden. Die Module heißen nach einem Hash
+  ihrer Klauseln (dasselbe Programm neu geladen nimmt das vorhandene)
 - Deterministische eingebaute Ziele am Anfang eines Rumpfs (`is`,
   arithmetische Vergleiche, `=`, `==`, `\==`, Typtests, ein Neck-Cut)
   laufen gleich beim Eintritt in die Klausel, direkt aus den Vorlagen –

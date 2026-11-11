@@ -27,6 +27,9 @@ defmodule PrologEx.Flags do
     # wie SWI: true – 1/3 und 2 ** -1 (Ganzzahlen) geben Brüche (1r3, 1r2)
     # statt Floats, 2 ^ -1 statt type_error ebenfalls
     "prefer_rationals" => {false, [false, true]},
+    # deterministische, rein arithmetische Prädikate beim Laden in
+    # BEAM-Code übersetzen (PrologEx.Jit)
+    "jit" => {true, [false, true]},
     # ISO 7.11.2: debug und char_conversion mit on/off; char_conversion
     # schaltet die Zeichenumsetzung beim Lesen ein (PrologEx.CharConversion)
     "debug" => {:off, [:off, :on]},

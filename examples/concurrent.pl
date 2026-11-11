@@ -8,6 +8,10 @@
 % beendet werden, ohne etwas halb getan zu haben. Die Zeiten hängen von der
 % Zahl der Kerne ab (erlang:system_info(schedulers_online)).
 
+% fib/2 ist ein Beispiel für Rechenarbeit; der JIT übersetzte es sonst in
+% BEAM-Code (tausendmal schneller), und es gäbe nichts mehr zu verteilen
+:- set_prolog_flag(jit, false).
+
 :- use_module(library(concurrent)).
 :- use_module(library(iso_ext)).
 :- use_module(library(lists)).

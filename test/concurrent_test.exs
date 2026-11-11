@@ -42,7 +42,10 @@ defmodule PrologEx.ConcurrentTest do
   fib(1, 1).
   fib(N, F) :- N > 1, N1 is N-1, N2 is N-2, fib(N1, F1), fib(N2, F2), F is F1+F2.
   loop :- loop.
-  slow(X) :- fib(20, _), X = slow.
+  % wie fib/2, aber nicht übersetzbar (=/2): hier soll Rechenzeit vergehen
+  sfib(N, F) :- N < 2, !, F = N.
+  sfib(N, F) :- N1 is N-1, N2 is N-2, sfib(N1, F1), sfib(N2, F2), F is F1+F2.
+  slow(X) :- sfib(20, _), X = slow.
   big(L) :- numlist(1, 2000000, L).
   """
 
@@ -495,8 +498,8 @@ defmodule PrologEx.ConcurrentTest do
       [a] =
         ask(
           c,
-          ~S"numlist(1, 4, L), statistics(walltime, [A0|_]), concurrent_maplist(\_^F^fib(20, F), L, Fs), " <>
-            ~S"statistics(walltime, [A1|_]), maplist(\_^F^fib(20, F), L, Fs), statistics(walltime, [A2|_]), " <>
+          ~S"numlist(1, 4, L), statistics(walltime, [A0|_]), concurrent_maplist(\_^F^sfib(20, F), L, Fs), " <>
+            ~S"statistics(walltime, [A1|_]), maplist(\_^F^sfib(20, F), L, Fs), statistics(walltime, [A2|_]), " <>
             "P is A1 - A0, S is A2 - A1"
         )
 

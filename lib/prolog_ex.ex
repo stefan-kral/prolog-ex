@@ -1023,9 +1023,21 @@ defmodule PrologEx do
   (Reconsult-Semantik); andere bleiben erhalten.
   """
   def consult(db, clauses, module \\ "user") do
-    new = Map.new(build_preds(clauses), fn {{n, a}, p} -> {{module, n, a}, p} end)
+    jit? = PrologEx.Flags.get("jit") == {:atom, "true"}
+    new = Map.new(build_preds(clauses), fn {{n, a}, p} -> {{module, n, a}, jit(p, jit?)} end)
     Map.merge(db, new)
   end
+
+  # übersetzbar (PrologEx.Jit)? Dann trägt var_only das Modul:
+  # {:jit, modul, eingaben, ausgaben, var_only}
+  defp jit({:pred, cls, by_key, vo, entries} = p, true) when cls != [] do
+    case PrologEx.Jit.compile(Enum.map(entries, &elem(&1, 1))) do
+      {:ok, mod, ins, outs} -> {:pred, cls, by_key, {:jit, mod, ins, outs, vo}, entries}
+      :no -> p
+    end
+  end
+
+  defp jit(p, _), do: p
 
   @doc "Klauseln zu Prädikaten: %{{name, arity} => prädikat}"
   def build_preds(clauses) do
@@ -1303,6 +1315,7 @@ defmodule PrologEx do
 
   defp fallback(l, _k) when is_list(l), do: l
   defp fallback({:spec, l}, _k), do: l
+  defp fallback({:jit, _, _, _, vo}, k), do: fallback(vo, k)
 
   defp fallback({:classes, m, all}, k) do
     case key_class(k) do
@@ -2946,6 +2959,23 @@ defmodule PrologEx do
     db = current_db()
 
     case Map.fetch(db, {mod, name, arity}) do
+      {:ok, {:pred, _, _, {:jit, _, _, _, _} = jit, _} = pred} ->
+        case jit_call(jit, args, rest, st) do
+          :no ->
+            pred = flat_for_call(pred, {mod, name, arity}, args, st.subst)
+
+            case depth_enter(st, rest, mod) do
+              {st, rest} ->
+                try_clauses(goal, args, candidates(pred, args, st.subst), rest, mod, st)
+
+              :fail ->
+                backtrack(st)
+            end
+
+          done ->
+            done
+        end
+
       {:ok, {:pred, _, _, _, _} = pred} ->
         pred = flat_for_call(pred, {mod, name, arity}, args, st.subst)
 
@@ -3060,6 +3090,103 @@ defmodule PrologEx do
             pi = PrologEx.Error.indicator(name, arity)
             pi = if mod == "user", do: pi, else: mk(":", [a(mod), pi])
             throw_error(st, fn -> PrologEx.Error.existence!("procedure", pi) end)
+        end
+    end
+  end
+
+  # --- übersetzte Prädikate (PrologEx.Jit) ---------------------------------
+  #
+  # Nur, wenn der Aufruf passt: Eingaben Ganzzahlen, Ausgaben verschiedene
+  # gewöhnliche (nicht attributierte) ungebundene Variablen, keine
+  # Tiefengrenze. Sonst :no – dann der Interpreter. Inferenzen zählt das
+  # übersetzte Stück selbst; an den Prüfpunkten (Inferenz-, Zeit-,
+  # Speichergrenzen) ruft es jit_check/2, wie run_step limit_hit/5.
+
+  @jit_big 1_099_511_627_776
+
+  defp jit_call({:jit, mod, ins, outs, _}, args, rest, %{dlimit: nil} = st) do
+    s = st.subst
+    a = List.to_tuple(args)
+
+    with {:ok, iv} <- jit_ins(ins, a, s, []),
+         {:ok, ov} <- jit_outs(outs, a, s, []) do
+      chunk = if st.ilimit == nil, do: @jit_big, else: st.ilimit - :atomics.get(st.icount, 1)
+
+      if chunk < 1 do
+        :no
+      else
+        check = fn consumed -> jit_check(consumed, st) end
+
+        case guarded(fn -> PrologEx.Jit.run(mod, iv, chunk, check) end) do
+          {:ok, {:ok, values, used}} ->
+            :atomics.add(st.icount, 1, used)
+            s1 = Enum.zip_reduce(ov, values, s, fn v, x, acc -> Store.bind(v, x, acc) end)
+            run(%{st | goals: rest, subst: s1})
+
+          {:ok, {:fail, used}} ->
+            :atomics.add(st.icount, 1, used)
+            backtrack(st)
+
+          {:thrown, ball} ->
+            throw_ball(ball, st)
+        end
+      end
+    else
+      _ -> :no
+    end
+  end
+
+  defp jit_call(_, _, _, _), do: :no
+
+  defp jit_ins([], _a, _s, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp jit_ins([k | ks], a, s, acc) do
+    case Store.walk(elem(a, k), s) do
+      n when is_integer(n) -> jit_ins(ks, a, s, [n | acc])
+      _ -> :no
+    end
+  end
+
+  defp jit_outs([], _a, _s, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp jit_outs([k | ks], a, s, acc) do
+    case Store.walk(elem(a, k), s) do
+      {:var, {:attv, _}} -> :no
+      {:var, _} = v -> if v in acc, do: :no, else: jit_outs(ks, a, s, [v | acc])
+      _ -> :no
+    end
+  end
+
+  # Prüfpunkt im übersetzten Stück: den verbrauchten Block verbuchen, dann
+  # wie limit_hit/5 für die nächste Inferenz prüfen (wirft wie dort);
+  # sonst der nächste Block bis zum nächsten Prüfpunkt
+  defp jit_check(consumed, st) do
+    :atomics.add(st.icount, 1, consumed)
+    n = :atomics.get(st.icount, 1) + 1
+    # wirft der Prüfpunkt, ist die nächste Inferenz schon gezählt (wie in
+    # run_step: erst zählen, dann limit_hit)
+    counted = fn -> :atomics.add(st.icount, 1, 1) end
+
+    cond do
+      Enum.any?(st.ilimits, fn {_, l} -> n > l end) ->
+        counted.()
+        PrologEx.Error.throw!({:atom, "inference_limit_exceeded"})
+
+      timer_expired(st) != nil ->
+        counted.()
+        PrologEx.Error.throw!(@time_ball)
+
+      (info = mem_check(0)) != nil ->
+        counted.()
+        PrologEx.Error.throw!(mem_ball(info, st))
+
+      true ->
+        timed =
+          if st.tlimits != [] or timer_set?(st) or mem_active?(), do: n - 1 + @tcheck
+
+        case min_limit(min_ilimit(st.ilimits), timed) do
+          nil -> @jit_big
+          lim -> max(lim - (n - 1), 1)
         end
     end
   end
