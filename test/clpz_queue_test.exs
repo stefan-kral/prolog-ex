@@ -21,6 +21,10 @@ defmodule PrologEx.ClpzQueueTest do
   same(G1, G2, T) :-
       run(G1, T, R1), run(G2, T, R2),
       (   R1 =@= R2 -> true ; throw(verschieden(R1, R2)) ).
+  % verify_attributes/3 in Elixir; sein Weckziel '$clpz_do_queue'(Q) ist
+  % phrase(do_queue, [Q], _) des Originals (ohne den Umweg über phrase/3)
+  va(X, O, G) :- clpz:verify_attributes(X, O, G0), maplist(dq, G0, G).
+  dq(G0, G) :- ( G0 = '$clpz_do_queue'(Q) -> G = phrase(do_queue, [Q], _) ; G = G0 ).
   % Einträge e(N) in die Warteschlangen einiger Variablen (Teil K)
   fill([], _).
   fill([V-K|Rest], N) :-
@@ -562,7 +566,7 @@ defmodule PrologEx.ClpzQueueTest do
       scenario(
         "(clpz:put_atts(S, clpz_aux(queued)), Vs1 = [S|Vs], O = #{other}, " <>
           "same(clpz:verify_attributes_ref(#{v}, O, G), " <>
-          "clpz:verify_attributes(#{v}, O, G), Vs1-O-G))"
+          "va(#{v}, O, G), Vs1-O-G))"
       )
     end)
   end
@@ -579,7 +583,32 @@ defmodule PrologEx.ClpzQueueTest do
       scenario(
         "(fill([#{fill}], 0), " <>
           "same(clpz:verify_attributes_ref(#{v}, #{o}, G), " <>
-          "clpz:verify_attributes(#{v}, #{o}, G), Vs-G))"
+          "va(#{v}, #{o}, G), Vs-G))"
+      )
+    end)
+  end
+
+  # select_var/4 in Elixir gegen das Original: Listen aus Variablen mit und
+  # ohne Domäne, Zahlen, Doppelten (delete_eq/3 nimmt nur den ersten
+  # Treffer), einem Atom (min/max werfen dort); jede Auswahl
+  test "select_var/4: leftmost, ff, ffc, min, max", c do
+    check(c, 400, fn ->
+      items =
+        for _ <- 1..Enum.random(1..6) do
+          case :rand.uniform(14) do
+            1 -> "#{Enum.random(-3..4)}"
+            2 -> "N"
+            3 -> "a"
+            _ -> Enum.random(@vars ++ ["B"])
+          end
+        end
+
+      sel = Enum.random(~w(leftmost ff ffc min max))
+      l = "[#{Enum.join(items, ",")}]"
+
+      scenario(
+        "same(clpz:select_var_ref(#{sel}, #{l}, V, R), " <>
+          "clpz:select_var(#{sel}, #{l}, V, R), Vs-V-R)"
       )
     end)
   end

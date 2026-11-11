@@ -2126,6 +2126,15 @@ Bisher in Elixir:
     Vorher pendelte die Schleife: q40 schrieb 2137 Einträge zurück, jetzt
     keinen. 40 Damen 127 → 107 ms, 20 Damen −20 %, alle 8-Damen-Lösungen
     −10 %, 100 Damen −5 %; Sudoku und magisches Quadrat gleich.
+  * Labeling: `select_var/4` (Variablenwahl `leftmost`, `ff`, `ffc`, `min`,
+    `max`) als ein Builtin statt `find_ff/4`, `fd_size_/2`, `delete_eq/3`
+    & Co. – mit allen Eigenheiten des Originals (`select_var_ref/4`), gegen
+    es mit Zufallslisten geprüft. Das Weckziel nach einer Bindung ist
+    `'$clpz_do_queue'(Q)` statt `phrase(do_queue, [Q], _)`: gleich die
+    Schleife statt `phrase/3`, `do_queue/2`, `'$clpz_queue_run'/2` und
+    `do_queue_/3`. 20 Damen −30 %, alle 8-Damen-Lösungen −25 %, 100 Damen
+    −13 %, 40 Damen −6 % (Reduktionen −10 bis −15 %); Sudoku und SEND+MORE
+    gleich.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige

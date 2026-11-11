@@ -1883,18 +1883,23 @@ consistency(upto_ground, upto_ground).
 optimisation(min(_)).
 optimisation(max(_)).
 
-select_var(leftmost, [Var|Vars], Var, Vars).
-select_var(min, [V|Vs], Var, RVars) :-
+% PrologEx: in Elixir ('$clpz_select_var'/4), das Original als
+% select_var_ref/4
+select_var(Selection, Vars, Var, RVars) :-
+        '$clpz_select_var'(Selection, Vars, Var, RVars).
+
+select_var_ref(leftmost, [Var|Vars], Var, Vars).
+select_var_ref(min, [V|Vs], Var, RVars) :-
         find_min(Vs, V, Var),
         delete_eq([V|Vs], Var, RVars).
-select_var(max, [V|Vs], Var, RVars) :-
+select_var_ref(max, [V|Vs], Var, RVars) :-
         find_max(Vs, V, Var),
         delete_eq([V|Vs], Var, RVars).
-select_var(ff, [V|Vs], Var, RVars) :-
+select_var_ref(ff, [V|Vs], Var, RVars) :-
         fd_size_(V, S), integer(S),
         find_ff(Vs, V, S, Var),
         delete_eq([V|Vs], Var, RVars).
-select_var(ffc, [V|Vs], Var, RVars) :-
+select_var_ref(ffc, [V|Vs], Var, RVars) :-
         find_ffc(Vs, V, Var),
         delete_eq([V|Vs], Var, RVars).
 

@@ -1791,7 +1791,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
                     :fail
 
                   s ->
-                    out_gs(gs, [mk("phrase", [a("do_queue"), [q], fresh_var()])], s)
+                    out_gs(gs, [do_queue_goal(q)], s)
                 end
               else
                 :fail
@@ -1845,8 +1845,28 @@ defmodule PrologEx.Builtins.ClpzPrims do
               {pg, pb, po} = props(ps1, s)
               s |> then_all(pg, q0) |> then_all(pb, q0) |> then_all(po, q0)
             end)
-            |> seq(&out_gs(gs, [mk("phrase", [a("do_queue"), [q0], fresh_var()])], &1))
+            |> seq(&out_gs(gs, [do_queue_goal(q0)], &1))
         end
+    end
+  end
+
+  # das Ziel, das die Propagatoren der Queue q laufen lässt: statt
+  # phrase(do_queue, [Q], _) (phrase/3, do_queue/2, '$clpz_queue_run'/2,
+  # do_queue_/3 – vier Schritte je Bindung) gleich die Schleife
+  defp do_queue_goal(q), do: mk("$clpz_do_queue", [q])
+
+  # '$clpz_do_queue'(Q): phrase(do_queue, [Q], _) – die Schleife in Elixir,
+  # braucht sie Prolog, geht es mit do_queue_/3 weiter
+  defbuiltin "$clpz_do_queue", [q0] do
+    s = subst()
+    Process.put(:clpz_prims_subst, s)
+    db = ctx.db
+
+    try do
+      q = PrologEx.Store.walk(q0, s)
+      queue_out(q, native(q, s, &loop_q(q, &1, db)))
+    catch
+      :fallback -> {:call, mk(":", [a("clpz"), mk("do_queue", [[q0], fresh_var()])])}
     end
   end
 
@@ -2280,6 +2300,162 @@ defmodule PrologEx.Builtins.ClpzPrims do
         {:call, mk(":", [a("clpz"), mk("do_queue_", [t, [q], fresh_var()])]), s}
     end
   end
+
+  # --- Labeling: select_var/4 -------------------------------------------------
+  #
+  # '$clpz_select_var'(Selection, Vars, Var, RVars) wie select_var/4 des
+  # Originals (select_var_ref/4): leftmost, ff, ffc, min, max mit fd_size_/2,
+  # ffc_lt/2, min_lt/2, max_gt/2 und delete_eq/3 – auch deren Eigenheiten
+  # (eine Größe, die keine ganze Zahl ist, scheitert; delete_eq/3 lässt
+  # gebundene Elemente nur vor dem Treffer weg). Anderes: das Original
+
+  defbuiltin "$clpz_select_var", [sel, vars, var, rvars] do
+    run("select_var", [sel, vars, var, rvars], subst(), fn ->
+      s = subst_now()
+
+      r =
+        case {w(sel), cell(vars, s)} do
+          {_, nil} -> throw(:fallback)
+          {{:atom, "leftmost"}, {v, tl}} -> {:ok, v, tl}
+          {{:atom, "ff"}, {v, tl}} -> sel_ff(v, tl, vars, s)
+          {{:atom, "ffc"}, {v, tl}} -> sel_by(v, tl, vars, s, &ffc_lt/3)
+          {{:atom, "min"}, {v, tl}} -> sel_by(v, tl, vars, s, &min_lt/3)
+          {{:atom, "max"}, {v, tl}} -> sel_by(v, tl, vars, s, &max_gt/3)
+          _ -> throw(:fallback)
+        end
+
+      case r do
+        {:ok, v, rest} -> {:unify, [{var, v}, {rvars, rest}]}
+        :fail -> :fail
+      end
+    end)
+  end
+
+  # fd_size_/2: Anzahl der Elemente (:sup unendlich), 1 für eine Zahl
+  defp fd_size(v, s) do
+    case fd_get(v, s) do
+      {d, _} -> ClpzDom.num_elements(dom(d))
+      :default -> :sup
+      :fail -> 1
+    end
+  end
+
+  defp sel_ff(v, tl, vars, s) do
+    case fd_size(v, s) do
+      n when is_integer(n) ->
+        best = find_ff(list_items(tl, s), v, n, s)
+        {:ok, best, delete_eq(vars, best, s)}
+
+      _ ->
+        :fail
+    end
+  end
+
+  defp find_ff([], best, _n, _s), do: best
+
+  defp find_ff([v | vs], best, n0, s) do
+    w = PrologEx.Store.walk(v, s)
+
+    if match?({:var, _}, w) do
+      case fd_size(w, s) do
+        n when is_integer(n) and n < n0 -> find_ff(vs, w, n, s)
+        _ -> find_ff(vs, best, n0, s)
+      end
+    else
+      find_ff(vs, best, n0, s)
+    end
+  end
+
+  # find_ffc/3, find_min/3, find_max/3: lt(V, Bisher) wählt V
+  defp sel_by(v, tl, vars, s, lt) do
+    best = Enum.reduce(list_items(tl, s), v, fn x, b -> if lt.(x, b, s), do: x, else: b end)
+    {:ok, best, delete_eq(vars, best, s)}
+  end
+
+  # ffc_lt/2: weniger Elemente, bei Gleichstand mehr Propagatoren
+  defp ffc_lt(x, y, s) do
+    with {nx, px} when is_integer(nx) <- size_props(x, s),
+         {ny, py} when is_integer(ny) <- size_props(y, s) do
+      cond do
+        nx < ny -> true
+        nx == ny and px != nil and py != nil -> props_number(px, s) > props_number(py, s)
+        true -> false
+      end
+    else
+      _ -> false
+    end
+  end
+
+  # {Anzahl, Propagatoren}; eine Zahl: {1, nil} (props_number/2 scheitert)
+  defp size_props(x, s) do
+    case fd_get(x, s) do
+      {d, ps} -> {ClpzDom.num_elements(dom(d)), ps}
+      :default -> {:sup, nil}
+      :fail -> {1, nil}
+    end
+  end
+
+  defp props_number(ps, s) do
+    {gs, bs, os} = props(ps, s)
+    length(list_items(gs, s)) + length(list_items(bs, s)) + length(list_items(os, s))
+  end
+
+  defp min_lt(x, y, s) do
+    with {lx, _} <- int_bounds(x, s), {ly, _} <- int_bounds(y, s), do: lx < ly, else: (_ -> false)
+  end
+
+  defp max_gt(x, y, s) do
+    with {_, ux} <- int_bounds(x, s), {_, uy} <- int_bounds(y, s), do: ux > uy, else: (_ -> false)
+  end
+
+  # bounds/3 mit ganzzahligen Schranken; nil: scheitert. Eine gebundene
+  # Nicht-Zahl (der Vergleich würfe): das Original
+  defp int_bounds(x, s) do
+    case fd_get(x, s) do
+      {d, _} ->
+        dd = dom(d)
+
+        case {ClpzDom.infimum(dd), ClpzDom.supremum(dd)} do
+          {l, u} when is_integer(l) and is_integer(u) -> {l, u}
+          _ -> nil
+        end
+
+      :default ->
+        nil
+
+      :fail ->
+        case PrologEx.Store.walk(x, s) do
+          i when is_integer(i) -> {i, i}
+          _ -> throw(:fallback)
+        end
+    end
+  end
+
+  # delete_eq/3: gebundene Elemente vor dem Treffer weg, den Treffer weg,
+  # der Rest dahinter unverändert
+  defp delete_eq(l, y, s) do
+    yw = PrologEx.Store.walk(y, s)
+    delete_eq_(l, yw, s, [])
+  end
+
+  defp delete_eq_(l, y, s, acc) do
+    case cell(l, s) do
+      nil ->
+        if ws(l, s) == [], do: Enum.reverse(acc), else: throw(:fallback)
+
+      {x, tl} ->
+        xw = PrologEx.Store.walk(x, s)
+
+        cond do
+          not match?({:var, _}, xw) -> delete_eq_(tl, y, s, acc)
+          xw == y -> Enum.reverse(acc, plain_tail(tl))
+          true -> delete_eq_(tl, y, s, [x | acc])
+        end
+    end
+  end
+
+  defp plain_tail({:glist, l}), do: l
+  defp plain_tail(t), do: t
 
   # --- Die Queue in Elixir ----------------------------------------------------
   #
