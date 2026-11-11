@@ -329,8 +329,57 @@ defmodule PrologEx.PioTest do
     assert ask(c, "phrase_to_file(zahlen(X), #{f}, [undo(false)]), X =:= 3") == ["X = 3"]
     assert File.read!(out) == "123"
 
+    # mode(append): angehängt, nur das Angehängte wird zurückgenommen
+    File.write!(out, "x:")
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}, [mode(append)]), X =:= 3") == ["X = 3"]
+    assert File.read!(out) == "x:3"
+
+    assert ask(c, "findall(X, phrase_to_file(offen_am_ende(X), #{f}, [mode(append)]), Xs)") == [
+             "Xs = [1,2,3]"
+           ]
+
+    assert File.read!(out) == "x:3"
+
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}, [mode(append), undo(false)]), X =:= 3") == [
+             "X = 3"
+           ]
+
+    assert File.read!(out) == "x:3123"
+
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}, [mode(write)]), X =:= 2, !") == ["X = 2"]
+    assert File.read!(out) == "2"
+
+    assert ask(c, "catch(phrase_to_file(zahlen(_), #{f}, [mode(read)]), error(E, _), true)") ==
+             ["E = domain_error(oneof([write,append]),read)"]
+
     assert ask(c, "catch(phrase_to_file(zahlen(_), #{f}, [undo(vielleicht)]), error(E, _), true)") ==
              ["E = domain_error(oneof([true,false]),vielleicht)"]
+
+    # mode(append): zurückgenommen wird nur, was angehängt wurde
+    File.write!(out, "x")
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}, [mode(append)]), X =:= 3") == ["X = 3"]
+    assert File.read!(out) == "x3"
+
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}, [mode(append), undo(false)]), X =:= 3") == [
+             "X = 3"
+           ]
+
+    assert File.read!(out) == "x3123"
+
+    assert ask(c, "catch(phrase_to_file(zahlen(_), #{f}, [mode(read)]), error(E, _), true)") ==
+             ["E = domain_error(oneof([write,append]),read)"]
+
+    # nicht positionierbar: ein Fehler, außer ausdrücklich undo(false)
+    assert ask(
+             c,
+             "catch(phrase_to_file(zahlen(_), #{f}, [reposition(false)]), error(E, _), true)"
+           )
+           |> hd() =~ "E = permission_error(reposition,stream,"
+
+    assert ask(c, "phrase_to_file(zahlen(X), #{f}, [reposition(false), undo(false)]), X =:= 2, !") ==
+             ["X = 2"]
+
+    assert File.read!(out) == "12"
   end
 
   test "phrase_to_stream/3: Backtracking setzt den Stream zurück", c do
@@ -354,18 +403,18 @@ defmodule PrologEx.PioTest do
     assert ask(c, "st(#{f}, append, [], X)") == ["X = 3"]
     assert File.read!(out) == "xa:3."
 
-    # nicht positionierbar (Speicher): ohne Option wie phrase_to_stream/2,
-    # mit undo(true) ein Fehler
+    # nicht positionierbar (Speicher): ein Fehler, außer ausdrücklich
+    # undo(false) – dann wie phrase_to_stream/2
     assert ask(
              c,
-             "with_output_to(atom(A), (current_output(_S), phrase_to_stream(zahlen(X), _S, []), X =:= 2))"
-           ) == ["A = '12', X = 2"]
+             "catch(with_output_to(atom(_), (current_output(S), phrase_to_stream(zahlen(_), S, []))), error(E, _), true)"
+           )
+           |> hd() =~ "E = permission_error(reposition,stream,"
 
     assert ask(
              c,
-             "catch(with_output_to(atom(_), (current_output(S), phrase_to_stream(zahlen(_), S, [undo(true)]))), error(E, _), true)"
-           )
-           |> hd() =~ "E = permission_error(reposition,stream,"
+             "with_output_to(atom(A), (current_output(_S), phrase_to_stream(zahlen(X), _S, [undo(false)]), X =:= 2))"
+           ) == ["A = '12', X = 2"]
 
     assert ask(c, "catch(phrase_to_stream(zahlen(_), user_output, [foo]), error(E, _), true)") ==
              ["E = domain_error(phrase_to_stream_option,foo)"]
