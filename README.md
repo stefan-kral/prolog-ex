@@ -2117,6 +2117,15 @@ Bisher in Elixir:
     `do_queue//0` hätte genau diese Queue geleert. Planung 1,63–1,85 →
     1,34–1,49 s (−5 % Reduktionen), Springerweg und Sechseck etwas
     schneller.
+  * Ebenso ein Ziel `X = N` in der Queue (`put_terminating//3` reiht es
+    ein, wenn eine Domäne einelementig wird): die Schleife bindet selbst
+    und weckt wie oben, statt für `call/1` nach Prolog zu gehen. Solange
+    sie läuft, liegt die Queue zudem als Elixir-`:queue` vor statt als
+    Differenzlisten in Attributen (holen beim Eintritt, zurückschreiben am
+    Rand zu Prolog; ein verworfener Zwischenstand setzt sie mit zurück).
+    Vorher pendelte die Schleife: q40 schrieb 2137 Einträge zurück, jetzt
+    keinen. 40 Damen 127 → 107 ms, 20 Damen −20 %, alle 8-Damen-Lösungen
+    −10 %, 100 Damen −5 %; Sudoku und magisches Quadrat gleich.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige
