@@ -65,7 +65,9 @@ Ein Prolog-Kern in Elixir:
     Zerlegen eines gebundenen Terms; ungebunden – `functor/3` zum Bauen –
     oder bei einem Fehler gibt der Code auf, der Interpreter rechnet) und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
-    Moduls; alle
+    Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
+    ihren Zweigen keiner steht: `(A ; B), !` übersetzt er wie
+    `(A -> true ; B -> true), !` (gleiche Antworten und Inferenzen); alle
     auswertbaren Funktoren außer `random`/`random_float` (dazu `pi`, `e`,
     `epsilon`). Je zwei Klauseln müssen sich nachweislich ausschließen
     (Schnitt in der früheren, verschiedene Muster – Konstanten, `[]`

@@ -150,6 +150,15 @@ defmodule PrologEx.JitTest do
   tlt(X, Y, R) :- ( X @< Y -> R = 1 ; R = 0 ).
   tco(X, s(O)) :- compare(O, X, b).
   tgo(X, s(R)) :- ( X @> b -> R = 1 ; R = 0 ).
+  od1(X, Y) :- ( X > 10, Y = big ; X > 5, Y = mid ; Y = small ), !.
+  od2(X, Y) :- ( X < 0 ; X > 100 ), !, Y = out.
+  od2(_, in).
+  od3(X, Y) :- ( X > 0, Z = 1 ; Z = 2 ), !, Y is Z * 10.
+  od4(X, Y) :- ( X > 0, !, X > 5 ; true ), !, Y = 1.
+  od4(_, 2).
+  od6(X, Y) :- ( X = a ; X = b ), !, Y = ab.
+  od6(_, other).
+  od7(X, Y) :- ( ( X > 5 -> Y = 1 ; Y = 2 ) ; Y = 3 ), !.
   tins(X, [], [X]).
   tins(X, [Y|Ys], L) :- compare(O, X, Y), tins_(O, X, Y, Ys, L).
   tins_(<, X, Y, Ys, [X,Y|Ys]).
@@ -271,9 +280,18 @@ defmodule PrologEx.JitTest do
           {"tco", 2},
           {"tgo", 2},
           {"tins", 3},
+          {"od1", 2},
+          {"od2", 2},
+          {"od3", 2},
+          {"od6", 2},
+          {"od7", 2},
           {"tins_", 5}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
+
+    # Schnitt in einem Zweig: dort schneidet er die Klausel ab – bleibt
+    # eine Disjunktion, nicht übersetzt
+    refute jitted?(c.jit, {"user", "od4", 2})
   end
 
   for q <- [
@@ -337,6 +355,30 @@ defmodule PrologEx.JitTest do
         "tins(2, [1,2,3], L)",
         "tins(z, [a,b], L)",
         "inf(tins(9, [1,2,3,4,5,6,7,8], _), I)",
+        # (A ; B), ! wie (A -> true ; B -> true), !
+        "od1(15, Y)",
+        "od1(7, Y)",
+        "od1(1, Y)",
+        "od1(7, small)",
+        "catch(od1(a, Y), error(E, _), true)",
+        "inf(od1(1, _), I)",
+        "od2(-5, Y)",
+        "od2(50, Y)",
+        "od2(200, Y)",
+        "findall(Y, od2(50, Y), L)",
+        "findall(Y, od2(-1, Y), L)",
+        "inf(od2(50, _), I)",
+        "od3(5, Y)",
+        "od3(-1, Y)",
+        "od4(3, Y)",
+        "od4(9, Y)",
+        "od4(-1, Y)",
+        "od6(a, Y)",
+        "od6(c, Y)",
+        "findall(Y, od6(b, Y), L)",
+        "od7(9, Y)",
+        "od7(1, Y)",
+        "inf(od7(1, _), I)",
         # Peano: Strukturen zerlegen und bauen, auch anders herum
         "pnat(5, A), pnat(7, B), padd(A, B, C), pval(C, N)",
         "pnat(6, A), pnat(4, B), pmul(A, B, C), pval(C, N)",

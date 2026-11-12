@@ -17,9 +17,10 @@ defmodule PrologEx.Jit do
     * Rumpf: `V is E`, arithmetische Vergleiche, `X = Y` (Terme wie im
       Kopf), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`, `\\+ G`,
       Typtests, `==`, `\\==`, `@<`, `@>`, `@=<`, `@>=`, `compare/3`,
-      `arg/3`, `functor/3` und `=../2` (diese drei nur zum Zerlegen) und
-      Aufrufe des Prädikats selbst oder anderer übersetzter (Argumente
-      Terme wie im Kopf)
+      `arg/3`, `functor/3` und `=../2` (diese drei nur zum Zerlegen),
+      `(A ; B), !` (wie `(A -> true ; B -> true), !`, ohne Schnitt in A
+      und B) und Aufrufe des Prädikats selbst oder anderer übersetzter
+      (Argumente Terme wie im Kopf)
     * E aus Zahlen, Variablen, `pi`, `e`, `epsilon` und den auswertbaren
       Funktoren (außer random/random_float)
 
@@ -331,7 +332,8 @@ defmodule PrologEx.Jit do
           if {h, b} |> raw_vars([]) |> Enum.uniq() |> length() > @max_vars,
             do: no!("mehr als #{@max_vars} Variablen")
 
-          {Enum.map(args(h), &pat!/1), index_guard(args(h), Enum.map(conj(b), &goal(&1, ctx)))}
+          gs = b |> conj() |> once_disj() |> Enum.map(&goal(&1, ctx))
+          {Enum.map(args(h), &pat!/1), index_guard(args(h), gs)}
         catch
           {:no, r} -> no!("Klausel #{i}: #{r}")
         end
@@ -394,6 +396,42 @@ defmodule PrologEx.Jit do
   defp conj({:atom, "true"}), do: []
   defp conj(g), do: [g]
 
+  # Eine Disjunktion, auf die gleich ein Schnitt folgt, braucht nur ihre
+  # erste Lösung: (A ; B), ! ist dasselbe wie (A -> true ; B -> true), !
+  # – wenn in A und B kein Schnitt steht (dort schnitte er die Klausel ab,
+  # in einer Bedingung nur lokal). So übersetzt (once_ite/2): jeder Zweig
+  # eine Bedingung, ohne `true` danach und ohne `fail` am Ende (beide
+  # zählten eine Inferenz, die der Interpreter nicht hat)
+  defp once_disj([{:struct, ";", [l, _]} = g, {:atom, "!"} = c | rest]) do
+    bs = disj_branches(g)
+
+    if not ite_left?(l) and Enum.all?(bs, &cut_free?/1),
+      do: [{:"$once_disj", bs}, c | once_disj(rest)],
+      else: [g, c | once_disj(rest)]
+  end
+
+  defp once_disj([g | rest]), do: [g | once_disj(rest)]
+  defp once_disj([]), do: []
+
+  defp ite_left?({:struct, op, [_, _]}) when op in ["->", "*->"], do: true
+  defp ite_left?(_), do: false
+
+  defp disj_branches({:struct, ";", [l, r]} = g) do
+    if ite_left?(l), do: [g], else: disj_branches(l) ++ disj_branches(r)
+  end
+
+  defp disj_branches(g), do: [g]
+
+  defp cut_free?({:atom, "!"}), do: false
+
+  defp cut_free?({:struct, op, [a, b]}) when op in [",", ";", "->", "*->"],
+    do: cut_free?(a) and cut_free?(b)
+
+  defp cut_free?(_), do: true
+
+  defp once_ite([b], ctx), do: {:ite, seq(b, ctx), [], [:fail0]}
+  defp once_ite([b | bs], ctx), do: {:ite, seq(b, ctx), [], [once_ite(bs, ctx)]}
+
   # in Steuerkonstrukten bleibt `true` ein Ziel (zählt eins)
   defp seq({:struct, ",", [a, b]}, ctx), do: seq(a, ctx) ++ seq(b, ctx)
   defp seq(g, ctx), do: [goal(g, ctx)]
@@ -442,6 +480,7 @@ defmodule PrologEx.Jit do
   # ( C -> T ) ohne Else: der Interpreter nimmt `fail` als Else (zählt eins)
   defp goal({:struct, "->", [c, t]}, ctx), do: {:ite, seq(c, ctx), seq(t, ctx), [:fail]}
   defp goal({:struct, "\\+", [g]}, ctx), do: {:not, seq(g, ctx)}
+  defp goal({:"$once_disj", bs}, ctx), do: once_ite(bs, ctx)
   defp goal({:struct, ";", _}, _), do: no!("Disjunktion (; ohne ->): nicht deterministisch")
   defp goal({:struct, "->", _}, _), do: no!("->")
 
@@ -1062,6 +1101,7 @@ defmodule PrologEx.Jit do
   defp goal_flow(:cut, d, _), do: {:cut, d}
   defp goal_flow(true, d, _), do: {true, d}
   defp goal_flow(:fail, _d, _), do: {:fail, :all}
+  defp goal_flow(:fail0, _d, _), do: {:fail0, :all}
 
   defp goal_flow({:cmp, op, a, b}, d, _) do
     nums!(vars(a) ++ vars(b), d)
@@ -1895,6 +1935,8 @@ defmodule PrologEx.Jit do
   defp gen_goals([:cut | gs], st), do: gen_goals(gs, st)
   defp gen_goals([true | gs], st), do: counted(gen_goals(gs, st))
   defp gen_goals([:fail | _], st), do: counted(failure(st))
+  # Scheitern ohne Inferenz (Ende einer Disjunktion vor einem Schnitt)
+  defp gen_goals([:fail0 | _], st), do: failure(st)
 
   defp gen_goals([{:tt, _, _, _} = g | gs], st), do: counted(tt_code(g, gs, st))
 
