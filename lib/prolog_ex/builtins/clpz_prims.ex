@@ -169,22 +169,32 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # erkennt, ob die neue Domäne aus der gespeicherten berechnet wurde, und
   # put_dom/6 vergleicht zwei bekannte Domänen als Listen (=== in C, bei
   # kanonischen Listen genau Mengengleichheit) statt mit ==.
+  #
+  # Ein Ring fester Größe (ein Tupel, der Index des jüngsten Eintrags vorn):
+  # Eintragen ersetzt einen Platz, statt die Liste neu zu bauen; gesucht
+  # wird vom jüngsten Eintrag rückwärts.
   @dec_key :clpz_decoded
   @dec_max 8
+  @dec_empty {0, :erlang.make_tuple(@dec_max, nil)}
+
+  defp dec_cache, do: Process.get(@dec_key, @dec_empty)
+
+  defp dec_put(t, d) do
+    {i, ring} = dec_cache()
+    i = if i == @dec_max - 1, do: 0, else: i + 1
+    Process.put(@dec_key, {i, put_elem(ring, i, {t, d})})
+  end
 
   defp dom_cached(t, insert \\ false) do
     wt = w(t)
 
-    cache = Process.get(@dec_key, [])
-
-    case dec_find(cache, wt) do
+    case dec_find(dec_cache(), wt) do
       nil ->
         case dom_pairs_c(wt, [], nil, true) do
           {:ok, d, canonical} ->
             # nur kanonische Paare eintragen: [5..5] und [5] ergäben sonst
             # dieselbe Liste, == unterscheidet sie aber
-            if insert and canonical,
-              do: Process.put(@dec_key, [{wt, d} | dec_take(cache, @dec_max - 1)])
+            if insert and canonical, do: dec_put(wt, d)
 
             d
 
@@ -197,27 +207,26 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  # ohne Merkzettel dekodieren
-  defp dom_plain(t) do
-    case dom_pairs_c(w(t), [], nil, true) do
-      {:ok, d, _} -> d
-      :error -> no_domain(t)
+  defp dec_find({i, ring}, t), do: dec_find(ring, t, i, @dec_max)
+
+  defp dec_find(_ring, _t, _i, 0), do: nil
+
+  defp dec_find(ring, t, i, n) do
+    case elem(ring, i) do
+      nil ->
+        nil
+
+      {t0, d} ->
+        if PrologEx.Share.same?(t0, t),
+          do: d,
+          else: dec_find(ring, t, if(i == 0, do: @dec_max - 1, else: i - 1), n - 1)
     end
   end
-
-  defp dec_find([{t0, d} | rest], t),
-    do: if(PrologEx.Share.same?(t0, t), do: d, else: dec_find(rest, t))
-
-  defp dec_find([], _t), do: nil
-
-  defp dec_take(_, 0), do: []
-  defp dec_take([e | rest], n), do: [e | dec_take(rest, n - 1)]
-  defp dec_take([], _n), do: []
 
   # kodieren; jede Kodierung kommt in den Merkzettel (siehe dom_cached/1)
   defp ed(d) do
     t = ClpzDom.to_term(d)
-    Process.put(@dec_key, [{t, d} | dec_take(Process.get(@dec_key, []), @dec_max - 1)])
+    dec_put(t, d)
     t
   end
 
@@ -1938,7 +1947,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # OldDom == Dom: beide im Merkzettel, dann als Listen (exakt, siehe dort)
   defp dom_same?(old, new, s) do
-    cache = Process.get(@dec_key, [])
+    cache = dec_cache()
 
     with d0 when d0 != nil <- dec_find(cache, ws(old, s)),
          d1 when d1 != nil <- dec_find(cache, ws(new, s)) do
@@ -2929,20 +2938,79 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Variablen erkennt die Domäne dann wieder)
   defp fdget(v, s) do
     case fd_get(v, s) do
-      {d, ps} -> {dom_cached(d, true), ps}
+      {d, ps} ->
+        dd = vdom(v, d, s)
+        dec_put(w(d), dd)
+        {dd, ps}
+
+      :default ->
+        {ClpzDom.all(), no_props()}
+
+      :fail ->
+        throw(:fallback)
+    end
+  end
+
+  # nur lesen (Ps verworfen, kein fdput folgt): nicht in den Ring, das
+  # verdrängte nur Einträge, die gebraucht werden
+  defp fdget_ro(v, s) do
+    case fd_get(v, s) do
+      {d, ps} -> {vdom(v, d, s), ps}
       :default -> {ClpzDom.all(), no_props()}
       :fail -> throw(:fallback)
     end
   end
 
-  # nur lesen (Ps verworfen, kein fdput folgt): nichts eintragen, das
-  # verdrängte nur Einträge, die gebraucht werden
-  defp fdget_ro(v, s) do
-    case fd_get(v, s) do
-      {d, ps} -> {dom_plain(d), ps}
-      :default -> {ClpzDom.all(), no_props()}
-      :fail -> throw(:fallback)
+  # Zweiter Merkzettel, je Variable: %{Variable => {Domänen-Term, Domäne}}.
+  # Hat sich die Domäne einer Variablen seit dem letzten Lesen nicht
+  # geändert, liegt dort physisch derselbe Term (Share.same?/2) – auch nach
+  # Backtracking ist ein Treffer also die Domäne genau dieses Terms. Der
+  # Ring oben kennt nur die letzten Kodierungen; Propagatoren über viele
+  # Variablen (Summen) lesen meist unveränderte Domänen anderer Variablen.
+  @vdom_key :clpz_vdom
+  @vdom_max 100_000
+
+  defp vdom(v, d, s) do
+    v = PrologEx.Store.walk(v, s)
+    wt = w(d)
+    m = Process.get(@vdom_key, %{})
+
+    case m do
+      %{^v => {t0, dd}} ->
+        if PrologEx.Share.same?(t0, wt), do: dd, else: vdom_miss(m, v, wt, d)
+
+      _ ->
+        vdom_miss(m, v, wt, d)
     end
+  end
+
+  defp vdom_miss(m, v, wt, d) do
+    case dom_pairs_c(wt, [], nil, true) do
+      {:ok, dd, canonical} ->
+        if canonical do
+          m = if map_size(m) >= @vdom_max, do: %{}, else: m
+          Process.put(@vdom_key, Map.put(m, v, {wt, dd}))
+        end
+
+        dd
+
+      :error ->
+        no_domain(d)
+    end
+  end
+
+  # die Domäne, wenn der Term die zuletzt gelesene/geschriebene von v ist
+  defp vdom_peek(v, wt) do
+    case Process.get(@vdom_key, %{}) do
+      %{^v => {t0, dd}} -> if PrologEx.Share.same?(t0, wt), do: dd
+      _ -> nil
+    end
+  end
+
+  defp vdom_put(v, wt, dd) do
+    m = Process.get(@vdom_key, %{})
+    m = if map_size(m) >= @vdom_max, do: %{}, else: m
+    Process.put(@vdom_key, Map.put(m, v, {wt, dd}))
   end
 
   # fd_put//3 mit einer dekodierten Domäne
@@ -2968,11 +3036,13 @@ defmodule PrologEx.Builtins.ClpzPrims do
          [attr] <- att(vv, s, "clpz", 1),
          {tag, "clpz_attr", [left, right, spread, old_dom, _old_ps, qx]}
          when tag in [:struct, :gstruct] <- ws(attr, s),
-         d0 when d0 != nil <- dec_find(Process.get(@dec_key, []), ws(old_dom, s)) do
+         wold = ws(old_dom, s),
+         d0 when d0 != nil <- vdom_peek(vv, wold) || dec_find(dec_cache(), wold) do
       if d === d0 do
         put_clpz(s, vv, [left, right, spread, old_dom, ps, qx])
       else
         dom = ed(d)
+        vdom_put(vv, dom, d)
         s = put_clpz(s, vv, [left, right, spread, dom, ps, qx])
         changed(vv, left, right, spread, old_dom, dom, ps, qx, q, s)
       end

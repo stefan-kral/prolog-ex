@@ -2146,6 +2146,13 @@ Bisher in Elixir:
     solange in ihren Term geparkt. Magisches Quadrat 4×4 20 → 11 ms, 5×5
     608 → 346 ms (Scryer 1 323, SWI-clpfd 321 ms), SEND+MORE −7 %, alle
     8-Damen-Lösungen −7 % Reduktionen; sonst gleich.
+  * Domänen lesen: Neben dem Ring der letzten Kodierungen (jetzt ein Tupel
+    statt einer Liste, die bei jedem Eintrag neu gebaut wurde) merkt sich
+    `fdget` je Variable den zuletzt gelesenen Domänen-Term und seine
+    Dekodierung; ein Treffer verlangt physisch denselben Term
+    (`Share.same?/2`), stimmt also auch nach Backtracking. Summen lesen
+    meist unveränderte Domänen anderer Variablen: magisches Quadrat 5×5
+    −16 %, 4×4 −7 %, Sudoku −5 %, 100 Damen −4 % Reduktionen.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige
