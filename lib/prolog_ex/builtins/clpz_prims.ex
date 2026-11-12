@@ -36,6 +36,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # die Queue, deren Schleife gerade in Elixir läuft (siehe native/3)
   @nq :clpz_native_queue
+  # (und die Argumente ihres Terms – zum Parken, siehe native/3)
+  @nqa :clpz_native_queue_args
   alias PrologEx.Builtins.ClpzDom
   alias PrologEx.Store
 
@@ -1574,32 +1576,38 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # reinforce/1: put_full/3 mit derselben Domäne – nur die Ränder und die
   # Spanne zurücksetzen (no); ein Einzelwert (F = n(X), Bindung): das
   # Original
+  # reinforce_/1 einer Variablen (put_full/3 mit der Domäne: Left, Right,
+  # Spread wieder no); eine gebundene oder ohne clpz: nichts
+  defp reinforce_one(v, s) do
+    v = PrologEx.Store.walk(v, s)
+
+    case var?(v) and att(v, s, "clpz", 1) do
+      [attr] ->
+        case ws(attr, s) do
+          {tag, "clpz_attr", [_, _, _, d, ps, q]} when tag in [:struct, :gstruct] ->
+            # (leer oder ein Einzelwert: das Original, es scheitert bzw.
+            # bindet)
+            case dom(d) do
+              [] -> throw(:fallback)
+              [{b, b}] -> throw(:fallback)
+              _ -> put_clpz(s, v, [a("no"), a("no"), a("no"), d, ps, q])
+            end
+
+          _ ->
+            throw(:fallback)
+        end
+
+      _ ->
+        s
+    end
+  end
+
   defbuiltin "$clpz_reinforce", [x] do
     run("reinforce", [x], subst(), fn ->
       s = subst_now()
 
       PrologEx.Builtins.Order.variables(x, s)
-      |> Enum.reduce(s, fn v, s ->
-        case att(v, s, "clpz", 1) do
-          [attr] ->
-            case ws(attr, s) do
-              {tag, "clpz_attr", [_, _, _, d, ps, q]} when tag in [:struct, :gstruct] ->
-                # (leer oder ein Einzelwert: das Original, es scheitert bzw.
-                # bindet)
-                case dom(d) do
-                  [] -> throw(:fallback)
-                  [{b, b}] -> throw(:fallback)
-                  _ -> put_clpz(s, v, [a("no"), a("no"), a("no"), d, ps, q])
-                end
-
-              _ ->
-                throw(:fallback)
-            end
-
-          nil ->
-            s
-        end
-      end)
+      |> Enum.reduce(s, &reinforce_one/2)
       |> then(&{:subst, &1})
     end)
   end
@@ -2123,6 +2131,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Original
   defp activate(prop, q, s, alone) do
     Process.put(:clpz_prims_subst, s)
+    Process.put(:clpz_alone, alone)
     nq = Process.get(@nq)
 
     try do
@@ -2469,7 +2478,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # (ein Ziel, ein Propagator fürs Original, Wecken, abgeschaltete Queue)
   # wieder angehängt: Reihenfolge und Inhalt wie mit dem Term. Wo ein
   # Zustand verworfen wird (activate/4 fällt aufs Original zurück,
-  # absorb_wake/3 gibt auf), wird auch @nq zurückgesetzt.
+  # absorb_wake/3 gibt auf), wird auch @nq zurückgesetzt. Läuft geschachtelt
+  # die Schleife einer anderen Queue (der neue Propagator einer Vereinfachung,
+  # das Wecken über eine andere Queue), wird die äußere solange in ihren Term
+  # geparkt.
 
   defp native(q, s, fun) do
     args =
@@ -2478,24 +2490,75 @@ defmodule PrologEx.Builtins.ClpzPrims do
         _ -> throw(:fallback)
       end
 
-    if Process.get(@nq) != nil do
-      # (geschachtelt: schon eine Schleife in Elixir – mit dem Term)
-      fun.(s)
-    else
-      key = PrologEx.Store.walk(hd(args), s)
-      unless match?({:var, _}, key), do: throw(:fallback)
-      {ls, s} = drain(args, s)
-      [g, f, sl] = Enum.map(ls, &:queue.from_list/1)
-      Process.put(@nq, {key, g, f, sl})
+    case Process.get(@nq) do
+      nil ->
+        own_queue(args, s, fun)
 
-      try do
-        case fun.(s) do
-          :fail -> :fail
-          {:next, t, s} -> {:next, t, flush(args, s)}
+      {okey, _, _, _} = outer ->
+        if PrologEx.Store.walk(hd(args), s) == okey do
+          # (dieselbe Queue, geschachtelt: sie läuft schon in Elixir)
+          fun.(s)
+        else
+          # eine andere: die äußere parken (zurück in ihren Term), die
+          # innere in Elixir, danach die äußere wieder holen – wie der Weg
+          # über Prolog
+          oargs = Process.get(@nqa)
+          s = flush(oargs, s)
+
+          case own_queue(args, s, fun) do
+            :fail ->
+              Process.put(@nq, outer)
+              :fail
+
+            {:next, t, s} ->
+              {[g, f, sl], s} = drain(oargs, s)
+              # (der Schlüssel neu: das Parken gab der Variablen ein
+              # Attribut, walk/2 liefert sie jetzt anders)
+              key = PrologEx.Store.walk(hd(oargs), s)
+
+              Process.put(
+                @nq,
+                {key, :queue.from_list(g), :queue.from_list(f), :queue.from_list(sl)}
+              )
+
+              Process.put(@nqa, oargs)
+              {:next, t, s}
+          end
         end
-      after
-        Process.delete(@nq)
+    end
+  end
+
+  # Hat variables_same_queue/1 die Queue umgebogen, die gerade in Elixir
+  # läuft (ihr Schlüssel löst anders auf), gehörten ihre Einträge nicht mehr
+  # dazu: dann das Original
+  defp nq_intact(s) do
+    case Process.get(@nq) do
+      {key, _, _, _} ->
+        if PrologEx.Store.walk(hd(Process.get(@nqa)), s) != key, do: throw(:fallback)
+        s
+
+      nil ->
+        s
+    end
+  end
+
+  defp own_queue(args, s, fun) do
+    {ls, s} = drain(args, s)
+    key = PrologEx.Store.walk(hd(args), s)
+    unless match?({:var, _}, key), do: throw(:fallback)
+    [g, f, sl] = Enum.map(ls, &:queue.from_list/1)
+    prev = Process.get(@nqa)
+    Process.put(@nq, {key, g, f, sl})
+    Process.put(@nqa, args)
+
+    try do
+      case fun.(s) do
+        :fail -> :fail
+        {:next, t, s} -> {:next, t, flush(args, s)}
       end
+    after
+      Process.delete(@nq)
+      if prev, do: Process.put(@nqa, prev), else: Process.delete(@nqa)
     end
   end
 
@@ -2640,8 +2703,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # [Q], _)]; ohne Domäne Gs = []), die Bindungen wiederherstellen. Sind
   # alle Q die laufende Queue, leert das geschachtelte do_queue//0 genau
   # diese Queue, und die äußere Schleife fände sie danach leer – dasselbe,
-  # wie hier weiterzumachen. Sonst (andere Queue, andere Attribute als
-  # clpz, kein ganzzahliger Wert): :no, zurück nach Prolog (again)
+  # wie hier weiterzumachen. Teilen sie eine andere Queue, läuft deren
+  # do_queue//0 hier geschachtelt (run_other/2). Sonst (verschiedene
+  # Queues, andere Attribute als clpz, kein ganzzahliger Wert): :no,
+  # zurück nach Prolog (again)
   defp absorb_wake(ws, q, s) do
     vs = Enum.reverse(ws)
     nq = Process.get(@nq)
@@ -2658,11 +2723,22 @@ defmodule PrologEx.Builtins.ClpzPrims do
             :fail
 
           {s1, qs} ->
-            if Enum.all?(qs, &PrologEx.Order.equal?(&1, q, s1)) do
-              {:ok,
-               Enum.reduce(pairs, s1, fn {v, val}, acc -> Store.put_binding(acc, v, val) end)}
-            else
-              restore_nq(nq, :no)
+            s2 = Enum.reduce(pairs, s1, fn {v, val}, acc -> Store.put_binding(acc, v, val) end)
+
+            cond do
+              Enum.all?(qs, &PrologEx.Order.equal?(&1, q, s1)) ->
+                {:ok, s2}
+
+              # alle in einer anderen Queue: deren do_queue//0 läuft
+              # geschachtelt bis zum Fixpunkt, dann geht es hier weiter
+              Enum.all?(qs, &PrologEx.Order.equal?(&1, hd(qs), s1)) ->
+                case run_other(hd(qs), s2) do
+                  :no -> restore_nq(nq, :no)
+                  r -> r
+                end
+
+              true ->
+                restore_nq(nq, :no)
             end
         end
       catch
@@ -2672,6 +2748,24 @@ defmodule PrologEx.Builtins.ClpzPrims do
       end
     else
       :no
+    end
+  end
+
+  # do_queue//0 einer anderen Queue bis zum Fixpunkt: {:ok, s}, :fail oder
+  # :no (sie braucht Prolog)
+  defp run_other(qv, s) do
+    qv = PrologEx.Store.walk(qv, s)
+
+    qargs =
+      case ws(qv, s) do
+        {tag, "queue", [_, _, _, _] = args} when tag in [:struct, :gstruct] -> args
+        _ -> throw(:fallback)
+      end
+
+    case native(qv, s, &queue_loop(qv, qargs, true, &1)) do
+      :fail -> :fail
+      {:next, {:atom, "none"}, s} -> {:ok, s}
+      {:next, _, _} -> :no
     end
   end
 
@@ -2775,6 +2869,51 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp var?(_), do: false
 
   # kill/1: del_attr(State, clpz_aux), State = dead
+  # Vereinfachung von scalar_product_eq wie im Original: kill(MState), dann
+  # { L #= R } – der Matcher macht daraus pplus(X, Y, Z, _) (var/1 passt dort
+  # auch auf Zahlen), aufgestellt mit pit/4 (eigene, frische Queue) und
+  # trigger_once_/2 (die läuft gleich bis zum Fixpunkt), danach
+  # reinforce(L) mit den Variablen von L. Braucht die Schleife Prolog (ein
+  # Ziel, Wecken über eine andere Queue): das Original
+  defp sp_simplify(st, pargs, left, s) do
+    if Process.get(:clpz_alone) != true or Process.get(:clpz_no_fast), do: throw(:fallback)
+
+    case kill(st, s) do
+      :fail ->
+        :fail
+
+      s ->
+        p = mk("propagator", [mk("pplus", pargs ++ [fresh_var()]), fresh_var()])
+        vs = PrologEx.Builtins.Order.variables(pargs, s)
+        q = new_queue()
+        {_, _, qargs} = q
+
+        s
+        |> then(&Enum.reduce(vs, &1, fn v, s -> seq(s, fn s -> init_one(v, p, q, s) end) end))
+        |> seq(&same_queue(vs, &1))
+        |> seq(&nq_intact/1)
+        |> seq(&drop_inert_wake/1)
+        |> seq(fn s ->
+          native(q, s, fn s ->
+            case trigger(p, q, s) do
+              :fail -> :fail
+              s -> queue_loop(q, qargs, true, s)
+            end
+          end)
+          |> case do
+            :fail ->
+              :fail
+
+            {:next, {:atom, "none"}, s} ->
+              Enum.reduce(left, s, &seq(&2, fn s -> reinforce_one(&1, s) end))
+
+            {:next, _, _} ->
+              throw(:fallback)
+          end
+        end)
+    end
+  end
+
   defp kill(st, s) do
     st = PrologEx.Store.walk(st, s)
     s = if var?(st), do: del_att(s, st, "clpz_aux", 1), else: s
@@ -3046,14 +3185,37 @@ defmodule PrologEx.Builtins.ClpzPrims do
         s = kill(st, s)
         if s != :fail and p == 0, do: s, else: :fail
 
+      # V = [V], Cs = [C]: kill, P mod C =:= 0, V is P // C
       match?([_], cvs) ->
-        throw(:fallback)
+        [{c, v}] = cvs
+        if c == 0, do: throw(:fallback)
 
+        case kill(st, s) do
+          :fail -> :fail
+          s -> if rem(p, c) == 0, do: bind(s, v, div(p, c)), else: :fail
+        end
+
+      # zwei oder (P = 0) drei Variablen: das Original tötet sich und stellt
+      # { L #= R } auf – pplus/4 über pit/4 und trigger_once_/2, danach
+      # reinforce(L); siehe sp_simplify/5
       cs in [[1, 1], [1, -1], [-1, 1], [-1, -1]] ->
-        throw(:fallback)
+        [{_, a}, {_, b}] = cvs
+
+        case cs do
+          [1, 1] -> sp_simplify(st, [a, b, p], [a, b], s)
+          [1, -1] -> sp_simplify(st, [p, b, a], [a], s)
+          [-1, 1] -> sp_simplify(st, [p, a, b], [b], s)
+          [-1, -1] -> sp_simplify(st, [a, b, -p], [a, b], s)
+        end
 
       p == 0 and cs in [[1, 1, -1], [1, -1, 1], [-1, 1, 1]] ->
-        throw(:fallback)
+        [{_, a}, {_, b}, {_, c}] = cvs
+
+        case cs do
+          [1, 1, -1] -> sp_simplify(st, [a, b, c], [a, b], s)
+          [1, -1, 1] -> sp_simplify(st, [a, c, b], [a, c], s)
+          [-1, 1, 1] -> sp_simplify(st, [b, c, a], [b, c], s)
+        end
 
       true ->
         if Enum.any?(cs, &(&1 == 0)), do: throw(:fallback)

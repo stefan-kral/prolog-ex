@@ -2135,6 +2135,17 @@ Bisher in Elixir:
     `do_queue_/3`. 20 Damen −30 %, alle 8-Damen-Lösungen −25 %, 100 Damen
     −13 %, 40 Damen −6 % (Reduktionen −10 bis −15 %); Sudoku und SEND+MORE
     gleich.
+  * `scalar_product_eq` (lineare Summen) fiel auf das Original zurück,
+    sobald beim Labeling nur noch 1, 2 oder (Summe 0) 3 Variablen übrig
+    waren: das tötet sich und stellt `{ A + B #= P }` & Co. über den Parser
+    auf. Jetzt nativ wie dort: eine Variable binden; sonst `pplus/4` (das
+    macht der Matcher aus `{ L #= R }`) mit `pit/4` auf frischer Queue,
+    `trigger_once_/2` bis zum Fixpunkt, dann `reinforce/1` der linken
+    Seite. Bindet die geschachtelte Schleife Variablen einer anderen Queue,
+    läuft deren `do_queue//0` ebenfalls geschachtelt; die äußere Queue wird
+    solange in ihren Term geparkt. Magisches Quadrat 4×4 20 → 11 ms, 5×5
+    608 → 346 ms (Scryer 1 323, SWI-clpfd 321 ms), SEND+MORE −7 %, alle
+    8-Damen-Lösungen −7 % Reduktionen; sonst gleich.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige
