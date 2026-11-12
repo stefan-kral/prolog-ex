@@ -195,7 +195,13 @@ Ein Prolog-Kern in Elixir:
   zurücksetzen und Variablen binden gehen über Makros von
   `PrologEx.Store` (kein Fernaufruf, die Darstellung bleibt dort):
   Backtracking über Fakten −55 % Reduktionen, −30 % Zeit, über Klauseln
-  mit Rumpf −45 % / −20 %, between/member −10 bis −25 %
+  mit Rumpf −45 % / −20 %. Ebenso in einem Update: Disjunktion und
+  if-then-else (Choice Point und Ziele), Rückkehr zu ihnen und zur
+  nächsten Lösung eines Builtins, der Schnitt (ohne
+  setup_call_cleanup/3 im Lauf). Eine Variable gegen eine Zahl oder ein
+  Atom unifiziert ohne allgemeine Unifikation, ein Vergleich zweier
+  Zahlen als Ziel ohne Auswerten: between/member-Schleifen −25 bis
+  −35 %, if-then-else/Disjunktion/Schnitt −20 bis −30 %
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
   Sie läuft früh (ab 256 Bindungen, danach beim Doppelten der lebenden
   Nicht-ground-Knoten) und kostet ohne `call_nth/2`/`time/1` nichts je

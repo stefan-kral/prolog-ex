@@ -495,7 +495,28 @@ defmodule PrologEx do
 
   @doc false
   # mode: siehe bind_checked/4
-  def unify(x, y, subst, mode) do
+  #
+  # Der häufigste Fall vorweg, ohne Memo und catch-Rahmen: eine Variable
+  # gegen eine Zahl oder ein Atom (Ergebnisse von Builtins wie between/3,
+  # Kopfkonstanten) – ungebunden (nicht attributiert) wird sie gebunden
+  # (Occurs-Check gegenstandslos), steht sie schon für genau diesen Term,
+  # passt es. Alles andere wie bisher.
+  def unify({:var, _} = x, y, subst, mode) when is_number(y) or elem(y, 0) == :atom do
+    case Store.walk(x, subst) do
+      {:var, id} = v when not is_tuple(id) or elem(id, 0) != :attv ->
+        {:ok, :maps.put(v, y, subst)}
+
+      ^y ->
+        {:ok, subst}
+
+      _ ->
+        unify_full(x, y, subst, mode)
+    end
+  end
+
+  def unify(x, y, subst, mode), do: unify_full(x, y, subst, mode)
+
+  defp unify_full(x, y, subst, mode) do
     case u(x, y, subst, mode, %{}, 0) do
       {:ok, s, _m} -> {:ok, s}
       :error -> :error
@@ -1982,6 +2003,10 @@ defmodule PrologEx do
   defp step({:atom, "true"}, _cutb, _mod, rest, st), do: run(%{st | goals: rest})
   defp step({:atom, "fail"}, _cutb, _mod, _rest, st), do: backtrack(st)
 
+  # ohne setup_call_cleanup/3 im Lauf (der Normalfall): ein einziges Update
+  defp step({:atom, "!"}, cutb, _mod, rest, %{scc: false} = st),
+    do: run(%{st | goals: rest, cps: Enum.drop(st.cps, st.height - cutb), height: cutb})
+
   defp step({:atom, "!"}, cutb, _mod, rest, st) do
     {st, rest} = cut_to(st, cutb, rest)
     run(%{st | goals: rest})
@@ -2036,6 +2061,9 @@ defmodule PrologEx do
   end
 
   # Interne Markierung: Choice Points bis zur Höhe h abschneiden
+  defp step({:"$cut_to", h}, _cutb, _mod, rest, %{scc: false} = st),
+    do: run(%{st | goals: rest, cps: Enum.drop(st.cps, st.height - h), height: h})
+
   defp step({:"$cut_to", h}, _cutb, _mod, rest, st) do
     {st, rest} = cut_to(st, h, rest)
     run(%{st | goals: rest})
@@ -2373,10 +2401,15 @@ defmodule PrologEx do
 
   defp step({:struct, op, [x, y]}, _cutb, _mod, rest, st)
        when op in ["<", ">", ">=", "=<", "=:=", "=\\="] do
-    case guarded(fn -> compare(op, eval(x, st.subst), eval(y, st.subst)) end) do
-      {:ok, true} -> run(%{st | goals: rest})
-      {:ok, false} -> backtrack(st)
-      {:thrown, ball} -> throw_ball(ball, st)
+    s = st.subst
+    xv = Store.walk(x, s)
+    yv = Store.walk(y, s)
+
+    # zwei Zahlen (der häufige Fall): ohne Auswerten und ohne Closure
+    if is_number(xv) and is_number(yv) do
+      if compare(op, xv, yv), do: run(%{st | goals: rest}), else: backtrack(st)
+    else
+      arith_compare(op, xv, yv, rest, st)
     end
   end
 
@@ -2827,9 +2860,10 @@ defmodule PrologEx do
   # fragt die Sichtbarkeit, die Ausführung steht hier. Ein eigenes oder
   # anders importiertes Prädikat gleichen Namens geht vor; unsichtbar:
   # gewöhnlicher Aufruf (also existence_error).
+  # (Choice Point und Ziele in einem Update)
   defp disjunction(g1, g2, cutb, mod, rest, st) do
-    st = push(st, {:alt, {g2, cutb, mod}, rest, Store.fast_snapshot(st.subst), st.answer})
-    run(%{st | goals: [{g1, cutb, mod} | rest]})
+    cp = {:alt, {g2, cutb, mod}, rest, Store.fast_snapshot(st.subst), st.answer}
+    run(%{st | cps: [cp | st.cps], height: st.height + 1, goals: [{g1, cutb, mod} | rest]})
   end
 
   # Builtins mit Heimat-Bibliothek (between/3 usw.): aus system importiert
@@ -4529,8 +4563,14 @@ defmodule PrologEx do
   # für den Cut transparent (Barriere des umgebenden Prädikats).
   defp if_then_else(c, t, e, cutb, mod, rest, st) do
     h = st.height
-    st = push(st, {:alt, {e, cutb, mod}, rest, Store.fast_snapshot(st.subst), st.answer})
-    run(%{st | goals: [{c, h + 1, mod}, {{:"$cut_to", h}, 0, mod}, {t, cutb, mod} | rest]})
+    cp = {:alt, {e, cutb, mod}, rest, Store.fast_snapshot(st.subst), st.answer}
+
+    run(%{
+      st
+      | cps: [cp | st.cps],
+        height: h + 1,
+        goals: [{c, h + 1, mod}, {{:"$cut_to", h}, 0, mod}, {t, cutb, mod} | rest]
+    })
   end
 
   # (C *-> T ; E), if(C, T, E): wie if_then_else, aber $soft_cut nimmt nur
@@ -4831,10 +4871,32 @@ defmodule PrologEx do
 
   defp backtrack(%{cps: []}), do: :done
 
-  # Klausel-Alternative (der häufigste Fall): ein einziges Update des Structs
+  # Klausel-Alternative und nächste Lösung eines Builtins (die häufigsten
+  # Fälle): ein einziges Update des Structs
   defp backtrack(%{cps: [{:clauses, args, more, rest, mod, subst, answer} | cps]} = st),
     do:
       try_clauses(args, more, rest, mod, %{
+        st
+        | cps: cps,
+          height: st.height - 1,
+          subst: Store.fast_restore(subst),
+          answer: answer
+      })
+
+  defp backtrack(%{cps: [{:alt, goal, rest, subst, answer} | cps]} = st),
+    do:
+      run(%{
+        st
+        | cps: cps,
+          height: st.height - 1,
+          goals: [goal | rest],
+          subst: Store.fast_restore(subst),
+          answer: answer
+      })
+
+  defp backtrack(%{cps: [{:solutions_list, more, mod, rest, subst, answer} | cps]} = st),
+    do:
+      start_solutions(more, mod, rest, %{
         st
         | cps: cps,
           height: st.height - 1,
@@ -4849,12 +4911,6 @@ defmodule PrologEx do
       # Else eines soft cut, dessen Bedingung schon eine Lösung hatte
       :dead ->
         backtrack(st)
-
-      {:alt, goal, rest, subst, answer} ->
-        run(%{st | goals: [goal | rest], subst: Store.fast_restore(subst), answer: answer})
-
-      {:solutions_list, more, mod, rest, subst, answer} ->
-        start_solutions(more, mod, rest, %{st | subst: Store.fast_restore(subst), answer: answer})
 
       {:solutions, cont, mod, rest, subst, answer} ->
         st = %{st | subst: Store.fast_restore(subst), answer: answer}
@@ -5428,6 +5484,15 @@ defmodule PrologEx do
   # ---------------------------------------------------------------------
 
   defp eval(t, subst), do: PrologEx.Arith.eval(t, subst)
+
+  # arithmetischer Vergleich als Ziel, allgemein (Ausdrücke, Fehler)
+  defp arith_compare(op, x, y, rest, st) do
+    case guarded(fn -> compare(op, eval(x, st.subst), eval(y, st.subst)) end) do
+      {:ok, true} -> run(%{st | goals: rest})
+      {:ok, false} -> backtrack(st)
+      {:thrown, ball} -> throw_ball(ball, st)
+    end
+  end
 
   # Brüche (Tupel): PrologEx.Arith.compare_num/3
   @doc false
