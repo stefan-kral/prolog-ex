@@ -150,6 +150,44 @@ defmodule PrologEx.ListMoreTest do
     ])
   end
 
+  test "ordered/1, ordered/2 (SICStus)", c do
+    check(c, [
+      {"ordered([])", ["true"]},
+      {"ordered([a])", ["true"]},
+      {"ordered([1,2,2,3])", ["true"]},
+      {"ordered([1,3,2])", []},
+      {"ordered([1,a,f(x)])", ["true"]},
+      {"ordered([b,a])", []},
+      {"ordered(@<,[1,2,2])", []},
+      {"ordered(@<,[1,2,3])", ["true"]},
+      {"ordered(<,[1,2,3])", ["true"]},
+      {"ordered(>=,[3,3,1])", ["true"]},
+      {"ordered(>=,[3,4])", []},
+      {"ordered(foo,[])", ["true"]},
+      {"ordered(foo,[x])", ["true"]},
+      {"ordered(foo,[x,y])", {:error, "existence_error(procedure,foo/2)"}},
+      {"ordered(\\X^Y^(Y =:= X+1),[4,5,6])", ["true"]},
+      {"ordered(\\X^Y^(Y =:= X+1),[4,6])", []},
+      {"ordered(<,[1,X])", {:error, "instantiation_error"}}
+    ])
+  end
+
+  test "ordered/2 ruft im Modul des Aufrufers", c do
+    {db, []} =
+      PrologEx.Consult.load(
+        c.db,
+        Reader.read_terms(c.reader, """
+        :- module(mo, [q/1]).
+        :- use_module(library(lists)).
+        step(X, Y) :- Y =:= X + 2.
+        q(L) :- ordered(step, L).
+        """)
+      )
+
+    c = %{c | db: db}
+    check(c, [{"mo:q([1,3,5])", ["true"]}, {"mo:q([1,2])", []}])
+  end
+
   test "partition/5 ruft im Modul des Aufrufers", c do
     {db, []} =
       PrologEx.Consult.load(

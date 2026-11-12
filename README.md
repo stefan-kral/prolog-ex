@@ -419,7 +419,10 @@ Reihenfolge des ersten Vorkommens) und `list_runs(+L, ?R)`
 `list_frequencies/2` über eine stabile Sortierung (O(n log n)); aus SICStus' `library(lists)`: `same_length/3` (negatives N scheitert), `one_longer/2`,
 `shorter_list/2`, `keys_and_values/3`, `transpose/2` (rechteckig, in beide
 Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
-`partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}),
+`partition/5` (`call(P, X, R)`, R ∈ {`<`,`=`,`>`}), `ordered/1`
+(`T1 @=< T2 @=< …`) und `ordered/2` (`P(T1,T2)`, `P(T2,T3)`, … für
+beliebiges P – `@<`, `<`, ein eigenes Prädikat, auch `#<` aus clpz, anders
+als clpz' `chain/2` ohne Einschränkung auf die Vergleichsoperatoren),
 `memberd/2` (Neumerkel: wie `member/2` mit `dif/2` in der Rekursion, also
 ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die

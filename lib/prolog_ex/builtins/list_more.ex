@@ -14,6 +14,9 @@ defmodule PrologEx.Builtins.ListMore do
     * `partition(:Pred, +Liste, ?Kleiner, ?Gleich, ?Größer)` – für jedes X
       `call(Pred, X, R)` mit R ∈ {<, =, >}; R ungebunden:
       instantiation_error, sonst domain_error(order, R).
+    * `ordered(+Liste)` – `T1 @=< T2 @=< ...`; `ordered(:P, +Liste)` –
+      `P(T1,T2)`, `P(T2,T3)`, ... (P beliebig: `@<`, `#<` aus clpz, ein
+      eigenes Prädikat).
     * `memberd(?X, ?Liste)` – wie `member/2`, aber ohne doppelte Antworten
       (Neumerkel; `dif/2` in der Rekursion). In Elixir; dieselben Antworten
       wie die Prolog-Fassung in `library(memberd_pl)`.
@@ -117,7 +120,8 @@ defmodule PrologEx.Builtins.ListMore do
 
   def meta do
     [
-      {"lists", "partition", [2, "+", "-", "-", "-"]}
+      {"lists", "partition", [2, "+", "-", "-", "-"]},
+      {"lists", "ordered", [2, "+"]}
     ]
   end
 
@@ -303,6 +307,18 @@ defmodule PrologEx.Builtins.ListMore do
         rule(s("$firsts_rests", [[[f | r] | rows], [f | fs], [r | rs]]), [
           s("$firsts_rests", [rows, fs, rs])
         ]),
+
+        # ordered/1: T1 @=< T2 @=< ...; ordered/2: P(T1,T2), P(T2,T3), ...
+        # (wie SICStus; P beliebig, etwa @<, #< aus clpz oder ein eigenes
+        # Prädikat; Liste vorn: Indexierung)
+        fact(s("ordered", [[]])),
+        rule(s("ordered", [[x | xs]]), [s("$ordered", [xs, x])]),
+        fact(s("$ordered", [[], w])),
+        rule(s("$ordered", [[x | xs], l]), [s("@=<", [l, x]), s("$ordered", [xs, x])]),
+        fact(s("ordered", [w, []])),
+        rule(s("ordered", [p, [x | xs]]), [s("$ordered", [xs, x, p])]),
+        fact(s("$ordered", [[], w, w])),
+        rule(s("$ordered", [[x | xs], l, p]), [s("call", [p, l, x]), s("$ordered", [xs, x, p])]),
 
         # partition/5 (Liste vorn: Indexierung)
         rule(s("partition", [p, xs, ls, es, gs]), [s("$partition5", [xs, p, ls, es, gs])]),
