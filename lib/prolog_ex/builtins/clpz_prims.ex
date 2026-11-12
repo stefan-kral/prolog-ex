@@ -1288,23 +1288,51 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp new_queue, do: mk("queue", [fresh_var(), fresh_var(), fresh_var(), fresh_var()])
 
   # fd_get/3: {Domäne, Propagatoren} von x, :default oder :fail
+  #
+  # Merkzettel je Variable wie bei den Domänen (vdom/3): die zuletzt
+  # gesehene Liste ihrer clpz-Attribute (physisch, Share.same?/2) und das
+  # Ergebnis. Unverändert – dasselbe Ergebnis, ohne die Liste zu durchsuchen
+  # und clpz_attr/6 zu zerlegen.
+  @fdg_key :clpz_fdget
+  @fdg_max 100_000
+
   defp fd_get(x, s) do
     case PrologEx.Store.walk(x, s) do
-      {:var, _} = v ->
-        case att(v, s, "clpz", 1) do
-          [a] ->
-            case ws(a, s) do
-              {tag, "clpz_attr", [_, _, _, d, ps, _]} when tag in [:struct, :gstruct] -> {d, ps}
-              _ -> throw(:fallback)
-            end
+      {:var, {:attv, id}} = v ->
+        l = s |> Store.attrs(id) |> Map.get("clpz", [])
 
-          nil ->
-            :default
+        case Process.get(@fdg_key, %{}) do
+          %{^v => {l0, r}} = m ->
+            if PrologEx.Share.same?(l0, l), do: r, else: fd_get_miss(m, v, l, s)
+
+          m ->
+            fd_get_miss(m, v, l, s)
         end
+
+      {:var, _} ->
+        :default
 
       _ ->
         :fail
     end
+  end
+
+  defp fd_get_miss(m, v, l, s) do
+    r =
+      case att_find(l, s, "clpz", 1) do
+        [a] ->
+          case ws(a, s) do
+            {tag, "clpz_attr", [_, _, _, d, ps, _]} when tag in [:struct, :gstruct] -> {d, ps}
+            _ -> throw(:fallback)
+          end
+
+        nil ->
+          :default
+      end
+
+    m = if map_size(m) >= @fdg_max, do: %{}, else: m
+    Process.put(@fdg_key, Map.put(m, v, {l, r}))
+    r
   end
 
   defp default_dom, do: ed(ClpzDom.all())
@@ -3034,17 +3062,25 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp fdput_known(v, d, ps, q, s) do
     with {:var, _} = vv <- PrologEx.Store.walk(v, s),
          [attr] <- att(vv, s, "clpz", 1),
-         {tag, "clpz_attr", [left, right, spread, old_dom, _old_ps, qx]}
+         {tag, "clpz_attr", [left, right, spread, old_dom, old_ps, qx]}
          when tag in [:struct, :gstruct] <- ws(attr, s),
          wold = ws(old_dom, s),
          d0 when d0 != nil <- vdom_peek(vv, wold) || dec_find(dec_cache(), wold) do
-      if d === d0 do
-        put_clpz(s, vv, [left, right, spread, old_dom, ps, qx])
-      else
-        dom = ed(d)
-        vdom_put(vv, dom, d)
-        s = put_clpz(s, vv, [left, right, spread, dom, ps, qx])
-        changed(vv, left, right, spread, old_dom, dom, ps, qx, q, s)
+      cond do
+        # dieselbe Domäne, physisch dieselben Propagatoren: das neue
+        # Attribut wäre gleich dem alten – es bleibt (und mit ihm die
+        # Merkzettel dieser Variablen)
+        d === d0 and PrologEx.Share.same?(old_ps, ps) ->
+          s
+
+        d === d0 ->
+          put_clpz(s, vv, [left, right, spread, old_dom, ps, qx])
+
+        true ->
+          dom = ed(d)
+          vdom_put(vv, dom, d)
+          s = put_clpz(s, vv, [left, right, spread, dom, ps, qx])
+          changed(vv, left, right, spread, old_dom, dom, ps, qx, q, s)
       end
     else
       _ -> :unknown

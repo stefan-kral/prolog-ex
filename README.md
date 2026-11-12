@@ -2153,6 +2153,13 @@ Bisher in Elixir:
     (`Share.same?/2`), stimmt also auch nach Backtracking. Summen lesen
     meist unveränderte Domänen anderer Variablen: magisches Quadrat 5×5
     −16 %, 4×4 −7 %, Sudoku −5 %, 100 Damen −4 % Reduktionen.
+  * `fd_get` merkt sich ebenso je Variable die zuletzt gesehene Liste
+    ihrer clpz-Attribute und das Ergebnis (ohne Suche in der Liste und
+    Zerlegen von `clpz_attr/6`). Und `fd_put` mit derselben Domäne und
+    physisch denselben Propagatoren lässt das Attribut stehen, statt ein
+    inhaltsgleiches neu anzulegen – sonst verfiele bei jeder Propagation
+    jeder Merkzettel der Variablen. Magisches Quadrat 5×5 −7 %, 4×4 −5 %,
+    alle 8-Damen-Lösungen −3 %, sonst −1 bis −1,5 % Reduktionen.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige
