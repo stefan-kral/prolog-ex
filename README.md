@@ -138,6 +138,20 @@ Ein Prolog-Kern in Elixir:
     dürfen in Eingaben vorkommen, samt Occurs-Check wie sonst). Kosten,
     wo es nicht passt: eine rekursive DCG-Regel über `phrase/2` (der Rest
     ist dort `[]`, gebunden) prüft je Aufruf vergeblich, +2 % Reduktionen.
+  - Lohnt sich der Code für ein Prädikat nicht, lässt der Interpreter ihn
+    bald liegen: je Prädikat zählen Treffer und Fehlschläge (beim Eintritt
+    abgewiesen; aufgegeben zählt achtfach – die Arbeit bis dahin war
+    umsonst, oft für jede Rekursionsstufe darunter). Ab 64 Fehlschlägen,
+    mehr als doppelt so viele wie Treffer, nimmt der Interpreter die
+    Aufrufe direkt, nach 4096 übersprungenen versucht er es neu. Der
+    Eintritt selbst ist schlank (ein Fehlerfang statt dreier, Ausgaben
+    aus Zahlen ohne Unifikation, die Grenzprüfung nur über dem
+    Prüfpunkt) – bei einem Prädikat mit einem Ziel etwa so teuer wie der
+    Interpreter. In den Programmen der SWI-Benchmark-Sammlung (29, ohne
+    Tabling) ist der Code so nirgends mehr spürbar langsamer (vorher
+    serialise ×0,45, boyer ×0,87); schneller etwa nreverse ×30–50,
+    eval ×12–17, derive ×6, times10/divide10 ×4,5–5, ops8 ×4, qsort/log10
+    ×3, queens_8/perfect ×2.
   - `jit_listing/0,1` zeigt je Prädikat eines Moduls, ob es übersetzt ist
     (Modi und Typen, etwa `app(+list, +any, -)`) oder warum nicht
     („Klausel 2: Ziel is_list/1“, „Klauseln 1 und 2 schließen sich nicht

@@ -160,11 +160,20 @@ defmodule PrologEx.ConsultTest do
       end)
 
     assert out == "55-false\n"
-    refute match?({:pred, _, _, {:jit, _, _, _, _}, _}, PrologEx.current_db()[{"user", "f", 2}])
+
+    refute match?(
+             {:pred, _, _, {:jit, _, _, _, _, _}, _},
+             PrologEx.current_db()[{"user", "f", 2}]
+           )
+
     PrologEx.Flags.set("jit", {:atom, "true"})
     out = capture_io(prog, fn -> PrologEx.Toplevel.main(["-", "-g", goal]) end)
     assert out == "55-true\n"
-    assert match?({:pred, _, _, {:jit, _, _, _, _}, _}, PrologEx.current_db()[{"user", "f", 2}])
+
+    assert match?(
+             {:pred, _, _, {:jit, _, _, _, _, _}, _},
+             PrologEx.current_db()[{"user", "f", 2}]
+           )
   end
 
   test "double_quotes: Direktive in der Datei und im Toplevel" do

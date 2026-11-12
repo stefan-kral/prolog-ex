@@ -83,6 +83,14 @@ defmodule PrologEx.Flags do
     |> Enum.sort()
   end
 
+  @doc "Flag jit beim Aufruf aus? (wie get(\"jit\") == false, ohne die Tabelle)"
+  def jit_off? do
+    case :erlang.get(@key) do
+      %{"jit" => {:atom, "false"}} -> true
+      _ -> false
+    end
+  end
+
   @doc "Wert eines Flags (Prolog-Term) oder nil"
   def get(name) do
     case Map.fetch(@defaults, name) do

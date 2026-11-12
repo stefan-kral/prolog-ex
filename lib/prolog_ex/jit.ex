@@ -2103,7 +2103,8 @@ defmodule PrologEx.Jit do
 
   @doc false
   # ein übersetztes Prädikat rufen: {:ok, Ausgaben, verbraucht} |
-  # {:fail, verbraucht} | :deopt.
+  # {:fail, verbraucht} | :deopt | :warming | {:thrown, ball} (ein
+  # Prolog-Fehler aus dem Code, wie guarded/1 der Maschine).
   #
   # Eine Liste aus der Eingabe oder einem Ergebnis ist ein gewöhnlicher Term
   # und wird erst beim Zerlegen gelesen: so viel wie der Interpreter auch
@@ -2111,12 +2112,12 @@ defmodule PrologEx.Jit do
   # Rest, ein Element, das keine Zahl ist), gibt er auf (:deopt): er hat
   # nichts gebunden, der Interpreter fängt den Aufruf neu an. Noch nicht
   # übersetzt (das Modul fehlt): erst ab dem n-ten Aufruf (Flag
-  # jit_threshold) übersetzen, vorher :deopt – der Interpreter; selten
+  # jit_threshold) übersetzen, vorher :warming – der Interpreter; selten
   # gerufene Prädikate kosten so keinen Compilerlauf.
   def run({mod, _, _, _, _} = m, ins, chunk, check, store, outs) do
     if :erlang.module_loaded(mod) or warm?(mod),
       do: go(m, ins, chunk, check, store, outs, true),
-      else: :deopt
+      else: :warming
   end
 
   # noch nicht geladen: zählen; an der Schwelle übersetzen (false: der
@@ -2147,6 +2148,9 @@ defmodule PrologEx.Jit do
           {:fail, chunk_now() + b + 1}
       end
     rescue
+      e in PrologEx.Error ->
+        {:thrown, e.term}
+
       e in UndefinedFunctionError ->
         cond do
           e.module != mod or not retry -> reraise e, __STACKTRACE__

@@ -139,7 +139,7 @@ defmodule PrologEx.JitTest do
   # übersetzte Rufer ({:jit_info, ...})
   defp jitted?(db, {m, n, a} = k),
     do:
-      match?({:pred, _, _, {:jit, _, _, _, _}, _}, db[k]) or
+      match?({:pred, _, _, {:jit, _, _, _, _, _}, _}, db[k]) or
         Map.has_key?(db, {:jit_info, m, n, a})
 
   setup_all do
@@ -196,11 +196,11 @@ defmodule PrologEx.JitTest do
 
     # app/3: erste Liste aufgelöst, zweite durchgereicht; Summe: Zahlen
     # (Floats auch: avg/2 ruft suml/2 und rechnet mit /), dbl/2: Ganzzahlen
-    assert {:pred, _, _, {:jit, _, [{0, :list}, {1, :any}], [2], _}, _} =
+    assert {:pred, _, _, {:jit, _, [{0, :list}, {1, :any}], [2], _, _}, _} =
              c.jit[{"user", "app", 3}]
 
-    assert {:pred, _, _, {:jit, _, [{0, :nlist}], [1], _}, _} = c.jit[{"user", "suml", 2}]
-    assert {:pred, _, _, {:jit, _, [{0, :ilist}], [1], _}, _} = c.jit[{"user", "dbl", 2}]
+    assert {:pred, _, _, {:jit, _, [{0, :nlist}], [1], _, _}, _} = c.jit[{"user", "suml", 2}]
+    assert {:pred, _, _, {:jit, _, [{0, :ilist}], [1], _, _}, _} = c.jit[{"user", "dbl", 2}]
 
     # Typtests
     for k <-
@@ -212,7 +212,7 @@ defmodule PrologEx.JitTest do
     refute jitted.({"user", "cnj", 2})
     refute jitted.({"user", "udsq", 2})
     # half rechnet mit /: auch hsum nimmt Floats
-    assert {:pred, _, _, {:jit, _, [{0, :num}], _, _}, _} = c.jit[{"user", "hsum", 2}]
+    assert {:pred, _, _, {:jit, _, [{0, :num}], _, _, _}, _} = c.jit[{"user", "hsum", 2}]
 
     # Atome und Strukturen: Peano, Paare, Konstanten, deriv
     for k <-
@@ -577,7 +577,7 @@ defmodule PrologEx.JitTest do
     prog = "schw_#{System.unique_integer([:positive])}"
     src = "#{prog}(N, M) :- M is N * 7 + #{System.unique_integer([:positive])}."
     {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
-    {:pred, _, _, {:jit, {mod, _, _, _, _}, _, _, _}, _} = db[{"user", prog, 2}]
+    {:pred, _, _, {:jit, {mod, _, _, _, _}, _, _, _, _}, _} = db[{"user", prog, 2}]
     PrologEx.Flags.set("jit_threshold", 5)
 
     for i <- 1..4 do
@@ -588,6 +588,30 @@ defmodule PrologEx.JitTest do
     assert {_, {:answers, [_]}} = TableCase.run(c.reader, db, "#{prog}(5, _)")
     assert :erlang.module_loaded(mod)
     assert_raise PrologEx.Error, fn -> PrologEx.Flags.set("jit_threshold", 0) end
+  end
+
+  # Gibt der übersetzte Code immer wieder auf (hier: die Eingabe enthält
+  # Variablen, die er binden müsste), nimmt der Interpreter die Aufrufe
+  # bald direkt (jit_cold?/1) – mit denselben Antworten
+  test "kalt: oft aufgegeben, dann der Interpreter", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    :- use_module(library(between)).
+    nb#{u}(t(L, N1, R), N0, N) :- nb#{u}(L, N0, N1), N2 is N1 + 1, nb#{u}(R, N2, N).
+    nb#{u}(v, N, N).
+    mk#{u}(0, v) :- !.
+    mk#{u}(D, t(L, _, R)) :- D1 is D - 1, mk#{u}(D1, L), mk#{u}(D1, R).
+    """
+
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+    {:pred, _, _, {:jit, _, _, _, _, stats}, _} = db[{"user", "nb#{u}", 3}]
+    q = "\\+ (between(1, 200, _), mk#{u}(5, T), \\+ (nb#{u}(T, 1, N), N == 32))"
+    assert {_, {:answers, ["true"]}} = TableCase.run(c.reader, db, q)
+    assert :atomics.get(stats, 2) >= 64
+    assert :atomics.get(stats, 3) > 0
   end
 
   test "schneller (grob)", c do

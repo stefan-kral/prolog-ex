@@ -80,7 +80,7 @@ defmodule PrologEx.JitListing do
   # übersetzt? {status, info} oder nil
   defp status(db, module, {n, a}, p) do
     case p do
-      {:pred, _, _, {:jit, info, _, _, _}, _} ->
+      {:pred, _, _, {:jit, info, _, _, _, _}, _} ->
         {loaded(info), info}
 
       _ ->
