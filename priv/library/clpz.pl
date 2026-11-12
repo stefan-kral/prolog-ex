@@ -3014,6 +3014,19 @@ clpz_expansion(X0 #>= Y0, Geq) :-
 clpz_expansion(X #=< Y,  Leq) :- clpz_expansion(Y #>= X, Leq).
 clpz_expansion(X #> Y, Gt)    :- clpz_expansion(X #>= Y+1, Gt).
 clpz_expansion(X #< Y, Lt)    :- clpz_expansion(Y #> X, Lt).
+% PrologEx: Sind beide Seiten einfach (Variablen, Zahlen, -, abs, +, *,
+% min, max), sind die Bedingungen von expr_conds//2 genau integer/1 für
+% jede Variable; '$clpz_neq_exp'/4 wertet die Fallunterscheidung unten
+% zur Laufzeit in einem Schritt aus (XVs, YVs: die Variablen jetzt) – statt
+% eines Rumpfs, den der Interpreter bei jedem Aufruf ganz aufbaut.
+clpz_expansion(X0 #\= Y0, Neq) :-
+        \+ monotonic,
+        simple_arith(X0),
+        simple_arith(Y0),
+        !,
+        term_variables(X0, XVs),
+        term_variables(Y0, YVs),
+        Neq = clpz:'$clpz_neq_exp'(X0, Y0, XVs, YVs).
 clpz_expansion(X0 #\= Y0, Neq) :-
         phrase(expr_conds(X0, X), CsX),
         phrase(expr_conds(Y0, Y), CsY),
@@ -3028,6 +3041,16 @@ clpz_expansion(X0 #\= Y0, Neq) :-
               ;   clpz:clpz_neq(X0, Y0)
               ), Neq).
 
+
+simple_arith(E) :- var(E), !.
+simple_arith(E) :- integer(E), !.
+simple_arith(-A) :- !, simple_arith(A).
+simple_arith(abs(A)) :- !, simple_arith(A).
+simple_arith(A+B) :- !, simple_arith(A), simple_arith(B).
+simple_arith(A*B) :- !, simple_arith(A), simple_arith(B).
+simple_arith(A-B) :- !, simple_arith(A), simple_arith(B).
+simple_arith(min(A,B)) :- !, simple_arith(A), simple_arith(B).
+simple_arith(max(A,B)) :- simple_arith(A), simple_arith(B).
 
 clpz_builtin(#=, =:=).
 clpz_builtin(#\=, =\=).

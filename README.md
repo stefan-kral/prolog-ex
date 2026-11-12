@@ -2183,6 +2183,13 @@ Bisher in Elixir:
     (`'$clpz_neq_fast'/3`; `neq_num/2`, bzw. `pit/4` und `trigger_once_/2`
     in einem Zug), Original `clpz_neq_fast_ref/3`. Aufstellen der 40 Damen
     −16 %, ganz −10 % Reduktionen.
+  * Die Expansion von `X #\= Y` im Programm: Sind beide Seiten einfach
+    (Variablen, Zahlen, `-`, `abs`, `+`, `*`, `min`, `max`), sind die
+    Bedingungen von `expr_conds//2` genau `integer/1` je Variable; statt
+    der Fallunterscheidung, deren Rumpf der Interpreter bei jedem Aufruf
+    ganz aufbaut, steht dann `'$clpz_neq_exp'(X, Y, XVs, YVs)`, das sie in
+    einem Schritt auswertet (gegen sie mit Zufallsausdrücken getestet).
+    Aufstellen der 100 Damen −22 %, ganz −9 % Reduktionen.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige

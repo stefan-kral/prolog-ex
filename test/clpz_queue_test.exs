@@ -613,6 +613,63 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # zufälliger einfacher Ausdruck (Variablen, Zahlen, -, abs, +, *, min, max)
+  defp simple_expr(0) do
+    case :rand.uniform(4) do
+      1 -> "(#{Enum.random(-3..4)})"
+      2 -> "N"
+      _ -> Enum.random(@vars)
+    end
+  end
+
+  defp simple_expr(d) do
+    case :rand.uniform(8) do
+      1 -> "-(#{simple_expr(d - 1)})"
+      2 -> "abs(#{simple_expr(d - 1)})"
+      3 -> "(#{simple_expr(d - 1)} + #{simple_expr(d - 1)})"
+      4 -> "(#{simple_expr(d - 1)} * #{simple_expr(d - 1)})"
+      5 -> "(#{simple_expr(d - 1)} - #{simple_expr(d - 1)})"
+      6 -> "min(#{simple_expr(d - 1)},#{simple_expr(d - 1)})"
+      7 -> "max(#{simple_expr(d - 1)},#{simple_expr(d - 1)})"
+      _ -> simple_expr(0)
+    end
+  end
+
+  # Die Annahme hinter '$clpz_neq_exp'/4: für einfache Ausdrücke liefert
+  # expr_conds//2 den Ausdruck selbst und genau integer/1 je Variable
+  test "expr_conds//2: einfache Ausdrücke – nur integer/1 je Variable", c do
+    for _ <- 1..300 do
+      e = simple_expr(3)
+
+      q =
+        "E = #{e}, phrase(clpz:expr_conds(E, E1), Cs), E1 == E, " <>
+          "\\+ (member(C, Cs), \\+ (nonvar(C), C = integer(V), var(V))), " <>
+          "term_variables(E, Vs), term_variables(Cs, CVs), sort(Vs, A), sort(CVs, B), A == B"
+
+      assert {_, {:answers, [_ | _]}} = TableCase.run(c.reader, c.db, q), q
+    end
+  end
+
+  # '$clpz_neq_exp'/4 gegen die Fallunterscheidung, die clpz_expansion/2 für
+  # X0 #\= Y0 erzeugt (wörtlich nachgebaut, CondX/CondY als integer/1 je
+  # Variable)
+  test "'$clpz_neq_exp'/4: wie die Expansion von #\\=", c do
+    check(c, 400, fn ->
+      x = simple_expr(2)
+      y = simple_expr(2)
+
+      ref =
+        "(maplist(integer, XVs) -> (maplist(integer, YVs) -> X0 =\\= Y0 ; " <>
+          "T is X0, clpz:clpz_neq(T, Y0)) ; maplist(integer, YVs) -> T is Y0, " <>
+          "clpz:clpz_neq(X0, T) ; clpz:clpz_neq(X0, Y0))"
+
+      scenario(
+        "X0 = #{x}, Y0 = #{y}, term_variables(X0, XVs), term_variables(Y0, YVs), " <>
+          "same(#{ref}, clpz:'$clpz_neq_exp'(X0, Y0, XVs, YVs), Vs)"
+      )
+    end)
+  end
+
   # clpz_neq_fast/3 (X #\= Y nach '$clpz_neq_kind'/3): Elixir gegen das
   # Original, alle vier Formen, auch mit Zahlen und Variablen ohne Domäne
   test "clpz_neq_fast/3: num_a, num_b, pneq, absdiff wie das Original", c do

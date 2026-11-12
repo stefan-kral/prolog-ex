@@ -2391,6 +2391,40 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # '$clpz_neq_exp'(X0, Y0, XVs, YVs): die Expansion von X0 #\\= Y0 für
+  # einfache Seiten (siehe clpz_expansion/2): CondX/CondY sind integer/1
+  # für jede Variable in XVs/YVs; beide – X =\\= Y, eine – auswerten und
+  # clpz_neq/2, keine – clpz_neq(X0, Y0)
+  defbuiltin "$clpz_neq_exp", [x0, y0, xvs, yvs] do
+    s = subst()
+    cx = all_ints?(xvs, s)
+    cy = all_ints?(yvs, s)
+    neq = &{:call, mk(":", [a("clpz"), mk("clpz_neq", [&1, &2])])}
+
+    cond do
+      cx and cy ->
+        PrologEx.Arith.compare_num("=\\=", PrologEx.Arith.eval(x0, s), PrologEx.Arith.eval(y0, s))
+
+      cx ->
+        neq.(PrologEx.Arith.eval(x0, s), y0)
+
+      cy ->
+        neq.(x0, PrologEx.Arith.eval(y0, s))
+
+      true ->
+        neq.(x0, y0)
+    end
+  end
+
+  defp all_ints?(l, s) do
+    case PrologEx.Store.walk(l, s) do
+      [] -> true
+      [h | t] -> is_integer(PrologEx.Store.walk(h, s)) and all_ints?(t, s)
+      {:glist, l} -> Enum.all?(l, &is_integer/1)
+      _ -> false
+    end
+  end
+
   # parse_clpz/2 in der Form von '$clpz_parse_simple'/2; sonst das Original
   defp parse_simple(e, s) do
     case PrologEx.Store.walk(e, s) do
