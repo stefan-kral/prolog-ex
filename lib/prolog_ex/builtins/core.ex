@@ -362,6 +362,17 @@ defmodule PrologEx.Builtins.Core do
     :ok
   end
 
+  # welche Teile von library(clpz) in Elixir laufen (PrologEx.ClpzListing)
+  defbuiltin "clpz_listing", [] do
+    PrologEx.Builtins.IO.out(PrologEx.ClpzListing.listing(db(), :all))
+    :ok
+  end
+
+  defbuiltin "clpz_listing", [spec] do
+    PrologEx.Builtins.IO.out(PrologEx.ClpzListing.listing(db(), resolve(spec)))
+    :ok
+  end
+
   # --- DCG ---------------------------------------------------------------
 
   defbuiltin "phrase", [g, l] do

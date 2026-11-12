@@ -2143,6 +2143,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
              x_leq_y_plus_c pelement pgcc_check pgcc_check_single x_neq_y_plus_z
              scalar_product_neq reified_in reified_fd pxor psign)
 
+  @doc "Die Propagatoren, die activate_propagator//1 in Elixir rechnet"
+  def ported, do: @ported
+
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
       s = subst_now()

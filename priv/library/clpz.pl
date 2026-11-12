@@ -44,7 +44,8 @@
    jeden Schritt sind die Antworten der ursprünglichen Fassung
    (test/clpz_golden_test.exs), der Vergleich mit Scryer
    (test/fixtures/clpz/harness.pl) und Vergleiche mit Triskas Code
-   (test/clpz_test.exs). Abweichungen:
+   (test/clpz_test.exs). Was gerade in Elixir läuft, zeigt clpz_listing/0,1
+   (abgelesen aus den geladenen Klauseln). Abweichungen:
      - Domänen als kanonische Intervalllisten [inf..3, 5, 9..13, 16..sup]
        statt der Bäume aus split/3 und from_to/2, Schranken als ganze
        Zahlen statt n(N); die Operationen (domain_.../2,3,
@@ -61,8 +62,9 @@
        goal_expansion/2; do_queue//0 als Schleife über '$clpz_queue_next'/2.
        Die Originale mit der Endung _ref (do_queue_ref//0)
      - activate_propagator//1 in Elixir für pneq, absdiff_neq, pexclude,
-       pdifferent, scalar_product_eq (nur Zweige ohne direkte Bindungen
-       und ohne neue Bedingungen), pplus, reified_geq, reified_and,
+       pdifferent, scalar_product_eq (auch die Vereinfachungen auf 1–3
+       Variablen: pplus/4 direkt, wie es { L #= R } ergäbe), pplus,
+       reified_geq, reified_and,
        scalar_product_leq, pgeq, ptimes, pmax, pmin, pabs, reified_eq,
        reified_neq, pexp, ptzdiv, prem, pmod, reified_or,
        reified_not, pimpl, x_leq_y_plus_c, pelement, x_neq_y_plus_z,
@@ -71,7 +73,17 @@
        (distinct//1 und propagate_circuit/1 unverändert daneben); sonst das
        Original activate_propagator_ref//1
      - left_right_linsum_const/5 in Elixir ('$clpz_linsum'/5), Abkürzer
-       vor den Klauseln von clpz_neq/2 ('$clpz_neq_kind'/3)
+       vor den Klauseln von clpz_neq/2 ('$clpz_neq_kind'/3, dann
+       '$clpz_neq_fast'/3; Original clpz_neq_fast_ref/3) und von
+       parse_clpz/2 ('$clpz_parse_simple'/2); die Expansion von X #\= Y
+       für einfache Ausdrücke als '$clpz_neq_exp'/4
+     - Aufstellen: der Rest von all_distinct/1 und all_different/1 nach
+       den Typprüfungen ('$clpz_all_distinct_post'/1,
+       '$clpz_all_different_post'/2; Originale all_distinct_post_ref/1,
+       all_different_post_ref/2)
+     - Labeling: select_var/4 ('$clpz_select_var'/4, Original
+       select_var_ref/4); das Weckziel nach einer Bindung ist
+       '$clpz_do_queue'(Q) statt phrase(do_queue, [Q], _)
      - der Kern von gcc_global//2 (Wertenetz, Fluss, Komponenten, die
        neq_num-Ziele) in Elixir: gcc_neq_goals/3; Original gcc_neq_goals_ref/3
      - verify_attributes/3 in Elixir für einen Wert und für Variablen ohne

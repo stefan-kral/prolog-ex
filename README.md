@@ -1713,6 +1713,22 @@ X in 0..4, Y^2#=X, Y in -2..2.
 D = 0..2\/4..5, X in 0..2\/4..5.
 ```
 
+Große Teile laufen in Elixir (siehe unten); welche, zeigt `clpz_listing/0,1`
+– abgelesen aus den geladenen Klauseln, also immer aktuell. Je Prädikat
+eine von fünf Stufen (in Elixir, Abkürzer vor dem Original, Prüfungen in
+Prolog und der Rest in Elixir, Prolog mit Elixir-Bausteinen, Prolog), dazu
+das Original für den Rückfall (`name_ref`) und je Propagator, ob
+`activate_propagator//1` ihn in Elixir rechnet:
+
+```prolog
+?- clpz_listing(scalar_product_eq).
+% Propagator scalar_product_eq: Elixir (fällt zurück auf run_propagator//2 des Originals)
+?- clpz_listing(all_distinct/1).
+% all_distinct/1: Prüfungen in Prolog, der Rest in Elixir
+%     ruft '$clpz_all_distinct_post'/1 (Original all_distinct_post_ref/1)
+?- clpz_listing.            % Übersicht: Zahlen, Prädikate in Elixir, Propagatoren
+```
+
 Drei Formen schreibt PrologEx lesbarer (Flag `clpz_residuals`,
 Voreinstellung `compact`): eine halboffene Domäne als Vergleich mit einer
 Zahl, `X #=< Y + C` und lineare Summen (`L #=< R`) als `#<` oder `#=<` –
