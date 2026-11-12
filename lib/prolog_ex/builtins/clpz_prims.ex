@@ -3041,6 +3041,19 @@ defmodule PrologEx.Builtins.ClpzPrims do
     Process.put(@vdom_key, Map.put(m, v, {wt, dd}))
   end
 
+  @doc """
+  Die Merkzettel (Domänen, fd_get) vergessen – zu Beginn jeder Anfrage:
+  Treffer prüfen die physische Identität, falsch werden sie nie; aber
+  übrig gebliebene Einträge hielten die Terme der vorigen Anfrage am
+  Leben.
+  """
+  def forget do
+    Process.delete(@dec_key)
+    Process.delete(@vdom_key)
+    Process.delete(@fdg_key)
+    :ok
+  end
+
   # fd_put//3 mit einer dekodierten Domäne
   defp fdput(_v, _d, _ps, _q, :fail), do: :fail
 

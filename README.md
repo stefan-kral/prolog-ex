@@ -2160,6 +2160,11 @@ Bisher in Elixir:
     inhaltsgleiches neu anzulegen – sonst verfiele bei jeder Propagation
     jeder Merkzettel der Variablen. Magisches Quadrat 5×5 −7 %, 4×4 −5 %,
     alle 8-Damen-Lösungen −3 %, sonst −1 bis −1,5 % Reduktionen.
+  * Die Merkzettel werden zu Beginn jeder Anfrage geleert
+    (`ClpzPrims.forget/0`): falsch werden sie nie, aber übrig gebliebene
+    Einträge hielten die Terme der vorigen Anfrage am Leben – größerer
+    Heap (40 Damen: 6 statt 2 Mio. Wörter), teurere Speicherbereinigung,
+    in der Wanduhr langsamer trotz weniger Reduktionen.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige

@@ -5397,6 +5397,10 @@ defmodule PrologEx do
 
     answer = Enum.reject(named, fn {n, _} -> String.starts_with?(n, "_") end)
 
+    # Merkzettel der vorigen Anfrage weg: sie hielten deren Terme am Leben
+    # (größerer Heap, teurere Speicherbereinigung)
+    PrologEx.Builtins.ClpzPrims.forget()
+
     start = new_state(db, [{goal, 0, Keyword.get(opts, :module, "user")}], answer, opts)
 
     # set_timer/1: der Timer gilt bis zum Ende der Anfrage
