@@ -108,6 +108,31 @@ defmodule PrologEx.JitTest do
   nth(0, [X|_], X) :- !.
   nth(N, [_|T], X) :- N > 0, N1 is N - 1, nth(N1, T, X).
   inf(G, I) :- statistics(inferences, I0), call(G), statistics(inferences, I1), I is I1 - I0.
+  padd(0, Y, Y).
+  padd(s(X), Y, s(Z)) :- padd(X, Y, Z).
+  pmul(0, _, 0).
+  pmul(s(X), Y, Z) :- pmul(X, Y, Z0), padd(Y, Z0, Z).
+  pnat(0, 0).
+  pnat(N, s(P)) :- N > 0, N1 is N - 1, pnat(N1, P).
+  pval(0, 0).
+  pval(s(X), N) :- pval(X, N0), N is N0 + 1.
+  pkeys([], []).
+  pkeys([K-_|T], [K|Ks]) :- pkeys(T, Ks).
+  psum([], S, S).
+  psum([_-V|T], S0, S) :- S1 is S0 + V, psum(T, S1, S).
+  pmk([], []).
+  pmk([X|Xs], [X-Y|Ps]) :- Y is X * X, pmk(Xs, Ps).
+  colr(red, 1).
+  colr(green, 2).
+  colr(blue, 3).
+  csum([], S, S).
+  csum([C|Cs], S0, S) :- colr(C, V), S1 is S0 + V, csum(Cs, S1, S).
+  dd(U+V, X, DU+DV) :- !, dd(U, X, DU), dd(V, X, DV).
+  dd(U*V, X, DU*V+U*DV) :- !, dd(U, X, DU), dd(V, X, DV).
+  dd(X, X, 1) :- !.
+  dd(_, _, 0).
+  same(X, X, yes) :- !.
+  same(_, _, no).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -189,6 +214,13 @@ defmodule PrologEx.JitTest do
     # half rechnet mit /: auch hsum nimmt Floats
     assert {:pred, _, _, {:jit, _, [{0, :num}], _, _}, _} = c.jit[{"user", "hsum", 2}]
 
+    # Atome und Strukturen: Peano, Paare, Konstanten, deriv
+    for k <-
+          [{"user", "padd", 3}, {"user", "pmul", 3}, {"user", "psum", 3}, {"user", "csum", 3}] ++
+            [{"user", "dd", 3}, {"user", "same", 3}] ++
+            for(n <- ~w(pnat pval pkeys pmk colr), do: {"user", n, 2}),
+        do: assert(jitted.(k), inspect(k))
+
     # inf/2 ruft call/1 und statistics/2: nein
     refute jitted.({"user", "inf", 2})
     # Z nur in einem Zweig bestimmt: nein
@@ -201,6 +233,40 @@ defmodule PrologEx.JitTest do
   end
 
   for q <- [
+        # Peano: Strukturen zerlegen und bauen, auch anders herum
+        "pnat(5, A), pnat(7, B), padd(A, B, C), pval(C, N)",
+        "pnat(6, A), pnat(4, B), pmul(A, B, C), pval(C, N)",
+        "padd(X, Y, s(s(0)))",
+        "once(padd(s(_), 0, R))",
+        "padd(s(0), s(0), s(s(0)))",
+        "padd(s(0), s(0), s(0))",
+        "padd(s(0), a, R)",
+        "padd(f(0), 0, R)",
+        "padd(s(0, 1), 0, R)",
+        "inf(padd(s(s(s(0))), 0, _), I)",
+        "inf(pmul(s(s(s(0))), s(s(0)), _), I)",
+        # Paare in Listen
+        "pmk([1,2,3], P), pkeys(P, K), psum(P, 0, S)",
+        "pkeys([a-1, b-2], K)",
+        "pkeys([a-1, b], K)",
+        "once(pkeys([a-1|_], K))",
+        "catch(psum([a-1, b-x], 0, S), error(E, _), true)",
+        "psum([a-1, b-2.5], 0, S)",
+        # Atome als Konstanten
+        "csum([red, green, blue], 0, S)",
+        "csum([red, pink], 0, S)",
+        "colr(C, 2)",
+        "colr(green, V)",
+        # Gleichheit im Kopf wie die Unifikation (identisch, verschieden,
+        # nur durch Binden gleich)
+        "dd(x*x+3*x, x, D)",
+        "dd(y*x, x, D)",
+        "inf(dd(x*x+3*x, x, _), I)",
+        "same(f(X), f(X), R)",
+        "same(f(1), f(2), R)",
+        "same(A, B, R)",
+        "same(f(A), f(b), R)",
+        "same(a, a, R)",
         "fib(21, F)",
         "fib(0, F)",
         "fib(-3, F)",
@@ -526,6 +592,9 @@ defmodule PrologEx.JitTest do
 
   test "schneller (grob)", c do
     Reader.put_current(c.reader)
+    # einmal vorweg: übersetzt wird beim ersten Aufruf, das soll nicht in
+    # die Messung (allein gestartet lief der Test sonst gegen den Compiler)
+    TableCase.run(c.reader, c.jit, "fib(20, _)")
     {tj, _} = :timer.tc(fn -> TableCase.run(c.reader, c.jit, "fib(20, _)") end)
     {ti, _} = :timer.tc(fn -> TableCase.run(c.reader, c.int, "fib(20, _)") end)
     assert tj * 10 < ti, "jit #{tj} µs, interpretiert #{ti} µs"

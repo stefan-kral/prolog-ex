@@ -41,7 +41,8 @@ Ein Prolog-Kern in Elixir:
   einem Terminal beginnt, spart so einen Schritt (`S0 = [X|S1]` wird
   Kopfmuster), und `p(X) :- X = a, …` bekommt einen Index. Eine DCG über
   eine Liste von 200 000 Elementen −31 bis −42 %
-- JIT für deterministische Prädikate über Zahlen und Listen (Flag `jit`,
+- JIT für deterministische Prädikate über Zahlen, Listen, Atome und
+  Strukturen (Flag `jit`,
   Vorgabe `true`; beim Laden aus: nichts übersetzt, beim Aufruf aus: der
   Interpreter rechnet – so lässt sich in einer Sitzung vergleichen;
   `mix prolog --no-jit` setzt es schon vor dem Laden):
@@ -50,9 +51,12 @@ Ein Prolog-Kern in Elixir:
   1,1 s → 9 ms, eine nicht endrekursive Summe über 200 000 1,6 s → 5 ms,
   eine Float-Rekursion 1,3 s → 28 ms, nrev über 500 Elemente
   190 → 3 ms (≈ 40 Mio. LIPS), app/len/sum/rev über 300 000 Elemente
-  2,6 s → 50 ms.
-  - Was übersetzt wird – jede Klausel: im Kopf Zahlen, Variablen, `[]`
-    und `[E1, …, En | T]` (E Zahlen oder Variablen); im Rumpf `is`,
+  2,6 s → 50 ms; Peano-Arithmetik (`s/1`, 300 · 200) 364 → 10 ms, Paare
+  `K-V` über 200 000 Elemente 2,4 s → 52 ms, deriv aus `bench/compare.pl`
+  424 → 31 ms.
+  - Was übersetzt wird – jede Klausel: im Kopf Zahlen, Atome, Variablen,
+    `[]`, `[E1, …, En | T]` und Strukturen `f(A1, …, An)` (Elemente und
+    Argumente wieder solche Terme); im Rumpf `is`,
     arithmetische Vergleiche, `X = Y` (Terme wie im Kopf), `!`, `true`,
     `fail`, `( C -> T ; E )`, `( C -> T )`, `\+ G`, Typtests (`var`,
     `nonvar`, `atom`, `number`, `integer`, `float`, `atomic`, `compound`,
@@ -88,12 +92,22 @@ Ein Prolog-Kern in Elixir:
     Aufrufs stößt (`p(X, Y) :- Y = 1, var(X)` mit `p(A, A)`): der
     Interpreter hätte sie schon gebunden. 200 000 gemischte Elemente nach
     Typ zählen: 1,5 s → 50 ms.
-  - Listen werden erst beim Zerlegen gelesen – so weit wie der
-    Interpreter auch (`first([X|_], X)` liest eine Zelle, nicht die ganze
-    Liste). Stößt der Code auf etwas, das er nicht kann (ein offener Rest,
-    ein Element, das keine Zahl ist), gibt er auf: er hat nichts gebunden,
-    die Inferenzen werden zurückgesetzt, und der Interpreter fängt den
-    Aufruf neu an (und meldet etwa denselben Fehler).
+  - Listen und Strukturen werden erst beim Zerlegen gelesen – so weit wie
+    der Interpreter auch (`first([X|_], X)` liest eine Zelle, nicht die
+    ganze Liste). Passt der Funktor nicht, scheitert die Klausel; stößt
+    der Code auf etwas, das er nicht kann (eine ungebundene Variable, die
+    der Interpreter binden würde – ein offener Rest, `add(s(_), 0, R)` –,
+    ein Element, das keine Zahl ist), gibt er auf: er hat nichts
+    gebunden, die Inferenzen werden zurückgesetzt, und der Interpreter
+    fängt den Aufruf neu an (und meldet etwa denselben Fehler).
+    Strukturen im Rumpf und in Ausgaben baut der Code selbst
+    (`add(s(X), Y, s(Z))`).
+  - Konstanten (Zahlen, Atome) auf einem Wert, der nicht schon als Zahl
+    feststeht, und eine Variable zweimal im Kopf (`d(X, X, 1)`) prüft der
+    Code zur Laufzeit wie die Unifikation: gleich – passt, nicht
+    unifizierbar – scheitert, nur durch Binden gleich – aufgeben. So
+    verlangt `add(0, Y, Y)` neben `add(s(X), Y, s(Z))` keine Zahl an der
+    ersten Stelle.
   - Rechnet alles, was sich gegenseitig ruft, nur mit Ganzzahlen und
     ganzzahligen Operationen (+ - * // mod rem div min max >> << /\ \/
     xor gcd abs sign msb \), rechnet der Code + - * direkt und nimmt

@@ -1,6 +1,7 @@
 defmodule PrologEx.Jit do
   @moduledoc """
-  Übersetzt deterministische Prädikate über Zahlen und Listen in BEAM-Code.
+  Übersetzt deterministische Prädikate über Zahlen, Listen, Atome und
+  Strukturen in BEAM-Code.
   Innerhalb des übersetzten Stücks liegen die Werte in Erlang-Variablen:
   keine Bindungen, kein Zielstapel, keine Kompaktierung. Gebunden wird nur
   an den Rändern: beim Aufruf die Eingaben lesen (Zahlen, echte Listen
@@ -10,8 +11,9 @@ defmodule PrologEx.Jit do
 
   Was übersetzt wird – jede Klausel:
 
-    * Kopf: Zahlen, Variablen, `[]`, `[E1, ..., En | T]` (E Zahlen oder
-      Variablen, T Variable oder `[]`)
+    * Kopf: Zahlen, Atome, Variablen, `[]`, `[E1, ..., En | T]` und
+      Strukturen `f(A1, ..., An)` (Elemente, Argumente, Rest wieder
+      solche Terme)
     * Rumpf: `V is E`, arithmetische Vergleiche, `X = Y` (Terme wie im
       Kopf), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`, `\\+ G`
       und Aufrufe des Prädikats selbst oder anderer übersetzter (Argumente
@@ -20,7 +22,12 @@ defmodule PrologEx.Jit do
       Funktoren (außer random/random_float)
 
   Werte haben einen Typ: Zahl, Liste, Liste von Zahlen oder beliebig
-  (nur durchgereicht – auch eine ungebundene Variable). Was ein Wert sein
+  (nur durchgereicht – auch eine ungebundene Variable). Listen und
+  Strukturen werden erst beim Zerlegen gelesen (list/1, st/3); ein
+  Argument einer Struktur, mit dem gerechnet wird, dort zur Zahl gemacht
+  (Herkunft {:sub, ...}). Konstanten auf Werten, die nicht schon Zahlen
+  sind, und zweimal vorkommende Variablen prüft der Code zur Laufzeit wie
+  die Unifikation (eqc/2, ueq/2): bände sie etwas, gibt er auf. Was ein Wert sein
   muss, ergibt sich aus dem Gebrauch (gerechnet: Zahl; zerlegt: Liste;
   verglichen: Zahl oder Liste von Zahlen) und wird für Eingaben beim
   Aufruf geprüft. Ausgabetypen dürfen von Eingaben abhängen: app/3 gibt
@@ -427,13 +434,15 @@ defmodule PrologEx.Jit do
 
   defp goal(g, _), do: no!("Ziel #{desc(g)}")
 
-  # Term: Zahl, Variable, :nl ([]) oder {:cons, Element, Rest}; Elemente
-  # Zahlen oder Variablen
+  # Term: Zahl, Variable, Atom, :nl ([]), {:cons, Element, Rest} oder
+  # {:st, Funktor, Argumente}
   defp pat!(n) when is_integer(n) or is_float(n), do: n
   defp pat!({:var, _} = v), do: v
+  defp pat!({:atom, _} = a), do: a
   defp pat!([]), do: :nl
-  defp pat!([h | t]), do: {:cons, num_term!(h), pat!(t)}
-  defp pat!(t), do: no!("Term #{desc(t)} (nur Zahlen, Variablen, Listen)")
+  defp pat!([h | t]), do: {:cons, pat!(h), pat!(t)}
+  defp pat!({:struct, f, a}), do: {:st, f, Enum.map(a, &pat!/1)}
+  defp pat!(t), do: no!("Term #{desc(t)}")
 
   defp num_term!(n) when is_integer(n) or is_float(n), do: n
   defp num_term!({:var, _} = v), do: v
@@ -450,6 +459,7 @@ defmodule PrologEx.Jit do
   defp vars({:op2, _, a, b}), do: vars(a) ++ vars(b)
   defp vars({:op1, _, a}), do: vars(a)
   defp vars({:cons, a, b}), do: vars(a) ++ vars(b)
+  defp vars({:st, _, ps}), do: Enum.flat_map(ps, &vars/1)
   defp vars(_), do: []
 
   defp anon?({:var, {"_", _}}), do: true
@@ -779,6 +789,12 @@ defmodule PrologEx.Jit do
   defp raise_req({:elem, key, k}, :num), do: raise_req({:arg, key, k}, :nlist)
   defp raise_req({:elem, _, _}, r), do: no!("ein Listenelement müsste #{tname(r)} sein")
 
+  # ein Argument einer Struktur: gelesen erst beim Zerlegen (match_pat/4)
+  defp raise_req({:sub, _, _} = o, r) do
+    reqs = Process.get(@raise_key)
+    Process.put(@raise_key, Map.put(reqs, o, rj(Map.get(reqs, o, :any), r)))
+  end
+
   # Typ, den der Wert jetzt hat (nach den Anforderungen dieser Runde)
   defp eff({t, os}, reqs), do: Enum.reduce(os, t, &tj(origin_t(&1, reqs), &2))
 
@@ -786,6 +802,8 @@ defmodule PrologEx.Jit do
 
   defp origin_t({:elem, key, k}, reqs),
     do: if(Map.fetch!(reqs, {key, k}) == :nlist, do: :num, else: :any)
+
+  defp origin_t({:sub, _, _} = o, reqs), do: Map.get(reqs, o, :any)
 
   # Ausgabe als Signatur: Eingaben mit Anforderung :any bleiben Parameter
   defp out_sig({t, os}, key, reqs) do
@@ -890,10 +908,32 @@ defmodule PrologEx.Jit do
   defp new_vars(d1, d0),
     do: for({:var, _} = v <- Map.keys(d1), not Map.has_key?(d0, v), do: v) |> Enum.sort()
 
-  # Muster gegen einen bekannten Wert vom Typ vt
-  defp match_pat(n, vt, d, _ctx) when is_number(n) do
-    need(:num, vt)
-    {{:const, n}, d}
+  # Muster gegen einen bekannten Wert vom Typ vt. Eine Konstante: auf einer
+  # gelesenen Zahl mit === ({:const, c}); sonst zur Laufzeit gelesen
+  # ({:constrt, c}, PrologEx.Jit.eqc/2) – ohne den Wert zur Zahl zu machen:
+  # dieselbe Stelle kann in einer anderen Klausel eine Struktur sein
+  # (add(0, Y, Y) neben add(s(X), Y, s(Z)))
+  defp match_pat(n, vt, d, ctx) when is_number(n) do
+    {if(eff(vt, ctx.reqs) == :num, do: {:const, n}, else: {:constrt, n}), d}
+  end
+
+  defp match_pat({:atom, _} = a, _vt, d, _ctx), do: {{:constrt, a}, d}
+
+  # Struktur: erst beim Zerlegen gelesen (PrologEx.Jit.st/3); ihre
+  # Argumente haben die Herkunft {:sub, Herkunft, i} – rechnet der Code mit
+  # einem, wird es dort zur Zahl gelesen (wie Listenelemente)
+  defp match_pat({:st, f, ps}, {_, os}, d, ctx) do
+    {mps, d} =
+      ps
+      |> Enum.with_index()
+      |> Enum.map_reduce(d, fn {p, i}, d ->
+        at = if os == [], do: {:any, []}, else: {:bot, for(o <- os, do: {:sub, o, i})}
+        {m, d} = match_pat(p, at, d, ctx)
+        m = if eff(at, ctx.reqs) == :num and m != :ignore, do: {:num, m}, else: m
+        {m, d}
+      end)
+
+    {{:st, f, mps}, d}
   end
 
   defp match_pat({:var, _} = v, vt, d, ctx) do
@@ -901,9 +941,12 @@ defmodule PrologEx.Jit do
       anon?(v) ->
         {:ignore, d}
 
+      # schon bestimmt: zwei Zahlen mit ===, sonst zur Laufzeit wie die
+      # Unifikation (PrologEx.Jit.ueq/2: d(X, X, 1) in deriv)
       defd?(d, v) ->
-        eq_types!(vt, d[v], ctx)
-        {{:eq, v}, d}
+        if eff(vt, ctx.reqs) == :num and eff(d[v], ctx.reqs) == :num,
+          do: {{:eq, v}, d},
+          else: {{:eqrt, v}, d}
 
       true ->
         {{:bind, v}, add(d, v, vt)}
@@ -947,6 +990,10 @@ defmodule PrologEx.Jit do
   end
 
   defp build!(:nl, _d, _ctx), do: {:nl, {:nlist, []}}
+  defp build!({:atom, _} = a, _d, _ctx), do: {a, {:any, []}}
+
+  defp build!({:st, f, ps}, d, ctx),
+    do: {{:st, f, Enum.map(ps, &elem(build!(&1, d, ctx), 0))}, {:any, []}}
 
   defp build!({:cons, h, t}, d, ctx) do
     {hb, ht} = build!(h, d, ctx)
@@ -973,6 +1020,8 @@ defmodule PrologEx.Jit do
   defp desc_p({:var, _} = v), do: vname(v)
   defp desc_p(:nl), do: "[]"
   defp desc_p({:cons, _, _}), do: "[...]"
+  defp desc_p({:st, f, ps}), do: "#{f}(...)/#{length(ps)}"
+  defp desc_p({:atom, a}), do: a
   defp desc_p(n), do: inspect(n)
 
   defp goal_flow(:cut, d, _), do: {:cut, d}
@@ -1200,8 +1249,10 @@ defmodule PrologEx.Jit do
         case mp do
           {:const, n} when is_integer(n) -> [:int]
           {:const, n} when is_float(n) -> [:float]
+          {:const, {:atom, _}} -> [:atom]
           :nl -> [nil]
           {:cons, _, _} -> [:cons]
+          {:st, _, _} -> [:struct]
           _ -> @all
         end
 
@@ -1248,15 +1299,22 @@ defmodule PrologEx.Jit do
   defp safe_ex?({:op1, op, a}, false) when op in @total1, do: safe_ex?(a, false)
   defp safe_ex?(_, _), do: false
 
-  # Kopfeingaben, mit `V = Muster` am Anfang als Muster an V's Stelle
+  # Kopfeingaben, mit `V = Muster` am Anfang als Muster an V's Stelle (für
+  # die Prüfung: Konstanten einheitlich {:const, c}, ohne {:num, _})
   defp eff_hin(c) do
-    eqs = for {:u, {:var, _} = v, mp} <- guards(c), into: %{}, do: {v, mp}
+    eqs = for {:u, {:var, _} = v, mp} <- guards(c), into: %{}, do: {v, unrt(mp)}
 
     Enum.map(c.hin, fn
       {k, {:bind, v}} = e -> if Map.has_key?(eqs, v), do: {k, eqs[v]}, else: e
-      e -> e
+      {k, mp} -> {k, unrt(mp)}
     end)
   end
+
+  defp unrt({:constrt, c}), do: {:const, c}
+  defp unrt({:num, m}), do: unrt(m)
+  defp unrt({:cons, h, t}), do: {:cons, unrt(h), unrt(t)}
+  defp unrt({:st, f, ms}), do: {:st, f, Enum.map(ms, &unrt/1)}
+  defp unrt(m), do: m
 
   defp pats_differ?(a, b) do
     Enum.any?(Enum.zip(eff_hin(a), eff_hin(b)), fn {{k, x}, {k, y}} -> pat_differ?(x, y) end)
@@ -1268,6 +1326,19 @@ defmodule PrologEx.Jit do
 
   defp pat_differ?({:cons, h1, t1}, {:cons, h2, t2}),
     do: pat_differ?(h1, h2) or pat_differ?(t1, t2)
+
+  defp pat_differ?({:st, f, a}, {:st, g, b}),
+    do:
+      f != g or length(a) != length(b) or
+        Enum.any?(Enum.zip(a, b), fn {x, y} -> pat_differ?(x, y) end)
+
+  # eine Struktur gegen eine Konstante, [] oder eine Listenzelle ('.'/2
+  # vorsichtshalber nicht)
+  defp pat_differ?({:st, f, a}, x) when x == :nl or elem(x, 0) in [:const, :cons],
+    do: not (f == "." and length(a) == 2 and x != :nl and elem(x, 0) == :cons)
+
+  defp pat_differ?(x, {:st, _, _} = y) when x == :nl or elem(x, 0) in [:const, :cons],
+    do: pat_differ?(y, x)
 
   defp pat_differ?({:const, _}, x) when x == :nl or elem(x, 0) == :cons, do: true
   defp pat_differ?(x, {:const, _}) when x == :nl or elem(x, 0) == :cons, do: true
@@ -1289,7 +1360,7 @@ defmodule PrologEx.Jit do
   end
 
   defp guard_vars({:cmp, _, x, y}), do: vars(x) ++ vars(y)
-  defp guard_vars({:u, {:var, _} = v, {:const, _}}), do: [v]
+  defp guard_vars({:u, {:var, _} = v, {k, _}}) when k in [:const, :constrt], do: [v]
   defp guard_vars(_), do: :unknown
 
   defp guard_val({:cmp, op, x, y}, env) do
@@ -1300,7 +1371,8 @@ defmodule PrologEx.Jit do
     _ -> :unknown
   end
 
-  defp guard_val({:u, v, {:const, c}}, env), do: Map.fetch!(env, v) === c
+  defp guard_val({:u, v, {k, c}}, env) when k in [:const, :constrt],
+    do: Map.fetch!(env, v) === c
 
   defp ceval(n, _) when is_number(n), do: n
   defp ceval({:var, _} = v, env), do: Map.fetch!(env, v)
@@ -1652,8 +1724,32 @@ defmodule PrologEx.Jit do
   defp match_ast(v, {:eq, x}, then, st),
     do: test_ast(quote(do: unquote(v) === unquote(st.vmap[x])), then, st)
 
+  defp match_ast(v, {:eqrt, x}, then, st),
+    do: test_ast(quote(do: PrologEx.Jit.ueq(unquote(v), unquote(st.vmap[x]))), then, st)
+
   defp match_ast(v, {:const, c}, then, st),
     do: test_ast(quote(do: unquote(v) === unquote(c)), then, st)
+
+  defp match_ast(v, {:constrt, c}, then, st),
+    do: test_ast(quote(do: PrologEx.Jit.eqc(unquote(v), unquote(Macro.escape(c)))), then, st)
+
+  # Strukturen werden erst beim Zerlegen gelesen (PrologEx.Jit.st/3)
+  defp match_ast(v, {:st, f, mps}, then, st) do
+    xs = for _ <- mps, do: Macro.unique_var(:a, __MODULE__)
+
+    inner =
+      xs
+      |> Enum.zip(mps)
+      |> Enum.reverse()
+      |> Enum.reduce(then, fn {x, mp}, acc -> match_ast(x, mp, acc, st) end)
+
+    quote do
+      case PrologEx.Jit.st(unquote(v), unquote(f), unquote(length(mps))) do
+        [unquote_splicing(xs)] -> unquote(inner)
+        _ -> unquote(failure(st))
+      end
+    end
+  end
 
   # Listen werden erst beim Zerlegen gelesen (PrologEx.Jit.list/1)
   defp match_ast(v, :nl, then, st),
@@ -1689,6 +1785,10 @@ defmodule PrologEx.Jit do
   defp build_ast({:var, _} = v, st), do: Map.fetch!(st.vmap, v)
   defp build_ast(:nl, _st), do: []
   defp build_ast({:cons, h, t}, st), do: [{:|, [], [build_ast(h, st), build_ast(t, st)]}]
+  defp build_ast({:atom, _} = a, _st), do: Macro.escape(a)
+
+  defp build_ast({:st, f, bs}, st),
+    do: quote(do: {:struct, unquote(f), unquote(Enum.map(bs, &build_ast(&1, st)))})
 
   # Scheitern: nach einem Schnitt (nicht lokal in einer Bedingung oder
   # unter \+) -b-1, sonst b
@@ -2128,6 +2228,45 @@ defmodule PrologEx.Jit do
   end
 
   def list(t), do: t
+
+  @doc false
+  # eine Struktur f/n lesen: ihre Argumente, oder :no (passt nicht); eine
+  # ungebundene Variable: aufgeben (der Interpreter bände sie)
+  def st({tag, f, args}, f, n) when tag in [:struct, :gstruct],
+    do: if(length(args) == n, do: args, else: :no)
+
+  def st({:var, _} = v, f, n) do
+    case PrologEx.Store.walk(v, store()) do
+      {:var, _} -> throw(:jit_deopt)
+      t -> st(t, f, n)
+    end
+  end
+
+  def st(_, _, _), do: :no
+
+  @doc false
+  # zwei Werte wie die Unifikation im Kopf: identisch – ja; nicht
+  # unifizierbar – nein; sonst bände sie eine Variable: aufgeben
+  def ueq(a, b) do
+    s = store()
+
+    cond do
+      PrologEx.Order.equal?(a, b, s) -> true
+      PrologEx.unify(a, b, s) == :error -> false
+      true -> throw(:jit_deopt)
+    end
+  end
+
+  @doc false
+  # gleich der Konstanten (Zahl oder Atom)? Ungebunden: aufgeben
+  def eqc({:var, _} = v, c) do
+    case PrologEx.Store.walk(v, store()) do
+      {:var, _} -> throw(:jit_deopt)
+      t -> t === c
+    end
+  end
+
+  def eqc(t, c), do: t === c
 
   @doc false
   # ein Element als Zahl (num) bzw. Ganzzahl (int); sonst aufgeben – der
