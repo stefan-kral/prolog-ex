@@ -3595,35 +3595,51 @@ scryer-prolog -g main -g halt bench/compare.pl
 swipl -g main -t halt bench/compare.pl
 ```
 
-Stand 11. November 2026 (OTP 28, Scryer `master` b7066b4 als
-Release-Build, SWI-Prolog 9.0.4 aus Ubuntu, dieselbe Maschine; Zeiten in
-ms, beste von zwei Runden; „ohne JIT“: `mix prolog --no-jit`; Faktor:
-PrologEx mit JIT durch Scryer):
+Stand 12. November 2026 (OTP 28, Scryer `master` b7066b4 als
+Release-Build, SWI-Prolog 9.0.4 aus Ubuntu, dieselbe Maschine, alles in
+einer Sitzung; Zeiten in ms, beste von zwei Runden; „ohne JIT“: `mix
+prolog --no-jit`; Faktoren: PrologEx mit JIT durch Scryer bzw. SWI):
 
-| Fall | PrologEx | ohne JIT | Scryer | SWI | Faktor |
-|---|---|---|---|---|---|
-| nrev (30, 2000-mal) | 31 | 840 | 111 | 20 | 0,28 |
-| loop (1 Mio., `is`) | 7 | 901 | 93 | 12 | 0,08 |
-| tak (18, 12, 6) | < 1 | 120 | 7 | 4 | < 0,15 |
-| queens (8, alle) | 21 | 40 | 6 | 4 | ≈ 3,5 |
-| deriv (20 000) | 354 | 385 | 78 | 19 | 4,5 |
-| facts (Backtracking) | 502 | 517 | 61 | 25 | 8,2 |
-| foldl/4 (300 000) | 441 | 384 | 121 | 59 | 3,6 |
-| dieselbe Summe von Hand | 6 | 292 | 99 | 46 | 0,06 |
-| findall + sort (200 000) | 433 | 414 | 184 | 58 | 2,4 |
-| clpb (kleine Formeln) | 31 | 30 | 185 | 48 | 0,17 |
+| Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
+|---|---|---|---|---|---|---|
+| nrev (30, 2000-mal) | 36 | 883 | 115 | 24 | 0,31 | 1,5 |
+| loop (1 Mio., `is`) | 8 | 968 | 95 | 14 | 0,08 | 0,57 |
+| tak (18, 12, 6) | < 1 | 117 | 8 | 5 | < 0,15 | < 0,2 |
+| queens (8, alle) | 27 | 42 | 6 | 5 | ≈ 4,5 | ≈ 5,4 |
+| deriv (20 000) | 30 | 385 | 91 | 21 | 0,33 | 1,4 |
+| facts (Backtracking) | 474 | 476 | 62 | 30 | 7,6 | 16 |
+| foldl/4 (300 000) | 417 | 418 | 132 | 67 | 3,2 | 6,2 |
+| dieselbe Summe von Hand | 10 | 342 | 110 | 54 | 0,09 | 0,19 |
+| findall + sort (200 000) | 480 | 430 | 206 | 67 | 2,3 | 7,2 |
+| clpb (kleine Formeln) | 37 | 35 | 190 | 54 | 0,19 | 0,69 |
 
-Wo der JIT greift (deterministische Rekursion über Zahlen und Listen:
-nrev, loop, tak, die Summe), ist PrologEx jetzt 3,5- bis 16-mal
-schneller als Scryer und liegt bei SWI (nrev 1,6-mal dessen Zeit, loop
-und die Summe darunter).
-Wo er nicht greift – Backtracking (facts, queens zum Teil), Strukturen
-(deriv), eingebaute Prädikate (findall, sort, foldl mit einem Schritt
-aus einem einzigen `is`) –, bleibt es beim Interpreter: 2,4- bis 8-mal
-langsamer als Scryer, 7- bis 20-mal als SWI. Im geometrischen Mittel
-(ohne tak) 0,85-mal die Zeit von Scryer (ohne JIT 3,5-mal) und 2,7-mal
-die von SWI (ohne JIT 11-mal). tak und queens sind bei Scryer und SWI so
-kurz, dass ihre Faktoren grob sind.
+Im geometrischen Mittel (ohne tak) 0,70-mal die Zeit von Scryer (ohne
+JIT 3,4-mal) und 2,0-mal die von SWI (ohne JIT 10-mal). Wo der JIT
+greift – deterministische Rekursion über Zahlen, Listen und jetzt auch
+Strukturen (deriv: 354 → 30 ms seit dem 11. November) –, ist PrologEx
+3- bis 12-mal schneller als Scryer und liegt bei SWI (nrev, deriv
+1,4–1,5-mal dessen Zeit, loop und die Summe darunter). Wo er nicht
+greift – Backtracking (facts, queens), eingebaute Prädikate (findall,
+sort, foldl mit einem Schritt aus einem einzigen `is`) –, bleibt es
+beim Interpreter: 2- bis 8-mal langsamer als Scryer, 5- bis 16-mal als
+SWI. tak und queens sind bei Scryer und SWI so kurz, dass ihre Faktoren
+grob sind.
+
+clpz (dieselben Programme; SWI mit `library(clpfd)`):
+
+| Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
+|---|---|---|---|---|---|---|
+| 20 Damen (`ff`) | 26 | 27 | 59 | 9 | 0,44 | 2,9 |
+| 40 Damen | 81 | 84 | 135 | 25 | 0,60 | 3,2 |
+| 8 Damen, alle 92 | 73 | 80 | 216 | 31 | 0,34 | 2,4 |
+| Sudoku | 22 | 24 | 184 | 35 | 0,12 | 0,63 |
+| magisches Quadrat 4×4 | 7 | 11 | 34 | 7 | 0,21 | 1,0 |
+| magisches Quadrat 5×5 | 359 | 340 | 1 628 | 367 | 0,22 | 0,98 |
+| 100 Damen | 482 | 454 | 750 | 149 | 0,64 | 3,2 |
+
+Im geometrischen Mittel 0,32-mal die Zeit von Scryer und 1,7-mal die von
+SWI; der JIT spielt hier keine Rolle (was in clpz viel läuft, ist schon
+Elixir oder arbeitet mit attributierten Variablen).
 
 Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
 tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist

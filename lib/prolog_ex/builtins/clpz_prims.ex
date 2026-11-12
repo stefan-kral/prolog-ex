@@ -2772,7 +2772,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
         cond do
           not match?({:var, _}, xw) -> delete_eq_(tl, y, s, acc)
-          xw == y -> Enum.reverse(acc, plain_tail(tl))
+          # (der Rest kann eine gebundene Variable sein: :lists.reverse/2
+          # nimmt jeden Term als Ende, Enum.reverse/2 nur Aufzählbares)
+          xw == y -> :lists.reverse(acc, plain_tail(tl))
           true -> delete_eq_(tl, y, s, [x | acc])
         end
     end

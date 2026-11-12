@@ -604,10 +604,21 @@ defmodule PrologEx.ClpzQueueTest do
         end
 
       sel = Enum.random(~w(leftmost ff ffc min max))
-      l = "[#{Enum.join(items, ",")}]"
+
+      # manchmal mit einem Rest, der eine gebundene Variable ist (wie aus
+      # append/3: delete_eq/3 hängt ihn unverändert an)
+      {pre, l} =
+        case Enum.split(items, Enum.random(0..length(items))) do
+          {front, back} when back != [] and front != [] ->
+            {"T = [#{Enum.join(back, ",")}], ", "[#{Enum.join(front, ",")}|T]"}
+
+          _ ->
+            {"", "[#{Enum.join(items, ",")}]"}
+        end
 
       scenario(
-        "same(clpz:select_var_ref(#{sel}, #{l}, V, R), " <>
+        pre <>
+          "same(clpz:select_var_ref(#{sel}, #{l}, V, R), " <>
           "clpz:select_var(#{sel}, #{l}, V, R), Vs-V-R)"
       )
     end)
