@@ -2347,6 +2347,143 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- Aufstellen: all_distinct/1, all_different/1 ---------------------------
+  #
+  # Nach den Typprüfungen (in Prolog) der Rest wie im Original, in Elixir:
+  # die Anhänge-Schleife (distinct_attach//3 bzw. all_different//3: für
+  # eine Variable die Propagatoren anlegen, anhängen und einreihen, für eine
+  # Zahl exclude_fire//3), dann do_queue//0 auf der frischen Queue, bei
+  # all_distinct/1 danach variables_same_queue/1. Braucht die Schleife
+  # Prolog, geht es mit do_queue_/3 weiter; Unerwartetes: das Original
+  # (all_distinct_post_ref/1, all_different_post_ref/2).
+
+  defbuiltin "$clpz_all_distinct_post", [ls] do
+    alone = alone?(ctx.db)
+
+    run("all_distinct_post", [ls], subst(), fn ->
+      prop = mk("propagator", [mk("pdistinct", [ls]), fresh_var()])
+
+      post_with_queue(subst_now(), alone, fn q, s ->
+        s
+        |> distinct_attach(ls, prop, [], q)
+        |> seq(&trigger(prop, q, &1))
+      end)
+      |> post_out(fn s -> same_queue(list_items(ls, s), s) end, [
+        mk(":", [a("clpz"), mk("variables_same_queue", [ls])])
+      ])
+    end)
+  end
+
+  defbuiltin "$clpz_all_different_post", [ls, orig] do
+    alone = alone?(ctx.db)
+
+    run("all_different_post", [ls, orig], subst(), fn ->
+      post_with_queue(subst_now(), alone, fn q, s ->
+        all_different_attach(s, ls, [], orig, q)
+      end)
+      |> post_out(fn s -> s end, [])
+    end)
+  end
+
+  # frische Queue, f stellt auf, dann die Schleife: :fail, {:ok, s} oder
+  # {:prolog, t, q, s} (do_queue_/3 mit t muss weitermachen)
+  defp post_with_queue(s, alone, f) do
+    q = new_queue()
+    {_, _, qargs} = q
+
+    native(q, s, fn s ->
+      case f.(q, s) do
+        :fail -> :fail
+        s -> queue_loop(q, qargs, alone, s)
+      end
+    end)
+    |> case do
+      :fail -> :fail
+      {:next, {:atom, "none"}, s} -> {:ok, s}
+      {:next, t, s} -> {:prolog, t, q, s}
+    end
+  end
+
+  # Ergebnis des Builtins; danach: rest (in Elixir) bzw. die Ziele then (in
+  # Prolog, wenn die Schleife dort weitermacht)
+  defp post_out(r, rest, then) do
+    case r do
+      :fail ->
+        :fail
+
+      {:ok, s} ->
+        case rest.(s) do
+          :fail -> :fail
+          s -> {:subst, s}
+        end
+
+      {:prolog, t, q, s} ->
+        goal = mk(":", [a("clpz"), mk("do_queue_", [t, [q], fresh_var()])])
+        {:call, Enum.reduce(then, goal, &mk(",", [&2, &1])), s}
+    end
+  end
+
+  # distinct_attach//3
+  defp distinct_attach(:fail, _l, _prop, _right, _q), do: :fail
+
+  defp distinct_attach(s, l, prop, right, q) do
+    case cell(l, s) do
+      nil ->
+        if ws(l, s) == [], do: s, else: throw(:fallback)
+
+      {x, xs} ->
+        xw = PrologEx.Store.walk(x, s)
+
+        s =
+          if var?(xw) do
+            p1 = mk("propagator", [mk("pexclude", [xs, right, x]), fresh_var()])
+
+            s
+            |> then(&init_one(x, prop, q, &1))
+            |> seq(&init_one(x, p1, q, &1))
+            |> seq(&trigger(p1, q, &1))
+          else
+            exclude_fire(s, xs, right, xw, q)
+          end
+
+        distinct_attach(s, xs, prop, [x | right], q)
+    end
+  end
+
+  # all_different//3
+  defp all_different_attach(:fail, _l, _left, _orig, _q), do: :fail
+
+  defp all_different_attach(s, l, left, orig, q) do
+    case cell(l, s) do
+      nil ->
+        if ws(l, s) == [], do: s, else: throw(:fallback)
+
+      {x, right} ->
+        xw = PrologEx.Store.walk(x, s)
+
+        s =
+          if var?(xw) do
+            p = mk("propagator", [mk("pdifferent", [left, right, x, orig]), fresh_var()])
+
+            s
+            |> then(&init_one(x, p, q, &1))
+            |> seq(&trigger(p, q, &1))
+          else
+            exclude_fire(s, left, right, xw, q)
+          end
+
+        all_different_attach(s, right, [x | left], orig, q)
+    end
+  end
+
+  # exclude_fire//3: all_neq//2 über Left, dann über Right
+  defp exclude_fire(s, left, right, e, q) do
+    unless is_integer(e), do: throw(:fallback)
+
+    (list_items(left, s) ++ list_items(right, s))
+    |> Enum.reduce(s, fn y, s -> seq(s, &neq_num(y, e, q, &1)) end)
+  end
+
   # --- Labeling: select_var/4 -------------------------------------------------
   #
   # '$clpz_select_var'(Selection, Vars, Var, RVars) wie select_var/4 des

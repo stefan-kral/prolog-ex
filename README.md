@@ -2171,6 +2171,14 @@ Bisher in Elixir:
     Einträge hielten die Terme der vorigen Anfrage am Leben – größerer
     Heap (40 Damen: 6 statt 2 Mio. Wörter), teurere Speicherbereinigung,
     in der Wanduhr langsamer trotz weniger Reduktionen.
+  * Aufstellen: `all_distinct/1` und `all_different/1` nach den
+    Typprüfungen in Elixir (`'$clpz_all_distinct_post'/1`,
+    `'$clpz_all_different_post'/2`): die Anhänge-Schleife
+    (`distinct_attach//3` bzw. `all_different//3`, für Zahlen
+    `exclude_fire//3`), `do_queue//0` auf der frischen Queue, dann
+    `variables_same_queue/1`; Originale `all_distinct_post_ref/1`,
+    `all_different_post_ref/2`, gegen sie mit Zufallslisten getestet.
+    Sudoku −27 %, SEND+MORE −4 % Reduktionen.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige

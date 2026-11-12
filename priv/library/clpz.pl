@@ -2097,6 +2097,11 @@ all_different(Ls) :-
         fd_must_be_list(Ls, all_different(Ls)-1),
         maplist(fd_variable, Ls),
         Orig = original_goal(_, all_different(Ls)),
+        '$clpz_all_different_post'(Ls, Orig).
+
+% PrologEx: der Rest von all_different/1 in Elixir
+% ('$clpz_all_different_post'/2), das Original:
+all_different_post_ref(Ls, Orig) :-
         new_queue(Q0),
         phrase((all_different(Ls, [], Orig),do_queue), [Q0], _).
 
@@ -2126,6 +2131,11 @@ all_different([X|Right], Left, Orig) -->
 all_distinct(Ls) :-
         fd_must_be_list(Ls, all_distinct(Ls)-1),
         maplist(fd_variable, Ls),
+        '$clpz_all_distinct_post'(Ls).
+
+% PrologEx: der Rest von all_distinct/1 in Elixir
+% ('$clpz_all_distinct_post'/1), das Original:
+all_distinct_post_ref(Ls) :-
         make_propagator(pdistinct(Ls), Prop),
         new_queue(Q0),
         phrase((distinct_attach(Ls, Prop, []),trigger_prop(Prop),do_queue), [Q0], _),

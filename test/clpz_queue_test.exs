@@ -613,6 +613,33 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # all_distinct/1 und all_different/1 nach den Typprüfungen: Elixir gegen
+  # das Original – Listen aus Variablen (auch doppelt), Zahlen, einer
+  # Variablen ohne Domäne
+  test "all_distinct/1, all_different/1: Aufstellen wie das Original", c do
+    check(c, 300, fn ->
+      items =
+        for _ <- 1..Enum.random(0..6)//1 do
+          case :rand.uniform(10) do
+            1 -> "#{Enum.random(-1..5)}"
+            2 -> "N"
+            _ -> Enum.random(@vars ++ ["B"])
+          end
+        end
+
+      l = "[#{Enum.join(items, ",")}]"
+
+      if :rand.uniform(2) == 1 do
+        scenario("same(clpz:all_distinct_post_ref(#{l}), '$clpz_all_distinct_post'(#{l}), Vs)")
+      else
+        scenario(
+          "O = original_goal(_, all_different(#{l})), " <>
+            "same(clpz:all_different_post_ref(#{l}, O), '$clpz_all_different_post'(#{l}, O), Vs-O)"
+        )
+      end
+    end)
+  end
+
   test "put_terminating//3: neue Domäne ablegen und Propagatoren einreihen", c do
     check(c, 250, fn ->
       scenario(
