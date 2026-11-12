@@ -2615,6 +2615,44 @@ Bindung gilt, und scheitern nur, wenn sie für keine gilt.
     hinter allen `_si`-Tests: `atom_si(X) :- when_si(nonvar(X), atom(X))`,
     `dif_si(X, Y) :- when_si(?=(X, Y), X \== Y)`.
 
+## Typprüfungen wie SICStus: `library(types)`
+
+Wie SICStus 4 (Prolog-Quelltext, `priv/library/types.pl`), neben
+`library(error)` (`must_be/2` mit Typ zuerst; hier `must_be/4` mit dem
+Term zuerst):
+
+  * `must_be(+Term, +Typ, +Ziel, +ArgNr)` – Term ist vom Typ, sonst ein
+    Fehler im SICStus-Format: `error(ISO, SICStus)`, der zweite Teil mit
+    Ziel und Argumentnummer (0: kein bestimmtes Argument), etwa
+    `error(type_error(integer,a), type_error(foo(a),1,integer,a))`.
+    Zu wenig gebunden: `instantiation_error`; `var` gebunden:
+    `uninstantiation_error`; falscher Typ: `type_error`; Bereich verfehlt:
+    `domain_error` mit dem Bereich als Domäne; `character_code` außerhalb
+    der Zeichen: `representation_error(character_code)`. In `list(Typ)`
+    ist der Schuldige das Element.
+  * Typen: `atom`, `atomic`, `boolean` (`true`/`false`), `callable`,
+    `character`, `character_code`, `compound`, `db_reference` (gibt es
+    hier nicht: immer `type_error`), `float`, `ground`, `integer`,
+    `list`/`proper_list` (offener Rest: `instantiation_error`),
+    `list(T)`/`proper_list(T)`, `mutable` (`library(mutables)`),
+    `nonvar`, `number`, `oneof(L)`, `order` (`<`, `=`, `>`; ein anderes
+    Atom: `domain_error(order, _)`), `pair` (`K-V`), `pred_spec`
+    (`Name/Stelligkeit`, auch `M:Spec`), `pred_spec_tree` (dazu `(A,B)`,
+    Listen, `M:Baum`), `simple` (atomar oder Variable), `term`, `var`,
+    `var_or(T)`; `integer(B)`, `float(B)`, `number(B)` mit den Bereichen
+    `between(L,U)`, `>=(L)`, `>(L)`, `<(L)`, `=<(L)`, `=:=(L)`, `=\=(L)`
+    (arithmetisch verglichen). Ein unbekannter Typ:
+    `domain_error(typeterm, Typ)` für `must_be/4` selbst.
+  * `illarg(+Fehler, +Ziel, +ArgNr)`, `illarg(+Fehler, +Ziel, +ArgNr,
+    +Schuldiger)` – wirft den beschriebenen Fehler, ebenso im
+    SICStus-Format; der Schuldige ist sonst das Argument ArgNr des Ziels.
+    `var`, `type(T)` (wie `must_be/4`: passt der Typ, kein Fehler),
+    `domain(T, D)` (erst der Typ, dann `domain_error(D, _)`),
+    `force_type(T)`, `context(K, B)`, `existence(Art, X, Text)`,
+    `permission(Op, Art, Text)`, `representation(F)`, `evaluation(F)`,
+    `consistency(X, Y, Text)`, `syntax(Pos, Text, Tokens, Rest)`,
+    `resource(R)`, `system(Text)`.
+
 ## Messen: `statistics/2`, `statistics/0`
 
 `statistics(K, V)`:
