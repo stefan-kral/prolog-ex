@@ -846,6 +846,12 @@ ist jeweils am Dateianfang vermerkt.
   `type_error/2,3`, `representation_error/1`, `resource_error/1` und
   `call_with_error_context/2`. Fehlerterme und Kontexte sind wie bei Scryer:
   ohne Kontext steht `[]`, sonst `must_be/2` bzw. `can_be/2`.
+  Der Erfolgsfall läuft in Elixir (`'$must_be_ok'/2`, `'$can_be_ok'/2`
+  als erste Klausel): bekannter Typ, Term passt – sonst die Klauseln des
+  Originals mit ihren Fehlern; ein Test vergleicht beide für alle Typen.
+  Typprüfungen machten beim Aufstellen von Constraints ein Viertel der
+  Interpreter-Schritte aus: Sudoku −13 %, magisches Quadrat −8 %,
+  SEND+MORE −9 % Reduktionen.
 * `library(charsio)` (BSD-Lizenz, siehe `priv/library/SCRYER-LICENSE`):
   * `char_type/2` mit Scryers Klassen. Die ISO-Klassen des Lesers
     (`graphic`, `solo`, `layout`, `meta`, ...) sind genau, die

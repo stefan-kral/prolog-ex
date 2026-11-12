@@ -8,7 +8,14 @@ defmodule PrologEx.ScryerErrorTest do
     Reader.put_current(r)
 
     {db, []} =
-      PrologEx.Consult.load(%{}, Reader.read_terms(r, ":- use_module(library(error)).\n"))
+      PrologEx.Consult.load(
+        %{},
+        Reader.read_terms(
+          r,
+          ":- use_module(library(error)).\n" <>
+            "o(G, R) :- catch((call(G) -> R = ok ; R = fail), error(E, C), R = err(E, C)).\n"
+        )
+      )
 
     {:ok, reader: r, db: db}
   end
@@ -28,6 +35,42 @@ defmodule PrologEx.ScryerErrorTest do
   end
 
   defp err(c, goal), do: ask(c, "catch(#{goal}, error(E, C), true)")
+
+  # die Abkürzung ('$must_be_ok'/2, '$can_be_ok'/2) gegen den Rumpf des
+  # Originals: dasselbe Ergebnis (Erfolg, Scheitern, Fehler samt Kontext)
+  # für jeden Typ – auch einen unbekannten und einen ungebundenen – und
+  # jeden Term
+  test "must_be/2, can_be/2: Abkürzung wie das Original", c do
+    types =
+      ~w(type integer atom character in_character octet_character octet_chars chars list var
+         boolean term not_less_than_zero pair foo _)
+
+    terms =
+      ~w{3 -1 0 a [] "ab" [a,b] [a|_] [a|b] _ f(a) f(_) a-b true ab end_of_file 'ÿ' [1,2] 1.5 chars}
+
+    for t <- types, x <- terms do
+      must =
+        "T = #{t}, X = #{x}, o(must_be(T, X), R1), " <>
+          "o((error:must_be_(type, T), error:must_be_(T, X)), R2), subsumes_term(R1, R2), subsumes_term(R2, R1)"
+
+      can =
+        "T = #{t}, X = #{x}, o(can_be(T, X), R1), " <>
+          "o((error:must_be(type, T), ( var(X) -> true ; error:can_(T, X) -> true ; " <>
+          "error:type_error(T, X, can_be/2) )), R2), subsumes_term(R1, R2), subsumes_term(R2, R1)"
+
+      for q <- [must, can] do
+        if ask(c, q) == [],
+          do:
+            flunk(
+              q <>
+                "\n" <>
+                inspect(
+                  ask(c, String.replace(q, ", subsumes_term(R1, R2), subsumes_term(R2, R1)", ""))
+                )
+            )
+      end
+    end
+  end
 
   test "must_be/2: Erfolg", c do
     for g <-

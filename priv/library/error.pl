@@ -7,7 +7,9 @@
    auf die Hilfsprädikate der Scryer-Maschine:
      '$skip_max_list'(_, _, Ls, Rs)  ->  '$skip_list'(_, Ls, Rs)
      '$is_partial_string'(Ls)        ->  entfällt (der allgemeine Weg)
-     '$first_non_octet'(Cs, C)       ->  first_non_octet/2 unten        */
+     '$first_non_octet'(Cs, C)       ->  first_non_octet/2 unten
+   und je einer ersten Klausel für must_be/2 und can_be/2: der Erfolgsfall
+   in Elixir ('$must_be_ok'/2, '$can_be_ok'/2).                          */
 
 :- module(error, [must_be/2,
                   can_be/2,
@@ -51,6 +53,12 @@
 %     - pair
 %     - term
 
+% PrologEx: der Erfolgsfall in Elixir ('$must_be_ok'/2, '$can_be_ok'/2);
+% scheitert er (unbekannter Typ, ein Fehler ist zu werfen), die Klausel
+% des Originals
+must_be(Type, Term) :-
+        '$must_be_ok'(Type, Term),
+        !.
 must_be(Type, Term) :-
         must_be_(type, Type),
         must_be_(Type, Term).
@@ -168,6 +176,9 @@ type(pair).
 %
 % It supports the same types as must_be/2.
 
+can_be(Type, Term) :-
+        '$can_be_ok'(Type, Term),
+        !.
 can_be(Type, Term) :-
         must_be(type, Type),
         (   var(Term) -> true

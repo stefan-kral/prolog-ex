@@ -128,6 +128,75 @@ defmodule PrologEx.Builtins.Terms do
     acyclic?(t, subst())
   end
 
+  # --- library(error): must_be/2, can_be/2 – der Erfolgsfall --------------
+  #
+  # '$must_be_ok'(Type, Term) / '$can_be_ok'(Type, Term) gelingen genau dann,
+  # wenn Type ein bekannter Typ ist und must_be/2 bzw. can_be/2 still
+  # gelänge; sonst scheitern sie, und die Klauseln des Originals laufen
+  # (mit ihren Fehlern). error.pl stellt sie als erste Klausel davor.
+
+  @error_types ~w(type integer atom character in_character octet_character
+                  octet_chars chars list var boolean term not_less_than_zero pair)
+
+  defbuiltin "$must_be_ok", [type, term], module: "system" do
+    s = subst()
+
+    case PrologEx.Store.walk(type, s) do
+      {:atom, ty} -> must_ok(ty, PrologEx.Store.walk(term, s), s)
+      _ -> false
+    end
+  end
+
+  defbuiltin "$can_be_ok", [type, term], module: "system" do
+    s = subst()
+
+    case PrologEx.Store.walk(type, s) do
+      {:atom, ty} ->
+        case PrologEx.Store.walk(term, s) do
+          {:var, _} -> ty in @error_types
+          t -> can_ok(ty, t, s)
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp must_ok("integer", t, _s), do: is_integer(t)
+  defp must_ok("atom", t, _s), do: PrologEx.Builtins.Core.atom?(t)
+  defp must_ok("var", t, _s), do: match?({:var, _}, t)
+  defp must_ok("list", t, s), do: elem(PrologEx.Builtins.Lists.skip_list(t, s), 1) == []
+  defp must_ok("boolean", t, _s), do: t in [{:atom, "true"}, {:atom, "false"}]
+  defp must_ok("pair", t, _s), do: pair?(t)
+  defp must_ok("character", t, _s), do: char?(t)
+  defp must_ok("in_character", t, _s), do: char?(t) or t == {:atom, "end_of_file"}
+  defp must_ok("not_less_than_zero", t, _s), do: is_integer(t) and t >= 0
+  defp must_ok("type", {:atom, ty}, _s), do: ty in @error_types
+  defp must_ok(_, _, _), do: false
+
+  defp can_ok("integer", t, _s), do: is_integer(t)
+  defp can_ok("atom", t, _s), do: PrologEx.Builtins.Core.atom?(t)
+  defp can_ok("boolean", t, _s), do: t in [{:atom, "true"}, {:atom, "false"}]
+  defp can_ok("pair", t, _s), do: pair?(t)
+  defp can_ok("character", t, _s), do: char?(t)
+  defp can_ok("not_less_than_zero", t, _s), do: is_integer(t) and t >= 0
+
+  defp can_ok("list", t, s) do
+    case PrologEx.Builtins.Lists.skip_list(t, s) do
+      {_, []} -> true
+      {_, {:var, _}} -> true
+      _ -> false
+    end
+  end
+
+  defp can_ok(_, _, _), do: false
+
+  defp pair?({tag, "-", [_, _]}) when tag in [:struct, :gstruct], do: true
+  defp pair?(_), do: false
+
+  defp char?({:atom, n}), do: String.length(n) == 1
+  defp char?(_), do: false
+
   # --- library(terms): term_hash/2,4, term_size/2 (wie SWI) ---------------
 
   # term_hash(T, H): ist T ground, H ein Hashwert (0..2^27-1, über
