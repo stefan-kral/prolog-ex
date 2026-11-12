@@ -423,6 +423,20 @@ Richtungen; leere Matrizen – keine Zeile oder keine Spalte – scheitern),
 (`T1 @=< T2 @=< …`) und `ordered/2` (`P(T1,T2)`, `P(T2,T3)`, … für
 beliebiges P – `@<`, `<`, ein eigenes Prädikat, auch `#<` aus clpz, anders
 als clpz' `chain/2` ohne Einschränkung auf die Vergleichsoperatoren),
+dazu alle übrigen Prädikate von SICStus' `library(lists)` (Stand 4.9, in
+Prolog; Lösungsreihenfolge wie die klassischen DEC-10/Quintus-Definitionen,
+aus denen SICStus' Bibliothek stammt): `append/5`, `append_length/3,4`,
+`prefix/2`, `proper_prefix/2`, `prefix_length/3`, `proper_prefix_length/3`,
+`suffix/2`, `proper_suffix/2`, `suffix_length/3`, `proper_suffix_length/3`,
+`sublist/3,4,5`, `segment/2`, `proper_segment/2`, `subseq/3`, `subseq0/2`,
+`subseq1/2`, `cons/3`, `head/2`, `tail/2`, `last/3`, `rev/2`,
+`rotate_list/2,3`, `perm/2`, `perm2/4`, `remove_dups/2`, `delete/4`,
+`correspond/4`, `select_max/3,4`, `select_min/3,4`, `max_member/3`,
+`min_member/3`, `scanlist/4,5,6`, `cumlist/4,5,6`, `map_product/4`,
+`some/2,3,4`, `somechk/2,3,4`, `include/4,5`, `exclude/4,5`, `convlist/3`,
+`group/3,4,5`, `increasing_prefix/3,4`, `decreasing_prefix/3,4`,
+`clumps/2`, `clumped/2`, `keyclumps/2`, `keyclumped/2` (eigene
+Definitionen im Programm gehen wie sonst vor),
 `memberd/2` (Neumerkel: wie `member/2` mit `dif/2` in der Rekursion, also
 ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
