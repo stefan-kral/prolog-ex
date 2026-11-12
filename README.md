@@ -227,6 +227,24 @@ Ein Prolog-Kern in Elixir:
   Atom unifiziert ohne allgemeine Unifikation, ein Vergleich zweier
   Zahlen als Ziel ohne Auswerten: between/member-Schleifen −25 bis
   −35 %, if-then-else/Disjunktion/Schnitt −20 bis −30 %
+- Index auf weitere Argumente, bei Bedarf: Ist beim Aufruf das erste
+  Argument ungebunden, ein anderes aber gebunden, und hat das Prädikat
+  wenigstens 8 Klauseln, nimmt der Aufruf nur die Klauseln, deren Kopf
+  dort passen kann (gleiche Konstante bzw. gleicher Funktor und
+  Stelligkeit, oder eine Variable) – in Klauselreihenfolge, also
+  dieselben Lösungen in derselben Folge; nach der letzten passenden
+  bleibt kein Choice Point (`call_with_inference_limit/3` gibt dann
+  `!`). Der Index je Stelle entsteht beim ersten solchen Aufruf (wie der
+  „just-in-time“-Index von SWI) und liegt im Prozess-Dictionary, gültig,
+  solange die Klauselliste dieselbe ist (assert, retract, neu laden: neu
+  gebaut); Stellen, an denen er nichts trennt, merkt er sich als solche.
+  Mit 1000 ground Fakten `e(I, nK, f(cM))`: `e(_, n500, _)` 102 µs →
+  1 µs. Ground Fakten (ohne jede Variable) matcht die Maschine ohne
+  Umfeld, Block frischer Variablen und Occurs-Check, ein ground Argument
+  gegen einen ground Kopf vergleicht sie statt zu unifizieren (ohne
+  Merktabelle und catch-Rahmen): Durchsuchen nach `e(_, _, f(c5))` (dort
+  trennt kein Index: lauter `f/1`) −35 % Zeit, −75 % Reduktionen, alle
+  Lösungen aufzählen −5 bis −10 %
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
   Sie läuft früh (ab 256 Bindungen, danach beim Doppelten der lebenden
   Nicht-ground-Knoten) und kostet ohne `call_nth/2`/`time/1` nichts je

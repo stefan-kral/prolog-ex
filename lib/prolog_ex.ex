@@ -1664,15 +1664,21 @@ defmodule PrologEx do
   def index_key({:glist, _}), do: {".", 2}
   def index_key(t), do: t
 
-  defp candidates({:pred, all, by_key, var_only, _source}, args, subst) do
+  # mod, name: für den Index auf weitere Argumente (xindex/5), wenn das
+  # erste ungebunden ist
+  defp candidates({:pred, all, by_key, var_only, _source}, mod, name, args, subst) do
     case args do
       [] ->
         flat(all)
 
-      [x | _] ->
+      [x | more] ->
         case Store.walk(x, subst) do
           {:var, _} ->
-            flat(all)
+            # (erst ab 8 Klauseln, als Muster ohne Aufruf)
+            case flat(all) do
+              [_, _, _, _, _, _, _, _ | _] = cls -> xindex(cls, mod, name, more, subst)
+              cls -> cls
+            end
 
           t ->
             k = index_key(t)
@@ -1684,6 +1690,118 @@ defmodule PrologEx do
         end
     end
   end
+
+  # --- Index auf weitere Argumente --------------------------------------
+  #
+  # Ist das erste Argument ungebunden, ein anderes aber gebunden, und hat
+  # das Prädikat wenigstens 8 Klauseln, nimmt der Aufruf nur die
+  # Klauseln, deren Kopf an dieser Stelle passen kann: gleicher Schlüssel
+  # (index_key/1: Konstante, Funktor/Stelligkeit) oder eine Variable – in
+  # ihrer Reihenfolge, also dieselben Lösungen in derselben Folge; nach
+  # der letzten passenden bleibt kein Choice Point. Der Index je Stelle
+  # entsteht beim ersten solchen Aufruf und liegt im Prozess-Dictionary
+  # unter {@xidx_key, Modul, Name, Stelligkeit} samt der Klauselliste, für
+  # die er gilt (assert, retract, neu laden: eine andere Liste, neu
+  # gebaut). Stellen, an denen er nichts trennt (weniger als zwei
+  # Schlüssel, viele Variablen), merkt er sich als :none.
+  # (die Mindestzahl 8 als Muster in candidates/5)
+  @xidx_key :"$xidx"
+
+  defp xindex(cls, mod, name, more, subst) do
+    if any_bound?(more, subst) do
+      key = {@xidx_key, mod, name, length(more) + 1}
+
+      idx =
+        case :erlang.get(key) do
+          {cached, m} when cached === cls -> m
+          _ -> %{}
+        end
+
+      xpick(more, 2, cls, key, idx, subst)
+    else
+      cls
+    end
+  end
+
+  defp any_bound?([], _s), do: false
+
+  defp any_bound?([a | as], s) do
+    case Store.walk(a, s) do
+      {:var, _} -> any_bound?(as, s)
+      _ -> true
+    end
+  end
+
+  # die erste gebundene Stelle (ab k), deren Index trennt
+  defp xpick([], _k, cls, _key, _idx, _s), do: cls
+
+  defp xpick([a | as], k, cls, key, idx, s) do
+    case Store.walk(a, s) do
+      {:var, _} ->
+        xpick(as, k + 1, cls, key, idx, s)
+
+      t ->
+        {pos, idx} =
+          case idx do
+            %{^k => pos} ->
+              {pos, idx}
+
+            _ ->
+              pos = xindex_build(cls, k)
+              idx = Map.put(idx, k, pos)
+              :erlang.put(key, {cls, idx})
+              {pos, idx}
+          end
+
+        case pos do
+          :none ->
+            xpick(as, k + 1, cls, key, idx, s)
+
+          {buckets, var_only} ->
+            ik = index_key(t)
+
+            case buckets do
+              %{^ik => l} -> l
+              _ -> var_only
+            end
+        end
+    end
+  end
+
+  # {Schlüssel => Klauseln, Klauseln mit Variable an Stelle k} oder :none
+  defp xindex_build(cls, k) do
+    tagged =
+      Enum.map(cls, fn {:clause, _, _, pats, _, _, _} = c ->
+        {pat_key(Enum.at(pats, k - 1)), c}
+      end)
+
+    n = length(tagged)
+    nvar = Enum.count(tagged, fn {pk, _} -> pk == :var end)
+    nkeys = tagged |> Enum.uniq_by(&elem(&1, 0)) |> length()
+
+    # (eine Klausel mit Variable kommt in jede Liste: höchstens etwa 20
+    # Einträge je Klausel)
+    if nkeys - min(nvar, 1) < 2 or nvar * nkeys > 20 * n do
+      :none
+    else
+      {buckets, var_rev} =
+        Enum.reduce(tagged, {%{}, []}, fn
+          {:var, c}, {b, vr} ->
+            {Map.new(b, fn {pk, l} -> {pk, [c | l]} end), [c | vr]}
+
+          {pk, c}, {b, vr} ->
+            {Map.update(b, pk, [c | vr], &[c | &1]), vr}
+        end)
+
+      {Map.new(buckets, fn {pk, l} -> {pk, :lists.reverse(l)} end), :lists.reverse(var_rev)}
+    end
+  end
+
+  defp pat_key({:const, c}), do: index_key(c)
+  defp pat_key({:ground, c}), do: index_key(c)
+  defp pat_key({:struct, f, n, _}), do: {f, n}
+  defp pat_key({:list, _, _}), do: {".", 2}
+  defp pat_key(_), do: :var
 
   # --- Kopf matchen (Read-Modus) ---------------------------------------
 
@@ -1737,9 +1855,20 @@ defmodule PrologEx do
         {:ok, env, Store.bind(v, c, s), nv}
 
       t ->
-        case unify(t, c, s, mode) do
-          {:ok, s} -> {:ok, env, s, nv}
-          :error -> :error
+        # beide ground (ein Fakt gegen ein ground Argument): vergleichen
+        # statt unifizieren – ohne Memo und catch-Rahmen
+        case ground_eq(t, c) do
+          true ->
+            {:ok, env, s, nv}
+
+          false ->
+            :error
+
+          :unknown ->
+            case unify(t, c, s, mode) do
+              {:ok, s} -> {:ok, env, s, nv}
+              :error -> :error
+            end
         end
     end
   end
@@ -1790,6 +1919,44 @@ defmodule PrologEx do
 
       _ ->
         :error
+    end
+  end
+
+  # Gleichheit zweier Terme, von denen der zweite ground ist, ohne
+  # Bindungen: true/false, wo die Darstellung es sicher sagt (ground
+  # markierte oder gewöhnliche Strukturen, Listen, Atome, Zahlen), sonst
+  # :unknown (Variablen, andere Darstellungen – dann die Unifikation)
+  defp ground_eq(a, b) when a === b, do: true
+
+  defp ground_eq({ta, f, as}, {tb, g, bs})
+       when ta in [:struct, :gstruct] and tb in [:struct, :gstruct] do
+    if f == g and length(as) == length(bs), do: ground_eq_list(as, bs), else: false
+  end
+
+  defp ground_eq({:glist, l}, b), do: ground_eq(l, b)
+  defp ground_eq(a, {:glist, l}), do: ground_eq(a, l)
+
+  defp ground_eq([ha | ta], [hb | tb]) do
+    case ground_eq(ha, hb) do
+      true -> ground_eq(ta, tb)
+      r -> r
+    end
+  end
+
+  # (nicht ===: zwei verschiedene Zahlen, Atome, oder Zahl gegen Atom; []
+  # und '[]' nicht – das entscheidet die Unifikation)
+  defp ground_eq(a, b) when is_number(a) and is_number(b), do: false
+  defp ground_eq({:atom, x}, {:atom, y}) when x != "[]" and y != "[]", do: false
+  defp ground_eq({:atom, _}, b) when is_number(b), do: false
+  defp ground_eq(a, {:atom, _}) when is_number(a), do: false
+  defp ground_eq(_, _), do: :unknown
+
+  defp ground_eq_list([], []), do: true
+
+  defp ground_eq_list([a | as], [b | bs]) do
+    case ground_eq(a, b) do
+      true -> ground_eq_list(as, bs)
+      r -> r
     end
   end
 
@@ -3209,14 +3376,17 @@ defmodule PrologEx do
       # ohne aufgeschobenes Anhängen und ohne Tiefengrenze (der häufige
       # Fall): ohne Hilfsaufrufe
       {:ok, {:pred, all, _, _, _} = pred} when not is_tuple(all) and st.dlimit == nil ->
-        try_clauses(args, candidates(pred, args, st.subst), rest, mod, st)
+        try_clauses(args, candidates(pred, mod, name, args, st.subst), rest, mod, st)
 
       {:ok, {:pred, _, _, _, _} = pred} ->
         pred = flat_for_call(pred, {mod, name, arity}, args, st.subst)
 
         case depth_enter(st, rest, mod) do
-          {st, rest} -> try_clauses(args, candidates(pred, args, st.subst), rest, mod, st)
-          :fail -> backtrack(st)
+          {st, rest} ->
+            try_clauses(args, candidates(pred, mod, name, args, st.subst), rest, mod, st)
+
+          :fail ->
+            backtrack(st)
         end
 
       {:ok, _stale} ->
@@ -3264,13 +3434,13 @@ defmodule PrologEx do
         args = qualify(args, Map.get(current_db(), {:meta, m, name, arity}), m, mod, st.subst)
 
         case depth_enter(st, rest, m) do
-          {st, rest} -> try_clauses(args, candidates(pred, args, st.subst), rest, m, st)
+          {st, rest} -> try_clauses(args, candidates(pred, m, name, args, st.subst), rest, m, st)
           :fail -> backtrack(st)
         end
 
       {:builtin, m, {:prolog, pred, _}} ->
         args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
-        try_clauses(args, candidates(pred, args, st.subst), rest, m, st)
+        try_clauses(args, candidates(pred, m, name, args, st.subst), rest, m, st)
 
       # Builtin mit Wirkung: im Bereich von call_with_no_side_effects/1
       # vorher ein Fehler
@@ -3363,15 +3533,15 @@ defmodule PrologEx do
 
   # der Interpreter für ein Prädikat aus der Datenbank (wie die Zweige von
   # call_pred/4 ohne übersetzten Code)
-  defp interp_call({:pred, all, _, _, _} = pred, _goal, _name, args, mod, rest, st)
+  defp interp_call({:pred, all, _, _, _} = pred, _goal, name, args, mod, rest, st)
        when not is_tuple(all) and st.dlimit == nil,
-       do: try_clauses(args, candidates(pred, args, st.subst), rest, mod, st)
+       do: try_clauses(args, candidates(pred, mod, name, args, st.subst), rest, mod, st)
 
   defp interp_call(pred, _goal, name, args, mod, rest, st) do
     pred = flat_for_call(pred, {mod, name, length(args)}, args, st.subst)
 
     case depth_enter(st, rest, mod) do
-      {st, rest} -> try_clauses(args, candidates(pred, args, st.subst), rest, mod, st)
+      {st, rest} -> try_clauses(args, candidates(pred, mod, name, args, st.subst), rest, mod, st)
       :fail -> backtrack(st)
     end
   end
@@ -4669,6 +4839,15 @@ defmodule PrologEx do
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.
   defp try_clauses(_args, [], _rest, _mod, st), do: backtrack(st)
+
+  # Fakt ohne Variablen (nur Konstanten und ground Terme): ohne Umfeld,
+  # ohne Block frischer Variablen und ohne Occurs-Check (ein ground Wert
+  # bildet keinen Zyklus, kann also auch mit occurs_check=error nicht
+  # werfen). Keine Variable im Fakt, auch keine anonyme: nvars 0
+  defp try_clauses(args, [{:clause, key, 0, pats, 0, [], 0} | more], rest, mod, st) do
+    matched = match_args(pats, args, {}, st.subst, st.next_var, nil)
+    clause_matched(matched, args, more, rest, 0, [], key, mod, st)
+  end
 
   # mod: Modul, in dem das Prädikat definiert ist (Kontext für den Rumpf)
   defp try_clauses(args, [cl | more], rest, mod, st) do
