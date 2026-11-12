@@ -164,6 +164,10 @@ defmodule PrologEx.JitTest do
   tins_(<, X, Y, Ys, [X,Y|Ys]).
   tins_(=, _, Y, Ys, [Y|Ys]).
   tins_(>, X, Y, Ys, [Y|L]) :- tins(X, Ys, L).
+  nrv([], []).
+  nrv([H|T], R) :- nrv(T, RT), append(RT, [H], R).
+  tap(X, Y, Z) :- append(X, Y, Z).
+  tapc(X, Z) :- append(X, [c], Z).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -285,7 +289,10 @@ defmodule PrologEx.JitTest do
           {"od3", 2},
           {"od6", 2},
           {"od7", 2},
-          {"tins_", 5}
+          {"tins_", 5},
+          {"nrv", 2},
+          {"tap", 3},
+          {"tapc", 2}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
 
@@ -355,6 +362,26 @@ defmodule PrologEx.JitTest do
         "tins(2, [1,2,3], L)",
         "tins(z, [a,b], L)",
         "inf(tins(9, [1,2,3,4,5,6,7,8], _), I)",
+        # lists:append/3 mit bestimmter erster Liste; offenes Ende oder
+        # keine Liste: aufgeben (der Interpreter zählt auf)
+        "nrv([1,2,3,4,5], R)",
+        "nrv([], R)",
+        "nrv([a,X,f(Y)], R)",
+        "inf(nrv([1,2,3,4,5,6,7,8], _), I)",
+        "tap([1,2], [3], Z)",
+        "tap([1,2], T, Z)",
+        "tap([], T, Z)",
+        "tap([1,2], [3], [1,2,3])",
+        "tap([1,2], [3], [1,2])",
+        "tap([1,2], [3], [A|B])",
+        "tap(\"ab\", \"cd\", Z)",
+        "once(tap([1|X], [2], Z))",
+        "call_nth(tap([1|X], [2], Z), 3)",
+        "findall(X-Y, tap(X, Y, [1,2]), L)",
+        "tap(a, [1], Z)",
+        "tapc([a,b], Z)",
+        "tapc(X, [a,b,c])",
+        "findall(X, tapc(X, [a,c,b,c]), L)",
         # (A ; B), ! wie (A -> true ; B -> true), !
         "od1(15, Y)",
         "od1(7, Y)",
@@ -644,6 +671,17 @@ defmodule PrologEx.JitTest do
     assert jitted?(db, {"user", "sq", 2})
     # unberührt
     assert jitted?(db, {"user", "ev", 1})
+  end
+
+  # Später eine eigene Definition von append/3: wer lists:append/3 im
+  # übersetzten Code rief, verliert ihn und ruft die eigene
+  test "append/3 später selbst definiert", c do
+    Reader.put_current(c.reader)
+    assert jitted?(c.jit, {"user", "nrv", 2})
+    src = "append(_, _, mine)."
+    {db, _} = PrologEx.Consult.load(c.jit, Reader.read_terms(c.reader, src))
+    refute jitted?(db, {"user", "nrv", 2})
+    assert {_, {:answers, ["R = mine"]}} = TableCase.run(c.reader, db, "nrv([1,2], R)")
   end
 
   # Ein späterer Ladeschritt ruft schon übersetzte Prädikate direkt

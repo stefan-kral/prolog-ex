@@ -1111,7 +1111,7 @@ defmodule PrologEx do
 
       case info do
         {mod, _, pf, _, sig} -> unless dynamic?(db, k), do: %{mod: mod, p: pf, sig: sig}
-        nil -> nil
+        nil -> jit_builtin(db, module, n, a)
       end
     end
 
@@ -1128,6 +1128,18 @@ defmodule PrologEx do
 
     {src, ext, dyn}
   end
+
+  # lists:append/3 für übersetzten Code (PrologEx.Jit.b_append/2): in
+  # module sichtbar und nicht selbst definiert – eine spätere eigene
+  # Definition nimmt den Rufern ihren Code (:jit_callers)
+  defp jit_builtin(db, module, "append", 3) do
+    with false <- Map.has_key?(db, {module, "append", 3}),
+         {:builtin, "lists", {:det, _, _}} <- locate(db, module, "append", 3),
+         do: :builtin,
+         else: (_ -> nil)
+  end
+
+  defp jit_builtin(_db, _module, _n, _a), do: nil
 
   # :jit_callers: Gerufener => übersetzte Prädikate, deren Code ihn direkt
   # ruft. Ändert sich der Gerufene (neu geladen, dynamic/1), verlieren sie

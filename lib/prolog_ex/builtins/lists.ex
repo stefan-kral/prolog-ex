@@ -460,6 +460,15 @@ defmodule PrologEx.Builtins.Lists do
   end
 
   # Vorderteil für append: {:ok, {:glist, l}} | {:ok, {:items, [..]}} | :partial
+  @doc false
+  # append/3 deterministisch (für PrologEx.Jit): {:ok, Z} oder :partial
+  def append_det(x, y, subst) do
+    case prefix(x, subst) do
+      {:ok, front} -> {:ok, join(front, y, subst)}
+      :partial -> :partial
+    end
+  end
+
   defp prefix(x, subst) do
     case PrologEx.Store.walk(x, subst) do
       {:glist, l} -> if proper?(l), do: {:ok, {:glist, l}}, else: :partial

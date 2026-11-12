@@ -177,8 +177,8 @@ defmodule PrologEx.Jit do
     callable = fn k ->
       cond do
         MapSet.member?(dynamic, k) -> :dynamic
-        MapSet.member?(batch, k) or ext.(k) != nil -> true
-        true -> false
+        MapSet.member?(batch, k) -> true
+        true -> if (e = ext.(k)) == :builtin, do: :builtin, else: e != nil
       end
     end
 
@@ -341,6 +341,8 @@ defmodule PrologEx.Jit do
 
     calls = clauses |> collect_calls() |> Enum.uniq()
     deps = List.delete(calls, key)
+    # gerufene Builtins, die eine eigene Definition verdecken würde
+    bdeps = clauses |> collect_bis() |> Enum.uniq()
     size = clauses |> Enum.map(fn {_, gs} -> goal_count(gs) end) |> Enum.sum()
 
     %{
@@ -349,6 +351,7 @@ defmodule PrologEx.Jit do
       clauses: clauses,
       source: source,
       deps: deps,
+      bdeps: bdeps,
       rec: key in calls,
       size: size
     }
@@ -388,6 +391,11 @@ defmodule PrologEx.Jit do
   defp collect_calls(t) when is_tuple(t), do: collect_calls(Tuple.to_list(t))
   defp collect_calls(l) when is_list(l), do: Enum.flat_map(l, &collect_calls/1)
   defp collect_calls(_), do: []
+
+  defp collect_bis({:bi, "append", _, _}), do: [{"append", 3}]
+  defp collect_bis(t) when is_tuple(t), do: collect_bis(Tuple.to_list(t))
+  defp collect_bis(l) when is_list(l), do: Enum.flat_map(l, &collect_bis/1)
+  defp collect_bis(_), do: []
 
   defp args({:struct, _, a}), do: a
 
@@ -490,9 +498,19 @@ defmodule PrologEx.Jit do
     key = {name, length(a)}
 
     case key == ctx.self or ctx.callable.(key) do
-      true -> {:call, key, Enum.map(a, &pat!/1)}
-      :dynamic -> no!("ruft das dynamische #{pi(key)}")
-      false -> no!("Ziel #{pi(key)}")
+      true ->
+        {:call, key, Enum.map(a, &pat!/1)}
+
+      # lists:append/3 (sichtbar, nicht selbst definiert): erste Liste
+      # bestimmt, deterministisch (PrologEx.Jit.b_append/2)
+      :builtin when key == {"append", 3} ->
+        {:bi, "append", Enum.map(Enum.take(a, 2), &pat!/1), [pat!(List.last(a))]}
+
+      :dynamic ->
+        no!("ruft das dynamische #{pi(key)}")
+
+      false ->
+        no!("Ziel #{pi(key)}")
     end
   end
 
@@ -1258,7 +1276,8 @@ defmodule PrologEx.Jit do
 
     # compare/3 auf eine schon bestimmte Ordnung: der Interpreter prüft
     # deren Typ (Fehler), der Code verglich nur
-    with [{:var, _} = o] <- outs,
+    with true <- name != "append",
+         [{:var, _} = o] <- outs,
          true <- not anon?(o) and defd?(d, o),
          do: no!("compare/3 mit bestimmter Ordnung")
 
@@ -1274,6 +1293,7 @@ defmodule PrologEx.Jit do
   defp bi_types("functor"), do: [:any, :num]
   defp bi_types("univ"), do: [:list]
   defp bi_types("compare"), do: [:any]
+  defp bi_types("append"), do: [:any]
 
   # Typtest auf einer Zahl: true/false, oder (Code mit Floats) :num
   defp num_test(t, _) when t in ["number", "atomic", "nonvar"], do: true
@@ -1587,6 +1607,7 @@ defmodule PrologEx.Jit do
           source: r.p.source,
           num: sig.num,
           deps: r.p.deps,
+          bdeps: r.p.bdeps,
           sig: sig
         }
       end)
@@ -1648,7 +1669,8 @@ defmodule PrologEx.Jit do
         done =
           for i <- infos,
               into: done,
-              do: {i.key, {{mod, :"e#{i.j}", :"p#{i.j}", i.deps, i.sig}, i.ins, i.outs}}
+              do:
+                {i.key, {{mod, :"e#{i.j}", :"p#{i.j}", i.deps ++ i.bdeps, i.sig}, i.ins, i.outs}}
 
         {done, shown}
     end
@@ -2425,6 +2447,16 @@ defmodule PrologEx.Jit do
   def b_univ(t) do
     {f, args} = PrologEx.Builtins.Terms.parts(bound!(t))
     {PrologEx.list([f | args])}
+  end
+
+  @doc false
+  # append/3 mit echter Liste vorn: {Z}; sonst (offenes Ende, keine Liste:
+  # der Interpreter zählt auf oder scheitert) aufgeben
+  def b_append(x, y) do
+    case PrologEx.Builtins.Lists.append_det(x, y, store()) do
+      {:ok, z} -> {z}
+      :partial -> throw(:jit_deopt)
+    end
   end
 
   @doc false

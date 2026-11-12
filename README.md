@@ -63,7 +63,11 @@ Ein Prolog-Kern in Elixir:
     `callable`, `is_list`), `==`, `\==`, `@<`, `@>`, `@=<`, `@>=`,
     `compare/3`, `arg/3`, `functor/3` und `=../2` (diese drei zum
     Zerlegen eines gebundenen Terms; ungebunden – `functor/3` zum Bauen –
-    oder bei einem Fehler gibt der Code auf, der Interpreter rechnet) und
+    oder bei einem Fehler gibt der Code auf, der Interpreter rechnet),
+    `append/3` aus `library(lists)` (sichtbar und nicht selbst definiert;
+    die erste Liste muss eine echte Liste sein, sonst gibt der Code auf;
+    eine spätere eigene Definition nimmt den Rufern ihren Code – nrev über
+    30 Elemente mit `append/3` 9 → 34 MLIPS, mit eigenem `app/3` 31) und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
     Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
     ihren Zweigen keiner steht: `(A ; B), !` übersetzt er wie
