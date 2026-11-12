@@ -23,6 +23,7 @@
 
 defmodule PrologEx do
   alias PrologEx.Store
+  require PrologEx.Store
 
   # ---------------------------------------------------------------------
   # Terme
@@ -515,7 +516,7 @@ defmodule PrologEx do
   def unifiable?(x, y, subst) do
     case unify(x, y, subst) do
       {:ok, _} ->
-        Store.restore(subst)
+        Store.fast_restore(subst)
         true
 
       :error ->
@@ -527,11 +528,11 @@ defmodule PrologEx do
   def unifiable_all?(pairs, subst) do
     case unify_pairs(pairs, subst, occurs_mode()) do
       {:ok, _} ->
-        Store.restore(subst)
+        Store.fast_restore(subst)
         true
 
       :error ->
-        Store.restore(subst)
+        Store.fast_restore(subst)
         false
     end
   end
@@ -1384,7 +1385,7 @@ defmodule PrologEx do
     t2 = if last?, do: drop_neck_cut(t1, []), else: t1
     # der Schlüssel trägt den vollständigen Rumpf: weckt die Kopfunifikation
     # Ziele, gilt der (sie können Choice Points hinterlassen, die der
-    # Schnitt wegnähme; siehe clause_matched/10)
+    # Schnitt wegnähme; siehe clause_matched/9)
     if t2 === tmpls, do: c, else: {:clause, {:spec, tmpls}, ns, pats, nf, t2, nv}
   end
 
@@ -1678,7 +1679,7 @@ defmodule PrologEx do
   defp match_args([{:const, c} | ps], [t | ts], env, s, nv, mode) do
     case Store.walk(t, s) do
       ^c -> match_args(ps, ts, env, s, nv, mode)
-      {:var, _} = v -> match_args(ps, ts, env, Store.bind(v, c, s), nv, mode)
+      {:var, _} = v -> match_args(ps, ts, env, Store.fast_bind(v, c, s), nv, mode)
       _ -> :error
     end
   end
@@ -1894,28 +1895,50 @@ defmodule PrologEx do
             # müssen Cuts die abgeschnittenen Choice Points ansehen
             scc: false
 
+  # Der häufige Fall zuerst und ganz ohne Hilfsaufrufe: ein Ziel und
+  # wenige Bindungen; ab st.threshold Bindungen erst kompaktieren (siehe
+  # compact_all/1)
+  defp run(%{goals: [{goal, cutb, mod} | rest], subst: s, threshold: th} = st)
+       when map_size(s) < th,
+       do: run_goal(goal, cutb, mod, rest, s, st)
+
   # (vor dem Wecken nicht kompaktieren: $wake braucht die Attribute der
   # eben gebundenen Variablen)
-  defp run(%{goals: [{{:"$wake", _}, _, _} | _]} = st), do: run_step(st)
-  defp run(st), do: run_step(maybe_compact(st))
+  defp run(%{goals: [{{:"$wake", _} = goal, cutb, mod} | rest], subst: s} = st),
+    do: run_goal(goal, cutb, mod, rest, s, st)
 
-  defp run_step(st) do
-    case st.goals do
-      [] ->
+  defp run(%{goals: [], subst: s, threshold: th} = st) when map_size(s) < th, do: {:sol, st}
+
+  defp run(st) do
+    case compact_all(st) do
+      %{goals: [{goal, cutb, mod} | rest], subst: s} = st ->
+        run_goal(goal, cutb, mod, rest, s, st)
+
+      st ->
         {:sol, st}
-
-      [{goal, cutb, mod} | rest] ->
-        goal = unmark_top(Store.walk(goal, st.subst))
-        n = count_inference(goal, st.icount)
-
-        # ohne aktive Grenze nur dieser eine Vergleich; mit Grenze (auch
-        # die Standard-Speichergrenze) einer mehr – den Zählerstand liefert
-        # das Erhöhen gleich mit. Ungezählte Schritte prüfen nicht (der
-        # Zähler steht still)
-        if st.ilimit != nil and n != nil and n > st.ilimit,
-          do: limit_hit(goal, cutb, mod, rest, st),
-          else: step(goal, cutb, mod, rest, st)
     end
+  end
+
+  # (Store.walk und unmark_top/1 nur, wo nötig: meist ist das Ziel schon
+  # ein Term)
+  defp run_goal(goal, cutb, mod, rest, s, st) do
+    goal =
+      case goal do
+        {:var, _} -> unmark_top(Store.walk(goal, s))
+        {:gstruct, f, args} -> {:struct, f, args}
+        {:glist, l} -> l
+        _ -> goal
+      end
+
+    n = count_inference(goal, st.icount)
+
+    # ohne aktive Grenze nur dieser eine Vergleich; mit Grenze (auch
+    # die Standard-Speichergrenze) einer mehr – den Zählerstand liefert
+    # das Erhöhen gleich mit. Ungezählte Schritte prüfen nicht (der
+    # Zähler steht still)
+    if st.ilimit != nil and n != nil and n > st.ilimit,
+      do: limit_hit(goal, cutb, mod, rest, st),
+      else: step(goal, cutb, mod, rest, st)
   end
 
   # Inferenz = Aufruf eines Prädikats (wie SWI), auch eingebauter wie =/2
@@ -1924,6 +1947,7 @@ defmodule PrologEx do
   # Ergebnis: der neue Zählerstand, nil für ungezählte Schritte
   # (erst die Länge: die meisten Namen sind länger als 4 Bytes, dann
   # entfallen die fünf Vergleiche)
+  @compile {:inline, count_inference: 2}
   defp count_inference({:struct, f, _}, _ref)
        when byte_size(f) <= 4 and f in [",", ";", "->", ":", "call"],
        do: nil
@@ -2501,7 +2525,7 @@ defmodule PrologEx do
   defp step({:struct, "catch", [g, c, r]}, _cutb, mod, rest, st) do
     id = make_ref()
     h = st.height
-    st = push(st, {:catch, id, c, r, rest, mod, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:catch, id, c, r, rest, mod, Store.fast_snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$catch_exit", id, h}, 0, mod} | rest], st)
   end
 
@@ -2577,7 +2601,7 @@ defmodule PrologEx do
     id = make_ref()
     h = st.height
     st = add_tlimit(st, id, now_us() + us)
-    st = push(st, {:tlimit, id, on, rest, mod, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:tlimit, id, on, rest, mod, Store.fast_snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$tlimit_exit", id, mode, us, h}, 0, mod} | rest], st)
   end
 
@@ -2740,7 +2764,7 @@ defmodule PrologEx do
   #   * Ein Rahmen-Choice-Point {:scc, ...} unter G merkt sich C und die
   #     Bindungen nach S, dazu C für die jeweils aktuellen Bindungen (das
   #     letzte Feld; die Kompaktierung schreibt es mit um, siehe
-  #     maybe_compact/1).
+  #     run/1).
   #   * G deterministisch gelungen: C sofort, mit den aktuellen Bindungen,
   #     die bleiben; Scheitern von C zählt nicht, Ausnahmen gehen weiter.
   #   * G scheitert endgültig (Backtracking erreicht den Rahmen) oder wirft
@@ -2804,7 +2828,7 @@ defmodule PrologEx do
   # anders importiertes Prädikat gleichen Namens geht vor; unsichtbar:
   # gewöhnlicher Aufruf (also existence_error).
   defp disjunction(g1, g2, cutb, mod, rest, st) do
-    st = push(st, {:alt, {g2, cutb, mod}, rest, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:alt, {g2, cutb, mod}, rest, Store.fast_snapshot(st.subst), st.answer})
     run(%{st | goals: [{g1, cutb, mod} | rest]})
   end
 
@@ -2953,7 +2977,7 @@ defmodule PrologEx do
         id = make_ref()
         h = st.height
         st = add_ilimit(st, id, :atomics.get(st.icount, 1) + n)
-        st = push(st, {:ilimit, id, r, rest, mod, Store.snapshot(st.subst), st.answer})
+        st = push(st, {:ilimit, id, r, rest, mod, Store.fast_snapshot(st.subst), st.answer})
         run_body(g, h + 1, mod, [{{:"$ilimit_exit", id, n, h, r}, 0, mod} | rest], st)
 
       n when is_integer(n) ->
@@ -2976,7 +3000,7 @@ defmodule PrologEx do
         frame = {ref, base, base + n - 1}
         h = st.height
         st = add_dlimit(%{st | subst: Store.put(st.subst, @depth_key, base)}, frame)
-        st = push(st, {:dlimit, frame, r, rest, mod, Store.snapshot(st.subst), st.answer})
+        st = push(st, {:dlimit, frame, r, rest, mod, Store.fast_snapshot(st.subst), st.answer})
         run_body(g, h + 1, mod, [{{:"$dlimit_exit", frame, h, r}, 0, mod} | rest], st)
 
       n when is_integer(n) ->
@@ -3020,7 +3044,7 @@ defmodule PrologEx do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, {0, now_us()})}
-    st = push(st, {:time_fail, ref, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:time_fail, ref, Store.fast_snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$time_exit", ref, h}, 0, mod} | rest], st)
   end
 
@@ -3050,7 +3074,7 @@ defmodule PrologEx do
     ref = make_ref()
     h = st.height
     st = %{st | counters: Map.put(st.counters, ref, 0)}
-    st = push(st, {:nth_cleanup, ref, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:nth_cleanup, ref, Store.fast_snapshot(st.subst), st.answer})
     run_body(g, h + 1, mod, [{{:"$nth", ref, n, h}, 0, mod} | rest], st)
   end
 
@@ -3093,7 +3117,12 @@ defmodule PrologEx do
   # Aufruf eines Prädikats im Kontextmodul mod. Schnellweg: in mod selbst
   # definiert (ein Map-Zugriff); sonst Auflösung über locate/4.
   defp call_pred(goal, mod, rest, st) do
-    {name, args} = name_args(goal)
+    {name, args} =
+      case goal do
+        {:struct, f, args} -> {f, args}
+        _ -> name_args(goal)
+      end
+
     arity = length(args)
     db = current_db()
 
@@ -3109,7 +3138,7 @@ defmodule PrologEx do
 
             case depth_enter(st, rest, mod) do
               {st, rest} ->
-                try_clauses(goal, args, candidates(pred, args, st.subst), rest, mod, st)
+                try_clauses(args, candidates(pred, args, st.subst), rest, mod, st)
 
               :fail ->
                 backtrack(st)
@@ -3125,11 +3154,16 @@ defmodule PrologEx do
             throw_ball(ball, st)
         end
 
+      # ohne aufgeschobenes Anhängen und ohne Tiefengrenze (der häufige
+      # Fall): ohne Hilfsaufrufe
+      {:ok, {:pred, all, _, _, _} = pred} when not is_tuple(all) and st.dlimit == nil ->
+        try_clauses(args, candidates(pred, args, st.subst), rest, mod, st)
+
       {:ok, {:pred, _, _, _, _} = pred} ->
         pred = flat_for_call(pred, {mod, name, arity}, args, st.subst)
 
         case depth_enter(st, rest, mod) do
-          {st, rest} -> try_clauses(goal, args, candidates(pred, args, st.subst), rest, mod, st)
+          {st, rest} -> try_clauses(args, candidates(pred, args, st.subst), rest, mod, st)
           :fail -> backtrack(st)
         end
 
@@ -3178,13 +3212,13 @@ defmodule PrologEx do
         args = qualify(args, Map.get(current_db(), {:meta, m, name, arity}), m, mod, st.subst)
 
         case depth_enter(st, rest, m) do
-          {st, rest} -> try_clauses(goal, args, candidates(pred, args, st.subst), rest, m, st)
+          {st, rest} -> try_clauses(args, candidates(pred, args, st.subst), rest, m, st)
           :fail -> backtrack(st)
         end
 
       {:builtin, m, {:prolog, pred, _}} ->
         args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
-        try_clauses(goal, args, candidates(pred, args, st.subst), rest, m, st)
+        try_clauses(args, candidates(pred, args, st.subst), rest, m, st)
 
       # Builtin mit Wirkung: im Bereich von call_with_no_side_effects/1
       # vorher ein Fehler
@@ -3432,7 +3466,7 @@ defmodule PrologEx do
   defp qualified_name("user", name, arity), do: "#{name}/#{arity}"
   defp qualified_name(mod, name, arity), do: "#{mod}:#{name}/#{arity}"
 
-  defp name_args({:struct, f, args}), do: {f, args}
+  # ({:struct, f, args} nimmt call_pred/4 selbst auseinander)
   defp name_args({:atom, f}), do: {f, []}
   defp name_args([]), do: {"[]", []}
   defp name_args([h | t]), do: {".", [h, t]}
@@ -3754,7 +3788,7 @@ defmodule PrologEx do
   defp start_solutions([r], mod, rest, st), do: apply_result(r, mod, rest, st)
 
   defp start_solutions([r | more], mod, rest, st) do
-    st = push(st, {:solutions_list, more, mod, rest, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:solutions_list, more, mod, rest, Store.fast_snapshot(st.subst), st.answer})
     apply_result(r, mod, rest, st)
   end
 
@@ -3766,7 +3800,7 @@ defmodule PrologEx do
   end
 
   defp next_solution({:suspended, r, cont}, mod, rest, st) do
-    st = push(st, {:solutions, cont, mod, rest, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:solutions, cont, mod, rest, Store.fast_snapshot(st.subst), st.answer})
     apply_result(r, mod, rest, st)
   end
 
@@ -3824,7 +3858,7 @@ defmodule PrologEx do
         cps: [],
         height: 0,
         answer: [],
-        subst: Store.restore(subst),
+        subst: Store.fast_restore(subst),
         ilimits: [],
         ilimit: nil
     }
@@ -4477,7 +4511,7 @@ defmodule PrologEx do
         # dann müssen auch Cuts hier hinsehen (cut_to/3)
         {:more, sub} ->
           st = if sub.scc, do: %{st | scc: true}, else: st
-          push(st, {:findnsols, sub, k, l, tail, rest, Store.snapshot(st.subst), st.answer})
+          push(st, {:findnsols, sub, k, l, tail, rest, Store.fast_snapshot(st.subst), st.answer})
 
         :done ->
           st
@@ -4495,7 +4529,7 @@ defmodule PrologEx do
   # für den Cut transparent (Barriere des umgebenden Prädikats).
   defp if_then_else(c, t, e, cutb, mod, rest, st) do
     h = st.height
-    st = push(st, {:alt, {e, cutb, mod}, rest, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:alt, {e, cutb, mod}, rest, Store.fast_snapshot(st.subst), st.answer})
     run(%{st | goals: [{c, h + 1, mod}, {{:"$cut_to", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
@@ -4503,7 +4537,7 @@ defmodule PrologEx do
   # E weg – für jede Lösung von C läuft T; E nur, wenn C keine hat
   defp soft_if(c, t, e, cutb, mod, rest, st) do
     h = st.height
-    st = push(st, {:alt, {e, cutb, mod}, rest, Store.snapshot(st.subst), st.answer})
+    st = push(st, {:alt, {e, cutb, mod}, rest, Store.fast_snapshot(st.subst), st.answer})
     run(%{st | goals: [{c, h + 1, mod}, {{:"$soft_cut", h}, 0, mod}, {t, cutb, mod} | rest]})
   end
 
@@ -4525,10 +4559,10 @@ defmodule PrologEx do
 
   # Die Cut-Barriere für den Rumpf ist die Stack-Höhe VOR dem eigenen
   # Choice Point – ein Cut entfernt also auch die restlichen Klauseln.
-  defp try_clauses(_goal, _args, [], _rest, _mod, st), do: backtrack(st)
+  defp try_clauses(_args, [], _rest, _mod, st), do: backtrack(st)
 
   # mod: Modul, in dem das Prädikat definiert ist (Kontext für den Rumpf)
-  defp try_clauses(goal, args, [cl | more], rest, mod, st) do
+  defp try_clauses(args, [cl | more], rest, mod, st) do
     {:clause, key, nslots, pats, nfresh, body, nvars} = cl
     env = :erlang.make_tuple(nslots, nil)
     # reicht der Block von Kennungen für die frischen Variablen?
@@ -4541,24 +4575,24 @@ defmodule PrologEx do
     if mode == :error do
       case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var, mode) end) do
         {:ok, matched} ->
-          clause_matched(matched, goal, args, more, rest, nfresh, body, key, mod, st)
+          clause_matched(matched, args, more, rest, nfresh, body, key, mod, st)
 
         {:thrown, ball} ->
           throw_ball(ball, st)
       end
     else
       matched = match_args(pats, args, env, st.subst, st.next_var, mode)
-      clause_matched(matched, goal, args, more, rest, nfresh, body, key, mod, st)
+      clause_matched(matched, args, more, rest, nfresh, body, key, mod, st)
     end
   end
 
   # Typtests, die inline_body selbst ausführt
   @inline_tests ~w(var nonvar atom number integer float atomic compound callable)
 
-  defp clause_matched(matched, goal, args, more, rest, nfresh, body, key, mod, st) do
+  defp clause_matched(matched, args, more, rest, nfresh, body, key, mod, st) do
     case matched do
       :error ->
-        try_clauses(goal, args, more, rest, mod, st)
+        try_clauses(args, more, rest, mod, st)
 
       {:ok, env, s1, nv} ->
         barrier = st.height
@@ -4569,7 +4603,7 @@ defmodule PrologEx do
             do: {st.cps, barrier},
             else:
               {[
-                 {:clauses, goal, args, more, rest, mod, Store.snapshot(st.subst), st.answer}
+                 {:clauses, args, more, rest, mod, Store.fast_snapshot(st.subst), st.answer}
                  | st.cps
                ], barrier + 1}
 
@@ -4798,13 +4832,13 @@ defmodule PrologEx do
   defp backtrack(%{cps: []}), do: :done
 
   # Klausel-Alternative (der häufigste Fall): ein einziges Update des Structs
-  defp backtrack(%{cps: [{:clauses, goal, args, more, rest, mod, subst, answer} | cps]} = st),
+  defp backtrack(%{cps: [{:clauses, args, more, rest, mod, subst, answer} | cps]} = st),
     do:
-      try_clauses(goal, args, more, rest, mod, %{
+      try_clauses(args, more, rest, mod, %{
         st
         | cps: cps,
           height: st.height - 1,
-          subst: Store.restore(subst),
+          subst: Store.fast_restore(subst),
           answer: answer
       })
 
@@ -4817,13 +4851,13 @@ defmodule PrologEx do
         backtrack(st)
 
       {:alt, goal, rest, subst, answer} ->
-        run(%{st | goals: [goal | rest], subst: Store.restore(subst), answer: answer})
+        run(%{st | goals: [goal | rest], subst: Store.fast_restore(subst), answer: answer})
 
       {:solutions_list, more, mod, rest, subst, answer} ->
-        start_solutions(more, mod, rest, %{st | subst: Store.restore(subst), answer: answer})
+        start_solutions(more, mod, rest, %{st | subst: Store.fast_restore(subst), answer: answer})
 
       {:solutions, cont, mod, rest, subst, answer} ->
-        st = %{st | subst: Store.restore(subst), answer: answer}
+        st = %{st | subst: Store.fast_restore(subst), answer: answer}
 
         case guarded(fn -> cont.({:cont, nil}) end) do
           {:ok, r} -> next_solution(r, mod, rest, st)
@@ -4831,7 +4865,7 @@ defmodule PrologEx do
         end
 
       {:findnsols, sub, k, l, tail, rest, subst, answer} ->
-        st = %{st | subst: Store.restore(subst), answer: answer}
+        st = %{st | subst: Store.fast_restore(subst), answer: answer}
 
         case guarded(fn -> collect(backtrack(sub), k, []) end) do
           {:ok, collected} -> findnsols_chunk(collected, k, l, tail, rest, resync(st))
@@ -4841,7 +4875,7 @@ defmodule PrologEx do
       {:nth_cleanup, ref, subst, answer} ->
         backtrack(%{
           st
-          | subst: Store.restore(subst),
+          | subst: Store.fast_restore(subst),
             answer: answer,
             counters: Map.delete(st.counters, ref)
         })
@@ -4851,7 +4885,7 @@ defmodule PrologEx do
 
         backtrack(%{
           st
-          | subst: Store.restore(subst),
+          | subst: Store.fast_restore(subst),
             answer: answer,
             counters: Map.delete(st.counters, ref)
         })
@@ -4869,7 +4903,7 @@ defmodule PrologEx do
         st = remove_dlimit(st, frame)
 
         with 1 <- :atomics.get(ref, 2),
-             {:ok, s} <- unify(r, {:atom, "depth_limit_exceeded"}, Store.restore(subst)) do
+             {:ok, s} <- unify(r, {:atom, "depth_limit_exceeded"}, Store.fast_restore(subst)) do
           cont(%{st | answer: answer}, s, rest)
         else
           _ -> backtrack(st)
@@ -4958,7 +4992,7 @@ defmodule PrologEx do
     if MapSet.member?(st.catch_off, id) do
       unwind(ball, below, h - 1, st)
     else
-      {b, s0} = land_ball(ball, Store.restore(subst))
+      {b, s0} = land_ball(ball, Store.fast_restore(subst))
 
       case unify(c, b, s0) do
         {:ok, s} ->
@@ -4987,7 +5021,7 @@ defmodule PrologEx do
     if ball == {:atom, "inference_limit_exceeded"} and ilimit_exceeded?(st, id) do
       st = remove_ilimit(%{st | cps: below, height: h - 1, answer: answer}, id)
 
-      case unify(r, ball, Store.restore(subst)) do
+      case unify(r, ball, Store.fast_restore(subst)) do
         {:ok, s} -> cont(st, s, rest)
         :error -> backtrack(st)
       end
@@ -5010,7 +5044,7 @@ defmodule PrologEx do
           run(%{
             st
             | goals: [{mk("call", [goal]), h - 1, mod} | rest],
-              subst: Store.restore(subst)
+              subst: Store.fast_restore(subst)
           })
       end
     else
@@ -5038,11 +5072,6 @@ defmodule PrologEx do
   # viele Einträge dazu, wie sie kostet -> amortisiert O(1), unabhängig von
   # großen ground Daten.
   # ---------------------------------------------------------------------
-
-  defp maybe_compact(st) do
-    # (map_size statt Store.size: kein Fernaufruf je Schritt)
-    if map_size(st.subst) < st.threshold, do: st, else: compact_all(st)
-  end
 
   defp compact_all(st) do
     compact_all(st, %{})

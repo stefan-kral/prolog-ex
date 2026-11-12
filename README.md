@@ -188,8 +188,14 @@ Ein Prolog-Kern in Elixir:
   Klausel-Choice-Point ist ein einziges Update; Fakten laufen ohne
   Rumpf-Instanziierung weiter, und Kopfargumente der häufigsten Arten
   (anonym, erstes Vorkommen, Konstante) matcht die Kopfschleife selbst,
-  ohne Hilfsaufruf und Ergebnistupel je Argument: Backtracking über
-  Fakten und Klauseln −15 bis −20 % Reduktionen, −10 bis −15 % Zeit
+  ohne Hilfsaufruf und Ergebnistupel je Argument. Der Schritt selbst
+  (Kompaktierungsprüfung, Ziel holen, Inferenz zählen) ist eine Funktion
+  ohne Hilfsaufrufe, der Aufruf eines Prädikats ohne aufgeschobenes
+  Anhängen und Tiefengrenze ebenso; Choice Points festhalten und
+  zurücksetzen und Variablen binden gehen über Makros von
+  `PrologEx.Store` (kein Fernaufruf, die Darstellung bleibt dort):
+  Backtracking über Fakten −55 % Reduktionen, −30 % Zeit, über Klauseln
+  mit Rumpf −45 % / −20 %, between/member −10 bis −25 %
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
   Sie läuft früh (ab 256 Bindungen, danach beim Doppelten der lebenden
   Nicht-ground-Knoten) und kostet ohne `call_nth/2`/`time/1` nichts je

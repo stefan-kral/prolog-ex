@@ -151,4 +151,28 @@ defmodule PrologEx.Store do
 
   @doc "Festgehaltenen Zustand wiederherstellen"
   def restore(snap), do: snap
+
+  # ---------------------------------------------------------------------
+  # Dasselbe als Makros für die heißen Pfade der Maschine (je Inferenz
+  # oder Klauselversuch): ohne Fernaufruf, Darstellung trotzdem nur hier
+  # ---------------------------------------------------------------------
+
+  @doc "wie `snapshot/1`, als Makro (`require PrologEx.Store`)"
+  defmacro fast_snapshot(s), do: s
+
+  @doc "wie `restore/1`, als Makro"
+  defmacro fast_restore(snap), do: snap
+
+  @doc """
+  wie `bind/3`, als Makro: nur für attributierte Variablen der Aufruf
+  (`var` muss eine Variable sein)
+  """
+  defmacro fast_bind(var, t, s) do
+    quote do
+      case unquote(var) do
+        {:var, {:attv, _}} = v -> PrologEx.Store.bind(v, unquote(t), unquote(s))
+        v -> :maps.put(v, unquote(t), unquote(s))
+      end
+    end
+  end
 end
