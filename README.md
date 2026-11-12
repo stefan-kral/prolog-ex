@@ -3625,7 +3625,15 @@ beim Interpreter: 2- bis 8-mal langsamer als Scryer, 5- bis 16-mal als
 SWI. tak und queens sind bei Scryer und SWI so kurz, dass ihre Faktoren
 grob sind.
 
-clpz (dieselben Programme; SWI mit `library(clpfd)`):
+clpz: `bench/compare_clpz.pl`, ebenso unverändert in allen dreien (SWI
+nimmt `library(clpfd)` über `bench/swi/clpz.pl`):
+
+```sh
+MIX_ENV=prod mix prolog bench/compare_clpz.pl -g main -q
+scryer-prolog -g main -g halt bench/compare_clpz.pl
+swipl -p library=bench/swi -g main -t halt bench/compare_clpz.pl
+```
+
 
 | Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
 |---|---|---|---|---|---|---|
