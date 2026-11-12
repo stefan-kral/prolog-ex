@@ -1667,6 +1667,22 @@ defmodule PrologEx do
   # mode: Wert des Flags occurs_check (einmal je Klauselversuch gelesen)
   defp match_args([], [], env, s, nv, _mode), do: {:ok, env, s, nv}
 
+  # die häufigsten Muster gleich hier: ohne Aufruf von m/6 und ohne das
+  # Ergebnistupel je Argument
+  defp match_args([:void | ps], [_ | ts], env, s, nv, mode),
+    do: match_args(ps, ts, env, s, nv, mode)
+
+  defp match_args([{:first, i} | ps], [t | ts], env, s, nv, mode),
+    do: match_args(ps, ts, put_elem(env, i, t), s, nv, mode)
+
+  defp match_args([{:const, c} | ps], [t | ts], env, s, nv, mode) do
+    case Store.walk(t, s) do
+      ^c -> match_args(ps, ts, env, s, nv, mode)
+      {:var, _} = v -> match_args(ps, ts, env, Store.bind(v, c, s), nv, mode)
+      _ -> :error
+    end
+  end
+
   defp match_args([p | ps], [t | ts], env, s, nv, mode) do
     case m(p, t, env, s, nv, mode) do
       {:ok, env, s, nv} -> match_args(ps, ts, env, s, nv, mode)
@@ -4558,12 +4574,29 @@ defmodule PrologEx do
                ], barrier + 1}
 
         # ein einziges Update des Zustands je Inferenz (statt push, next_var
-        # und cont nacheinander: jedes kopiert den ganzen Struct)
-        case Store.take_wake(s1) do
-          :none ->
+        # und cont nacheinander: jedes kopiert den ganzen Struct). Ob es
+        # etwas zu wecken gibt, prüft Store.wake?/1 – hier als Muster, ohne
+        # Fernaufruf je Klausel
+        case s1 do
+          %{wake: _} ->
+            {ws, s1} = Store.take_wake(s1)
+            woken_clause(ws, s1, body, env, nv, nfresh, barrier, key, mod, rest, st, cps, height)
+
+          _ ->
             # beginnt der Rumpf mit etwas, das inline_body ausführt? (als
             # Muster hier, ohne Funktionsaufruf: der kostete jede Klausel)
             case body do
+              # Fakt
+              [] ->
+                run(%{
+                  st
+                  | cps: cps,
+                    height: height,
+                    next_var: nv + nfresh,
+                    goals: rest,
+                    subst: s1
+                })
+
               [{:t_arith, _, _, _, _} | _] ->
                 inline_body(body, env, nv, barrier, mod, rest, s1, st, {cps, height, nv + nfresh})
 
@@ -4586,21 +4619,20 @@ defmodule PrologEx do
                     subst: s1
                 })
             end
-
-          {ws, s1} ->
-            goals = inst_goals(body, env, nv, barrier, mod, rest)
-
-            # Fassung ohne Neck-Cut/Wächter: geweckte Ziele können Choice
-            # Points hinterlassen – dann der vollständige Rumpf
-            goals =
-              case key do
-                {:spec, full} -> inst_goals(full, env, nv, barrier, mod, rest)
-                _ -> goals
-              end
-
-            woken(ws, s1, goals, %{st | cps: cps, height: height, next_var: nv + nfresh})
         end
     end
+  end
+
+  defp woken_clause(ws, s1, body, env, nv, nfresh, barrier, key, mod, rest, st, cps, height) do
+    # Fassung ohne Neck-Cut/Wächter: geweckte Ziele können Choice Points
+    # hinterlassen – dann der vollständige Rumpf
+    goals =
+      case key do
+        {:spec, full} -> inst_goals(full, env, nv, barrier, mod, rest)
+        _ -> inst_goals(body, env, nv, barrier, mod, rest)
+      end
+
+    woken(ws, s1, goals, %{st | cps: cps, height: height, next_var: nv + nfresh})
   end
 
   # --- Deterministische eingebaute Ziele am Anfang des Rumpfs gleich hier --
@@ -4765,6 +4797,17 @@ defmodule PrologEx do
 
   defp backtrack(%{cps: []}), do: :done
 
+  # Klausel-Alternative (der häufigste Fall): ein einziges Update des Structs
+  defp backtrack(%{cps: [{:clauses, goal, args, more, rest, mod, subst, answer} | cps]} = st),
+    do:
+      try_clauses(goal, args, more, rest, mod, %{
+        st
+        | cps: cps,
+          height: st.height - 1,
+          subst: Store.restore(subst),
+          answer: answer
+      })
+
   defp backtrack(%{cps: [cp | cps]} = st) do
     st = %{st | cps: cps, height: st.height - 1}
 
@@ -4775,13 +4818,6 @@ defmodule PrologEx do
 
       {:alt, goal, rest, subst, answer} ->
         run(%{st | goals: [goal | rest], subst: Store.restore(subst), answer: answer})
-
-      {:clauses, goal, args, more, rest, mod, subst, answer} ->
-        try_clauses(goal, args, more, rest, mod, %{
-          st
-          | subst: Store.restore(subst),
-            answer: answer
-        })
 
       {:solutions_list, more, mod, rest, subst, answer} ->
         start_solutions(more, mod, rest, %{st | subst: Store.restore(subst), answer: answer})
@@ -5004,7 +5040,8 @@ defmodule PrologEx do
   # ---------------------------------------------------------------------
 
   defp maybe_compact(st) do
-    if Store.size(st.subst) < st.threshold, do: st, else: compact_all(st)
+    # (map_size statt Store.size: kein Fernaufruf je Schritt)
+    if map_size(st.subst) < st.threshold, do: st, else: compact_all(st)
   end
 
   defp compact_all(st) do

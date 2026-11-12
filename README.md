@@ -184,7 +184,12 @@ Ein Prolog-Kern in Elixir:
   ist ein Struct mit ~25 Feldern; je Inferenz wird er genau einmal
   aktualisiert (Choice Point, Variablenzähler, Ziele und Substitution in
   einem Update statt in dreien, jedes eine Kopie) – nrev, loop, between
-  −3 bis −6 %, facts −10 %
+  −3 bis −6 %, facts −10 %. Auch das Zurücksetzen auf einen
+  Klausel-Choice-Point ist ein einziges Update; Fakten laufen ohne
+  Rumpf-Instanziierung weiter, und Kopfargumente der häufigsten Arten
+  (anonym, erstes Vorkommen, Konstante) matcht die Kopfschleife selbst,
+  ohne Hilfsaufruf und Ergebnistupel je Argument: Backtracking über
+  Fakten und Klauseln −15 bis −20 % Reduktionen, −10 bis −15 % Zeit
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
   Sie läuft früh (ab 256 Bindungen, danach beim Doppelten der lebenden
   Nicht-ground-Knoten) und kostet ohne `call_nth/2`/`time/1` nichts je
