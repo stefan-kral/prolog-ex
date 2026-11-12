@@ -119,6 +119,45 @@ defmodule PrologEx.CoroutiningTest do
       assert ask(c, "freeze(X, Y = 1), X = 2.") == ["X = 2, Y = 1"]
     end
 
+    # geschachteltes freeze/2 beim Wecken direkt angehängt (nested_freeze/3):
+    # dieselben Antworten, Restziele, Reihenfolgen wie als Ziel
+    test "geschachteltes freeze", c do
+      assert out(c, "freeze(X, freeze(Y, write(a))), X = 1, write(b), Y = 2.") == "ba"
+      assert out(c, "freeze(X, freeze(Y, write(a))), Y = 2, write(b), X = 1.") == "ba"
+
+      assert out(c, "freeze(X, freeze(Y, write(a))), freeze(Y, write(b)), X = 1, Y = 2.") ==
+               "ba"
+
+      assert out(c, "freeze(Y, write(b)), freeze(X, freeze(Y, write(a))), X = 1, Y = 2.") ==
+               "ba"
+
+      assert ask(c, "freeze(X, freeze(Y, X < Y)), X = 2, Y = 1.") == []
+      assert ask(c, "freeze(X, freeze(Y, X < Y)), X = 1, Y = 2.") == ["X = 1, Y = 2"]
+
+      assert ask(c, "freeze(X, freeze(Y, true)), X = 1, frozen(Y, G).") |> hd() =~
+               "G = freeze(Y,user:true)"
+
+      assert ask(c, "freeze(X, freeze(Y, lists:true)), X = 1, frozen(Y, G).") |> hd() =~
+               "G = freeze(Y,lists:true)"
+
+      assert ask(c, "freeze(X, freeze(Y, true)), X = 1.") == ["X = 1, freeze(Y,true)"]
+
+      assert ask(c, "freeze(X, freeze(Y, G)), catch(X = 1, error(E, _), true).") ==
+               ["E = instantiation_error, freeze(X,freeze(Y,G))"]
+
+      assert ask(c, "freeze(X, freeze(Y, freeze(Z, write(z)))), X = 1, Y = 2, frozen(Z, G).")
+             |> hd() =~ "G = freeze(Z,user:write(z))"
+
+      # das innere freeze zählt beim Wecken als eine Inferenz, wie bei
+      # freeze(X, true), X = 1 (ebenfalls 4)
+      assert ask(
+               c,
+               "statistics(inferences, I0), freeze(X, freeze(Y, true)), X = 1, " <>
+                 "statistics(inferences, I1), I is I1 - I0."
+             )
+             |> hd() =~ "I = 4"
+    end
+
     test "offene Ziele als Restziele, auch über frozen/2", c do
       assert ask(c, "freeze(X, true).") == ["freeze(X,true)"]
       assert ask(c, "freeze(X, true), frozen(X, G).") |> hd() =~ "G = freeze(X,user:true)"

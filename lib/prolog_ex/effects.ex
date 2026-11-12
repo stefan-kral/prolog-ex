@@ -146,6 +146,9 @@ defmodule PrologEx.Effects do
     end
   end
 
+  @doc "Im Bereich von call_with_no_side_effects/1?"
+  def nse_active?(subst), do: is_map_key(subst, @nse)
+
   @doc "Code, der im Bereich registriert wird, im Bereich laufen lassen"
   def nse_wrap(goal, subst) do
     if is_map_key(subst, @nse) do

@@ -3116,7 +3116,14 @@ die wirklich laufen, kommen auf den Stapel – mit ihrem Modul, ein
 Schritt je Ziel. Steht so ein Ziel an, wird alles Weitere aus derselben
 Bindung zu Zielen hinter ihm, damit die Reihenfolge des Anhängens auch
 gegenüber laufenden Zielen erhalten bleibt. Tote Einträge wirft die
-Kompaktierung weg. Nur wenn ein Modul `verify_attributes/3` definiert,
+Kompaktierung weg. Ist ein geweckter `freeze`-Eintrag selbst wieder
+`freeze(Y, G)` mit ungebundenem `Y` (geschachteltes
+`freeze(X, freeze(Y, X @< Y))`), hängt das Wecken `'$fz'(M:G)` gleich an
+`Y`, ohne das innere `freeze` als Ziel zu starten (eine Inferenz, wie ein
+gewöhnliches Weckziel; nicht unter `call_with_no_side_effects/1`).
+Permutation Sort mit `ordered/2` über ein solches Hilfsprädikat (16
+Elemente, umgekehrt sortiert) 2017 → 1545 ms, gemischt 945 → 806 ms.
+Nur wenn ein Modul `verify_attributes/3` definiert,
 läuft das Wecken als Ziel (Hooks, dann die eingebauten Suspensionen).
 
 Gemessen (`mix run bench/dif_bench.exs`, `bench/psort_bench.exs`,

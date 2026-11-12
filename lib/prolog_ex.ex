@@ -3884,8 +3884,18 @@ defmodule PrologEx do
   # läuft das Ziel
   defp wake_susp({:struct, "$fz", [g]}, susp, v, {s, items, false}, st) do
     case Store.walk(v, s) do
-      {:var, _} = w -> {suspend(s, [w], susp), items, false}
-      _ -> {s, [goal_item(g, s, st.height) | items], true}
+      {:var, _} = w ->
+        {suspend(s, [w], susp), items, false}
+
+      _ ->
+        # geschachteltes freeze(Y, G2), Y ungebunden: gleich hier an Y
+        # hängen, statt es als Ziel durch die Maschine zu schicken (freeze/2
+        # ist geschützt, also immer das eingebaute; die Inferenz zählt wie
+        # dort)
+        case nested_freeze(g, s, st) do
+          {:wait, y, g2} -> {suspend(s, [y], mk("$fz", [g2])), items, false}
+          :no -> {s, [goal_item(g, s, st.height) | items], true}
+        end
     end
   end
 
@@ -3917,6 +3927,44 @@ defmodule PrologEx do
     if PrologEx.Builtins.Coroutining.active?(susp, s),
       do: {s, [{:dif, susp} | items], true},
       else: {s, items, true}
+  end
+
+  # M:freeze(Y, G2) mit ungebundenem Y und G2 kein Variablenterm, außerhalb
+  # von call_with_no_side_effects/1: {:wait, Y, M:G2} (wie freeze/2 es
+  # qualifiziert) – die Inferenz des Aufrufs gezählt; an einem Prüfpunkt
+  # der Inferenzgrenze lieber der gewöhnliche Weg (dort limit_hit/5)
+  defp nested_freeze(g, s, st) do
+    with {t1, ":", [m, inner]} when t1 in [:struct, :gstruct] <- Store.walk(g, s),
+         {:atom, mname} <- Store.walk(m, s),
+         {t2, "freeze", [y, g2]} when t2 in [:struct, :gstruct] <- Store.walk(inner, s),
+         {:var, _} = yv <- Store.walk(y, s),
+         false <- PrologEx.Effects.nse_active?(s),
+         g2w when not is_tuple(g2w) or elem(g2w, 0) != :var <- Store.walk(g2, s),
+         true <- count_nested(st) do
+      g2q =
+        case g2w do
+          {t3, ":", [_, _]} when t3 in [:struct, :gstruct] -> g2w
+          _ -> mk(":", [{:atom, mname}, g2])
+        end
+
+      {:wait, yv, g2q}
+    else
+      _ -> :no
+    end
+  end
+
+  defp count_nested(%{ilimit: nil, icount: c}) do
+    :atomics.add(c, 1, 1)
+    true
+  end
+
+  defp count_nested(%{ilimit: l, icount: c}) do
+    if :atomics.add_get(c, 1, 1) > l do
+      :atomics.sub(c, 1, 1)
+      false
+    else
+      true
+    end
   end
 
   # Weckziel M:G direkt als Ziel in M (wie der Schritt für ':'), Cut lokal
