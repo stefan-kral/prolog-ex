@@ -2792,14 +2792,16 @@ make_matches(Clauses) :-
 % eine Zahl), bei denen alle früheren Klauseln ohne Wirkung scheitern, und
 % sagt, welche Klausel das Original als erste nähme; clpz_neq_fast/3 ist
 % deren Rumpf. Sonst scheitert es, und die Klauseln laufen wie bisher.
-fast_matchers([(clpz_neq(A,B) :- '$clpz_neq_kind'(A,B,K), !, clpz_neq_fast(K,A,B))]).
+% clpz_neq_fast/3 in Elixir ('$clpz_neq_fast'/3), das Original als
+% clpz_neq_fast_ref/3.
+fast_matchers([(clpz_neq(A,B) :- '$clpz_neq_kind'(A,B,K), !, '$clpz_neq_fast'(K,A,B))]).
 
-clpz_neq_fast(num_a, A, B) :- neq_num(A, B).
-clpz_neq_fast(num_b, A, B) :- neq_num(B, A).
-clpz_neq_fast(pneq, A, B) :-
+clpz_neq_fast_ref(num_a, A, B) :- neq_num(A, B).
+clpz_neq_fast_ref(num_b, A, B) :- neq_num(B, A).
+clpz_neq_fast_ref(pneq, A, B) :-
         pit([A,B], pneq(A,B), P, Q),
         trigger_once_(P, Q).
-clpz_neq_fast(absdiff, abs(G-H), C) :-
+clpz_neq_fast_ref(absdiff, abs(G-H), C) :-
         parse_clpz(G, I),
         parse_clpz(H, J),
         pit([I,J,C], absdiff_neq(I,J,C), P, Q),

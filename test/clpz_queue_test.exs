@@ -613,6 +613,32 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # clpz_neq_fast/3 (X #\= Y nach '$clpz_neq_kind'/3): Elixir gegen das
+  # Original, alle vier Formen, auch mit Zahlen und Variablen ohne Domäne
+  test "clpz_neq_fast/3: num_a, num_b, pneq, absdiff wie das Original", c do
+    check(c, 400, fn ->
+      arg = fn ->
+        case :rand.uniform(8) do
+          1 -> "#{Enum.random(-2..5)}"
+          2 -> "N"
+          _ -> Enum.random(@vars)
+        end
+      end
+
+      {k, a, b} =
+        case Enum.random(~w(num_a num_b pneq absdiff)) do
+          "num_a" -> {"num_a", arg.(), "#{Enum.random(-1..5)}"}
+          "num_b" -> {"num_b", "#{Enum.random(-1..5)}", arg.()}
+          "pneq" -> {"pneq", arg.(), arg.()}
+          "absdiff" -> {"absdiff", "abs((#{arg.()})-(#{arg.()}))", "#{Enum.random(0..4)}"}
+        end
+
+      scenario(
+        "same(clpz:clpz_neq_fast_ref(#{k}, #{a}, #{b}), '$clpz_neq_fast'(#{k}, #{a}, #{b}), Vs)"
+      )
+    end)
+  end
+
   # all_distinct/1 und all_different/1 nach den Typprüfungen: Elixir gegen
   # das Original – Listen aus Variablen (auch doppelt), Zahlen, einer
   # Variablen ohne Domäne

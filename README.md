@@ -2179,6 +2179,10 @@ Bisher in Elixir:
     `variables_same_queue/1`; Originale `all_distinct_post_ref/1`,
     `all_different_post_ref/2`, gegen sie mit Zufallslisten getestet.
     Sudoku −27 %, SEND+MORE −4 % Reduktionen.
+  * Ebenso der Abkürzer von `X #\= Y`: `clpz_neq_fast/3` als ein Builtin
+    (`'$clpz_neq_fast'/3`; `neq_num/2`, bzw. `pit/4` und `trigger_once_/2`
+    in einem Zug), Original `clpz_neq_fast_ref/3`. Aufstellen der 40 Damen
+    −16 %, ganz −10 % Reduktionen.
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige

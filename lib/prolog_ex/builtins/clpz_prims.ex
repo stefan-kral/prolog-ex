@@ -2347,6 +2347,110 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- Aufstellen: clpz_neq_fast/3 (Abkürzer von X #\\= Y) -----------------------
+  #
+  # '$clpz_neq_fast'(K, A, B) wie clpz_neq_fast_ref/3: num_a/num_b ein
+  # neq_num/2 (fd_put/3 mit frischer Queue, bis zum Fixpunkt), pneq und
+  # absdiff pit/4 plus trigger_once_/2 in einem Zug; parse_clpz/2 nur in
+  # der einfachen Form ('$clpz_parse_simple'/2: Zahl oder Variable mit
+  # Domäne). Anderes: das Original.
+
+  defbuiltin "$clpz_neq_fast", [k, a, b] do
+    db = ctx.db
+
+    run("clpz_neq_fast", [k, a, b], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
+
+      case w(k) do
+        {:atom, "num_a"} ->
+          neq_num_post(a, b, s, db)
+
+        {:atom, "num_b"} ->
+          neq_num_post(b, a, s, db)
+
+        {:atom, "pneq"} ->
+          pit_trigger([a, b], mk("pneq", [a, b]), s, db)
+
+        {:atom, "absdiff"} ->
+          {g, h} =
+            with {t1, "abs", [d]} when t1 in [:struct, :gstruct] <- ws(a, s),
+                 {t2, "-", [g, h]} when t2 in [:struct, :gstruct] <- ws(d, s) do
+              {g, h}
+            else
+              _ -> throw(:fallback)
+            end
+
+          i = parse_simple(g, s)
+          j = parse_simple(h, s)
+          pit_trigger([i, j, b], mk("absdiff_neq", [i, j, b]), s, db)
+
+        _ ->
+          throw(:fallback)
+      end
+    end)
+  end
+
+  # parse_clpz/2 in der Form von '$clpz_parse_simple'/2; sonst das Original
+  defp parse_simple(e, s) do
+    case PrologEx.Store.walk(e, s) do
+      i when is_integer(i) -> i
+      {:var, _} = v -> if att(v, s, "clpz", 1) != nil, do: v, else: throw(:fallback)
+      _ -> throw(:fallback)
+    end
+  end
+
+  # neq_num/2: fd_get/3, domain_remove/3, fd_put/3; ohne Domäne X =\\= N
+  defp neq_num_post(x, n, s, db) do
+    n = PrologEx.Store.walk(n, s)
+    unless is_integer(n), do: throw(:fallback)
+
+    case PrologEx.Store.walk(x, s) do
+      {:var, _} = v ->
+        {d, ps} = fdget(v, s)
+        q = new_queue()
+
+        native(q, s, fn s ->
+          case fdput(v, remove(d, n), ps, q, s) do
+            :fail -> :fail
+            s -> loop_q(q, s, db)
+          end
+        end)
+        |> then(&queue_out(q, &1))
+
+      i when is_integer(i) ->
+        if i != n, do: {:subst, s}, else: :fail
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  # pit/4 und trigger_once_/2 wie '$clpz_pit'/4 und '$clpz_trigger_once'/2
+  defp pit_trigger(vs, p0, s, db) do
+    p = mk("propagator", [p0, fresh_var()])
+    q = new_queue()
+
+    s
+    |> then(&Enum.reduce(vs, &1, fn v, s -> seq(s, fn s -> init_one(v, p, q, s) end) end))
+    |> seq(&same_queue(vs, &1))
+    |> case do
+      :fail ->
+        :fail
+
+      s ->
+        s = drop_inert_wake(s)
+
+        native(q, s, fn s ->
+          case trigger(p, q, s) do
+            :fail -> :fail
+            s -> loop_q(q, s, db)
+          end
+        end)
+        |> then(&queue_out(q, &1))
+    end
+  end
+
   # --- Aufstellen: all_distinct/1, all_different/1 ---------------------------
   #
   # Nach den Typprüfungen (in Prolog) der Rest wie im Original, in Elixir:
