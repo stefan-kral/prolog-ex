@@ -504,9 +504,10 @@ defmodule PrologEx.Builtins.Terms do
   end
 
   # k-tes Element (1-basiert) in einem Durchgang, ohne vorher die Länge
-  defp nth_arg([a | _], 1), do: {:ok, a}
-  defp nth_arg([_ | as], k), do: nth_arg(as, k - 1)
-  defp nth_arg([], _k), do: :none
+  @doc false
+  def nth_arg([a | _], 1), do: {:ok, a}
+  def nth_arg([_ | as], k), do: nth_arg(as, k - 1)
+  def nth_arg([], _k), do: :none
 
   # copy_term(T, C): Kopie mit frischen Variablen
   defbuiltin "copy_term", [t, c] do
@@ -590,7 +591,10 @@ defmodule PrologEx.Builtins.Terms do
   end
 
   # Funktor und Argumente eines gebundenen Terms; atomar: {T, []}
-  defp parts(t) do
+  @doc false
+  # {Name, Argumente} eines gebundenen Terms (atomar: {Term, []}); auch
+  # für PrologEx.Jit
+  def parts(t) do
     case uncons(t) do
       {:cons, h, tl} ->
         {a("."), [h, tl]}

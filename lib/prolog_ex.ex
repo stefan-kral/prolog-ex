@@ -3385,7 +3385,8 @@ defmodule PrologEx do
     end
   end
 
-  defp jit_call(_, _, _, _), do: :no
+  # unter einer Tiefengrenze: der Interpreter (kein Fehlschlag des Codes)
+  defp jit_call(_, _, _, _), do: :warming
 
   defp jit_enter(mod, ins, ov, args, rest, st) do
     s = st.subst
@@ -3397,9 +3398,9 @@ defmodule PrologEx do
   end
 
   # :no (der Interpreter), :deopt (ebenso, nach Aufgeben), :warming
-  # (ebenso, aber kein Fehlschlag: noch
-  # nicht übersetzt, Flag jit aus, Prüfpunkt erreicht),
-  # {:run, st}, :backtrack oder {:throw, ball} –
+  # (ebenso, aber kein Fehlschlag: noch nicht übersetzt, Flag jit aus,
+  # Prüfpunkt erreicht, Tiefengrenze), {:run, st}, :backtrack oder
+  # {:throw, ball} –
   # weiter macht call_pred/4 (Tail Call)
   defp jit_run(mod, iv, ov, rest, st) do
     s = st.subst

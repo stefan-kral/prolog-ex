@@ -60,8 +60,12 @@ Ein Prolog-Kern in Elixir:
     arithmetische Vergleiche, `X = Y` (Terme wie im Kopf), `!`, `true`,
     `fail`, `( C -> T ; E )`, `( C -> T )`, `\+ G`, Typtests (`var`,
     `nonvar`, `atom`, `number`, `integer`, `float`, `atomic`, `compound`,
-    `callable`, `is_list`), `==`, `\==` und Aufrufe von sich selbst oder
-    anderen übersetzten Prädikaten desselben Moduls; alle
+    `callable`, `is_list`), `==`, `\==`, `@<`, `@>`, `@=<`, `@>=`,
+    `compare/3`, `arg/3`, `functor/3` und `=../2` (diese drei zum
+    Zerlegen eines gebundenen Terms; ungebunden – `functor/3` zum Bauen –
+    oder bei einem Fehler gibt der Code auf, der Interpreter rechnet) und
+    Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
+    Moduls; alle
     auswertbaren Funktoren außer `random`/`random_float` (dazu `pi`, `e`,
     `epsilon`). Je zwei Klauseln müssen sich nachweislich ausschließen
     (Schnitt in der früheren, verschiedene Muster – Konstanten, `[]`
@@ -148,10 +152,15 @@ Ein Prolog-Kern in Elixir:
     aus Zahlen ohne Unifikation, die Grenzprüfung nur über dem
     Prüfpunkt) – bei einem Prädikat mit einem Ziel etwa so teuer wie der
     Interpreter. In den Programmen der SWI-Benchmark-Sammlung (29, ohne
-    Tabling) ist der Code so nirgends mehr spürbar langsamer (vorher
+    Tabling) kostet der Code so höchstens wenige Prozent (vorher
     serialise ×0,45, boyer ×0,87); schneller etwa nreverse ×30–50,
     eval ×12–17, derive ×6, times10/divide10 ×4,5–5, ops8 ×4, qsort/log10
-    ×3, queens_8/perfect ×2.
+    ×3, queens_8/perfect ×2. Mit `arg/3`, `functor/3`, `=../2`,
+    `compare/3` und `@<` usw. übersetzt er dort in den Programmen, die
+    Terme analysieren, etwa doppelt so viele Prädikate (simple_analyzer
+    8 → 25 von 72, reducer 6 → 14, flatten 4 → 11, unify 6 → 12):
+    unify ×1,2–1,3, simple_analyzer ×1,15; was dort sonst bremst, ist
+    meist Nichtdeterminismus (Disjunktionen, Klauseln ohne Ausschluss).
   - `jit_listing/0,1` zeigt je Prädikat eines Moduls, ob es übersetzt ist
     (Modi und Typen, etwa `app(+list, +any, -)`) oder warum nicht
     („Klausel 2: Ziel is_list/1“, „Klauseln 1 und 2 schließen sich nicht

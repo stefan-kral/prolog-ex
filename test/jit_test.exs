@@ -133,6 +133,28 @@ defmodule PrologEx.JitTest do
   dd(_, _, 0).
   same(X, X, yes) :- !.
   same(_, _, no).
+  targ(T, N, A) :- arg(N, T, A).
+  tfun(T, F, N) :- functor(T, F, N).
+  tsz(T, S) :- functor(T, _, N), tsz_(N, T, 0, S).
+  tsz_(0, _, S, S) :- !.
+  tsz_(I, T, S0, S) :-
+      arg(I, T, A), ( compound(A) -> tsz(A, SA) ; SA = 1 ),
+      S1 is S0 + SA, I1 is I - 1, tsz_(I1, T, S1, S).
+  tuniv(T, L) :- T =.. L.
+  tname(T, F) :- T =.. [F|_].
+  tcmp(X, Y, O) :- compare(O, X, Y).
+  tcmpo(X, O) :- compare(O, X, a).
+  tmax(X, Y, M) :- ( X @> Y -> M = X ; M = Y ).
+  tle(X, Y, R) :- ( X @=< Y -> R = 1 ; R = 0 ).
+  tge(X, Y, R) :- ( X @>= Y -> R = 1 ; R = 0 ).
+  tlt(X, Y, R) :- ( X @< Y -> R = 1 ; R = 0 ).
+  tco(X, s(O)) :- compare(O, X, b).
+  tgo(X, s(R)) :- ( X @> b -> R = 1 ; R = 0 ).
+  tins(X, [], [X]).
+  tins(X, [Y|Ys], L) :- compare(O, X, Y), tins_(O, X, Y, Ys, L).
+  tins_(<, X, Y, Ys, [X,Y|Ys]).
+  tins_(=, _, Y, Ys, [Y|Ys]).
+  tins_(>, X, Y, Ys, [Y|L]) :- tins(X, Ys, L).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -232,7 +254,89 @@ defmodule PrologEx.JitTest do
     refute jitted?(c.int, {"user", "fib", 2})
   end
 
+  test "Terme zerlegen und vergleichen: übersetzt", c do
+    for {n, a} <- [
+          {"targ", 3},
+          {"tfun", 3},
+          {"tsz", 2},
+          {"tsz_", 4},
+          {"tuniv", 2},
+          {"tname", 2},
+          {"tcmp", 3},
+          {"tcmpo", 2},
+          {"tmax", 3},
+          {"tle", 3},
+          {"tge", 3},
+          {"tlt", 3},
+          {"tco", 2},
+          {"tgo", 2},
+          {"tins", 3},
+          {"tins_", 5}
+        ],
+        do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
+  end
+
   for q <- [
+        # arg/3, functor/3, =../2 zum Zerlegen; Fehler und alles andere
+        # wie der Interpreter (dort: aufgeben)
+        "targ(f(a,b,c), 2, A)",
+        "targ(f(a), 0, A)",
+        "targ(f(a), 3, A)",
+        "targ([x|y], 1, A)",
+        "targ(f(X, Y), 2, A), A == Y",
+        "catch(targ(f(a), -1, A), error(E, _), true)",
+        "catch(targ(a, 1, A), error(E, _), true)",
+        "catch(targ(_, 1, A), error(E, _), true)",
+        "catch(targ(f(a), x, A), error(E, _), true)",
+        "catch(targ(f(a), _, A), error(E, _), true)",
+        "targ(f(a, b), 1, b)",
+        "targ(f(a, b), 1, a)",
+        "tfun(f(a,b), F, N)",
+        "tfun(abc, F, N)",
+        "tfun(3.5, F, N)",
+        "tfun([a], F, N)",
+        "tfun(T, foo, 2)",
+        "tfun(f(a), f, 1)",
+        "tfun(f(a), g, N)",
+        "catch(tfun(_, F, N), error(E, _), true)",
+        "tsz(f(g(a,b),h(c),d), S)",
+        "tsz(a, S)",
+        "inf(tsz(f(g(a,b),h(c),d), _), I)",
+        "tuniv(f(a,B), L)",
+        "tuniv(a, L)",
+        "tuniv([1,2], L)",
+        "tuniv(T, [g, 1])",
+        "tname(foo(1,2), F)",
+        "catch(tuniv(_, L), error(E, _), true)",
+        # compare/3, @<, @>, @=<, @>=
+        "tcmp(1, 2, O)",
+        "tcmp(b, a, O)",
+        "tcmp(f(X), f(Y), O)",
+        "tcmp(1, 1.0, O)",
+        "tcmp(1.0, 1, O)",
+        "tcmp(X, X, O)",
+        "tcmp(1, 2, <)",
+        "tcmp(1, 2, >)",
+        "catch(tcmp(1, 2, foo), error(E, _), true)",
+        "tcmpo(O, O)",
+        "tmax(f(b), f(a), M)",
+        "tmax(1, a, M)",
+        "tle(1, 1.0, R)",
+        "tle(g(1), f(1, 2), R)",
+        "tge(b, a, R)",
+        "tge(a, a, R)",
+        "tge(a, b, R)",
+        "tlt(a, b, R)",
+        "tlt(b, a, R)",
+        "tlt(1.0, 1, R)",
+        # eine Ausgabevariable des Aufrufs im Vergleich: der Interpreter
+        # hat sie im Kopf schon gebunden (Z = s(O)) – aufgeben
+        "tco(Z, Z)",
+        "tgo(Z, Z)",
+        "tins(3, [1,2,4,5], L)",
+        "tins(2, [1,2,3], L)",
+        "tins(z, [a,b], L)",
+        "inf(tins(9, [1,2,3,4,5,6,7,8], _), I)",
         # Peano: Strukturen zerlegen und bauen, auch anders herum
         "pnat(5, A), pnat(7, B), padd(A, B, C), pval(C, N)",
         "pnat(6, A), pnat(4, B), pmul(A, B, C), pval(C, N)",

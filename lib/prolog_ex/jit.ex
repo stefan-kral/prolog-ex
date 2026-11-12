@@ -15,8 +15,10 @@ defmodule PrologEx.Jit do
       Strukturen `f(A1, ..., An)` (Elemente, Argumente, Rest wieder
       solche Terme)
     * Rumpf: `V is E`, arithmetische Vergleiche, `X = Y` (Terme wie im
-      Kopf), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`, `\\+ G`
-      und Aufrufe des Prädikats selbst oder anderer übersetzter (Argumente
+      Kopf), `!`, `true`, `fail`, `( C -> T ; E )`, `( C -> T )`, `\\+ G`,
+      Typtests, `==`, `\\==`, `@<`, `@>`, `@=<`, `@>=`, `compare/3`,
+      `arg/3`, `functor/3` und `=../2` (diese drei nur zum Zerlegen) und
+      Aufrufe des Prädikats selbst oder anderer übersetzter (Argumente
       Terme wie im Kopf)
     * E aus Zahlen, Variablen, `pi`, `e`, `epsilon` und den auswertbaren
       Funktoren (außer random/random_float)
@@ -73,6 +75,7 @@ defmodule PrologEx.Jit do
   @total2 ~w(+ - * min max /\\ \\/ xor gcd)
   @total1 ~w(- + abs sign \\)
   @cmps ~w(< > =< >= =:= =\\=)
+  @tords ~w(@< @> @=< @>=)
   @type_tests ~w(var nonvar atom number integer float atomic compound callable is_list)
   @consts %{"pi" => :math.pi(), "e" => :math.exp(1), "epsilon" => 2.220446049250313e-16}
   # höchstens so viele Positionen ohne Hinweis werden durchprobiert
@@ -409,6 +412,28 @@ defmodule PrologEx.Jit do
   defp goal({:struct, "=", [a, b]}, _), do: {:unify, pat!(a), pat!(b)}
   defp goal({:struct, t, [x]}, _) when t in @type_tests, do: {:tt, t, num_term!(x)}
   defp goal({:struct, "==", [a, b]}, _), do: {:teq, true, pat!(a), pat!(b)}
+  defp goal({:struct, op, [a, b]}, _) when op in @tords, do: {:tord, op, pat!(a), pat!(b)}
+
+  # Term zerlegen, vergleichen (PrologEx.Jit.b_*/n): Eingaben bestimmt,
+  # Ergebnisse als Muster
+  defp goal({:struct, "arg", [n, t, a]}, _), do: {:bi, "arg", [pat!(n), pat!(t)], [pat!(a)]}
+
+  defp goal({:struct, "functor", [t, f, n]}, _),
+    do: {:bi, "functor", [pat!(t)], [pat!(f), pat!(n)]}
+
+  defp goal({:struct, "=..", [t, l]}, _), do: {:bi, "univ", [pat!(t)], [pat!(l)]}
+
+  defp goal({:struct, "compare", [o, a, b]}, _) do
+    # die Ordnung: frei oder eine der drei (sonst Fehler wie im Interpreter)
+    case o do
+      {:var, _} -> :ok
+      {:atom, x} when x in ["<", "=", ">"] -> :ok
+      _ -> no!("compare/3 mit Ordnung #{desc(o)}")
+    end
+
+    {:bi, "compare", [pat!(a), pat!(b)], [pat!(o)]}
+  end
+
   defp goal({:struct, "\\==", [a, b]}, _), do: {:teq, false, pat!(a), pat!(b)}
 
   defp goal({:struct, ";", [{:struct, "->", [c, t]}, e]}, ctx),
@@ -640,6 +665,16 @@ defmodule PrologEx.Jit do
   defp use_in(v, {:tt, _, x}), do: if(v == x, do: :in)
   defp use_in(v, {:idx, g}), do: use_in(v, g)
   defp use_in(v, {:teq, _, a, b}), do: if(v in (vars(a) ++ vars(b)), do: :in)
+  defp use_in(v, {:tord, _, a, b}), do: if(v in (vars(a) ++ vars(b)), do: :in)
+
+  defp use_in(v, {:bi, _, ins, outs}) do
+    cond do
+      v in Enum.flat_map(ins, &vars/1) -> :in
+      v in outs -> :out
+      v in Enum.flat_map(outs, &vars/1) -> :none
+      true -> nil
+    end
+  end
 
   defp use_in(v, {:call, ck, as}) do
     case Enum.find_index(as, &(&1 == v)) do
@@ -1164,6 +1199,41 @@ defmodule PrologEx.Jit do
     how = if eff(ta, ctx.reqs) == :num and eff(tb, ctx.reqs) == :num, do: :num, else: :rt
     {{:teq, pos, ba, bb, how}, d}
   end
+
+  # @<, @>, @=<, @>=: zur Laufzeit (PrologEx.Jit.tord/3); zwei Zahlen
+  # vergleicht die Standardordnung wie die Arithmetik, nur 1 und 1.0 nicht
+  # gleich – auch das zur Laufzeit
+  defp goal_flow({:tord, op, a, b}, d, ctx) do
+    {ba, _} = build!(a, d, ctx)
+    {bb, _} = build!(b, d, ctx)
+    {{:tord, op, ba, bb}, d}
+  end
+
+  # arg/3, functor/3, =../2, compare/3: Eingaben bestimmt (zerlegt wird nur;
+  # eine ungebundene Eingabe – functor/3 zum Bauen – oder ein Fehler: zur
+  # Laufzeit aufgeben, der Interpreter rechnet), Ergebnisse als Muster
+  # gegen Werte ihres Typs
+  defp goal_flow({:bi, name, ins, outs}, d, ctx) do
+    bins = Enum.map(ins, fn a -> elem(build!(a, d, ctx), 0) end)
+
+    # compare/3 auf eine schon bestimmte Ordnung: der Interpreter prüft
+    # deren Typ (Fehler), der Code verglich nur
+    with [{:var, _} = o] <- outs,
+         true <- not anon?(o) and defd?(d, o),
+         do: no!("compare/3 mit bestimmter Ordnung")
+
+    {mps, d} =
+      outs
+      |> Enum.zip(bi_types(name))
+      |> Enum.map_reduce(d, fn {p, t}, d -> match_pat(p, {t, []}, d, ctx) end)
+
+    {{:bi, name, bins, mps}, d}
+  end
+
+  defp bi_types("arg"), do: [:any]
+  defp bi_types("functor"), do: [:any, :num]
+  defp bi_types("univ"), do: [:list]
+  defp bi_types("compare"), do: [:any]
 
   # Typtest auf einer Zahl: true/false, oder (Code mit Floats) :num
   defp num_test(t, _) when t in ["number", "atomic", "nonvar"], do: true
@@ -1862,6 +1932,35 @@ defmodule PrologEx.Jit do
     test(t, gen_goals(gs, st), st)
   end
 
+  defp gen_goals([{:tord, op, a, b} | gs], st) do
+    t =
+      quote(
+        do: PrologEx.Jit.tord(unquote(op), unquote(build_ast(a, st)), unquote(build_ast(b, st)))
+      )
+
+    test(t, gen_goals(gs, st), st)
+  end
+
+  defp gen_goals([{:bi, name, ins, outs} | gs], st) do
+    args = Enum.map(ins, &build_ast(&1, st))
+    tmps = for {_, j} <- Enum.with_index(outs), do: Macro.var(:"o#{j}", __MODULE__)
+
+    rest =
+      outs
+      |> Enum.zip(tmps)
+      |> Enum.reverse()
+      |> Enum.reduce(gen_goals(gs, st), fn {mp, tmp}, acc -> match_ast(tmp, mp, acc, st) end)
+
+    counted(
+      quote do
+        case PrologEx.Jit.unquote(:"b_#{name}")(unquote_splicing(args)) do
+          {unquote_splicing(tmps)} -> unquote(rest)
+          :no -> unquote(failure(st))
+        end
+      end
+    )
+  end
+
   defp gen_goals([{:cmp, op, x, y} | gs], st),
     do: test(cmp_ast(op, ex(x, st), ex(y, st), st), gen_goals(gs, st), st)
 
@@ -2215,6 +2314,87 @@ defmodule PrologEx.Jit do
        do: throw(:jit_deopt)
 
     PrologEx.Order.equal?(a, b, store)
+  end
+
+  @doc false
+  # @<, @>, @=<, @>= wie der Interpreter (Standardordnung); eine
+  # Ausgabevariable darin: aufgeben (wie teq/2)
+  def tord(op, a, b) do
+    store = outs_free!([a, b])
+
+    case PrologEx.Order.compare(a, b, store) do
+      :lt -> op in ["@<", "@=<"]
+      :eq -> op in ["@=<", "@>="]
+      :gt -> op in ["@>", "@>="]
+    end
+  end
+
+  # die Bindungen; aufgeben, wenn eine Ausgabevariable des Aufrufs in den
+  # Termen vorkommt (der Interpreter hätte sie schon gebunden)
+  defp outs_free!(ts) do
+    {_, _, store, _, outs} = Process.get(@run_key)
+
+    if outs != [] and
+         Enum.any?(PrologEx.Builtins.Order.variables(ts, store), &:lists.member(&1, outs)),
+       do: throw(:jit_deopt)
+
+    store
+  end
+
+  # der Term gebunden (sonst – Fehler, functor/3 zum Bauen – aufgeben)
+  defp bound!(t) do
+    case PrologEx.Store.walk(t, store()) do
+      {:var, _} -> throw(:jit_deopt)
+      w -> w
+    end
+  end
+
+  @doc false
+  # arg/3: {A} oder :no; N keine Ganzzahl ab 0 oder T nicht zusammengesetzt
+  # (Fehler im Interpreter): aufgeben
+  def b_arg(n, t) do
+    t = bound!(t)
+    if not PrologEx.Builtins.Core.compound?(t), do: throw(:jit_deopt)
+
+    case PrologEx.Store.walk(n, store()) do
+      0 ->
+        :no
+
+      k when is_integer(k) and k > 0 ->
+        case PrologEx.Builtins.Terms.nth_arg(elem(PrologEx.Builtins.Terms.parts(t), 1), k) do
+          {:ok, a} -> {a}
+          :none -> :no
+        end
+
+      _ ->
+        throw(:jit_deopt)
+    end
+  end
+
+  @doc false
+  # functor/3 zum Zerlegen: {Name, Stelligkeit}
+  def b_functor(t) do
+    {f, args} = PrologEx.Builtins.Terms.parts(bound!(t))
+    {f, length(args)}
+  end
+
+  @doc false
+  # =../2 zum Zerlegen: {[Name | Argumente]}
+  def b_univ(t) do
+    {f, args} = PrologEx.Builtins.Terms.parts(bound!(t))
+    {PrologEx.list([f | args])}
+  end
+
+  @doc false
+  # compare/3: {<, = oder >}
+  def b_compare(a, b) do
+    store = outs_free!([a, b])
+
+    case PrologEx.Order.compare(a, b, store) do
+      :lt -> {{:atom, "<"}}
+      :eq -> {{:atom, "="}}
+      :gt -> {{:atom, ">"}}
+    end
   end
 
   @doc false
