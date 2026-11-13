@@ -66,7 +66,12 @@ defmodule PrologEx.Builtins.SgmlPrims do
     end)
   end
 
-  defp read_rest(id), do: read_rest(id, [])
+  defp read_rest(id) do
+    case Stream.read_rest(id) do
+      :invalid -> read_rest(id, [])
+      text -> text
+    end
+  end
 
   defp read_rest(id, acc) do
     case Stream.get_char(id) do

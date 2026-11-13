@@ -1121,6 +1121,53 @@ Text darf ein Atom, eine Zeichen- oder eine Codeliste sein. Ein
 Scryer-DOM lässt sich also direkt schreiben und wieder laden.
 Namensraum-Präfixe ergänzt `xml_write/3` nicht von selbst; SWI tut das.
 
+## CSV: `library(csv)`
+
+Eine Bibliothek mit beiden Schnittstellen. Die Namen überschneiden sich
+nicht.
+
+**Wie Scryer:** `parse_csv//1,2` und `write_csv/2,3`. Das ist Scryers
+Quelltext, unverändert. Daten sind `frame(Kopf, Zeilen)`, Felder
+Zeichenlisten oder Zahlen, leere Felder `[]`. Optionen sind
+`token_separator/1`, `with_header/1`, `line_separator/1` und
+`null_value/1`.
+
+**Wie SWI-Prolog:** `csv//1,2`, `csv_read_file/2,3`, `csv_read_stream/3`,
+`csv_read_file_row/3`, `csv_read_row/3`, `csv_options/2`,
+`csv_write_file/2,3` und `csv_write_stream/3`. Zeilen sind
+`row(A, B, …)`, Felder Atome oder Zahlen.
+
+```prolog
+?- csv_write_file('t.csv', [row(name, alter), row('Anna', 31), row('B, C', 2.5)]),
+   csv_read_file('t.csv', Rows).
+Rows = [row(name,alter),row('Anna',31),row('B, C',2.5)].
+```
+
+  * Optionen wie SWI: `separator/1` (Code oder Zeichen), `strip/1`,
+    `ignore_quotes/1`, `convert/1`, `case/1`, `functor/1`, `arity/1`,
+    `match_arity/1` und `skip_header/1`. Bei `.tsv` ist der Tab der
+    Trenner.
+  * Verhalten wie SWI 9:
+    * Felder in `"…"` mit `""`; danach muss ein Trenner oder das
+      Zeilenende kommen, sonst scheitert das Lesen.
+    * Zeilenenden `\n`, `\r\n` oder `\r`; eine leere Zeile ist
+      `row('')`.
+    * Zahlen ohne Leerraum, auch `+5`, `0x1A`, `1e10`.
+    * Zeilen verschiedener Länge geben `domain_error(row_arity(N), M)`.
+    * Geschrieben wird mit `\r\n` nach jeder Zeile, wie RFC 4180.
+  * Gelesen wird in Elixir (`PrologEx.Csv`), auf fertigen Listen, Dateien
+    und Streams. Für faule Listen, etwa `phrase_from_file(csv(Rows),
+    Datei)`, nimmt `csv//2` dieselbe DCG wie SWI. Beide Wege sind gegen
+    SWIs Ausgaben getestet.
+  * 100 000 Zeilen (3 MB) lesen dauert 0,7 s, schreiben 0,56 s; SWI
+    braucht 1,05 s und 0,83 s.
+  * Unterschiede zu SWI:
+    * Der Text darf Codes oder Zeichen sein.
+    * Beim Schreiben darf ein Feld auch eine Zeichen- oder Codeliste
+      sein.
+    * `1.0Inf` und `nan` bleiben Atome, weil PrologEx diese Floats nicht
+      kennt.
+
 ## Bibliotheken aus Scryer Prolog
 
 Als Prolog-Quelltext übernommen (`priv/library/`). Geändert sind nur die

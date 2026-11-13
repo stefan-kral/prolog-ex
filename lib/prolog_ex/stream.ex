@@ -480,6 +480,47 @@ defmodule PrologEx.Stream do
   defp fill(%{kind: :memory} = s), do: %{s | eof: true}
   defp fill(s), do: %{s | eof: true}
 
+  @doc """
+  Den ganzen Rest eines Textstreams lesen (library(csv), library(sgml)):
+  Text oder `:invalid`, wenn er kein gültiges UTF-8 ist (dann ist nichts
+  gelesen). Position wird nachgeführt.
+  """
+  def read_rest(id) do
+    s = fill_all(get(id))
+    text = s.buf
+
+    if String.valid?(text) do
+      nl = length(:binary.matches(text, "\n"))
+
+      line_pos =
+        case :binary.matches(text, "\n") do
+          [] ->
+            s.line_pos + String.length(text)
+
+          ms ->
+            {pos, _} = List.last(ms)
+            String.length(binary_part(text, pos + 1, byte_size(text) - pos - 1))
+        end
+
+      update(%{
+        s
+        | buf: "",
+          chars: s.chars + String.length(text),
+          lines: s.lines + nl,
+          line_pos: line_pos,
+          bytes: s.bytes + byte_size(text)
+      })
+
+      text
+    else
+      update(s)
+      :invalid
+    end
+  end
+
+  defp fill_all(%{eof: true} = s), do: s
+  defp fill_all(s), do: s |> fill() |> fill_all()
+
   # Position nach gelesenem Text
   defp consume(s, text) do
     for <<c::utf8 <- text>>, reduce: s do
