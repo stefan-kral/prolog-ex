@@ -3915,6 +3915,35 @@ wie bisher. 200 000 Elemente (abwechselnd gemessen, je Minimum):
 `foldl/5` 670 → 431 ms – rund ein Drittel weniger; die Schleife von Hand
 braucht 365 ms, der Rahmen von `foldl` kostet also kaum noch etwas.
 
+**Hilfsprädikate statt `call/N`** (`PrologEx.ApplyMacros`, wie SWIs
+`library(apply_macros)`; Flag `apply_macros`, Voreinstellung `true`, vor
+dem Laden): Steht in einem Klauselrumpf `maplist/2..8`, `foldl/4..6`,
+`include/3`, `exclude/3` oder `partition/4` aus `library(apply)` mit beim
+Laden bekannter Closure – ein Atom, eine Struktur, `M:G` –, wird daraus
+beim Laden ein eigenes rekursives Hilfsprädikat (`'$apply_maplist_3_…'`,
+die Listen vorn für die Indexierung, die Variablen der Closure als
+weitere Argumente). Zur Laufzeit gibt es dann kein `call/N` mehr, und der
+JIT übersetzt das Hilfsprädikat und damit den Rufer wie jedes andere.
+Ein **Lambda** aus `library(lambda)` verschwindet ganz: sein Rumpf steht
+im Hilfsprädikat, seine Parameter im Kopf – wenn das dieselbe Bedeutung
+hat: jede Variable des Lambdas, die nicht in `Free` (`Free+\…`) steht,
+kommt in der Klausel nur im Lambda vor (es kopiert bei jedem Aufruf, sie
+wäre also ohnehin jedes Mal frisch), und die Argumente reichen für alle
+Parameter. Sonst ruft das Hilfsprädikat das Lambda wie bisher.
+Expandiert wird im Rumpf und in `,`, `;`, `->`, `*->`, `\+`, nicht in
+Zielen, die erst zur Laufzeit entstehen (Anfragen, `findall/3`-Ziele),
+und nicht in den Bibliotheken des Systems. Definiert der geladene Text
+ein solches Metaprädikat selbst (irgendwo, auch nach dem Aufruf), bleibt
+es bei dessen Namen beim Aufruf; eine spätere Definition in einem
+anderen Ladevorgang ändert bereits geladene Rufer nicht (wie bei SWI).
+Inferenzen: weniger (kein `call/N`, kein `'$maplist'`). 100 000
+Elemente, mit → ohne: `maplist(double, L, M)` 165 → 4 ms,
+`maplist(\X^Y^(Y is X*2), L, M)` 358 → 3 ms, `N+\X^Y^…` 364 → 1 ms,
+`foldl(add, L, 0, S)` 108 → 4 ms, `foldl` mit Lambda 352 → 3 ms,
+`include` mit Lambda 365 → 216 ms (das Hilfsprädikat baut `[X|I1]` vor
+dem rekursiven Aufruf, das übersetzt der JIT nicht – es läuft im
+Interpreter, nur ohne `call/N`).
+
 `==/2` und `\==/2` führt die Maschine selbst aus (ISO, geschützt; sie
 werfen nie) über einen eigenen Gleichheitstest statt `compare/3`: oben
 atomar einmal `===`, zusammengesetzt erst die physische Identität

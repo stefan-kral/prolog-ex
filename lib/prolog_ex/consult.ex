@@ -39,7 +39,43 @@ defmodule PrologEx.Consult do
 
   @doc "Wie load/3, liefert zusätzlich das mit module/2 deklarierte Modul (oder nil)."
   def load_info(db, items, opts \\ []),
-    do: run_load(db, opts, fn st -> Enum.reduce(items, st, &item/2) end)
+    do:
+      run_load(db, [own_metas: own_metas(items)] ++ opts, fn st ->
+        Enum.reduce(items, st, &item/2)
+      end)
+
+  # Metaprädikate aus library(apply), die der geladene Text selbst
+  # definiert (irgendwo, auch nach ihrem Aufruf): für sie keine
+  # Hilfsprädikate (PrologEx.ApplyMacros)
+  @apply_metas ~w(maplist foldl include exclude partition)
+
+  defp own_metas(items) do
+    for {:term, t, _} <- items,
+        name <- [head_name(PrologEx.unmark_top(t))],
+        name in @apply_metas,
+        into: MapSet.new(),
+        do: name
+  end
+
+  defp head_name({:struct, op, [h, _]}) when op in [":-", "-->"],
+    do: head_name(PrologEx.unmark_top(h))
+
+  defp head_name({:struct, ":", [_, h]}), do: head_name(PrologEx.unmark_top(h))
+  defp head_name({:struct, n, _}), do: n
+  defp head_name(_), do: nil
+
+  # in einer Datei: Klauselköpfe am Zeilenanfang
+  defp own_metas_text(path) do
+    case File.read(path) do
+      {:ok, text} ->
+        for [_, n] <- Regex.scan(~r/^(maplist|foldl|include|exclude|partition)\s*\(/m, text),
+            into: MapSet.new(),
+            do: n
+
+      _ ->
+        MapSet.new()
+    end
+  end
 
   # feed: liest die Terme ein (alle auf einmal oder schrittweise)
   defp run_load(db, opts, feed) do
@@ -73,7 +109,8 @@ defmodule PrologEx.Consult do
       group: MapSet.new(),
       prev_group: MapSet.new(),
       seen: MapSet.new(),
-      warned: MapSet.new()
+      warned: MapSet.new(),
+      own_metas: Keyword.get(opts, :own_metas, MapSet.new())
     }
 
     st = st |> feed.() |> eof_expansion() |> flush()
@@ -107,7 +144,11 @@ defmodule PrologEx.Consult do
 
         {db, msgs, module} =
           try do
-            run_load(PrologEx.current_db(), [file: full] ++ opts, &read_chunks(reader, &1))
+            run_load(
+              PrologEx.current_db(),
+              [file: full, own_metas: own_metas_text(full)] ++ opts,
+              &read_chunks(reader, &1)
+            )
           after
             Process.put(:prolog_ex_load_dir, outer)
           end
@@ -483,6 +524,24 @@ defmodule PrologEx.Consult do
   end
 
   defp store_clause({head, body}, st) do
+    # maplist/foldl/include/... mit bekannter Closure: Hilfsprädikate im
+    # Quellmodul (PrologEx.ApplyMacros)
+    own = clause_key(head, st)
+
+    local? = fn n, ar ->
+      k = {st.module, n, ar}
+      k == own or Map.has_key?(st.pending, k) or MapSet.member?(st.own_metas, n)
+    end
+
+    # (nicht in den Bibliotheken des Systems: clpz ersetzt beim Laden
+    # Prädikate nach ihrer Form)
+    {body, aux} =
+      if system_library?(st.file),
+        do: {body, []},
+        else: PrologEx.ApplyMacros.expand(head, body, st.db, st.module, local?)
+
+    st = Enum.reduce(aux, st, &store_aux/2)
+
     # M:Kopf – Klausel für Modul M, Rumpf läuft im Quellmodul
     {m, head, body} =
       case PrologEx.unmark(head) do
@@ -516,6 +575,29 @@ defmodule PrologEx.Consult do
       | pending: Map.update(st.pending, pkey, [{head, body}], &[{head, body} | &1]),
         dirty: MapSet.put(st.dirty, pkey)
     }
+  end
+
+  defp system_library?(nil), do: false
+
+  defp system_library?(file) do
+    lib = Path.join(to_string(:code.priv_dir(:prolog_ex)), "library")
+    String.starts_with?(Path.expand(file), lib <> "/")
+  end
+
+  # ein Hilfsprädikat aus PrologEx.ApplyMacros (gleich benannt: gleiche
+  # Klauseln – nur einmal)
+  defp store_aux({name, arity, clauses}, st) do
+    key = {st.module, name, arity}
+
+    if Map.has_key?(st.pending, key) do
+      st
+    else
+      %{
+        st
+        | pending: Map.put(st.pending, key, Enum.reverse(clauses)),
+          dirty: MapSet.put(st.dirty, key)
+      }
+    end
   end
 
   # Alles bisher Gesammelte kompilieren (pending bleibt erhalten, damit

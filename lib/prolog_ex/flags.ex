@@ -36,6 +36,9 @@ defmodule PrologEx.Flags do
     # auch nichtdeterministische "Blatt"-Prädikate übersetzen (Klauseln,
     # die sich nicht ausschließen; PrologEx.Jit, nd_irs!/3)
     "jit_nondet" => {true, [false, true]},
+    # maplist/foldl/include/exclude/partition mit beim Laden bekannter
+    # Closure als Hilfsprädikate (PrologEx.ApplyMacros)
+    "apply_macros" => {true, [false, true]},
     # ISO 7.11.2: debug und char_conversion mit on/off; char_conversion
     # schaltet die Zeichenumsetzung beim Lesen ein (PrologEx.CharConversion)
     "debug" => {:off, [:off, :on]},
