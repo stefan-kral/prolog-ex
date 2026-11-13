@@ -187,6 +187,15 @@ defmodule PrologEx.JitTest do
   ndf(X, Y) :- X > 0, Y = pos.
   ndf(X, Y) :- X >= 0, Y = nonneg.
   ndf(_, any).
+  % nur die erste Lösung zählt: Schnitt danach, Bedingung, \\+
+  memc(X, L) :- mem(X, L), !.
+  incl(X, L, R) :- ( mem(X, L) -> R = yes ; R = no ).
+  notin(X, L) :- \\+ mem(X, L).
+  firstbig(L, X) :- mem(X, L), X > 10, !.
+  cntin([], _, 0).
+  cntin([X|Xs], L, N) :- cntin(Xs, L, N0), ( mem(X, L) -> N is N0 + 1 ; N = N0 ).
+  sqin(N, L) :- btw(1, N, X), X * X =:= L, !.
+  pairin(K, L, V) :- ( mem(K-V0, L) -> V = V0 ; V = none ).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -320,7 +329,12 @@ defmodule PrologEx.JitTest do
           {"wrap", 2},
           {"ones", 2},
           {"sq3", 2},
-          {"ndf", 2}
+          {"ndf", 2},
+          {"memc", 2},
+          {"incl", 3},
+          {"notin", 2},
+          {"cntin", 3},
+          {"pairin", 3}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
 
@@ -328,6 +342,10 @@ defmodule PrologEx.JitTest do
     # Lösung aus Tiefe k liefe durch k Hüllen: nicht übersetzt (auch in
     # keinem schwächeren Modus)
     refute jitted?(c.jit, {"user", "sel", 3})
+
+    # btw/3 vor einem Vergleich, erst danach der Schnitt: der Vergleich
+    # setzt in btw/3 zurück – keine bloße erste Lösung, nicht übersetzt
+    refute jitted?(c.jit, {"user", "sqin", 2})
 
     # Schnitt in einem Zweig: dort schneidet er die Klausel ab – bleibt
     # eine Disjunktion, nicht übersetzt
@@ -713,7 +731,28 @@ defmodule PrologEx.JitTest do
         "findall(Y, ndf(-1, Y), L)",
         "call_with_inference_limit(findall(X, btw(1, 1000, X), _), 500, R)",
         "call_with_inference_limit(mem(X, [a,b]), 100, R)",
-        "mem(X, [1,2]), X > 5"
+        "mem(X, [1,2]), X > 5",
+        # erste Lösung eines nichtdeterministischen aus deterministischem Code
+        "memc(X, [a,b,c])",
+        "memc(X, [])",
+        "memc(b, [a,b,c])",
+        "memc(z, [a,b,c])",
+        "incl(b, [a,b,c], R)",
+        "incl(z, [a,b,c], R)",
+        "incl(X, [a,b], R)",
+        "notin(z, [a,b])",
+        "notin(a, [a,b])",
+        "firstbig([1,20,5,30], X)",
+        "firstbig([1,2], X)",
+        "cntin([1,2,3,4,5], [2,4,6], N)",
+        "inf(cntin([1,2,3,4,5], [2,4,6], _), I)",
+        "sqin(20, 49)",
+        "sqin(20, 50)",
+        "inf(sqin(20, 196), I)",
+        "pairin(b, [a-1, b-2, b-3], V)",
+        "pairin(c, [a-1, b-2], V)",
+        "pairin(b, [a-1, B-2], V)",
+        "catch(incl(1, [a|_], R), error(E, _), true)"
       ] do
     test q, c do
       Reader.put_current(c.reader)

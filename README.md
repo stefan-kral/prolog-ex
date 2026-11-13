@@ -101,8 +101,15 @@ Ein Prolog-Kern in Elixir:
     Lösungen ohne Hülle weiter. Gibt der Code nach der n-ten Lösung auf,
     rechnet der Interpreter den Aufruf neu und überspringt die ersten n
     (`call_nth/2`; die Inferenzen der Wiederholung zählen mit).
-    Deterministische Prädikate rufen solche nicht (sie bleiben dann im
-    Interpreter). `jit_listing/0` vermerkt „nichtdeterministisch“.
+    Deterministische Prädikate rufen solche nur dort, wo bloß die erste
+    Lösung zählt: gleich gefolgt von einem Schnitt (`mem(X, L), !`), als
+    letztes Ziel einer Bedingung (`( mem(X, L) -> … ; … )`) oder unter
+    `\+` – dann nimmt der Code die erste Lösung, deren Ausgaben zu den
+    Mustern am Aufrufort passen (`mem(X, L)` mit gebundenem X prüft also
+    wie der Interpreter, ohne Choice Point). Sonst bleiben sie im
+    Interpreter (`mem(X, L), X > 10, !` setzt in `mem/2` zurück). Eine
+    Mitgliedsprüfung je Element, 2000 gegen 2001 Elemente: 4,3 s → 0,9 s.
+    `jit_listing/0` vermerkt „nichtdeterministisch“.
     Gemessen, 200× bis zur letzten Lösung: `member/2` über 10 000 Elemente
     1,8 s → 1,0 s, `between/3` bis 10 000 4,4 s → 1,3 s; SWI-Benchmarks
     `perfect` ×7, der Rest im Rauschen (±15 %). `repeat/1` ist eingebaut und bleibt es

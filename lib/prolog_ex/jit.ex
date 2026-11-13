@@ -55,7 +55,9 @@ defmodule PrologEx.Jit do
   nichtdeterministisch übersetzt (Flag jit_nondet), wenn jeder Rumpf wie
   oben ist und höchstens als letztes Ziel ein nichtdeterministisches
   Prädikat ruft (nd_irs!/3): Lösungen als Schritte samt Fortsetzung
-  (nd_tail/3), die der Interpreter als Choice Point hält.
+  (nd_tail/3), die der Interpreter als Choice Point hält. Wo nur die erste
+  Lösung zählt (Schnitt gleich danach, letztes Ziel einer Bedingung, unter
+  \\+), rufen auch deterministische Prädikate solche ({:call1, ...}).
 
   Die Modi (Eingabe/Ausgabe je Argument): steht eine Kopfvariable zuerst
   in einem Vergleich oder rechts in `is`, ist sie Eingabe, links in `is`
@@ -338,7 +340,7 @@ defmodule PrologEx.Jit do
           if {h, b} |> raw_vars([]) |> Enum.uniq() |> length() > @max_vars,
             do: no!("mehr als #{@max_vars} Variablen")
 
-          gs = b |> conj() |> once_disj() |> Enum.map(&goal(&1, ctx))
+          gs = b |> conj() |> once_disj() |> Enum.map(&goal(&1, ctx)) |> mark_once()
           {Enum.map(args(h), &pat!/1), index_guard(args(h), gs)}
         catch
           {:no, r} -> no!("Klausel #{i}: #{r}")
@@ -394,6 +396,7 @@ defmodule PrologEx.Jit do
   defp index_guard(_, gs), do: gs
 
   defp collect_calls({:call, k, _}), do: [k]
+  defp collect_calls({:callo, k, _}), do: [k]
   defp collect_calls(t) when is_tuple(t), do: collect_calls(Tuple.to_list(t))
   defp collect_calls(l) when is_list(l), do: Enum.flat_map(l, &collect_calls/1)
   defp collect_calls(_), do: []
@@ -404,6 +407,29 @@ defmodule PrologEx.Jit do
   defp collect_bis(_), do: []
 
   defp args({:struct, _, a}), do: a
+
+  # Aufrufe, von denen nur die erste Lösung zählt ({:callo, ...}): gleich
+  # gefolgt von einem Schnitt, letztes Ziel einer Bedingung oder unter \+.
+  # Ist der Gerufene nichtdeterministisch übersetzt, nimmt der Code seine
+  # erste Lösung ({:call1, ...}); sonst ein gewöhnlicher Aufruf
+  defp mark_once(gs), do: gs |> mark_cut() |> Enum.map(&mark_inner/1)
+
+  defp mark_cut([{:call, k, a}, :cut | rest]), do: [{:callo, k, a}, :cut | mark_cut(rest)]
+  defp mark_cut([g | rest]), do: [g | mark_cut(rest)]
+  defp mark_cut([]), do: []
+
+  defp mark_inner({:ite, c, t, e}),
+    do: {:ite, mark_last(mark_once(c)), mark_once(t), mark_once(e)}
+
+  defp mark_inner({:not, g}), do: {:not, mark_last(mark_once(g))}
+  defp mark_inner(g), do: g
+
+  defp mark_last(gs) do
+    case Enum.reverse(gs) do
+      [{:call, k, a} | r] -> Enum.reverse([{:callo, k, a} | r])
+      _ -> gs
+    end
+  end
 
   # wie PrologEx.Compiler: `true` im Rumpf fällt weg (zählt also nicht)
   defp conj({:struct, ",", [a, b]}), do: conj(a) ++ conj(b)
@@ -773,6 +799,10 @@ defmodule PrologEx.Jit do
     end
   end
 
+  # nur die erste Lösung: eine Ausgabe des Gerufenen darf hier schon
+  # bestimmt sein (dann ein Muster, nach dem gefiltert wird) – kein Hinweis
+  defp use_in(v, {:callo, _ck, as}), do: if(v in Enum.flat_map(as, &vars/1), do: :none)
+
   defp use_in(v, {:call, ck, as}) do
     case Enum.find_index(as, &(&1 == v)) do
       nil -> if v in Enum.flat_map(as, &vars/1), do: :none
@@ -824,7 +854,8 @@ defmodule PrologEx.Jit do
         %{
           modes: Map.new(0..(ar - 1), &{&1, modes[{ck, &1}]}),
           req: for(k <- 0..(ar - 1), modes[{ck, k}] == :in, into: %{}, do: {k, reqs[{ck, k}]}),
-          out: for(k <- 0..(ar - 1), modes[{ck, k}] == :out, into: %{}, do: {k, outs[{ck, k}]})
+          out: for(k <- 0..(ar - 1), modes[{ck, k}] == :out, into: %{}, do: {k, outs[{ck, k}]}),
+          nd: nd
         }
       else
         other.(ck)
@@ -1208,35 +1239,24 @@ defmodule PrologEx.Jit do
 
   # Aufruf: Eingaben bauen (Anforderungen des Gerufenen), Ausgaben als
   # Muster gegen die Ergebnisse (Typ am Aufrufort eingesetzt)
-  defp goal_flow({:call, ck, as}, d, ctx) do
-    sig = ctx.sig.(ck)
+  # nur die erste Lösung zählt: ein nichtdeterministischer Gerufener gibt
+  # seine erste ({:call1, ...}), ein deterministischer wie sonst
+  defp goal_flow({:callo, ck, as}, d, ctx) do
+    if Map.get(ctx.sig.(ck), :nd, false) do
+      {{:call, _, ins, outs}, d} = call_flow(ck, as, d, ctx)
+      {{:call1, ck, ins, outs}, d}
+    else
+      call_flow(ck, as, d, ctx)
+    end
+  end
 
+  defp goal_flow({:call, ck, as}, d, ctx) do
     # nichtdeterministisch übersetzt: nur aus ebensolchen, als letztes Ziel
-    # (nd_irs!/3)
-    if Map.get(sig, :nd, false) and not ctx.nd,
+    # (nd_irs!/3), sonst nur für die erste Lösung ({:callo, ...})
+    if Map.get(ctx.sig.(ck), :nd, false) and not ctx.nd,
       do: no!("ruft #{pi(ck)}, das nichtdeterministisch ist")
 
-    indexed = Enum.with_index(as)
-
-    ins =
-      for {a, k} <- indexed, sig.modes[k] == :in do
-        {bt, vt} = build!(a, d, ctx)
-        need(sig.req[k], vt)
-        {k, bt, vt}
-      end
-
-    actual = Map.new(ins, fn {k, _, vt} -> {k, vt} end)
-
-    {outs, d2} =
-      indexed
-      |> Enum.filter(fn {_, k} -> sig.modes[k] == :out end)
-      |> Enum.map_reduce(d, fn {a, k}, acc ->
-        {t, ps} = sig.out[k]
-        vt = Enum.reduce(ps, {t, []}, &vj(Map.fetch!(actual, &1), &2))
-        match_pat(a, vt, acc, ctx)
-      end)
-
-    {{:call, ck, Enum.map(ins, &elem(&1, 1)), outs}, d2}
+    call_flow(ck, as, d, ctx)
   end
 
   # die Bedingung sieht d, Then sieht zusätzlich, was die Bedingung bestimmt,
@@ -1333,6 +1353,32 @@ defmodule PrologEx.Jit do
       |> Enum.map_reduce(d, fn {p, t}, d -> match_pat(p, {t, []}, d, ctx) end)
 
     {{:bi, name, bins, mps}, d}
+  end
+
+  defp call_flow(ck, as, d, ctx) do
+    sig = ctx.sig.(ck)
+
+    indexed = Enum.with_index(as)
+
+    ins =
+      for {a, k} <- indexed, sig.modes[k] == :in do
+        {bt, vt} = build!(a, d, ctx)
+        need(sig.req[k], vt)
+        {k, bt, vt}
+      end
+
+    actual = Map.new(ins, fn {k, _, vt} -> {k, vt} end)
+
+    {outs, d2} =
+      indexed
+      |> Enum.filter(fn {_, k} -> sig.modes[k] == :out end)
+      |> Enum.map_reduce(d, fn {a, k}, acc ->
+        {t, ps} = sig.out[k]
+        vt = Enum.reduce(ps, {t, []}, &vj(Map.fetch!(actual, &1), &2))
+        match_pat(a, vt, acc, ctx)
+      end)
+
+    {{:call, ck, Enum.map(ins, &elem(&1, 1)), outs}, d2}
   end
 
   defp bi_types("arg"), do: [:any]
@@ -2273,6 +2319,54 @@ defmodule PrologEx.Jit do
     end
   end
 
+  # erste Lösung eines nichtdeterministisch übersetzten Gerufenen, deren
+  # Ausgaben zu den Mustern passen (wie der Interpreter: er setzte in den
+  # Gerufenen zurück, bis eine passt). Nur frische Variablen als Muster:
+  # gleich die erste
+  defp gen_goals([{:call1, ck, ins, outs} | gs], st) do
+    args = Enum.map(ins, &build_ast(&1, st))
+    tmps = for {_, j} <- Enum.with_index(outs), do: Macro.var(:"o#{j}", __MODULE__)
+    step = call_ast(st.targets[ck], args)
+
+    if Enum.all?(outs, &(&1 == :ignore or match?({:bind, _}, &1))) do
+      rest =
+        outs
+        |> Enum.zip(tmps)
+        |> Enum.reverse()
+        |> Enum.reduce(gen_goals(gs, st), fn {mp, tmp}, acc -> match_ast(tmp, mp, acc, st) end)
+
+      counted(
+        quote do
+          case unquote(step) do
+            {:sol, b, unquote(tmps), _} -> unquote(rest)
+            {:none, b} -> unquote(failure(st))
+          end
+        end
+      )
+    else
+      st2 = %{st | cut: false, local: true}
+      bound = outs |> pat_binds() |> Enum.uniq() |> Enum.sort()
+      bvs = vs(bound, st)
+
+      matched =
+        outs
+        |> Enum.zip(tmps)
+        |> Enum.reverse()
+        |> Enum.reduce(quote(do: {:ok, b, {unquote_splicing(bvs)}}), fn {mp, tmp}, acc ->
+          match_ast(tmp, mp, acc, st2)
+        end)
+
+      counted(
+        quote do
+          case PrologEx.Jit.nd_first(unquote(step), fn unquote(tmps), b -> unquote(matched) end) do
+            {:ok, b, {unquote_splicing(bvs)}} -> unquote(gen_goals(gs, st))
+            {:none, b} -> unquote(failure(st))
+          end
+        end
+      )
+    end
+  end
+
   defp gen_goals([{:not, g} | gs], st) do
     inner = gen_goals(g ++ [{:yield, :cond, []}], %{st | local: true})
 
@@ -2336,6 +2430,12 @@ defmodule PrologEx.Jit do
       end
     end
   end
+
+  # Variablen, die ein Muster bindet
+  defp pat_binds({:bind, v}), do: [v]
+  defp pat_binds(t) when is_tuple(t), do: pat_binds(Tuple.to_list(t))
+  defp pat_binds(l) when is_list(l), do: Enum.flat_map(l, &pat_binds/1)
+  defp pat_binds(_), do: []
 
   # ein Typtest (ohne die Inferenz)
   defp tt_code({:tt, _, _, true}, gs, st), do: gen_goals(gs, st)
@@ -2554,6 +2654,18 @@ defmodule PrologEx.Jit do
           nil -> nd_tail({:none, b}, mapf, alt)
           f -> nd_tail(f.(b), mapf, alt)
         end
+    end
+  end
+
+  @doc false
+  # die erste Lösung, deren Ausgaben f passen: {:ok, b, Werte} | {:none, b}
+  def nd_first({:none, b}, _f), do: {:none, b}
+
+  def nd_first({:sol, b, outs, nx}, f) do
+    case f.(outs, b) do
+      {:ok, _, _} = r -> r
+      b when nx == nil -> {:none, b}
+      b -> nd_first(nx.(b), f)
     end
   end
 
