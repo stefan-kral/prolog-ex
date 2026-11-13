@@ -1132,14 +1132,66 @@ defmodule PrologEx do
     {src, ext, dyn}
   end
 
-  # lists:append/3 für übersetzten Code (PrologEx.Jit.b_append/2): in
-  # module sichtbar und nicht selbst definiert – eine spätere eigene
-  # Definition nimmt den Rufern ihren Code (:jit_callers)
-  defp jit_builtin(db, module, "append", 3) do
-    with false <- Map.has_key?(db, {module, "append", 3}),
-         {:builtin, "lists", {:det, _, _}} <- locate(db, module, "append", 3),
-         do: :builtin,
-         else: (_ -> nil)
+  # Eingebaute für übersetzten Code (PrologEx.Jit.b_*/n bzw. nd_*/n): in
+  # module sichtbar als das eingebaute (Modul, Art) und nicht selbst
+  # definiert – eine spätere eigene Definition nimmt den Rufern ihren Code
+  # (:jit_callers). member/2 und between/3 sind nichtdeterministisch: für
+  # den JIT wie übersetzte Prädikate mit fester Signatur – gerufen nur, wo
+  # die erste Lösung zählt (als letztes Ziel eines nichtdeterministischen
+  # Prädikats wäre jede weitere Lösung über den Choice Point des Codes
+  # teurer als die des eingebauten im Interpreter)
+  @jit_bis %{
+    {"append", 3} => {"lists", :det},
+    {"memberchk", 2} => {"lists", :det},
+    {"length", 2} => {"system", :nondet},
+    {"sort", 2} => {"system", :det},
+    {"msort", 2} => {"system", :det},
+    {"member", 2} => {"lists", :nondet},
+    {"between", 3} => {"system", :nondet}
+  }
+
+  defp jit_builtin(db, module, n, a) when is_map_key(@jit_bis, {n, a}) do
+    {m, kind} = Map.fetch!(@jit_bis, {n, a})
+
+    with false <- Map.has_key?(db, {module, n, a}),
+         {:builtin, ^m, {^kind, _, _}} <- locate(db, module, n, a) do
+      case {n, a} do
+        {"member", 2} ->
+          %{
+            mod: PrologEx.Jit,
+            p: :nd_member,
+            sig: %{
+              modes: %{0 => :out, 1 => :in},
+              req: %{1 => :list},
+              out: %{0 => {:any, []}},
+              num: nil,
+              nd: true,
+              builtin: true,
+              entry: true
+            }
+          }
+
+        {"between", 3} ->
+          %{
+            mod: PrologEx.Jit,
+            p: :nd_between,
+            sig: %{
+              modes: %{0 => :in, 1 => :in, 2 => :out},
+              req: %{0 => :num, 1 => :num},
+              out: %{2 => {:num, []}},
+              num: nil,
+              nd: true,
+              builtin: true,
+              entry: true
+            }
+          }
+
+        _ ->
+          :builtin
+      end
+    else
+      _ -> nil
+    end
   end
 
   # arithmetic:bit_is_set/2 ebenso (PrologEx.Jit.b_bit_is_set/2)

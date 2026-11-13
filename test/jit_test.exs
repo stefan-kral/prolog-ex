@@ -10,6 +10,7 @@ defmodule PrologEx.JitTest do
   :- use_module(library(iso_ext)).
   :- use_module(library(swi)).
   :- use_module(library(arithmetic)).
+  :- use_module(library(between)).
   fib(0, 0).
   fib(1, 1).
   fib(N, F) :- N > 1, A is N-1, B is N-2, fib(A, FA), fib(B, FB), F is FA+FB.
@@ -202,6 +203,15 @@ defmodule PrologEx.JitTest do
   bcount(N, K, C0, C) :- ( bit_is_set(N, K) -> C1 is C0 + 1 ; C1 = C0 ), K1 is K - 1, bcount(N, K1, C1, C).
   gsum(_, -1, S, S) :- !.
   gsum(N, K, S0, S) :- S1 is S0 + getbit(N, K), K1 is K - 1, gsum(N, K1, S1, S).
+  % memberchk/2, length/2, sort/2, msort/2, member/2, between/3
+  hasx(X, L, R) :- ( memberchk(X, L) -> R = yes ; R = no ).
+  mc(X, L) :- memberchk(X, L).
+  llen(L, N) :- length(L, N0), N is N0 * 2.
+  srt(L, S) :- msort(L, S0), sort(S0, S).
+  lmem(L, X) :- member(X, L).
+  inl(X, L, R) :- ( member(X, L) -> R = yes ; R = no ).
+  btw2(N, X) :- between(1, N, X).
+  smallest(N, L, X) :- ( between(1, N, X), X * X >= L -> true ; X = 0 ).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -342,7 +352,12 @@ defmodule PrologEx.JitTest do
           {"cntin", 3},
           {"pairin", 3},
           {"bcount", 4},
-          {"gsum", 4}
+          {"gsum", 4},
+          {"hasx", 3},
+          {"mc", 2},
+          {"llen", 2},
+          {"srt", 2},
+          {"inl", 3}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
 
@@ -354,6 +369,11 @@ defmodule PrologEx.JitTest do
     # btw/3 vor einem Vergleich, erst danach der Schnitt: der Vergleich
     # setzt in btw/3 zurück – keine bloße erste Lösung, nicht übersetzt
     refute jitted?(c.jit, {"user", "sqin", 2})
+
+    # member/2, between/3 als letztes Ziel: die weiteren Lösungen liefert
+    # der Interpreter billiger – nicht übersetzt
+    refute jitted?(c.jit, {"user", "lmem", 2})
+    refute jitted?(c.jit, {"user", "btw2", 2})
 
     # Schnitt in einem Zweig: dort schneidet er die Klausel ab – bleibt
     # eine Disjunktion, nicht übersetzt
@@ -768,7 +788,52 @@ defmodule PrologEx.JitTest do
         "gsum(1000, 20, 0, S)",
         "N is 2^200 + 5, gsum(N, 210, 0, S)",
         "catch(bcount(a, 3, 0, C), error(E, _), true)",
-        "catch(gsum(1, 0, 0.5, S), error(E, _), true)"
+        "catch(gsum(1, 0, 0.5, S), error(E, _), true)",
+        "hasx(b, [a,b,c], R)",
+        "hasx(z, [a,b,c], R)",
+        "hasx(f(X), [g(1), f(2)], R)",
+        "hasx(f(1), [g(1), f(X)], R)",
+        "hasx(1, [a|T], R)",
+        "hasx(1, foo, R)",
+        "mc(c, [a,b,c])",
+        "mc(d, [a,b,c])",
+        "mc(X, [a,b])",
+        "inf(hasx(c, [a,b,c], _), I)",
+        "llen([a,b,c], N)",
+        "llen([], N)",
+        "catch(llen(foo, N), error(E, _), true)",
+        "catch(llen([a|_], N), error(E, _), true)",
+        "llen([a|T], N)",
+        "srt([c,a,b,a], S)",
+        "srt([B, 2, A, 1.0, b, f(x)], S)",
+        "catch(srt([a|_], S), error(E, _), true)",
+        "catch(srt(foo, S), error(E, _), true)",
+        "inf(srt([3,1,2], _), I)",
+        "findall(X, lmem([a,b,c], X), L)",
+        "lmem([a,b], X)",
+        "call_nth(lmem([a|T], X), 2)",
+        "lmem([], X)",
+        "inf(findall(X, lmem([a,b,c,d], X), _), I)",
+        "call_with_inference_limit(lmem([a,b], X), 100, R)",
+        "inl(b, [a,b,c], R)",
+        "inl(z, [a,b,c], R)",
+        "inl(X, [a,b,c], R)",
+        "inl(f(1), [f(X)], R)",
+        "findall(X, btw2(5, X), L)",
+        "btw2(0, X)",
+        "catch(btw2(a, X), error(E, _), true)",
+        "catch(btw2(3.0, X), error(E, _), true)",
+        "inf(findall(X, btw2(10, X), _), I)",
+        "call_with_inference_limit(btw2(1, X), 100, R)",
+        "smallest(10, 30, X)",
+        "smallest(3, 30, X)",
+        "inl(2, [1, 2.0, 2], R)",
+        "inl(2, [1, 2.0], R)",
+        "inl(a, [b, X, a], R)",
+        "inl(a, [b|T], R)",
+        "inl(f(a), [g, f(a)], R)",
+        "hasx(2.0, [1, 2, 2.0], R)",
+        "hasx([], [a, [], b], R)"
       ] do
     test q, c do
       Reader.put_current(c.reader)

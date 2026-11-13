@@ -69,7 +69,19 @@ Ein Prolog-Kern in Elixir:
     eine spätere eigene Definition nimmt den Rufern ihren Code – nrev über
     30 Elemente mit `append/3` 9 → 34 MLIPS, mit eigenem `app/3` 31),
     ebenso `bit_is_set/2` aus `library(arithmetic)` (zwei Ganzzahlen, K ≥ 0,
-    sonst gibt der Code auf) und `getbit/2` in Ausdrücken und
+    sonst gibt der Code auf) und `getbit/2` in Ausdrücken; `memberchk/2`
+    (prüft, ohne zu binden – ein Element, das nur durch Binden gleich
+    würde, oder ein offener Rest: aufgeben; Zahl oder Atom gegen eine
+    ground Liste über `lists:member/2` der BEAM), `length/2` einer echten
+    Liste, `sort/2` und `msort/2` einer echten Liste (Ergebnis eine frische
+    Variable); `member/2` und `between/3` dort, wo nur die erste Lösung
+    zählt (Bedingung, `\+`, Schnitt danach – `member(X, L)` mit
+    bestimmtem X wie `memberchk/2`). Als letztes Ziel eines
+    nichtdeterministischen Prädikats nicht: jede weitere Lösung über den
+    Choice Point des Codes wäre teurer als die des eingebauten im
+    Interpreter. Je Element eine Mitgliedsprüfung, 3000 gegen 3001
+    Elemente: `memberchk/2` 314 → 9 ms, `( member(X, L) -> …)` 44 → 9 ms;
+    `length/2` über 20 000 kurze Listen 44 → 2 ms; und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
     Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
     ihren Zweigen keiner steht: `(A ; B), !` übersetzt er wie

@@ -403,6 +403,8 @@ defmodule PrologEx.Jit do
 
   defp collect_bis({:bi, "append", _, _}), do: [{"append", 3}]
   defp collect_bis({:bi, "bit_is_set", _, _}), do: [{"bit_is_set", 2}]
+  defp collect_bis({:bi, "memberchk", _, _}), do: [{"memberchk", 2}]
+  defp collect_bis({:bi, n, _, _}) when n in ["length", "sort", "msort"], do: [{n, 2}]
   defp collect_bis(t) when is_tuple(t), do: collect_bis(Tuple.to_list(t))
   defp collect_bis(l) when is_list(l), do: Enum.flat_map(l, &collect_bis/1)
   defp collect_bis(_), do: []
@@ -543,6 +545,15 @@ defmodule PrologEx.Jit do
       # Ganzzahlen, K >= 0, sonst aufgeben (der Interpreter meldet den Fehler)
       :builtin when key == {"bit_is_set", 2} ->
         {:bi, "bit_is_set", Enum.map(a, &pat!/1), []}
+
+      # memberchk/2 (Prüfen, ohne zu binden), length/2 (echte Liste),
+      # sort/2, msort/2 (echte Liste): sonst aufgeben
+      :builtin when key == {"memberchk", 2} ->
+        {:bi, "memberchk", Enum.map(a, &pat!/1), []}
+
+      :builtin when key in [{"length", 2}, {"sort", 2}, {"msort", 2}] ->
+        [x, y] = a
+        {:bi, name, [pat!(x)], [pat!(y)]}
 
       :dynamic ->
         no!("ruft das dynamische #{pi(key)}")
@@ -1248,11 +1259,20 @@ defmodule PrologEx.Jit do
   # nur die erste Lösung zählt: ein nichtdeterministischer Gerufener gibt
   # seine erste ({:call1, ...}), ein deterministischer wie sonst
   defp goal_flow({:callo, ck, as}, d, ctx) do
-    if Map.get(ctx.sig.(ck), :nd, false) do
-      {{:call, _, ins, outs}, d} = call_flow(ck, as, d, ctx)
-      {{:call1, ck, ins, outs}, d}
-    else
-      call_flow(ck, as, d, ctx)
+    sig = ctx.sig.(ck)
+
+    cond do
+      # member(X, L) mit bestimmtem X, erste Lösung: wie memberchk(X, L)
+      # (dieselbe Lösung, dieselbe Inferenz; ohne Lösungen aufzuzählen)
+      ck == {"member", 2} and Map.get(sig, :builtin, false) and build_ok?(hd(as), d, ctx) ->
+        goal_flow({:bi, "memberchk", as, []}, d, ctx)
+
+      Map.get(sig, :nd, false) ->
+        {{:call, _, ins, outs}, d} = call_flow(ck, as, d, ctx)
+        {{:call1, ck, ins, outs}, d}
+
+      true ->
+        call_flow(ck, as, d, ctx)
     end
   end
 
@@ -1347,11 +1367,22 @@ defmodule PrologEx.Jit do
     bins = Enum.map(ins, fn a -> elem(build!(a, d, ctx), 0) end)
 
     # compare/3 auf eine schon bestimmte Ordnung: der Interpreter prüft
-    # deren Typ (Fehler), der Code verglich nur
+    # deren Typ (Fehler), der Code verglich nur – ebenso das Ergebnis von
+    # length/2, sort/2, msort/2 (type_error, wo der Code nur verglich)
     with true <- name != "append",
          [{:var, _} = o] <- outs,
          true <- not anon?(o) and defd?(d, o),
-         do: no!("compare/3 mit bestimmter Ordnung")
+         do: no!("#{name} mit bestimmtem Ergebnis")
+
+    # length/2: höchstens eine Zahl als Ergebnis; sort/2, msort/2: nur
+    # eine frische Variable (sonst prüft der Interpreter die Form)
+    case {name, outs} do
+      {"length", [{:var, _}]} -> :ok
+      {"length", [n]} when is_number(n) -> :ok
+      {n, [{:var, _}]} when n in ["sort", "msort"] -> :ok
+      {n, [o]} when n in ["length", "sort", "msort"] -> no!("#{n}/2 mit Ergebnis #{desc_p(o)}")
+      _ -> :ok
+    end
 
     {mps, d} =
       outs
@@ -1393,6 +1424,9 @@ defmodule PrologEx.Jit do
   defp bi_types("compare"), do: [:any]
   defp bi_types("append"), do: [:any]
   defp bi_types("bit_is_set"), do: []
+  defp bi_types("memberchk"), do: []
+  defp bi_types("length"), do: [:num]
+  defp bi_types(s) when s in ["sort", "msort"], do: [:list]
 
   # Typtest auf einer Zahl: true/false, oder (Code mit Floats) :num
   defp num_test(t, _) when t in ["number", "atomic", "nonvar"], do: true
@@ -1461,6 +1495,13 @@ defmodule PrologEx.Jit do
           end
 
         if nd_call_in?(pre, nd?), do: no!("nichtdeterministischer Aufruf nicht als letztes Ziel")
+
+        # member/2, between/3: ihre weiteren Lösungen liefert der
+        # Interpreter billiger (lazy Liste) als ein Choice Point des Codes
+        with {:tail_nd, ck, _, _} <- last,
+             false <- ck in scc,
+             true <- Map.get(other.(ck), :builtin, false),
+             do: no!("#{pi(ck)} als letztes Ziel: eingebaut, im Interpreter schneller")
 
         with {:tail_nd, ck, _, outs} <- last, true <- ck in scc do
           if not (i == n or :cut in pre), do: no!("rekursiver Aufruf vor weiteren Klauseln")
@@ -2840,6 +2881,131 @@ defmodule PrologEx.Jit do
     {f, args} = PrologEx.Builtins.Terms.parts(bound!(t))
     {PrologEx.list([f | args])}
   end
+
+  @doc false
+  # memberchk/2: das erste Element, das ohne Binden gleich ist – {}; eines,
+  # das nur durch Binden gleich würde (der Interpreter bände es), ein
+  # offener Rest oder keine Liste: aufgeben; sonst :no
+  def b_memberchk(x, l) do
+    s = store()
+
+    case PrologEx.Store.walk(x, s) do
+      a when is_number(a) or (is_tuple(a) and elem(a, 0) == :atom) ->
+        chk_atomic(a, PrologEx.Store.walk(l, s), s)
+
+      x ->
+        chk(x, PrologEx.Store.walk(l, s), s)
+    end
+  end
+
+  # Zahl oder Atom: Elemente direkt vergleichen (1 und 1.0 verschieden, wie
+  # die Unifikation); ein ungebundenes Element: aufgeben
+  defp chk_atomic(a, [h | t], s) do
+    case h do
+      ^a ->
+        {}
+
+      {:var, _} ->
+        case PrologEx.Store.walk(h, s) do
+          ^a -> {}
+          {:var, _} -> throw(:jit_deopt)
+          _ -> chk_atomic(a, t, s)
+        end
+
+      _ ->
+        chk_atomic(a, t, s)
+    end
+  end
+
+  # eine ground markierte Liste: ohne Variablen (lists:member/2 der BEAM,
+  # exakter Vergleich wie die Unifikation)
+  defp chk_atomic(a, {:glist, l}, _s), do: if(:lists.member(a, l), do: {}, else: :no)
+  defp chk_atomic(_, [], _), do: :no
+
+  defp chk_atomic(a, {:var, _} = v, s) do
+    case PrologEx.Store.walk(v, s) do
+      {:var, _} -> throw(:jit_deopt)
+      t -> chk_atomic(a, t, s)
+    end
+  end
+
+  defp chk_atomic(_, _, _), do: throw(:jit_deopt)
+
+  defp chk(x, [h | t], s) do
+    cond do
+      PrologEx.Order.equal?(x, h, s) -> {}
+      PrologEx.unify(x, h, s) == :error -> chk(x, PrologEx.Store.walk(t, s), s)
+      true -> throw(:jit_deopt)
+    end
+  end
+
+  defp chk(x, {:glist, l}, s), do: chk(x, l, s)
+  defp chk(_, [], _), do: :no
+  defp chk(_, _, _), do: throw(:jit_deopt)
+
+  @doc false
+  # length/2 einer echten Liste: {N}; sonst aufgeben
+  def b_length(l) do
+    case PrologEx.Builtins.Lists.skip_list(l, store()) do
+      {n, []} -> {n}
+      _ -> throw(:jit_deopt)
+    end
+  end
+
+  @doc false
+  # sort/2, msort/2 einer echten Liste wie der Interpreter (Standardordnung
+  # mit dem Bindungsspeicher); eine Ausgabevariable des Aufrufs darin:
+  # aufgeben (der Interpreter hätte sie schon gebunden)
+  def b_sort(l), do: {PrologEx.list(PrologEx.Order.sort_unique(sort_items(l), store()))}
+  def b_msort(l), do: {PrologEx.list(PrologEx.Order.sort(sort_items(l), store()))}
+
+  defp sort_items(l) do
+    s = outs_free!([l])
+
+    case PrologEx.Builtins.Lists.skip_list(l, s) do
+      {_, []} -> PrologEx.Builtins.Lists.items(l, s)
+      _ -> throw(:jit_deopt)
+    end
+  end
+
+  @doc false
+  # member/2 als nichtdeterministisch übersetztes Prädikat (Schritte wie
+  # nd_tail/3): die Elemente der Reihe nach; nach dem letzten einer echten
+  # Liste keine Fortsetzung; ein offener Rest: aufgeben (beim Weiterlesen)
+  def nd_member(l, b) do
+    case list(l) do
+      [h | t] ->
+        nx = if last_cell?(t), do: nil, else: fn b -> nd_member(t, b) end
+        {:sol, b, [h], nx}
+
+      _ ->
+        {:none, b}
+    end
+  end
+
+  defp last_cell?([]), do: true
+  defp last_cell?({:glist, []}), do: true
+
+  defp last_cell?({:var, _} = v) do
+    case PrologEx.Store.walk(v, store()) do
+      {:var, _} -> false
+      t -> last_cell?(t)
+    end
+  end
+
+  defp last_cell?(_), do: false
+
+  @doc false
+  # between/3 ebenso (L, H Ganzzahlen, sonst aufgeben)
+  def nd_between(l, h, b) when is_integer(l) and is_integer(h) do
+    cond do
+      l > h -> {:none, b}
+      l == h -> {:sol, b, [l], nil}
+      true -> {:sol, b, [l], fn b -> nd_between(l + 1, h, b) end}
+    end
+  end
+
+  def nd_between(_, _, _), do: throw(:jit_deopt)
 
   @doc false
   # bit_is_set/2: {} oder :no; keine Ganzzahlen oder K < 0: aufgeben
