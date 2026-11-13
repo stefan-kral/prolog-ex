@@ -39,6 +39,12 @@ defmodule PrologEx.ApplyMacrosTest do
   i3(L, I, X) :- partition(\\X0^(X0 > 2), L, I, X).
   i4(L, E) :- include(\\(A-_)^(A > 1), L, E).
   i5(K, L, E) :- include(K+\\X^(X > K), L, E).
+  % nichtdeterministisch: alle Lösungen, in derselben Reihenfolge
+  in01(0).
+  in01(1).
+  n1(Xs) :- maplist(\\X^(X = 0 ; X = 1), Xs).
+  n2(Xs) :- maplist(in01, Xs).
+  n3(Xs, Ys) :- maplist(\\X^Y^(member(X-Y, [a-1, b-2, a-3])), Xs, Ys).
   """
 
   # eine eigene Definition, auch erst nach dem Aufruf: der Aufruf bleibt
@@ -112,7 +118,14 @@ defmodule PrologEx.ApplyMacrosTest do
         "i3([1,2,3,4], I, X)",
         "i4([1-a, 2-b, 3-c], E)",
         "i5(2, [1,2,3,4], E)",
-        "call_with_inference_limit(m1([1,2], _), 1000, R)"
+        "call_with_inference_limit(m1([1,2], _), 1000, R)",
+        "length(Xs, 4), findall(Xs, n1(Xs), L)",
+        "length(Xs, 4), findall(Xs, n2(Xs), L)",
+        "length(Xs, 12), countall(n1(Xs), N)",
+        "length(Xs, 12), countall(n2(Xs), N)",
+        "n1(Xs)",
+        "findall(Xs-Ys, n3([a, b], Ys), L)",
+        "findall(Xs-Ys, (length(Xs, 2), n3(Xs, Ys)), L)"
       ] do
     test q, c do
       Reader.put_current(c.reader)

@@ -3942,7 +3942,12 @@ Elemente, mit → ohne: `maplist(double, L, M)` 165 → 4 ms,
 `foldl(add, L, 0, S)` 108 → 4 ms, `foldl` mit Lambda 352 → 3 ms,
 `include` mit Lambda 365 → 216 ms (das Hilfsprädikat baut `[X|I1]` vor
 dem rekursiven Aufruf, das übersetzt der JIT nicht – es läuft im
-Interpreter, nur ohne `call/N`).
+Interpreter, nur ohne `call/N`). Nichtdeterministisch, alle 2^18 = 262 144
+Lösungen von `maplist(\X^(X = 0 ; X = 1), Xs)` mit `length(Xs, 18)` in
+einem Klauselrumpf, über `countall/2`: 1515 → 500 ms, mit `in01/1`
+(`in01(0). in01(1).`) 681 → 472 ms – dieselben Lösungen in derselben
+Reihenfolge; dasselbe als Anfrage (zur Laufzeit gebaut, nicht expandiert)
+bleibt bei 1272 bzw. 645 ms.
 
 `==/2` und `\==/2` führt die Maschine selbst aus (ISO, geschützt; sie
 werfen nie) über einen eigenen Gleichheitstest statt `compare/3`: oben
