@@ -1,0 +1,996 @@
+ok:   <br id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"/>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok:    <x_y another_long_attribute_name="v1 v2"><b verylongattributename_number_one="1">q"ta&lt;b&amp;c&gt;d</b>line
+break</x_y>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <item><?php x><br id="v1 v2"></item>
+----
+ok: <item
+    href="a value that is rather long to push the attribute length over sixty chars"
+    id=""
+    a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">
+  <br id="1" another_long_attribute_name="2.5" href="v1 v2">
+    <b
+	a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	id="a value that is rather long to push the attribute length over sixty chars"
+	verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"></b>
+  </br>
+  <b verylongattributename_number_one="x y" a="v" a="1"><a verylongattributename_number_one="1">q"t</a>cr&#xD;x<div>t</div><x_y id="" id="2.5" href="1">
+    <script href="" href="v">
+      <longername
+	  id="a value that is rather long to push the attribute length over sixty chars"
+	  href="1"
+	  a="x y"></longername>
+    </script>
+    <a another_long_attribute_name="v1 v2" a="1" id="1"></a>
+  </x_y></b>
+</item>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <longername>
+  <p class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" href="2.5"><?php x></p>
+</longername>
+----
+ok: <!DOCTYPE br PUBLIC "-//X//Y" "s.dtd">
+
+<br>x y<p
+    id="2.5"
+    verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars">é€</p></br>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE d []>
+
+
+----
+err(type_error(sgml_content,42)): 
+----
+ok:   <script verylongattributename_number_one="2.5">cr&#xD;x  line
+break</script>
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<item id="x y"/>
+----
+ok: <p
+    verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    class="a value that is rather long to push the attribute length over sixty chars"><p
+    another_long_attribute_name="2.5"
+    another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"></p>
+  <?php x><title>  <?php x>  <x_y
+    href="v"
+    id="v1 v2"
+    verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars">
+  <title>   cr&#xD;x   </title>
+  <title>
+    <longername a="x y" id="v"></longername>
+    <item
+	verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"
+	class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	verylongattributename_number_one=""></item>
+  </title>
+  <title
+      another_long_attribute_name=""
+      verylongattributename_number_one="v">line
+break  cr&#xD;x</title>
+  <x_y>x y   </x_y>
+</x_y></title></p>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <!DOCTYPE longername PUBLIC "-//X//Y" "s.dtd">
+
+<longername another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" a="2.5"></longername>
+----
+ok:    <br>
+     <div
+	 verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	 href="x y"
+	 href="">
+       <x_y a="" a="2.5">
+	 <div>
+	 </div>
+	 <item another_long_attribute_name=""></item>
+       </x_y>
+       <br
+	   a="x y"
+	   id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	   href="a value that is rather long to push the attribute length over sixty chars">cr&#xD;x<title another_long_attribute_name="" a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">line
+break<?php x><title></title><x_y
+	   verylongattributename_number_one="1"
+	   another_long_attribute_name="x y"></x_y></title>t</br>
+     </div>
+   </br>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<b a="1" another_long_attribute_name="v" a="v1 v2"><div a="" class="1"/></b>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE x_y []>
+
+<x_y verylongattributename_number_one="1">tab	x</x_y>
+----
+ok:   <b href="v1 v2" verylongattributename_number_one="x y" href="1">     <a a="v1 v2"/><x_y><item a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" another_long_attribute_name=""/></x_y></b>
+----
+ok: <a
+    href=""
+    another_long_attribute_name="x y"
+    href="a value that is rather long to push the attribute length over sixty chars"/>
+----
+ok: <longername href="2.5" href="">a&lt;b&amp;c&gt;d</longername>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: 
+----
+ok: <div
+    verylongattributename_number_one=""
+    another_long_attribute_name=""
+    class="x y"></div>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<item id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"><script>x yé€</script>a&lt;b&amp;c&gt;d<b>  </b><div id="x y">   </div></item>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <!DOCTYPE x_y PUBLIC "-//X//Y" "s.dtd">
+
+<x_y
+    a="v"
+    href="a value that is rather long to push the attribute length over sixty chars"/>
+----
+ok: <!DOCTYPE div PUBLIC "-//X//Y" "s.dtd">
+
+<div></div><br>line
+break<p class="v" another_long_attribute_name="v1 v2"><title>q"t<item
+    another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"
+    another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    id="x y"></item></title>t<div
+    verylongattributename_number_one=""
+    verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"></div>tab	x</p></br>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE script []>
+
+<script>
+  <b
+      href="a value that is rather long to push the attribute length over sixty chars"
+      verylongattributename_number_one="">
+    <div href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" verylongattributename_number_one="x y"/>
+  </b>
+</script>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<item
+    id="v"
+    href="a value that is rather long to push the attribute length over sixty chars"
+    id="2.5">
+  <b verylongattributename_number_one="v">line
+breaktab	x</b>
+</item>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<title href="x y" another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" another_long_attribute_name="v1 v2">q"tline
+break<p><script a="" another_long_attribute_name="x y"><br id="">tab	x  <br a="v1 v2"/></br></script>  <p class="v1 v2" class="v" class="v1 v2"></p></p><br id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" another_long_attribute_name="" class=""><b a="a value that is rather long to push the attribute length over sixty chars" id="" href="v"><title href="v1 v2">
+    </title><b another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"><?php x?><longername/><x_y a="x y" a="1"/><item class="a value that is rather long to push the attribute length over sixty chars"/></b></b><title><b>t<longername/>q"t</b><?php x?></title></br></title>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<x_y
+    class="v"
+    verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"
+    another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars">line
+breakcr&#xD;x
+  </x_y>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: 	 <x_y>
+	   <script
+	       href="a value that is rather long to push the attribute length over sixty chars"
+	       href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	       a="v">q"t      </script>
+	   <p
+	       id="a value that is rather long to push the attribute length over sixty chars"
+	       verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars">a&lt;b&amp;c&gt;d</p>
+	 </x_y>
+----
+ok: <p another_long_attribute_name="v1 v2"><title href="x y"></title><title class="x y" href="x y">t</title></p>
+----
+ok: <!DOCTYPE div PUBLIC "-//X//Y" "s.dtd">
+
+<div class="2.5" verylongattributename_number_one="x y">
+  <longername
+      verylongattributename_number_one="2.5"
+      verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"/>
+</div>
+----
+ok: <title verylongattributename_number_one="2.5">
+  <div another_long_attribute_name="">cr&#xD;x</div>
+</title><b another_long_attribute_name="v1 v2" a="" id="">x y<script
+    another_long_attribute_name="v1 v2"
+    href="a value that is rather long to push the attribute length over sixty chars"></script>t</b>
+----
+err(type_error(sgml_content,42)): 
+----
+ok:    <div a="">
+     <script another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"></script>
+     <br>a&lt;b&amp;c&gt;dq"t</br>
+   </div>
+----
+ok: <b></b>
+----
+ok: <b>line
+break<div></div>   <div id="" id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">tab	xq"t</div></b>
+----
+ok: <!DOCTYPE b PUBLIC "-//X//Y" "s.dtd">
+
+<b a="">
+  <p>   </p>
+</b>
+----
+ok: 	 <b verylongattributename_number_one="2.5">line
+break</b>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <p id="">x y<b a="v">
+  <x_y
+      a="a value that is rather long to push the attribute length over sixty chars">x ytab	x<br
+      id="v"
+      href="a value that is rather long to push the attribute length over sixty chars">q"tcr&#xD;xq"tt</br></x_y>
+</b>tab	x</p>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<p id="x y" class="x y" a="a value that is rather long to push the attribute length over sixty chars"><?php x?>x y</p>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <a
+    verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"
+    id="v"
+    class="v"></a>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,42)): 
+----
+ok: 	 <br a="v">x yé€</br>
+----
+ok: <br
+    a="a value that is rather long to push the attribute length over sixty chars">
+  <item another_long_attribute_name="v">
+    <div id="">42</div>
+  </item>
+  <a
+      another_long_attribute_name="2.5"
+      verylongattributename_number_one="v"
+      verylongattributename_number_one="v">cr&#xD;x</a>
+  <a></a>
+  <b id="1" class="1" class="">a&lt;b&amp;c&gt;d<a href="x y" another_long_attribute_name="2.5">line
+break</a><br>
+    <x_y></x_y>
+  </br></b>
+</br>
+----
+ok: <a></a>
+----
+ok: 	 <x_y/>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<a class="v1 v2" href="x y">   t  </a>
+----
+ok: <!DOCTYPE item PUBLIC "-//X//Y" "s.dtd">
+
+<item>
+  <longername another_long_attribute_name="x y" class="v1 v2">42</longername>
+</item>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <br verylongattributename_number_one="v">
+  <item another_long_attribute_name="2.5" id="v"><a>
+    <longername
+	another_long_attribute_name="2.5"
+	href="v"
+	verylongattributename_number_one="x y"></longername>
+  </a>tab	x</item>
+</br>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<b>
+  <item/>
+  <br>x ytab	x</br>
+  <script another_long_attribute_name="" href="v1 v2" a="">   </script>
+</b>
+----
+ok: 	 <div></div>
+----
+ok:   <longername><p>line
+break  <p another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" id="2.5"><a verylongattributename_number_one="x y" class="1" another_long_attribute_name="v1 v2">line
+breakline
+break<div></div><x_y a="v"></x_y></a></p></p>tab	x</longername>
+----
+ok: <br></br>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <br class="" href="1" verylongattributename_number_one="v">t<?php x?></br>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <!DOCTYPE title []>
+
+<title id="1"><?php x></title><title>
+  <script
+      verylongattributename_number_one="v"
+      verylongattributename_number_one="v1 v2"
+      href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">tab	xx y<script verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">
+    <x_y></x_y>
+    <div href="2.5" href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"></div>
+  </script>tab	x</script>
+</title>
+----
+ok:   <p verylongattributename_number_one="x y" class="v1 v2" verylongattributename_number_one="2.5"/>
+----
+ok: <x_y href="2.5" class="v"><a
+    href="a value that is rather long to push the attribute length over sixty chars">  <b id="" href="1">
+  <longername verylongattributename_number_one="1">
+  </longername>
+</b>cr&#xD;xtab	x</a>line
+break</x_y>
+----
+ok: <!DOCTYPE p []>
+
+<p href="x y" href="v1 v2"></p>
+----
+ok:   <longername class="v1 v2">   line
+break<?php x></longername>
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <br
+    a="a value that is rather long to push the attribute length over sixty chars"
+    id="1"
+    class=""/>
+----
+ok: <longername
+    another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    class="x y"
+    id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"><script a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" class="x y">tcr&#xD;x<a a="1"><p
+    href="2.5"
+    class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    another_long_attribute_name="v"></p><x_y></x_y>line
+breakq"t</a></script>
+  t</longername>
+----
+ok: <item><?php x?>line
+break</item>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <div>
+  <x_y
+      class="x y"
+      href=""
+      another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"></x_y>
+  <b><p>é€é€<?php x></p>é€</b>
+  <p class="v">
+  é€<b>q"t<item><title></title><?php x>q"t</item></b></p>
+</div>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<a href="v" verylongattributename_number_one="2.5"><a verylongattributename_number_one="2.5"/><div class="2.5" id="2.5"/></a>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok:   
+----
+ok: 	 <x_y verylongattributename_number_one="v" id="2.5" href=""></x_y>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<x_y
+    href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    verylongattributename_number_one="1"
+    another_long_attribute_name="2.5">
+  <longername
+      id="1"
+      verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"
+      href=""/>
+  <title href="v1 v2" class="v1 v2"><item>
+    <div><x_y a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"/>line
+break</div>
+  </item><p>x y<?php x?><b class="" verylongattributename_number_one="1"><longername href="v1 v2"/><?php x?><div href="x y" href="x y"/>  </b></p>cr&#xD;x<?php x?></title>
+</x_y>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <!DOCTYPE div []>
+
+<div
+    another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    verylongattributename_number_one=""
+    id="x y">  t</div>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <title
+    a="a value that is rather long to push the attribute length over sixty chars">cr&#xD;x<longername class="v1 v2" id="x y">x yq"t<item></item><b
+    a="x y"
+    href=""
+    id="a value that is rather long to push the attribute length over sixty chars"></b></longername></title>
+----
+ok:   <script another_long_attribute_name="v1 v2" another_long_attribute_name="" href=""><br href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" another_long_attribute_name="v1 v2">é€</br><item><b a="v1 v2" href="a value that is rather long to push the attribute length over sixty chars" id="2.5"></b><longername class="a value that is rather long to push the attribute length over sixty chars" another_long_attribute_name="v" a="1"><b id="" href="v1 v2">cr&#xD;x<div></div><x_y href="" id="1" verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"></x_y>   </b><b a="a value that is rather long to push the attribute length over sixty chars" class="x y" href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">line
+break</b>x y</longername></item><a a="2.5" a="1"><longername id="2.5" a="v1 v2" verylongattributename_number_one="v">é€<b><div verylongattributename_number_one="2.5" href="v1 v2"></div></b></longername></a></script>
+----
+ok: <!DOCTYPE a []>
+
+<a>
+  <longername
+      another_long_attribute_name="1"
+      another_long_attribute_name="2.5"
+      href="v1 v2">
+    <x_y href="v1 v2" id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" href="v">
+      <item a="x y">line
+break</item>
+      <longername href="">
+	<title id="x y" id="" href=""></title>
+      </longername>
+    </x_y>
+  </longername>
+</a>
+----
+ok: 	 <title
+	     verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"
+	     verylongattributename_number_one="v1 v2"
+	     href="v1 v2"><?php x>cr&#xD;x<b verylongattributename_number_one="v" class="v"><x_y></x_y>line
+break</b></title>
+----
+ok: <!DOCTYPE br PUBLIC "-//X//Y" "s.dtd">
+
+<br
+    href="x y"
+    another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars">
+  <title
+      another_long_attribute_name="v1 v2"
+      verylongattributename_number_one="v"
+      a="v1 v2">line
+break<br id="2.5" class="2.5">
+    <item><longername></longername>x y</item>
+  </br>x y<title id="" a="2.5"><x_y>  cr&#xD;x  </x_y>x y<?php x><title href="1" href="">
+    <p
+	another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	id="v1 v2"
+	a="2.5"></p>
+    <b></b>
+  </title></title></title>
+  <b>a&lt;b&amp;c&gt;d<p><br id="v" a="x y">
+    <p verylongattributename_number_one="v1 v2"></p>
+    <item
+	verylongattributename_number_one="v"
+	another_long_attribute_name="v"></item>
+    <a
+	a="x y"
+	another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"
+	class="1"></a>
+  </br>é€</p></b>
+  <longername a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">tab	x</longername>
+</br>
+----
+ok: <a href="v1 v2" a="2.5" class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">tab	xtab	x</a>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<longername href="v" href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">
+  <b>
+    <item id="x y" href="2.5" a="v"/>
+  </b>
+</longername>
+----
+ok: <!DOCTYPE x_y PUBLIC "-//X//Y" "s.dtd">
+
+<x_y href="" href="x y" verylongattributename_number_one="1">q"t<?php x?></x_y>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <longername id="v" href="x y" a="v">tab	xq"t<longername>line
+break<p>tab	x</p><item verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" href="1">a&lt;b&amp;c&gt;d</item></longername>tab	x</longername>
+----
+ok: <a id="x y" href="a value that is rather long to push the attribute length over sixty chars"><title><b another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"><x_y href="1" id="v" verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">a&lt;b&amp;c&gt;d</x_y><longername verylongattributename_number_one="1" href="1">   t<p></p><?php x></longername>
+  </b><div a="x y" another_long_attribute_name="v" verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"><a class="1" href="2.5"></a></div>t</title>
+  <br class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"><title>line
+break<script href="1"><div a="1"></div></script>é€</title><title href="v1 v2">é€</title>cr&#xD;xq"t</br>é€</a>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <x_y
+    a="v"
+    href="a value that is rather long to push the attribute length over sixty chars">
+  <div id="v1 v2" href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">
+    <div id="v">
+      <a verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" href="2.5">x y</a>
+    </div>
+  </div>
+</x_y>
+----
+ok: <x_y another_long_attribute_name="2.5" href="2.5"></x_y>
+----
+ok:   <title/>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE script []>
+
+<script href="v1 v2"/>
+----
+ok: <item
+    class="a value that is rather long to push the attribute length over sixty chars">
+  <script verylongattributename_number_one="x y">
+    <p another_long_attribute_name="" href="2.5" id="">x y<title><b
+	id="a value that is rather long to push the attribute length over sixty chars"
+	class="v"
+	another_long_attribute_name="v1 v2"></b>cr&#xD;x<div class="v" class="v1 v2" class="2.5"></div></title></p>
+  </script>
+</item>
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE b []>
+
+<b verylongattributename_number_one="1"/>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok:   <item another_long_attribute_name="x y" id="v1 v2" href="">cr&#xD;x
+     é€</item>
+----
+ok: <div></div>
+----
+err(type_error(sgml_content,42)): 
+----
+ok:   <item verylongattributename_number_one="v1 v2" id="2.5" verylongattributename_number_one="x y"/>
+----
+ok:    <br class="1">line
+break<br a="2.5" verylongattributename_number_one="">q"t<a id="1"><script></script>q"t<title
+       verylongattributename_number_one="v1 v2"
+       class="v1 v2"
+       a="v">
+     <a verylongattributename_number_one="2.5"></a>
+     <item href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" class="" href="x y"></item>
+     <title
+	 href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	 verylongattributename_number_one="v"
+	 href="2.5"></title>
+   </title><div a="" class="v1 v2" href="v1 v2">
+     <div></div>
+   </div></a><a
+       another_long_attribute_name=""
+       verylongattributename_number_one=""
+       class="v">cr&#xD;xa&lt;b&amp;c&gt;d  q"t</a><div
+       id="a value that is rather long to push the attribute length over sixty chars"
+       another_long_attribute_name="x y"
+       verylongattributename_number_one="1">q"tx y<p href="v1 v2" id="2.5"></p></div></br><br href="v1 v2" a="1" href="2.5"><longername></longername><p
+       class=""
+       verylongattributename_number_one="v"
+       verylongattributename_number_one="1">tab	x<longername
+       another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+       a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+       verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars">tab	xa&lt;b&amp;c&gt;d<br another_long_attribute_name="v1 v2" id="" href="2.5"></longername></p>  cr&#xD;x</br></br>
+----
+ok: <br href="" href="v" id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">tab	x</br>
+----
+ok:   <b class="x y" href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" id="x y"><a><title/></a>a&lt;b&amp;c&gt;d</b>
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <item
+    another_long_attribute_name="v1 v2"
+    another_long_attribute_name=""
+    a="2.5">   tab	x
+  </item>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<longername
+    verylongattributename_number_one="2.5"
+    id="x y"
+    class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">
+  <item verylongattributename_number_one="x y" class=""/>
+  <p another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" a=""><x_y verylongattributename_number_one=""><item another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" a="" id="2.5"/>x y
+  </x_y><script a="v">
+    <longername class="1" a="">line
+break</longername>
+  </script><?php x?>   </p>
+</longername>
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,42)): 
+----
+ok: 	 <a
+	     a="v"
+	     id="a value that is rather long to push the attribute length over sixty chars"
+	     href="">
+	   <b
+	       another_long_attribute_name="2.5"
+	       class="a value that is rather long to push the attribute length over sixty chars"
+	       another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"></b>
+	   <b another_long_attribute_name="x y" href="v">tab	x  </b>
+	 </a>
+----
+ok: <p>line
+break   <item a="1"></item>t</p>
+----
+ok: <title id="1">
+  <br>a&lt;b&amp;c&gt;d<title
+      a="a value that is rather long to push the attribute length over sixty chars"
+      verylongattributename_number_one="1"
+      id="2.5">
+    <b
+	id="a value that is rather long to push the attribute length over sixty chars"></b>
+  </title><title href="1" verylongattributename_number_one="1">tcr&#xD;x<a class="1">
+    <longername
+	a="a value that is rather long to push the attribute length over sixty chars"
+	href="a value that is rather long to push the attribute length over sixty chars"></longername>
+    <longername id="v" verylongattributename_number_one="v" href="v1 v2"></longername>
+    <br href="x y" href="v1 v2" href=""></br>
+  </a></title><script
+      another_long_attribute_name="v1 v2"
+      href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+      verylongattributename_number_one="1">   a&lt;b&amp;c&gt;d</script></br>
+</title>
+----
+ok:   <b href="x y" verylongattributename_number_one="1">   
+  <div class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" id="v"/></b>
+----
+ok:   <div id="" a="" a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">   <a id="v" another_long_attribute_name="x y" a="v1 v2">  <p href=""><a href="x y" a="x y" verylongattributename_number_one="v"/><x_y another_long_attribute_name="x y" id="v1 v2" class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"><p id="2.5" another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"/></x_y>
+  <script another_long_attribute_name="1" id=""><a href="v1 v2"/>  q"t</script></p>      </a></div>
+----
+ok: <div class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" another_long_attribute_name=""><a class="v1 v2" a="v"><title
+    verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"><?php x><x_y another_long_attribute_name=""></x_y></title><item id="x y" verylongattributename_number_one="2.5"><br>q"tcr&#xD;x</item><x_y id="2.5" another_long_attribute_name="">tab	x</x_y><?php x></a><title verylongattributename_number_one="v" href="v1 v2"></title><?php x></div><item
+    a="2.5"
+    class="1"
+    id="a value that is rather long to push the attribute length over sixty chars"><div
+    class="a value that is rather long to push the attribute length over sixty chars"></div>cr&#xD;x<script id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">t<div
+    verylongattributename_number_one=""
+    class="a value that is rather long to push the attribute length over sixty chars"
+    another_long_attribute_name="">
+  <title></title>
+</div>   </script><div
+    class="a value that is rather long to push the attribute length over sixty chars"
+    a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">cr&#xD;x<b verylongattributename_number_one="2.5" a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">
+  <a verylongattributename_number_one="v1 v2"></a><?php x><script></script></b>a&lt;b&amp;c&gt;d</div></item><b
+    a="v"
+    href="a value that is rather long to push the attribute length over sixty chars"></b>
+----
+ok: <script class="" a="v"><x_y>  <br><title another_long_attribute_name="v1 v2"></title>é€<script
+    id=""
+    class="v"
+    another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"></script></br><longername
+    verylongattributename_number_one="x y"
+    another_long_attribute_name="x y"></longername>é€</x_y><?php x><a href="x y" class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"><x_y a="2.5"></x_y><div id="" a="v1 v2" href="2.5">
+  <longername a="v1 v2" href="v" href="v"></longername>
+</div>x y<item>a&lt;b&amp;c&gt;d<item href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" a="v1 v2"></item></item></a></script><longername href="">é€</longername><br>
+----
+ok:    <title></title>
+----
+ok:   
+----
+ok:   
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<title></title>
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <longername a="1"><br id="x y" verylongattributename_number_one="2.5">tab	x<b class="1" href="v" id="v"></b></br><div>42</div>cr&#xD;x</longername>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<title
+    a="v1 v2"
+    class="1"
+    a="a value that is rather long to push the attribute length over sixty chars">
+  <b><script><b another_long_attribute_name="x y"/>é€<x_y id="v" another_long_attribute_name="2.5"/><title/></script><script class="v" href="1" class="x y">
+    <script
+	a="a value that is rather long to push the attribute length over sixty chars"
+	href="v1 v2"/>
+    <a a="2.5"/>
+  </script><p a="1" id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" class="2.5"/>line
+break</b>
+</title><div
+    a="a value that is rather long to push the attribute length over sixty chars"><?php x?></div><title/>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <!DOCTYPE x_y PUBLIC "-//X//Y" "s.dtd">
+
+<x_y a="1"/>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <div
+    another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    verylongattributename_number_one="">a&lt;b&amp;c&gt;d<b id="2.5" href="1"><item a="v" another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">t</item>tab	x</b></div>
+----
+ok: <item id="x y" href="x y" id="">
+  <item id="v" another_long_attribute_name="2.5">
+    <a verylongattributename_number_one="2.5"><?php x></a>
+  </item>
+</item>
+----
+ok:    <x_y
+       another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"
+       href="2.5"
+       verylongattributename_number_one="">q"t</x_y>
+----
+ok: <item>
+  <script
+      verylongattributename_number_one="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+      class="2.5"
+      verylongattributename_number_one="x y">a<b&c>d</script>
+</item>
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <!DOCTYPE item PUBLIC "-//X//Y" "s.dtd">
+
+<item href="x y" href="1" id="1"></item>
+----
+ok: 	 <p class="2.5">
+	   <script
+	       href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+	       another_long_attribute_name="x y"
+	       href="v"><script href="1">
+	     <title
+		 id="v"
+		 id="a value that is rather long to push the attribute length over sixty chars"/>
+	     <p
+		 verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"
+		 href="a value that is rather long to push the attribute length over sixty chars"/>
+	     <b
+		 another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"
+		 class="2.5"/>
+	   </script>é€</script>
+	 </p><p href="x y" class="x y" a="v1 v2"/><item a="x y"><br>t<title class="" id="" a="v"/></br><title
+	     href="x y"
+	     a="1"
+	     another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars">cr&#xD;x</title>a&lt;b&amp;c&gt;d</item>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE item []>
+
+<item a="">line
+break<a href="v">q"tcr&#xD;x</a><a id="x y" id="x y"><script href="v" verylongattributename_number_one="v"/><p>
+  </p>t</a></item>
+----
+ok: 	 <script href="1">
+	   <div>
+  q"t</div>
+	 </script>
+----
+ok:    <a
+       another_long_attribute_name="2.5"
+       a="1"
+       another_long_attribute_name="v1 v2">
+     <div class="v1 v2"><x_y class="x y"></x_y><p>
+       <div
+	   a="v1 v2"
+	   a="a value that is rather long to push the attribute length over sixty chars"
+	   href="1">line
+break</div>
+       <p></p>
+       <br another_long_attribute_name="">
+     </p>q"t<a
+	 another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars">
+  </a></div>
+   </a>
+----
+ok: <p verylongattributename_number_one=""></p>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<b a="1" a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"/>
+----
+ok:    <script class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" another_long_attribute_name="1" id="">x y</script>
+----
+err(type_error(sgml_content,42)): 
+----
+ok:    <item
+       verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars"
+       another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"></item>
+----
+ok: 	 <b
+	     href="x y"
+	     verylongattributename_number_one="1"
+	     href="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">tab	x</b>
+----
+ok: <a id="2.5">
+  <br
+      id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+      class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+      another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">
+    <b id="2.5" another_long_attribute_name="1"></b>
+    <item a="x y" a="" verylongattributename_number_one=""></item>
+  </br>
+  <title id="1"></title>
+</a>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<a
+    href="a value that is rather long to push the attribute length over sixty chars">line
+breaka&lt;b&amp;c&gt;dx yq"t</a>
+----
+ok:    <longername/>
+----
+ok: <!DOCTYPE script []>
+
+<script
+    href="a value that is rather long to push the attribute length over sixty chars"
+    class=""></script>
+----
+ok: <!DOCTYPE script []>
+
+<script><?php x>   </script>
+----
+ok: 
+----
+ok:   <x_y another_long_attribute_name="1" class="a value that is rather long to push the attribute length over sixty chars">x y</x_y>
+----
+ok: <div>line
+break</div>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <div
+    another_long_attribute_name=""
+    another_long_attribute_name=""
+    id="1">cr&#xD;x
+  <?php x></div>
+----
+ok: <b another_long_attribute_name="1" another_long_attribute_name="x y"></b>
+----
+err(type_error(sgml_content,1.5)): 
+----
+err(type_error(sgml_content,42)): 
+----
+ok: <div another_long_attribute_name=""><?php x><br><longername verylongattributename_number_one="2.5" verylongattributename_number_one="x y"><div><div href="v" verylongattributename_number_one="1" a="2.5"></div>x y<script></script></div>q"t<script><p a="x y" href="1"></p></script><item verylongattributename_number_one="a value that is rather long to push the attribute length over sixty chars" a="v1 v2"></item></longername><script class="">tab	x</script><x_y another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;">line
+break</x_y>é€</br></div>
+----
+ok:   <item class="v" a="" href="1"><x_y><br class="x y" another_long_attribute_name="x y" a="1">x y</br><?php x?><br a="" another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;" href="a value that is rather long to push the attribute length over sixty chars"/></x_y><longername class="2.5" class="x y" a="v1 v2">cr&#xD;x<longername id="2.5" another_long_attribute_name="v" href="a value that is rather long to push the attribute length over sixty chars">cr&#xD;x<p><a id="1" id="x y" class="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"/><a href="" id="v1 v2" a="v1 v2"/><?php x?><b class="a value that is rather long to push the attribute length over sixty chars" class="2.5"/></p></longername>t</longername></item>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE title []>
+
+<title
+    a=""
+    href="a value that is rather long to push the attribute length over sixty chars">
+  <script
+      another_long_attribute_name="v1 v2"
+      a="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+      another_long_attribute_name="1">tab	x<a another_long_attribute_name="1" a="1">
+    <item class="">
+      <x_y
+	  a="a value that is rather long to push the attribute length over sixty chars"
+	  another_long_attribute_name="a value that is rather long to push the attribute length over sixty chars"/>
+    </item>
+  </a>  </script>
+</title>
+----
+ok: <?xml version="1.0" encoding="UTF-8"?>
+
+<script class="v"><x_y another_long_attribute_name="1" id="v1 v2">x y<a a="v1 v2">1.5</a><item a="1" a="v" href=""><p
+    id="a value that is rather long to push the attribute length over sixty chars"
+    another_long_attribute_name="x y"
+    another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"><br
+    a=""
+    id="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"
+    another_long_attribute_name="q&quot;t &lt;&amp;> &#xA;&#x9;&#xD;"/>tab	xa&lt;b&amp;c&gt;d</p>é€<script>  </script>
+  </item></x_y><x_y another_long_attribute_name="v" class="x y" class="v1 v2"/>q"t</script>
+----
+err(type_error(sgml_content,42)): 
+----
+ok: 	 <b><div id="2.5" id="">cr&#xD;x</div>x ycr&#xD;x<longername
+	     id="a value that is rather long to push the attribute length over sixty chars"></longername></b>
+----
+ok: 	 <b
+	     a="a value that is rather long to push the attribute length over sixty chars"
+	     href="v"
+	     id="2.5">
+	   <script
+	       verylongattributename_number_one="v1 v2"
+	       class="a value that is rather long to push the attribute length over sixty chars">
+  </script>
+	 </b>
+----
+ok: 	 <x_y class="v">cr&#xD;x<x_y><item
+	     verylongattributename_number_one=""
+	     verylongattributename_number_one=""
+	     href="2.5"/>t
+  <x_y
+	     verylongattributename_number_one="2.5"
+	     class="1"
+	     class="2.5"/></x_y>t</x_y>
+----
+ok: <!DOCTYPE p PUBLIC "-//X//Y" "s.dtd">
+
+<p verylongattributename_number_one="x y"/><div class="x y" another_long_attribute_name="2.5"/>
+----
+err(type_error(sgml_content,42)): 
+----
+err(type_error(sgml_content,1.5)): 
+----
+ok: <a id=""></a>
+----
+err(type_error(sgml_content,42)): 
+----

@@ -472,7 +472,7 @@ defmodule PrologEx.Sgml do
       out =
         Enum.reduce(kids, out, fn k, out ->
           cond do
-            atomic_text?(k) -> content_text(out, k, st)
+            text?(k) -> content_text(out, k, st)
             match?({:struct, "element", [_, _, _]}, k) -> emit(k, out, st)
             match?({:struct, "pi", [_]}, k) -> emit(k, out, st)
             match?({:var, _}, k) -> emit(k, out, st)

@@ -1091,7 +1091,12 @@ Dateien, die kein UTF-8 sind (siehe unten).
     Namensräume werden geprüft. Element- und Attributnamen stehen ohne
     Präfix im DOM, die `xmlns`-Attribute fallen weg. CDATA geht im Text
     auf. Kommentare und Verarbeitungsanweisungen im Element werden
-    `element('', [], [])`, wie bei Scryer.
+    `element('', [], [])`, wie bei Scryer. Der Parser folgt roxmltree
+    Schritt für Schritt, auch in den Eigenheiten:
+    * `<?xml?>` ohne Leerzeichen ist eine Verarbeitungsanweisung.
+    * `xmlns:p=""` ist erlaubt, ein Präfix `xml` am Element nicht.
+    * `&#xD800;` und Zeichen über U+10FFFF werden U+FFFD.
+    * Ein Wagenrücklauf aus `&#13;` bleibt stehen.
   * HTML wie ein Browser, eine vereinfachte Fassung des HTML5-Algorithmus:
     * `html`, `head` und `body` werden ergänzt.
     * Leere Elemente (`br`, `img`, …) haben keinen Inhalt.
@@ -1130,6 +1135,13 @@ Argumenten, auf die aktuelle Ausgabe) schreiben wie SWIs
 Text darf ein Atom, eine Zeichen- oder eine Codeliste sein. Ein
 Scryer-DOM lässt sich also direkt schreiben und wieder laden.
 Namensraum-Präfixe ergänzt `xml_write/3` nicht von selbst; SWI tut das.
+Zahlen sind wie bei SWI nur als einziger Inhalt eines Elements erlaubt;
+in gemischtem Inhalt sind sie `type_error(sgml_content, N)`.
+
+Abgeglichen ist das an einigen tausend zufälligen XML-Texten gegen Scryer
+und an zufälligen DOMs mit Optionen gegen SWIs `xml_write/3` und
+`html_write/3`. Eine Auswahl steht mit den Ausgaben der Vorbilder in
+`test/fixtures/sgml`.
 
 ## CSV: `library(csv)`
 
