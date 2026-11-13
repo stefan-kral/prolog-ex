@@ -72,6 +72,8 @@ defmodule PrologEx.JsonTest do
     {"''", "err(syntax_error(json(unexpected_end_of_file)),1,0,0)"},
     {"'  '", "err(syntax_error(json(unexpected_end_of_file)),1,2,2)"},
     {"x", "err(syntax_error(json(illegal_json)),1,1,1)"},
+    # das Atom '[]' ist hier dasselbe wie []: Text "[]"
+    {"'[]'", "[]"},
     {"'{\"a\":1}{\"b\":2}'", "json([a=1])"},
     {"'1 2'", "1"},
     {"'{\"a\":\\n  [1,\\n   2,\\n   x]}'", "err(syntax_error(json(illegal_json)),4,4,22)"},

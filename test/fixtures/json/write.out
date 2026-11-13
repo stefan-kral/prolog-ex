@@ -1,0 +1,1780 @@
+ok: {
+     "b": [
+       123456789012345678901234567890,
+       {},
+       "a"
+     ]
+   }
+----
+ok: {"longer_key_name": []}
+----
+ok: [
+     true,
+     {
+       "longer_key_name": [
+	 "q\"t",
+	 {
+	   "longer_key_name":335.0,
+	   "k e y":123456789012345678901234567890
+	 },
+	 [
+	   false,
+	   "q\"t",
+	   -216130,
+	   -0.0
+	 ],
+	 null
+       ],
+       "longer_key_name":0.5,
+       "k e y": {
+	 "longer_key_name":true
+       },
+       "k e y":-247.49
+     }
+   ]
+----
+ok: {"b":10000000000.0, "b":-756.01, "longer_key_name":-0.0, "b": {"k e y": {"key": {"key":48593, "key":10000000000.0, "key":-600336, "b":"b c"}, "b":"b c", "longer_key_name": [-0.0, true, 763963 ], "b": {"k e y":"Long value to make the line wider than usual", "k e y":123456789012345678901234567890, "a":354660, "k e y":"a", "k e y":10000000000.0}, "k e y":false}, "b":"Long value to make the line wider than usual", "a": [], "b":"é", "key":"é"}, "b": {"k e y": {"b":true, "k e y": [], "a":"a", "longer_key_name":-0.0}, "a": {}, "a": {}, "a": {"longer_key_name": {"longer_key_name":10000000000.0, "a":null, "key":123456789012345678901234567890}, "key": {}}}}
+----
+ok: {
+  "b": [
+    "q\"t",
+    {
+      "b": {
+	"a": [
+	  "b c",
+	  -0.0,
+	  -485.64,
+	  true
+	],
+	"longer_key_name":-650914
+      },
+      "key":"name"
+    },
+    [
+      null,
+      10000000000.0,
+      true
+    ]
+  ],
+  "key": {}
+}
+----
+ok: {}
+----
+ok: [
+	 [
+		-0.0,
+		 {
+			"b": {
+				"k e y":"q\"t",
+				"k e y":""
+			},
+			"key": {
+				"longer_key_name":"tab\tx"
+			},
+			"a": [
+				673438
+			],
+			"longer_key_name":"<\/x>"
+		},
+		-0.0,
+		 [
+			 [],
+			17.86
+		],
+		"b c"
+	],
+	"name",
+	 {},
+	123456789012345678901234567890,
+	-0.0,
+	-790159
+]
+----
+ok: -0.0
+----
+err(type_error(json_term,f(x))): 
+----
+ok: "b c"
+----
+ok: {"b":"back\\s", "longer_key_name": [], "key":"b c"}
+----
+ok: {
+  "key": [
+    ["",  [123456789012345678901234567890 ], "b c",  {"a":false}, -123115 ],
+    {}
+  ],
+  "longer_key_name": {
+    "longer_key_name": {"b":"<\/x>"},
+    "b":-0.0,
+    "longer_key_name":"q\"t"
+  },
+  "key": [-865565, 0.5, "<\/x>", null, -0.0 ],
+  "key":"tab\tx",
+  "b": {}
+}
+----
+ok: "nl\nx"
+----
+ok: {
+  "key":"b c",
+  "key": {
+    "k e y": {
+      "a":561.53,
+      "k e y": {"k e y":"abcdefghijklmnopqrstuvwxyz", "a": [], "k e y":"q\"t"},
+      "longer_key_name": [
+	"tab\tx",
+	[
+	  "abcdefghijklmnopqrstuvwxyz",
+	  0.5,
+	  [
+	    true,
+	    123456789012345678901234567890,
+	    "Long value to make the line wider than usual",
+	    true,
+	    "nl\nx"
+	  ]
+	],
+	"a"
+      ],
+      "b":"back\\s",
+      "a":-559198
+    },
+    "longer_key_name":10000000000.0
+  }
+}
+----
+ok: {
+  "longer_key_name": [
+    -839006,
+    {
+      "a":"b c",
+      "a": {
+	"longer_key_name":"Long value to make the line wider than usual"
+      }
+    },
+    [],
+    ["nl\nx", true ],
+    ["nl\nx", "" ],
+    ["back\\s" ]
+  ],
+  "a":"b c",
+  "b": {"longer_key_name": [], "longer_key_name":62.6},
+  "key":837772,
+  "longer_key_name":"a"
+}
+----
+ok: "nl\nx"
+----
+ok: -0.0
+----
+ok: null
+----
+ok: "q\"t"
+----
+ok: ["a", 0.5,  {} ]
+----
+ok: {
+ "key": [
+  [
+   ["abc", "foo(x)", "", 10000000000.0, "q\"t" ],
+   "b c",
+   "abcdefghijklmnopqrstuvwxyz",
+   {"key":10000000000.0, "b":10000000000.0, "k e y":-0.0},
+   -0.0,
+   {}
+  ]
+ ],
+ "b": ["" ],
+ "k e y": {
+  "k e y": {
+   "a": [false, 740977, 516642, -0.0, 123456789012345678901234567890 ],
+   "a":"abcdefghijklmnopqrstuvwxyz",
+   "key":""
+  },
+  "longer_key_name": {
+   "longer_key_name": {"longer_key_name":"name", "b": [], "a":"", "key":-0.0}
+  },
+  "k e y":514.72,
+  "longer_key_name": {"key":"<\/x>", "a":"name"}
+ },
+ "k e y": {
+  "k e y":666358,
+  "key": [
+   {
+	"a":10000000000.0,
+	"b":"<\/x>",
+	"k e y":"b c",
+	"longer_key_name":-0.89
+   },
+   10000000000.0,
+   123456789012345678901234567890,
+   "name",
+   "foo(x)",
+   {}
+  ],
+  "b":false,
+  "longer_key_name":"abcdefghijklmnopqrstuvwxyz",
+  "a": {"a":0.5, "k e y": ["back\\s", 123456789012345678901234567890 ]}
+ },
+ "key":-0.0
+}
+----
+err(type_error(json_term,f(x))): 
+----
+ok: []
+----
+ok: {}
+----
+ok: 476.35
+----
+err(type_error(json_term,f(x))): 
+----
+ok: [
+    {
+	"a": {
+	    "k e y":"tab\tx",
+	    "a":"foo(x)",
+	    "k e y":10000000000.0
+	},
+	"key":0.5,
+	"key": {
+	    "b": {
+		"k e y":"tab\tx",
+		"a":true,
+		"longer_key_name":"a",
+		"a":false,
+		"longer_key_name":0.5
+	    },
+	    "longer_key_name":-0.0,
+	    "a": [659.97, true, false, "é" ],
+	    "a": {}
+	}
+    },
+    "tab\tx",
+    -0.0,
+    "nl\nx",
+    {
+	"k e y":"foo(x)",
+	"longer_key_name": {
+	    "key": {},
+	    "longer_key_name":false,
+	    "k e y":10000000000.0,
+	    "key": [
+		"abcdefghijklmnopqrstuvwxyz",
+		"tab\tx",
+		-0.0,
+		"a",
+		10000000000.0
+	    ]
+	}
+    }
+]
+----
+ok: -806.43
+----
+ok: 614540
+----
+err(type_error(json_term,@(true))): 
+----
+ok: "é"
+----
+ok: "b c"
+----
+ok: []
+----
+ok: {"b":-0.0, "b":123456789012345678901234567890}
+----
+ok: ""
+----
+ok: 10000000000.0
+----
+ok: "q\"t"
+----
+ok: {}
+----
+ok: [
+  {"b":253.58, "b":0.5},
+  [
+    "<\/x>",
+    10000000000.0,
+    [ {},  ["Long value to make the line wider than usual", 0.5 ] ],
+    {}
+  ],
+  {},
+  -309.61
+]
+----
+ok: {
+  "a":"nl\nx",
+  "longer_key_name": {
+    "key": [
+      ["a", -0.0, -0.0, "f(x)", 123456789012345678901234567890 ],
+      "name",
+      {
+	"key":true,
+	"b":-0.0,
+	"a":false,
+	"a":123456789012345678901234567890,
+	"a":0.5
+      },
+      {
+	"key":74.98,
+	"b":"Long value to make the line wider than usual"
+      }
+    ],
+    "key": [
+      -0.0,
+      {},
+      [123456789012345678901234567890, 932788, 0.5, -0.0, -521121, true ]
+    ],
+    "a": [ {}, 792.38 ]
+  },
+  "key":10000000000.0,
+  "key": {"key":10000000000.0, "key":null, "a":0.5, "k e y":10000000000.0},
+  "b": [
+    null,
+    {
+      "longer_key_name":"tab\tx",
+      "b": {"key":null, "a":"<\/x>", "b":true, "a":10000000000.0},
+      "key":"q\"t",
+      "b":"name"
+    },
+    [ {"longer_key_name":"nl\nx", "b":"é", "k e y":"tab\tx"} ],
+    "tab\tx",
+    "nl\nx",
+    "nl\nx"
+  ]
+}
+----
+ok: "Long value to make the line wider than usual"
+----
+ok: [
+  {},
+  {
+    "b":994959,
+    "k e y": {"k e y":"b c", "longer_key_name": []},
+    "b":"back\\s"
+  },
+  729.48
+]
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: [
+  [
+    "abcdefghijklmnopqrstuvwxyz",
+    [ {}, true, "<\/x>", 123456789012345678901234567890 ],
+    []
+  ],
+  {
+    "a":0.5,
+    "b":"foo(x)",
+    "a": {
+      "k e y":true,
+      "b":"a",
+      "a": {"k e y":-0.0, "a":-0.0},
+      "key": {
+	"b":"Long value to make the line wider than usual",
+	"a":"Long value to make the line wider than usual"
+      },
+      "longer_key_name":"a"
+    },
+    "a":124.09
+  },
+  702959,
+  {
+    "k e y":"Long value to make the line wider than usual",
+    "k e y": {
+      "key": [-0.0, 354661 ],
+      "k e y": {"key":"<\/x>", "k e y":-788102, "b":"a"},
+      "k e y":123456789012345678901234567890,
+      "longer_key_name": {"a":"name", "k e y":false, "k e y":0.5},
+      "k e y": {"b":-558.5, "b":"abc"}
+    },
+    "a": {
+      "b":"<\/x>",
+      "k e y":-0.0,
+      "longer_key_name":true,
+      "k e y":123456789012345678901234567890
+    },
+    "k e y": []
+  },
+  false,
+  "tab\tx"
+]
+----
+ok: "é"
+----
+err(type_error(json_term,f(x))): 
+----
+ok: [ {},  {} ]
+----
+ok: "q\"t"
+----
+ok: "nl\nx"
+----
+ok: -780687
+----
+ok: -993.32
+----
+ok: {
+    "key": {"b":"abcdefghijklmnopqrstuvwxyz"}
+}
+----
+ok: "tab\tx"
+----
+err(type_error(json_term,f(x))): 
+----
+ok: [0.5,  {} ]
+----
+ok: [
+     [
+       "q\"t",
+       "name",
+       {},
+       616680
+     ]
+   ]
+----
+ok: "Long value to make the line wider than usual"
+----
+ok: {}
+----
+ok: [
+     "tab\tx",
+     {
+       "k e y":-0.0,
+       "k e y":-0.0,
+       "longer_key_name": [
+	 0.5,
+	 551.57,
+	 "back\\s",
+	 {},
+	 "q\"t"
+       ],
+       "key":false,
+       "longer_key_name": {
+	 "b":false,
+	 "longer_key_name": {
+	   "longer_key_name":"q\"t",
+	   "a":"<\/x>",
+	   "b":0.5,
+	   "b":"name",
+	   "a":"nl\nx"
+	 },
+	 "k e y":123456789012345678901234567890
+       }
+     }
+   ]
+----
+ok: -0.0
+----
+ok: {}
+----
+ok: "q\"t"
+----
+ok: "<\/x>"
+----
+ok: 123456789012345678901234567890
+----
+ok: [ [ [ ["é", 370.69 ],  ["é" ], 0.5, "back\\s", "a" ],  [], -22119 ], 123456789012345678901234567890, null, "abcdefghijklmnopqrstuvwxyz",  [ [], "q\"t", true, 123456789012345678901234567890 ] ]
+----
+ok: "name"
+----
+ok: 10000000000.0
+----
+ok: {"a":"nl\nx", "b": {"longer_key_name": {"longer_key_name":"tab\tx", "k e y": {"k e y":"q\"t"}}, "a":true, "a":"name", "longer_key_name": {"key": {"longer_key_name":"b c"}, "k e y":true, "b": {"k e y":"nl\nx", "b":-0.0, "k e y":-0.0}, "key": {"a":"b c", "key":true}, "longer_key_name": [664.62, "abcdefghijklmnopqrstuvwxyz", 10000000000.0 ]}, "longer_key_name":false}, "key":"<\/x>", "a": ["a" ], "b":-0.0}
+----
+ok: 10000000000.0
+----
+err(type_error(json_term,@(null))): 
+----
+ok: {
+     "longer_key_name":123456789012345678901234567890,
+     "k e y": []
+   }
+----
+ok: {
+     "a": {"b":false, "key": {}}
+   }
+----
+err(type_error(json_term,f(x))): 
+----
+ok: {"longer_key_name":"q\"t"}
+----
+ok: 10000000000.0
+----
+err(type_error(json_term,f(x))): 
+----
+err(type_error(json_term,@(null))): 
+----
+err(type_error(json_term,f(x))): 
+----
+ok: 123456789012345678901234567890
+----
+ok: [ [-511794 ] ]
+----
+err(type_error(json_term,f(x))): 
+----
+ok: 495145
+----
+ok: {
+ "b": {
+  "key":"<\/x>",
+  "k e y": {
+   "longer_key_name":10000000000.0,
+   "b": {"key":"back\\s", "b":"nl\nx"}
+  },
+  "key":92.34,
+  "a":"é"
+ },
+ "k e y": [
+  -880.54,
+  {"longer_key_name": {"b":815.36}},
+  [
+   {
+	"b":"a",
+	"longer_key_name":123456789012345678901234567890,
+	"a":-396.45,
+	"key":"Long value to make the line wider than usual",
+	"k e y":817843
+   }
+  ]
+ ]
+}
+----
+ok: 653.99
+----
+ok: -0.0
+----
+err(type_error(json_term,f(x))): 
+----
+ok: "back\\s"
+----
+ok: {"b": [ [ {"k e y":"name"} ], -896801,  {"longer_key_name":"b c", "b": [10000000000.0 ]},  [null,  {},  {}, "back\\s",  ["abcdefghijklmnopqrstuvwxyz", -0.0, "a" ],  [10000000000.0 ] ] ]}
+----
+ok: {
+	"key": [],
+	"key": {
+		"k e y":"nl\nx"
+	},
+	"b":-964377
+}
+----
+err(type_error(json_term,f(x))): 
+----
+ok: "back\\s"
+----
+ok: "nl\nx"
+----
+ok: "nl\nx"
+----
+ok: 0.5
+----
+ok: [ {}, "Long value to make the line wider than usual",  [] ]
+----
+ok: []
+----
+ok: {}
+----
+ok: {}
+----
+err(type_error(json_term,f(x))): 
+----
+ok: 123456789012345678901234567890
+----
+ok: -130.19
+----
+ok: -0.0
+----
+ok: "foo(x)"
+----
+ok: -106809
+----
+ok: []
+----
+ok: "nl\nx"
+----
+ok: []
+----
+ok: [ ["<\/x>" ], null,  ["q\"t",  {"longer_key_name": {"a":-0.0}, "key": {"longer_key_name":null, "b": [10000000000.0 ], "longer_key_name":-0.0}, "a":"a"} ], 0.5 ]
+----
+ok: "abcdefghijklmnopqrstuvwxyz"
+----
+ok: [
+  [
+    {
+      "longer_key_name":"tab\tx",
+      "key":-523611,
+      "b": {
+	"a":"<\/x>",
+	"a":201.78,
+	"k e y":"back\\s",
+	"b":"b c"
+      },
+      "k e y":10000000000.0,
+      "b":92568
+    }
+  ]
+]
+----
+ok: 107328
+----
+ok: "a"
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: [ {}, -0.0 ]
+----
+ok: "abcdefghijklmnopqrstuvwxyz"
+----
+ok: {
+	"key":"name",
+	"k e y": [
+		 [
+			 {},
+			 [
+				"é"
+			],
+			 {
+				"b":"<\/x>",
+				"key":123456789012345678901234567890
+			}
+		],
+		 {
+			"k e y":123456789012345678901234567890,
+			"key":"q\"t",
+			"longer_key_name": {
+				"longer_key_name":-760874,
+				"k e y":"nl\nx",
+				"key":0.5,
+				"k e y":0.5,
+				"longer_key_name":"tab\tx"
+			},
+			"key":123456789012345678901234567890,
+			"key": {
+				"a":-0.0,
+				"key":231707,
+				"key":112.93
+			}
+		},
+		 [
+			 {
+				"k e y":123456789012345678901234567890
+			}
+		],
+		"tab\tx"
+	],
+	"a": [
+		"abcdefghijklmnopqrstuvwxyz"
+	],
+	"longer_key_name":"back\\s",
+	"b": [
+		 {
+			"longer_key_name":-0.0,
+			"a": {},
+			"key":true,
+			"key": [
+				 [
+					"é",
+					"b c",
+					10000000000.0,
+					"name"
+				],
+				"Long value to make the line wider than usual",
+				"Long value to make the line wider than usual",
+				-192074,
+				-128590
+			]
+		},
+		 {
+			"longer_key_name":0.5,
+			"longer_key_name": [
+				false,
+				"<\/x>"
+			]
+		},
+		 [
+			 {
+				"longer_key_name": [
+					123456789012345678901234567890
+				],
+				"k e y":"a",
+				"key":"a"
+			}
+		],
+		123456789012345678901234567890,
+		-561038,
+		false
+	]
+}
+----
+ok: 0.5
+----
+err(type_error(json_term,@(true))): 
+----
+ok: 938.25
+----
+ok: {
+	"a": {
+		"b":false,
+		"key": [
+			 [
+				 [
+					null,
+					"a"
+				],
+				"b c"
+			],
+			 [
+				-949.92,
+				"abcdefghijklmnopqrstuvwxyz",
+				"<\/x>",
+				false,
+				"abc",
+				"a"
+			],
+			"name",
+			 [
+				123456789012345678901234567890,
+				"<\/x>",
+				0.5
+			],
+			 {
+				"b":10000000000.0,
+				"longer_key_name":0.5,
+				"b":123456789012345678901234567890
+			},
+			 {
+				"k e y":false,
+				"longer_key_name":"nl\nx"
+			}
+		],
+		"k e y":"nl\nx",
+		"longer_key_name": {
+			"k e y":-759.84,
+			"a": {
+				"key":"nl\nx",
+				"b":123456789012345678901234567890
+			},
+			"a":"",
+			"b":"nl\nx",
+			"longer_key_name": [
+				"é",
+				0.5
+			]
+		}
+	}
+}
+----
+ok: 10000000000.0
+----
+ok: 10000000000.0
+----
+ok: -942.29
+----
+ok: 0.5
+----
+err(type_error(json_term,f(x))): 
+----
+ok: -735.61
+----
+ok: ["tab\tx", -829358 ]
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: 0.5
+----
+ok: []
+----
+ok: {
+  "b":0.5,
+  "key": [
+    "<\/x>",
+    123456789012345678901234567890,
+    {
+      "longer_key_name":true,
+      "key":748087,
+      "longer_key_name": ["Long value to make the line wider than usual", "a" ]
+    }
+  ],
+  "k e y":16.81
+}
+----
+err(type_error(json_term,f(x))): 
+----
+ok: ["nl\nx" ]
+----
+ok: [
+  [],
+  "foo(x)",
+  10000000000.0
+]
+----
+ok: {
+  "longer_key_name":false
+}
+----
+ok: "back\\s"
+----
+ok: {}
+----
+ok: 10000000000.0
+----
+ok: [0.5 ]
+----
+ok: ""
+----
+ok: {"k e y":"name"}
+----
+ok: {}
+----
+ok: null
+----
+ok: {
+  "k e y":"nl\nx",
+  "a":123456789012345678901234567890,
+  "longer_key_name": {},
+  "a":369062
+}
+----
+ok: {"longer_key_name":"a"}
+----
+ok: [123456789012345678901234567890 ]
+----
+ok: {}
+----
+ok: "a"
+----
+ok: "name"
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: "name"
+----
+ok: "abcdefghijklmnopqrstuvwxyz"
+----
+ok: "q\"t"
+----
+ok: "Long value to make the line wider than usual"
+----
+ok: {"key":"a"}
+----
+ok: "b c"
+----
+ok: {
+	"k e y":-0.0,
+	"k e y":"abcdefghijklmnopqrstuvwxyz",
+	"longer_key_name": [
+		"b c",
+		 [
+			"",
+			 {},
+			-0.0,
+			0.5,
+			 [
+				"q\"t",
+				"",
+				"abcdefghijklmnopqrstuvwxyz",
+				10000000000.0
+			]
+		],
+		 {
+			"b":10000000000.0
+		},
+		 [
+			 {},
+			 [
+				null,
+				"nl\nx"
+			]
+		]
+	]
+}
+----
+ok: {}
+----
+ok: {
+  "longer_key_name": [
+    -0.0,
+    [
+      "Long value to make the line wider than usual",
+      [],
+      "back\\s",
+      {
+	"longer_key_name": [123456789012345678901234567890 ],
+	"longer_key_name": ["q\"t", 10000000000.0, 10000000000.0, -0.0, -0.0 ],
+	"key":"back\\s",
+	"a":"tab\tx",
+	"b":"q\"t"
+      },
+      "back\\s"
+    ],
+    123456789012345678901234567890,
+    [
+      {"key":917.46, "key":10000000000.0, "k e y":null},
+      false,
+      -608.47
+    ],
+    "tab\tx"
+  ],
+  "k e y":0.5
+}
+----
+ok: {"k e y":"", "longer_key_name": {"k e y":"<\/x>"}, "k e y":"<\/x>"}
+----
+ok: "back\\s"
+----
+ok: -0.0
+----
+err(type_error(json_term,f(x))): 
+----
+ok: {}
+----
+ok: []
+----
+ok: ["nl\nx" ]
+----
+ok: null
+----
+err(type_error(json_term,@(true))): 
+----
+ok: {
+    "longer_key_name":"Long value to make the line wider than usual",
+    "k e y": {
+	"key":660228,
+	"b": {
+	    "k e y": {
+		"longer_key_name":"b c",
+		"a":"q\"t",
+		"k e y":-447214,
+		"longer_key_name":false,
+		"k e y": [
+		    null,
+		    "a",
+		    10000000000.0,
+		    "nl\nx"
+		]
+	    },
+	    "longer_key_name": {
+		"k e y":"Long value to make the line wider than usual",
+		"k e y": [
+		    false,
+		    "name",
+		    0.5,
+		    -575612
+		],
+		"a":123456789012345678901234567890,
+		"longer_key_name":"abcdefghijklmnopqrstuvwxyz"
+	    },
+	    "k e y": {
+		"longer_key_name":-0.0,
+		"b":-454376
+	    },
+	    "b":"Long value to make the line wider than usual"
+	}
+    },
+    "longer_key_name":123456789012345678901234567890,
+    "a": [
+	123456789012345678901234567890,
+	-825171,
+	[],
+	["", false, "<\/x>", -369840 ]
+    ],
+    "a": []
+}
+----
+ok: []
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: []
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: "name"
+----
+ok: {"b":null}
+----
+ok: [
+    0.5,
+    "abcdefghijklmnopqrstuvwxyz",
+    true
+]
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: 10000000000.0
+----
+ok: "Long value to make the line wider than usual"
+----
+ok: -546250
+----
+ok: 123456789012345678901234567890
+----
+ok: {
+     "key": {
+       "key": {},
+       "b": ["nl\nx", true ],
+       "b": {
+	 "key": [
+	   10000000000.0,
+	   "é",
+	   -525.13,
+	   615377,
+	   0.5
+	 ],
+	 "longer_key_name":"name",
+	 "longer_key_name": [
+	   "a",
+	   818.05,
+	   123456789012345678901234567890,
+	   "Long value to make the line wider than usual",
+	   -483323
+	 ]
+       },
+       "key": [
+	 "back\\s",
+	 [
+	   123456789012345678901234567890,
+	   626.03,
+	   "a",
+	   "Long value to make the line wider than usual"
+	 ],
+	 "q\"t",
+	 {
+	   "k e y":null,
+	   "longer_key_name":123456789012345678901234567890
+	 }
+       ],
+       "key": [
+	 508.78,
+	 "b c",
+	 "back\\s",
+	 {
+	   "b":"back\\s",
+	   "a":"é",
+	   "b":-0.0
+	 }
+       ]
+     },
+     "k e y": {
+       "b":"<\/x>",
+       "b":-542172,
+       "k e y":"é",
+       "a": {
+	 "k e y":233686,
+	 "a": []
+       }
+     }
+   }
+----
+ok: []
+----
+ok: {
+  "key": {
+    "b": {
+      "longer_key_name": {
+	"k e y":123456789012345678901234567890,
+	"key":0.5,
+	"b":"name",
+	"a":332.31,
+	"key":0.5
+      },
+      "b":"tab\tx",
+      "longer_key_name":"q\"t"
+    },
+    "longer_key_name":123456789012345678901234567890
+  }
+}
+----
+ok: {"b":703.94, "longer_key_name":693454, "key":0.5}
+----
+ok: {
+     "a":"name",
+     "longer_key_name":-18.7,
+     "key": {
+       "k e y": [
+	 "abcdefghijklmnopqrstuvwxyz"
+       ],
+       "b":0.5,
+       "key":"b c",
+       "a":914.46
+     },
+     "a": [
+       [],
+       [
+	 "b c",
+	 {
+	   "k e y":842.11,
+	   "b":123456789012345678901234567890,
+	   "key":"abc"
+	 },
+	 {
+	   "key":true,
+	   "k e y":-953.27,
+	   "a": [
+	     [
+	       123456789012345678901234567890
+	     ]
+	   ]
+	 }
+       ],
+       true,
+       [],
+       false
+     ]
+   }
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: "back\\s"
+----
+err(type_error(json_term,@(true))): 
+----
+ok: "q\"t"
+----
+ok: "b c"
+----
+err(type_error(json_term,@(null))): 
+----
+ok: [ {"k e y":10000000000.0} ]
+----
+ok: {}
+----
+err(type_error(json_term,f(x))): 
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: "é"
+----
+ok: "é"
+----
+ok: "a"
+----
+ok: true
+----
+ok: {
+  "a": [
+    "abcdefghijklmnopqrstuvwxyz",
+    0.5,
+    [
+      {"key":"abcdefghijklmnopqrstuvwxyz", "longer_key_name":316323},
+      [-0.0, "abc" ],
+      641.64,
+      ["b c", "q\"t", "a", "a", -427.16 ]
+    ],
+    {"longer_key_name":0.5}
+  ],
+  "b":-0.0,
+  "a": {"a":"", "b":"back\\s", "b":"<\/x>", "b":0.5}
+}
+----
+ok: "b c"
+----
+ok: [-0.0, "tab\tx", 123456789012345678901234567890 ]
+----
+ok: {"k e y": {}}
+----
+ok: [
+	"Long value to make the line wider than usual",
+	"b c",
+	 {
+		"b":-0.0
+	}
+]
+----
+ok: {"b": {}, "b":"<\/x>"}
+----
+ok: "tab\tx"
+----
+ok: 123456789012345678901234567890
+----
+ok: false
+----
+ok: 401.66
+----
+ok: 123456789012345678901234567890
+----
+ok: [
+  94.07,
+  {
+    "key": {
+      "k e y": [],
+      "k e y":"",
+      "k e y":"Long value to make the line wider than usual"
+    }
+  },
+  "abcdefghijklmnopqrstuvwxyz",
+  [
+    "q\"t",
+    [],
+    "é",
+    [
+      {
+	"b":"name",
+	"longer_key_name":"<\/x>",
+	"key":708.47,
+	"b":"é"
+      },
+      123456789012345678901234567890,
+      {"key":662.8}
+    ],
+    10000000000.0,
+    "name"
+  ],
+  -0.0,
+  false
+]
+----
+err(type_error(json_term,@(null))): 
+----
+ok: {}
+----
+ok: {"longer_key_name":false}
+----
+err(type_error(json_term,f(x))): 
+----
+ok: -0.0
+----
+ok: 123456789012345678901234567890
+----
+ok: [
+  [
+    {
+      "longer_key_name":10000000000.0,
+      "key":123456789012345678901234567890,
+      "k e y":0.5,
+      "k e y": {
+	"key": [
+	  -0.0,
+	  0.5,
+	  142673
+	],
+	"key":"é",
+	"k e y":123456789012345678901234567890
+      },
+      "k e y": []
+    },
+    {
+      "longer_key_name":123456789012345678901234567890
+    },
+    "q\"t",
+    -93364
+  ],
+  "q\"t",
+  -0.0,
+  {
+    "k e y":"a",
+    "longer_key_name":586932,
+    "key":10000000000.0
+  },
+  "é"
+]
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: 123456789012345678901234567890
+----
+ok: {
+  "longer_key_name":-656.26,
+  "key": {},
+  "k e y": {
+    "b": {
+      "a": {"key":"a"},
+      "b": [0.5, 123456789012345678901234567890, -0.0, "tab\tx" ]
+    },
+    "k e y":0.5,
+    "k e y":123456789012345678901234567890,
+    "a":"",
+    "k e y":false
+  },
+  "a": [436.33, 123456789012345678901234567890, false ]
+}
+----
+ok: "é"
+----
+ok: "q\"t"
+----
+ok: [
+     -721.28,
+     {
+       "longer_key_name":10000000000.0
+     },
+     [
+       "",
+       -0.0,
+       [
+	 -0.0,
+	 [
+	   "<\/x>",
+	   [
+	     "é",
+	     540.51,
+	     10000000000.0,
+	     -813.93,
+	     10000000000.0,
+	     475173
+	   ]
+	 ],
+	 [
+	   "back\\s",
+	   "",
+	   "",
+	   -565632
+	 ],
+	 "a",
+	 [
+	   "b c",
+	   123456789012345678901234567890,
+	   false
+	 ]
+       ],
+       [
+	 [true, 10000000000.0 ],
+	 10000000000.0,
+	 false,
+	 {
+	   "longer_key_name":"a",
+	   "k e y":null
+	 },
+	 "Long value to make the line wider than usual"
+       ]
+     ],
+     {
+       "b":10000000000.0,
+       "longer_key_name":"name"
+     },
+     {},
+     [
+       "Long value to make the line wider than usual",
+       123456789012345678901234567890,
+       123456789012345678901234567890,
+       true
+     ]
+   ]
+----
+ok: "<\/x>"
+----
+err(type_error(json_term,f(x))): 
+----
+ok: true
+----
+ok: "f(x)"
+----
+ok: [ {"a": {"b": [ ["é", "foo(x)" ], "b c", "é", 371034, "q\"t" ], "longer_key_name":"back\\s", "a":10000000000.0, "key": {"key":10000000000.0, "key":-788.97, "b":"nl\nx"}}, "key": [ {"k e y":123456789012345678901234567890, "a":-55.13, "b":"back\\s", "a":"name", "a":false}, 0.5, -0.0, "back\\s",  [] ], "a": [ [10000000000.0, -0.0, -0.0, -856.69, 10000000000.0, 100994 ], "nl\nx",  [] ]},  {"key": [true, "a" ], "k e y":"q\"t", "b":"q\"t"}, 10000000000.0,  {} ]
+----
+ok: 895518
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: "é"
+----
+ok: {
+    "b": {
+	"longer_key_name":"é",
+	"b":"q\"t",
+	"longer_key_name":false,
+	"k e y":-0.0
+    },
+    "a": [],
+    "a":123456789012345678901234567890,
+    "a":"abcdefghijklmnopqrstuvwxyz"
+}
+----
+ok: "tab\tx"
+----
+err(type_error(json_term,@(foo))): 
+----
+err(type_error(json_term,f(x))): 
+----
+ok: [
+  "é",
+  [
+    0.5,
+    {
+      "longer_key_name":"Long value to make the line wider than usual",
+      "a":"foo(x)",
+      "longer_key_name": {
+	"b":"abcdefghijklmnopqrstuvwxyz",
+	"k e y":"name",
+	"key":-985.04,
+	"k e y":"é"
+      },
+      "longer_key_name": {"key":-23705, "longer_key_name":"b c"}
+    },
+    {
+      "b":"Long value to make the line wider than usual",
+      "a":"a",
+      "a":"@(foo)",
+      "a":-0.0,
+      "k e y":328.1
+    }
+  ],
+  false,
+  true,
+  [ [] ]
+]
+----
+ok: "tab\tx"
+----
+ok: "back\\s"
+----
+ok: []
+----
+ok: "name"
+----
+ok: -0.0
+----
+ok: 0.5
+----
+err(type_error(json_term,f(x))): 
+----
+ok: "é"
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: {}
+----
+ok: 294010
+----
+ok: "q\"t"
+----
+ok: 10000000000.0
+----
+ok: {
+	"longer_key_name":"nl\nx",
+	"a": [
+		 {
+			"key":"b c",
+			"key": {},
+			"b":-843.55
+		},
+		null,
+		0.5
+	]
+}
+----
+ok: {"b":"abcdefghijklmnopqrstuvwxyz"}
+----
+ok: [
+  [
+    {
+      "key": [830592 ],
+      "longer_key_name": {"b":-0.0},
+      "b": {
+	"a":"q\"t",
+	"a":null,
+	"b":"é",
+	"longer_key_name":123456789012345678901234567890
+      },
+      "key": [-308.16, -74978, "a", -0.0 ]
+    },
+    "a"
+  ]
+]
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: "<\/x>"
+----
+ok: "name"
+----
+ok: {}
+----
+ok: "name"
+----
+ok: ""
+----
+ok: [123456789012345678901234567890 ]
+----
+ok: 10000000000.0
+----
+ok: "name"
+----
+ok: []
+----
+ok: "tab\tx"
+----
+ok: {}
+----
+ok: [
+  [
+    "<\/x>",
+    [
+      "name",
+      [
+	"back\\s",
+	743.62,
+	"tab\tx",
+	"Long value to make the line wider than usual",
+	0.5,
+	"Long value to make the line wider than usual"
+      ],
+      [ [-0.0, -0.0, "b c" ], "abc" ],
+      ["<\/x>", "é", 736872 ]
+    ],
+    766376
+  ]
+]
+----
+ok: "<\/x>"
+----
+err(type_error(json_term,f(x))): 
+----
+ok: {
+  "key":"a",
+  "key": {
+    "k e y": {"b":"nl\nx"},
+    "a": {"b": {"key":"é", "a":"name", "a": ["b c", -0.0, "tab\tx" ]}},
+    "k e y":-207877,
+    "key": {
+      "b":123456789012345678901234567890,
+      "a":4656,
+      "key": {"key":10000000000.0}
+    }
+  }
+}
+----
+err(type_error(json_term,@(foo))): 
+----
+ok: {}
+----
+ok: {
+  "key":"é",
+  "k e y":10000000000.0
+}
+----
+ok: [
+ {
+  "longer_key_name": {"a": ["<\/x>", 0.5 ], "k e y":"é"},
+  "a": [
+   "back\\s",
+   {},
+   {
+	"k e y":"a",
+	"longer_key_name":"Long value to make the line wider than usual",
+	"longer_key_name":"",
+	"b":681901
+   },
+   "b c",
+   [
+	 [
+	 -937.66,
+	 123456789012345678901234567890,
+	 true,
+	 279.82,
+	 544.65,
+	 "Long value to make the line wider than usual"
+	],
+	0.5,
+	0.5,
+	"abcdefghijklmnopqrstuvwxyz",
+	-136.77,
+	"abcdefghijklmnopqrstuvwxyz"
+   ],
+   "tab\tx"
+  ]
+ },
+ false
+]
+----
+ok: ""
+----
+ok: {}
+----
+ok: {
+    "longer_key_name": {
+	"longer_key_name": {},
+	"k e y":-0.0,
+	"a":123456789012345678901234567890,
+	"a":"q\"t"
+    },
+    "a":"nl\nx",
+    "k e y":false
+}
+----
+ok: 10000000000.0
+----
+ok: "back\\s"
+----
+ok: [
+  {
+    "k e y": {
+      "longer_key_name": ["abcdefghijklmnopqrstuvwxyz", 0.5, 10000000000.0 ],
+      "key":"abcdefghijklmnopqrstuvwxyz",
+      "a": {"a":-0.0, "key":null, "b":10000000000.0},
+      "key":"b c"
+    },
+    "b":"name"
+  }
+]
+----
+ok: [
+    [
+	{
+	    "key":"é",
+	    "a": {
+		"k e y": ["b c", "q\"t" ],
+		"k e y":10000000000.0,
+		"a":"abc"
+	    },
+	    "k e y":"b c",
+	    "a": {},
+	    "a": {
+		"longer_key_name":0.5,
+		"b":123456789012345678901234567890,
+		"b":"<\/x>"
+	    }
+	},
+	{
+	    "longer_key_name":"<\/x>",
+	    "k e y": {"longer_key_name":"<\/x>"},
+	    "key": [
+		-0.0,
+		true,
+		10000000000.0,
+		659071,
+		0.5,
+		"é"
+	    ]
+	},
+	{"k e y": {}},
+	[
+	    {
+		"a": [
+		    123456789012345678901234567890,
+		    [
+			10000000000.0,
+			"abcdefghijklmnopqrstuvwxyz",
+			true,
+			"Long value to make the line wider than usual",
+			[
+			    true,
+			    null,
+			    "",
+			    "name",
+			    false,
+			    "<\/x>"
+			],
+			"q\"t"
+		    ],
+		    "tab\tx",
+		    -0.0,
+		    "abc",
+		    false
+		],
+		"key": [],
+		"longer_key_name":511311,
+		"b":"name",
+		"a":"q\"t"
+	    },
+	    "tab\tx",
+	    "a",
+	    "name"
+	]
+    ],
+    false
+]
+----
+ok: [
+  [
+    {
+      "key": [],
+      "key":-967.77,
+      "k e y": {
+	"a":297992,
+	"k e y": [-556157, true ],
+	"key":123456789012345678901234567890
+      }
+    },
+    [],
+    [
+      null,
+      ["back\\s", "tab\tx" ],
+      [-0.0 ],
+      [
+	-144566,
+	"a",
+	"a",
+	false,
+	336.04,
+	"Long value to make the line wider than usual"
+      ]
+    ],
+    "Long value to make the line wider than usual"
+  ]
+]
+----
+ok: [
+ {
+  "longer_key_name":true,
+  "k e y": [10000000000.0 ],
+  "k e y": {
+   "longer_key_name": [
+	"b c",
+	123456789012345678901234567890,
+	"foo(x)",
+	123456789012345678901234567890
+   ],
+   "a":111.54,
+   "longer_key_name":-0.0,
+   "longer_key_name":"",
+   "b":"foo(x)"
+  },
+  "k e y":123456789012345678901234567890,
+  "longer_key_name":"name"
+ }
+]
+----
+ok: -0.0
+----
+err(type_error(json_term,@(true))): 
+----
+ok: "nl\nx"
+----
+ok: {"b":true}
+----
+err(type_error(json_term,@(null))): 
+----
+ok: 884.92
+----
+err(type_error(json_term,@(true))): 
+----
+ok: -0.0
+----
+ok: "q\"t"
+----
+ok: {"key": {}, "b": {}}
+----
+ok: [ [], -312.01 ]
+----
+ok: 10000000000.0
+----
+ok: ["q\"t", 10000000000.0 ]
+----
+ok: {"longer_key_name": {"k e y":896735, "k e y":"<\/x>"}, "a":false}
+----
+ok: [
+  [],
+  -822531,
+  {
+    "a": [ {"k e y":10000000000.0} ],
+    "longer_key_name": {},
+    "longer_key_name": [
+      false,
+      {},
+      [528.25, -337.36,  [-289.62, 350.31, "a", "" ], "name", 544.48, "é" ]
+    ],
+    "b":"abcdefghijklmnopqrstuvwxyz",
+    "k e y": []
+  },
+  -0.0,
+  "nl\nx"
+]
+----
+ok: []
+----
+ok: "<\/x>"
+----

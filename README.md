@@ -1028,7 +1028,7 @@ Fehlerpositionen eingeschlossen:
 
 Unterschiede zu SWI:
 
-  * Ein UTF-16-Ersatzpaar `😀` wird ein Zeichen (😀). Ein
+  * Ein UTF-16-Ersatzpaar `\ud83d\ude00` wird ein Zeichen (😀). Ein
     einzelnes Ersatzzeichen wird U+FFFD. SWI 9.0.4 behält beides als
     einzelne Codes.
   * PrologEx hat keinen Stringtyp. `value_string_as(string)` und
@@ -1037,6 +1037,16 @@ Unterschiede zu SWI:
     `value_string_as(chars)`.
   * Floats schreibt PrologEx als `1.0e100`, SWI als `1.0e+100`. Beides
     ist gültiges JSON.
+  * Die Spalte im Fehlerkontext zählt Tab und Wagenrücklauf als je ein
+    Zeichen, wie `line_position/2` hier überall. SWI springt beim Tab zum
+    nächsten Tabstopp und beginnt nach `\r` wieder bei 0.
+  * `atom_json_term('[]', T, [])` liest das leere Array, denn `'[]'` und
+    `[]` sind hier dasselbe Atom.
+
+Abgesehen von diesen Punkten verhalten sich Lesen und Schreiben wie bei
+SWI. Geprüft ist das an etwa 10 000 zufällig erzeugten, oft kaputten
+JSON-Texten und 2000 Termen mit zufälligen Optionen. Eine Auswahl
+davon steht mit SWIs Ausgabe in `test/fixtures/json`.
 
 **`library(serialization/json)`** ist Scryers Bibliothek (Aram Panasenco,
 BSD-3) mit `json_chars//1`. Sie parst und erzeugt JSON als Zeichenliste,

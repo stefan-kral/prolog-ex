@@ -81,7 +81,8 @@ defmodule PrologEx.Builtins.JsonPrims do
 
   defp text!({:atom, s}), do: s
   defp text!(n) when is_number(n), do: PrologEx.Writer.format(n)
-  defp text!([]), do: ""
+  # [] ist hier auch das Atom '[]' (JSON: leeres Array)
+  defp text!([]), do: "[]"
 
   defp text!(l) when is_list(l) do
     Enum.map_join(l, fn
