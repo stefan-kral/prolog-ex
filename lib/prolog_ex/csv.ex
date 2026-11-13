@@ -38,21 +38,28 @@ defmodule PrologEx.Csv do
   # --- Lesen ---------------------------------------------------------------------
 
   @doc """
-  Ganzen Text lesen: `{:ok, [felder]}` oder `:fail` (wie SWIs csv//2 auf
-  einer Liste)
+  Ganzen Text lesen: `{:ok, [felder]}` oder `{:fail, [felder]}` mit den
+  Zeilen vor der ersten, die kein CSV ist (SWI prüft deren Stelligkeit
+  zuerst)
   """
   def parse(text, o) do
     text = if o.skip_header, do: skip_header(text, o.skip_header), else: text
     rows(text, o, [])
-  catch
-    :csv_fail -> :fail
   end
 
   defp rows("", _o, acc), do: {:ok, Enum.reverse(acc)}
 
   defp rows(text, o, acc) do
-    {fields, rest} = row(text, o, [])
-    rows(rest, o, [fields | acc])
+    case catch_row(text, o) do
+      {fields, rest} -> rows(rest, o, [fields | acc])
+      :fail -> {:fail, Enum.reverse(acc)}
+    end
+  end
+
+  defp catch_row(text, o) do
+    row(text, o, [])
+  catch
+    :csv_fail -> :fail
   end
 
   @doc "Eine Zeile (schon ohne Zeilenende-Fortsetzung): Felder oder :fail"
@@ -244,7 +251,8 @@ defmodule PrologEx.Csv do
 
   @doc """
   Einen Datensatz vom Stream lesen wie SWIs csv_read_row/3: Zeilen (ohne
-  Zeilenende), bis die Zahl der `"` gerade ist; `:eof` am Ende
+  Zeilenende), bis die Zahl der `"` gerade ist; `:eof` am Ende, `:fail`
+  wenn das Ende mitten in einem Feld in `"…"` kommt (wie SWI)
   """
   def read_record(id, o) do
     case read_line(id) do
@@ -258,7 +266,7 @@ defmodule PrologEx.Csv do
       text
     else
       case read_line(id) do
-        :eof -> text
+        :eof -> :fail
         line -> more_lines(id, text <> "\n" <> line, o)
       end
     end

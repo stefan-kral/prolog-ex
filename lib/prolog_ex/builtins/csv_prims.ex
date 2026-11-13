@@ -30,22 +30,23 @@ defmodule PrologEx.Builtins.CsvPrims do
 
     match? = Enum.at(rargs, 7) == a("true")
 
-    case Csv.parse(text, o) do
-      :fail ->
+    {status, field_rows} = Csv.parse(text, o)
+
+    # wie SWI Zeile für Zeile: eine falsche Stelligkeit vor der Stelle, an
+    # der der Text kein CSV mehr ist, ist ein Fehler
+    case Csv.rows_terms(field_rows, o.functor, arity, match?) do
+      {:arity, expected, actual} ->
+        raise_arity(expected, actual)
+
+      _ when status == :fail ->
         :fail
 
-      {:ok, field_rows} ->
-        case Csv.rows_terms(field_rows, o.functor, arity, match?) do
-          {:ok, terms, nil} ->
-            {:unify, [{rows, terms}]}
+      {:ok, terms, nil} ->
+        {:unify, [{rows, terms}]}
 
-          {:ok, terms, first} ->
-            {_, _, [_, _, _, _, _, _, ar, _, _]} = PrologEx.unmark_top(deref(record))
-            {:unify, [{rows, terms}, {ar, first}]}
-
-          {:arity, expected, actual} ->
-            raise_arity(expected, actual)
-        end
+      {:ok, terms, first} ->
+        {_, _, [_, _, _, _, _, _, ar, _, _]} = PrologEx.unmark_top(deref(record))
+        {:unify, [{rows, terms}, {ar, first}]}
     end
   end
 
@@ -58,6 +59,9 @@ defmodule PrologEx.Builtins.CsvPrims do
     case Csv.read_record(id, o) do
       :eof ->
         {:unify, [{fields, a("end_of_file")}]}
+
+      :fail ->
+        :fail
 
       text ->
         case Csv.parse_row(text, o) do

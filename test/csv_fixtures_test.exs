@@ -41,6 +41,16 @@ defmodule PrologEx.CsvFixturesTest do
     assert_same(out, expected("scryer"))
   end
 
+  # zufällig erzeugte (oft kaputte) CSV-Texte und Zeilen: csv//2 auf
+  # Listen, csv_read_file_row/3 (zeilenweise), Schreiben; ohne case(up)
+  # mit Nicht-ASCII (SWI je nach Locale) und ohne Felder, die in SWI 9.0.4
+  # name/2 zerlegen (name(A, [56,32,9,8364]) gibt dort Unsinn)
+  for name <- ["fuzz_parse", "fuzz_rows", "fuzz_write"] do
+    test "Zufallsfälle wie SWI: #{name}", c do
+      assert_same(run_fixture(c, unquote(name)), expected(unquote(name)))
+    end
+  end
+
   defp assert_same(out, exp) do
     a = String.split(out, "\n")
     b = String.split(exp, "\n")

@@ -1171,6 +1171,14 @@ Rows = [row(name,alter),row('Anna',31),row('B, C',2.5)].
     SWIs Ausgaben getestet. Dazu kommen Programme in `test/fixtures/csv`,
     die auch in SWI 9.0.4 bzw. Scryer liefen; ihre Ausgaben sind die
     Erwartung.
+  * Zusätzlich gegen SWI bzw. Scryer abgeglichen an einigen tausend
+    zufälligen, oft kaputten CSV-Texten. Geprüft sind alle Wege: Listen,
+    faule Listen, `csv_read_file_row/3`, Schreiben und Scryers
+    `parse_csv//2`. Auch die Feinheiten stimmen:
+    * Eine falsche Stelligkeit vor einer Zeile, die kein CSV ist, ist ein
+      Fehler; die kaputte Zeile danach lässt das Lesen nur scheitern.
+    * Endet die Datei mitten in einem Feld in `"…"`, liefert
+      `csv_read_file_row/3` die Zeile nicht.
   * Als Stream gehen wie bei SWI auch `current_output` und
     `current_input`.
   * 100 000 Zeilen (3 MB) lesen dauert 0,7 s, schreiben 0,56 s; SWI
