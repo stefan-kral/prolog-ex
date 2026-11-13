@@ -9,6 +9,7 @@ defmodule PrologEx.JitTest do
   :- use_module(library(lists)).
   :- use_module(library(iso_ext)).
   :- use_module(library(swi)).
+  :- use_module(library(arithmetic)).
   fib(0, 0).
   fib(1, 1).
   fib(N, F) :- N > 1, A is N-1, B is N-2, fib(A, FA), fib(B, FB), F is FA+FB.
@@ -196,6 +197,11 @@ defmodule PrologEx.JitTest do
   cntin([X|Xs], L, N) :- cntin(Xs, L, N0), ( mem(X, L) -> N is N0 + 1 ; N = N0 ).
   sqin(N, L) :- btw(1, N, X), X * X =:= L, !.
   pairin(K, L, V) :- ( mem(K-V0, L) -> V = V0 ; V = none ).
+  % Bits: bit_is_set/2 (arithmetic) und getbit/2
+  bcount(_, -1, C, C) :- !.
+  bcount(N, K, C0, C) :- ( bit_is_set(N, K) -> C1 is C0 + 1 ; C1 = C0 ), K1 is K - 1, bcount(N, K1, C1, C).
+  gsum(_, -1, S, S) :- !.
+  gsum(N, K, S0, S) :- S1 is S0 + getbit(N, K), K1 is K - 1, gsum(N, K1, S1, S).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -334,7 +340,9 @@ defmodule PrologEx.JitTest do
           {"incl", 3},
           {"notin", 2},
           {"cntin", 3},
-          {"pairin", 3}
+          {"pairin", 3},
+          {"bcount", 4},
+          {"gsum", 4}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
 
@@ -752,7 +760,15 @@ defmodule PrologEx.JitTest do
         "pairin(b, [a-1, b-2, b-3], V)",
         "pairin(c, [a-1, b-2], V)",
         "pairin(b, [a-1, B-2], V)",
-        "catch(incl(1, [a|_], R), error(E, _), true)"
+        "catch(incl(1, [a|_], R), error(E, _), true)",
+        "bcount(1000, 20, 0, C)",
+        "N is 7^300, bcount(N, 900, 0, C), D is popcount(N), C == D",
+        "N is -(7^300), bcount(N, 900, 0, C)",
+        "inf(bcount(1000, 20, 0, _), I)",
+        "gsum(1000, 20, 0, S)",
+        "N is 2^200 + 5, gsum(N, 210, 0, S)",
+        "catch(bcount(a, 3, 0, C), error(E, _), true)",
+        "catch(gsum(1, 0, 0.5, S), error(E, _), true)"
       ] do
     test q, c do
       Reader.put_current(c.reader)

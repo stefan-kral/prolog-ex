@@ -74,7 +74,7 @@ defmodule PrologEx.Arith do
            log10 msb popcount random random_float round sign sin sinh sqrt succ tan
            tanh truncate rational rationalize numerator denominator)
   @ops2 ~w(* ** + - / // /\\ << >> \\/ ^ atan atan2 copysign div gcd log max min
-           mod plus rem xor rdiv)
+           mod plus rem xor rdiv getbit)
 
   # Signaturen der auswertbaren Funktoren für evaluable_property/2:
   # {Name, Stelligkeit} => [{Argumenttypen, Ergebnistyp}] mit den Typen
@@ -83,7 +83,7 @@ defmodule PrologEx.Arith do
   @float1 ~w(acos acosh acot asin asinh atan atanh cos cosh cot exp log log2 log10 sin
              sinh sqrt tan tanh)
   @int1 ~w(\\ lsb msb popcount random succ)
-  @int2 ~w(// /\\ << >> \\/ div gcd mod rem xor)
+  @int2 ~w(// /\\ << >> \\/ div gcd mod rem xor getbit)
   @templates Map.merge(
                %{
                  {"pi", 0} => [{[], :float}],
@@ -539,6 +539,7 @@ defmodule PrologEx.Arith do
   defp eval2("^", x, y), do: pow(x, y)
 
   defp eval2(">>", x, y), do: Bitwise.bsr(int!(x), int!(y))
+  defp eval2("getbit", x, y), do: getbit(int!(x), nonneg_int!(int!(y)))
 
   defp eval2("<<", x, y) when is_integer(x) and is_integer(y) and y <= 65_536,
     do: Bitwise.bsl(x, y)
@@ -635,6 +636,31 @@ defmodule PrologEx.Arith do
   end
 
   # --- Hilfen -------------------------------------------------------------
+
+  defp nonneg_int!(x) when x >= 0, do: x
+  defp nonneg_int!(x), do: Error.type!("not_less_than_zero", x)
+
+  @small Bitwise.bsl(1, 59)
+
+  @doc """
+  Bit K (≥ 0) von N, 0 oder 1 (negative N im Zweierkomplement): wie
+  (N >> K) /\\ 1, aber ohne die verschobene Zahl, wo das teurer ist. Für
+  große N der kürzere Weg: K klein – N /\\ (1 << K) (eine Maske aus K Bits),
+  K groß – (N >> K) /\\ 1 (der Rest oberhalb von K), über dem Betrag nur das
+  Vorzeichen; Größe aus dem Heap-Wort (:erts_debug.flat_size/1, O(1))
+  """
+  def getbit(n, k) when n >= -@small and n < @small,
+    do: Bitwise.band(Bitwise.bsr(n, min(k, 63)), 1)
+
+  def getbit(n, k) do
+    size = (:erts_debug.flat_size(n) - 1) * 64
+
+    cond do
+      k >= size -> if n >= 0, do: 0, else: 1
+      2 * k < size -> if Bitwise.band(n, Bitwise.bsl(1, k)) == 0, do: 0, else: 1
+      true -> Bitwise.band(Bitwise.bsr(n, k), 1)
+    end
+  end
 
   defp int!(x) when is_integer(x), do: x
   defp int!(x), do: Error.type!("integer", x)

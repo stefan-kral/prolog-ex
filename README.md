@@ -67,7 +67,9 @@ Ein Prolog-Kern in Elixir:
     `append/3` aus `library(lists)` (sichtbar und nicht selbst definiert;
     die erste Liste muss eine echte Liste sein, sonst gibt der Code auf;
     eine spätere eigene Definition nimmt den Rufern ihren Code – nrev über
-    30 Elemente mit `append/3` 9 → 34 MLIPS, mit eigenem `app/3` 31) und
+    30 Elemente mit `append/3` 9 → 34 MLIPS, mit eigenem `app/3` 31),
+    ebenso `bit_is_set/2` aus `library(arithmetic)` (zwei Ganzzahlen, K ≥ 0,
+    sonst gibt der Code auf) und `getbit/2` in Ausdrücken und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
     Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
     ihren Zweigen keiner steht: `(A ; B), !` übersetzt er wie
@@ -435,7 +437,10 @@ tatsächlich gelaufen ist – die Pause bis zum `;` im Toplevel zählt nicht mit
 `7.0 @< 1`), `term_variables/2`, `subsumes_term/2`, `is` und Vergleiche (Ganzzahlen beliebiger Größe,
 Floats; alle ISO-Funktionen dazu die üblichen aus SWI/SICStus: `sin` … `atanh`,
 `exp`, `log/1,2`, `log2`, `atan/2`, `atan2`, `copysign`, `div`, `gcd`, `msb`,
-`lsb`, `popcount`, `xor`, `float_integer_part`, `random/1`, `random_float`,
+`lsb`, `popcount`, `xor`, `getbit/2` (Bit K von N wie `(N >> K) /\ 1`, auch
+negativ im Zweierkomplement, aber ohne die verschobene Zahl: für große N
+der kürzere Weg – eine Maske aus K Bits oder der Rest oberhalb von K, über
+dem Betrag nur das Vorzeichen), `float_integer_part`, `random/1`, `random_float`,
 `cputime`, `realtime`, `epsilon`, …; Fehler nach ISO wie
 `evaluation_error(zero_divisor)`, `0 ^ -1` ist nach Cor.2
 `evaluation_error(undefined)`, siehe `PrologEx.Arith`; `is/2` und
@@ -1137,6 +1142,10 @@ ist jeweils am Dateianfang vermerkt.
     (Newton; `sqrt` über Floats nur bis 2^53).
   - `mod_inverse(+A, +M, -I)` (scheitert ohne Inverses), `jacobi(+A, +N, -J)`
     (N ungerade).
+  - `bit_is_set(+N, +K)`: Bit K (≥ 0) von N gesetzt, über `getbit/2` (siehe
+    `is/2`); übersetzter Code ruft es direkt (JIT-Builtin wie `append/3`).
+    Alle Bits einer Zahl mit 56 000 Bit zählen: 82 ms über `(N >> K) /\ 1`,
+    52 ms über `bit_is_set/2`.
   - `expmod/4` rechnet jetzt in Elixir, ab Modul 2^64 über
     `:crypto.mod_pow/3` (OpenSSL; bei 2048 Bit etwa 6× schneller), mit
     denselben Ergebnissen und Fehlern wie vorher.

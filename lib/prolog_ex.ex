@@ -1142,6 +1142,14 @@ defmodule PrologEx do
          else: (_ -> nil)
   end
 
+  # arithmetic:bit_is_set/2 ebenso (PrologEx.Jit.b_bit_is_set/2)
+  defp jit_builtin(db, module, "bit_is_set", 2) do
+    with false <- Map.has_key?(db, {module, "bit_is_set", 2}),
+         {:db, "arithmetic", _} <- locate(db, module, "bit_is_set", 2),
+         do: :builtin,
+         else: (_ -> nil)
+  end
+
   defp jit_builtin(_db, _module, _n, _a), do: nil
 
   # :jit_callers: Gerufener => übersetzte Prädikate, deren Code ihn direkt

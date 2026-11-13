@@ -78,7 +78,7 @@ defmodule PrologEx.Jit do
   @ops2 ops2
   @ops1 ops1 -- ~w(random random_float)
   # ganzzahlig abgeschlossen: Ganzzahlen rein, Ganzzahlen raus
-  @iops2 ~w(+ - * // mod rem div min max >> << /\\ \\/ xor gcd)
+  @iops2 ~w(+ - * // mod rem div min max >> << /\\ \\/ xor gcd getbit)
   @iops1 ~w(- + abs sign msb \\)
   # auf Ganzzahlen fehlerfrei
   @total2 ~w(+ - * min max /\\ \\/ xor gcd)
@@ -402,6 +402,7 @@ defmodule PrologEx.Jit do
   defp collect_calls(_), do: []
 
   defp collect_bis({:bi, "append", _, _}), do: [{"append", 3}]
+  defp collect_bis({:bi, "bit_is_set", _, _}), do: [{"bit_is_set", 2}]
   defp collect_bis(t) when is_tuple(t), do: collect_bis(Tuple.to_list(t))
   defp collect_bis(l) when is_list(l), do: Enum.flat_map(l, &collect_bis/1)
   defp collect_bis(_), do: []
@@ -537,6 +538,11 @@ defmodule PrologEx.Jit do
       # bestimmt, deterministisch (PrologEx.Jit.b_append/2)
       :builtin when key == {"append", 3} ->
         {:bi, "append", Enum.map(Enum.take(a, 2), &pat!/1), [pat!(List.last(a))]}
+
+      # arithmetic:bit_is_set/2 (sichtbar, nicht selbst definiert): zwei
+      # Ganzzahlen, K >= 0, sonst aufgeben (der Interpreter meldet den Fehler)
+      :builtin when key == {"bit_is_set", 2} ->
+        {:bi, "bit_is_set", Enum.map(a, &pat!/1), []}
 
       :dynamic ->
         no!("ruft das dynamische #{pi(key)}")
@@ -1386,6 +1392,7 @@ defmodule PrologEx.Jit do
   defp bi_types("univ"), do: [:list]
   defp bi_types("compare"), do: [:any]
   defp bi_types("append"), do: [:any]
+  defp bi_types("bit_is_set"), do: []
 
   # Typtest auf einer Zahl: true/false, oder (Code mit Floats) :num
   defp num_test(t, _) when t in ["number", "atomic", "nonvar"], do: true
@@ -2225,14 +2232,19 @@ defmodule PrologEx.Jit do
       |> Enum.reverse()
       |> Enum.reduce(gen_goals(gs, st), fn {mp, tmp}, acc -> match_ast(tmp, mp, acc, st) end)
 
-    counted(
-      quote do
-        case PrologEx.Jit.unquote(:"b_#{name}")(unquote_splicing(args)) do
-          {unquote_splicing(tmps)} -> unquote(rest)
-          :no -> unquote(failure(st))
+    code =
+      counted(
+        quote do
+          case PrologEx.Jit.unquote(:"b_#{name}")(unquote_splicing(args)) do
+            {unquote_splicing(tmps)} -> unquote(rest)
+            :no -> unquote(failure(st))
+          end
         end
-      end
-    )
+      )
+
+    # bit_is_set/2 ist in Prolog ein Aufruf von '$bit_is_set'/2: zwei
+    # Inferenzen wie im Interpreter
+    if name == "bit_is_set", do: counted(code), else: code
   end
 
   defp gen_goals([{:cmp, op, x, y} | gs], st),
@@ -2828,6 +2840,13 @@ defmodule PrologEx.Jit do
     {f, args} = PrologEx.Builtins.Terms.parts(bound!(t))
     {PrologEx.list([f | args])}
   end
+
+  @doc false
+  # bit_is_set/2: {} oder :no; keine Ganzzahlen oder K < 0: aufgeben
+  def b_bit_is_set(n, k) when is_integer(n) and is_integer(k) and k >= 0,
+    do: if(PrologEx.Arith.getbit(n, k) == 1, do: {}, else: :no)
+
+  def b_bit_is_set(_, _), do: throw(:jit_deopt)
 
   @doc false
   # append/3 mit echter Liste vorn: {Z}; sonst (offenes Ende, keine Liste:

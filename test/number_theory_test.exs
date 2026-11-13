@@ -138,6 +138,22 @@ defmodule PrologEx.NumberTheoryTest do
         {"N is 2^127 - 1, E is N - 1, expmod(3, E, N, 1)", :succeeds},
         {"e(expmod(3, 3, 0, _), E/_)", ["E = evaluation_error(zero_divisor)"]},
         {"e(expmod(3, -1, 7, _), E)", ["E = domain_error(not_less_than_zero,-1)/(expmod/4)"]},
+        # getbit/2, bit_is_set/2: wie (N >> K) /\\ 1, auch groß und negativ,
+        # an den Rändern und darüber
+        {"forall((member(N0, [0, 1, 5, -1, -6, 576460752303423487, -576460752303423488, " <>
+           "7^4000, -(7^4000), 2^200, -(2^200), 2^200 - 1, -(2^200) + 1]), N is N0, " <>
+           "M is max(msb(abs(N) + 1) + 70, 70), between(0, M, K)), " <>
+           "(X is getbit(N, K), Y is (N >> K) /\\ 1, X == Y, " <>
+           "(bit_is_set(N, K) -> X == 1 ; X == 0)))", :succeeds},
+        {"X is getbit(10, 1)", ["X = 1"]},
+        {"X is getbit(10, 2)", ["X = 0"]},
+        {"bit_is_set(10, 3)", :succeeds},
+        {"bit_is_set(10, 0)", :fails},
+        {"e(_ is getbit(1, -1), E/_)", ["E = type_error(not_less_than_zero,-1)"]},
+        {"catch(X is getbit(1.0, 1), error(E, _), true)", ["E = type_error(integer,1.0)"]},
+        {"e(bit_is_set(1, -1), E)", ["E = domain_error(not_less_than_zero,-1)/(bit_is_set/2)"]},
+        {"e(bit_is_set(a, 1), E)", ["E = type_error(integer,a)/(bit_is_set/2)"]},
+        {"e(bit_is_set(1, _), E)", ["E = instantiation_error/(bit_is_set/2)"]},
         # Fehler
         {"e(is_prime(_), E)", ["E = instantiation_error/(is_prime/1)"]},
         {"e(is_prime(a), E)", ["E = type_error(integer,a)/(is_prime/1)"]},

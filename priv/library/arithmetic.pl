@@ -27,7 +27,8 @@ die gleichnamigen Funktionen von is/2.
                        is_prime/1, next_prime/2, prev_prime/2,
                        primes_between/3, factorize/2, prime_factors/2,
                        divisors/2, totient/2, factorial/2, binomial/3,
-                       isqrt/2, iroot/3, mod_inverse/3, jacobi/3]).
+                       isqrt/2, iroot/3, mod_inverse/3, jacobi/3,
+                       bit_is_set/2]).
 
 :- use_module(library(error)).
 :- use_module(library(lists), [member/2, append/3]).
@@ -156,6 +157,15 @@ rational_numerator_denominator(R, N, D) :-
   type_error(integer, X), zu klein domain_error(not_less_than_zero bzw.
   not_less_than_one, X); Kontext das Prädikat.
 */
+
+%% bit_is_set(+N, +K).
+%
+% Bit K (>= 0) von N ist gesetzt (negative N im Zweierkomplement). Wie
+% getbit(N, K) =:= 1 (auswertbare Funktion, wie SWI): ohne die
+% verschobene Zahl, wo das teurer ist – für große N der kürzere Weg über
+% eine Maske aus K Bits oder den Rest oberhalb von K.
+bit_is_set(N, K) :-
+    '$bit_is_set'(N, K).
 
 is_prime(N) :-
     '$int_arg'(N, none, _, is_prime/1),

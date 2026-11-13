@@ -31,6 +31,29 @@ defmodule PrologEx.Builtins.IntPrims do
 
   defp raise_ctx(formal, pi), do: Error.throw!(mk("error", [formal, pi]))
 
+  # '$bit_is_set'(N, K): Bit K von N gesetzt? (PrologEx.Arith.getbit/2);
+  # Fehler mit Kontext bit_is_set/2
+  defbuiltin "$bit_is_set", [n, k] do
+    pi = mk("/", [a("bit_is_set"), 2])
+
+    nn =
+      case deref(n) do
+        x when is_integer(x) -> x
+        {:var, _} -> raise_ctx(a("instantiation_error"), pi)
+        x -> raise_ctx(mk("type_error", [a("integer"), resolve(x)]), pi)
+      end
+
+    kk =
+      case deref(k) do
+        x when is_integer(x) and x >= 0 -> x
+        x when is_integer(x) -> raise_ctx(mk("domain_error", [a("not_less_than_zero"), x]), pi)
+        {:var, _} -> raise_ctx(a("instantiation_error"), pi)
+        x -> raise_ctx(mk("type_error", [a("integer"), resolve(x)]), pi)
+      end
+
+    PrologEx.Arith.getbit(nn, kk) == 1
+  end
+
   defbuiltin "$is_prime", [n] do
     NumberTheory.prime?(deref(n))
   end
