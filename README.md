@@ -1075,6 +1075,42 @@ ist jeweils am Dateianfang vermerkt.
     `1.0e-6` wie Scryer (`3.14159265` → `355r113`).
   - `rational_numerator_denominator(+R, -N, -D)`: wie `rational/3` (für
     eine Ganzzahl `D = 1`; Scryer scheitert dort).
+
+  Dazu Zahlentheorie (eigene, in Elixir: `PrologEx.NumberTheory`), alle für
+  Ganzzahlen beliebiger Größe:
+  - `is_prime(+N)`: Probedivision durch die Primzahlen unter 1000, dann
+    Baillie-PSW (starker Fermat-Test zur Basis 2 und starker Lucas-Test
+    nach Selfridge, Methode A). **Unter 2^64 bewiesen exakt**, darüber
+    „probable prime“ ohne bekanntes Gegenbeispiel (wie GMP, PARI,
+    Mathematica). Getestet gegen das Sieb, gegen starke Pseudoprimzahlen
+    zur Basis 2, Carmichael-Zahlen und starke Lucas-Pseudoprimzahlen.
+  - `next_prime(+N, -P)`, `prev_prime(+N, -P)` (kleinste > N, größte < N;
+    `prev_prime(2, _)` scheitert), `primes_between(+L, +H, -Ps)`
+    (segmentiertes Sieb, solange √H ≤ 2·10^6, sonst über `is_prime/1`;
+    π(10^5) = 9592 in Millisekunden).
+  - `factorize(+N, -[P1-E1, ...])` (N ≥ 1, aufsteigend, `factorize(1, [])`),
+    `prime_factors(+N, -Ps)` (mit Vielfachheit), `divisors(+N, -Ds)`,
+    `totient(+N, -T)`. Probedivision bis 10^4, Potenzen r^k, ab 2^64 Pollard
+    p−1 (Stufe 1, B1 = 10^5), dann Pollard-Rho (Brent, ggT über Stapel von
+    128 Differenzen). Rho und p−1 laufen in Stücken, zwischen denen Prolog
+    zählt: Zeit- und Speichergrenzen greifen, `call_with_time_limit/2` bricht
+    eine aussichtslose Zerlegung ab. Faktoren bis etwa 15 Stellen sind
+    schnell (2^67 − 1 in 4 ms); ECM, Siebe: nein.
+  - `factorial(+N, -F)`, `binomial(+N, +K, -B)`: Produktbaum (gleich große
+    Faktoren, also Karatsuba der BEAM), bei `factorial/2` ohne die
+    Zweierpotenz, die am Ende ein Shift anhängt – 20000! in 3 ms statt 27
+    ms der Reihe nach.
+  - `isqrt(+N, -R)`, `iroot(+N, +K, -R)`: abgerundete Wurzeln, exakt
+    (Newton; `sqrt` über Floats nur bis 2^53).
+  - `mod_inverse(+A, +M, -I)` (scheitert ohne Inverses), `jacobi(+A, +N, -J)`
+    (N ungerade).
+  - `expmod/4` rechnet jetzt in Elixir, ab Modul 2^64 über
+    `:crypto.mod_pow/3` (OpenSSL; bei 2048 Bit etwa 6× schneller), mit
+    denselben Ergebnissen und Fehlern wie vorher.
+
+  Fehler: `instantiation_error`, `type_error(integer, X)`,
+  `domain_error(not_less_than_zero, X)` bzw. `not_less_than_one`
+  (wie `lsb/2`), Kontext das Prädikat.
 * `library(stats)` (eigene): beschreibende Statistik über Zahlenlisten,
   Umfang wie SICStus' `library(statistics)` plus Quantile und
   Rangkorrelation wie Logtalk (der Name `statistics` ist durch

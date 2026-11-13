@@ -22,10 +22,15 @@ die gleichnamigen Funktionen von is/2.
 
 :- module(arithmetic, [expmod/4, lcm/3, lsb/2, msb/2, number_to_rational/2,
                        number_to_rational/3, popcount/2,
-                       rational_numerator_denominator/3]).
+                       rational_numerator_denominator/3,
+                       % Zahlentheorie (PrologEx)
+                       is_prime/1, next_prime/2, prev_prime/2,
+                       primes_between/3, factorize/2, prime_factors/2,
+                       divisors/2, totient/2, factorial/2, binomial/3,
+                       isqrt/2, iroot/3, mod_inverse/3, jacobi/3]).
 
 :- use_module(library(error)).
-:- use_module(library(lists), [member/2]).
+:- use_module(library(lists), [member/2, append/3]).
 
 %% expmod(+Base, +Expo, +Mod, -R).
 %
@@ -35,22 +40,8 @@ expmod(Base, Expo, Mod, R) :-
     ;   member(N, [Base, Expo, Mod]), \+ integer(N) ->
         type_error(integer, N, expmod/4)
     ;   Expo < 0 -> domain_error(not_less_than_zero, Expo, expmod/4)
-    ;   expmod_(Base, Expo, Mod, 1, R)
+    ;   '$powm'(Base, Expo, Mod, R)
     ).
-
-expmod_(_, _, 1, _, 0) :- !.
-expmod_(_, 0, _, R, R) :- !.
-expmod_(Base0, Expo0, Mod, C0, R) :-
-    Expo0 /\ 1 =:= 1,
-    C is (C0 * Base0) mod Mod,
-    !,
-    Expo is Expo0 >> 1,
-    Base is (Base0 * Base0) mod Mod,
-    expmod_(Base, Expo, Mod, C, R).
-expmod_(Base0, Expo0, Mod, C, R) :-
-    Expo is Expo0 >> 1,
-    Base is (Base0 * Base0) mod Mod,
-    expmod_(Base, Expo, Mod, C, R).
 
 %% lcm(+A, +B, -X).
 %
@@ -140,3 +131,166 @@ number_to_rational(Eps0, Real0, Fraction) :-
 % Zähler und Nenner eines Bruchs (einer Ganzzahl: Nenner 1).
 rational_numerator_denominator(R, N, D) :-
     rational(R, N, D).
+
+/* Zahlentheorie (PrologEx; Rechnung in Elixir, PrologEx.NumberTheory)
+
+  * is_prime(+N): Baillie-PSW nach Probedivision; unter 2^64 bewiesen
+    exakt, darüber ohne bekanntes Gegenbeispiel. N < 2: scheitert.
+  * next_prime(+N, -P): kleinste Primzahl > N; prev_prime(+N, -P): größte
+    < N (N =< 2: scheitert).
+  * primes_between(+L, +H, -Ps): die Primzahlen in L..H, aufsteigend.
+  * factorize(+N, -PEs): N >= 1, PEs = [P1-E1, ...] mit P1 < P2 < ...
+    (factorize(1, [])); prime_factors(+N, -Ps): die Primfaktoren mit
+    Vielfachheit, aufsteigend. Probedivision bis 10^4, Potenzen, Pollard
+    p-1 (Stufe 1, B1 = 10^5, ab 2^64) und Pollard-Rho (Brent); beide in
+    Stücken, zwischen denen Zeitgrenzen und Abbruch greifen.
+  * divisors(+N, -Ds): alle Teiler aufsteigend; totient(+N, -T): Eulers phi.
+  * factorial(+N, -F), binomial(+N, +K, -B): N >= 0; K < 0 oder K > N: 0.
+  * isqrt(+N, -R), iroot(+N, +K, -R): abgerundete Quadrat- bzw. K-te Wurzel
+    (N >= 0, K >= 1).
+  * mod_inverse(+A, +M, -I): A*I =:= 1 (mod M), 0 =< I < M (M >= 1);
+    scheitert, wenn gcd(A, M) =\= 1.
+  * jacobi(+A, +N, -J): Jacobi-Symbol, N ungerade und >= 1.
+
+  Fehler: ungebunden instantiation_error, keine Ganzzahl
+  type_error(integer, X), zu klein domain_error(not_less_than_zero bzw.
+  not_less_than_one, X); Kontext das Prädikat.
+*/
+
+is_prime(N) :-
+    '$int_arg'(N, none, _, is_prime/1),
+    '$is_prime'(N).
+
+next_prime(N, P) :-
+    '$int_arg'(N, none, _, next_prime/2),
+    '$next_prime'(N, P).
+
+prev_prime(N, P) :-
+    '$int_arg'(N, none, _, prev_prime/2),
+    '$prev_prime'(N, P).
+
+primes_between(L, H, Ps) :-
+    '$int_arg'(L, none, _, primes_between/3),
+    '$int_arg'(H, none, _, primes_between/3),
+    '$primes_between'(L, H, Ps).
+
+factorize(N, PEs) :-
+    '$int_arg'(N, 1, not_less_than_one, factorize/2),
+    factorize_(N, PEs).
+
+prime_factors(N, Ps) :-
+    '$int_arg'(N, 1, not_less_than_one, prime_factors/2),
+    factorize_(N, PEs),
+    expand_pes(PEs, Ps).
+
+divisors(N, Ds) :-
+    '$int_arg'(N, 1, not_less_than_one, divisors/2),
+    factorize_(N, PEs),
+    '$divisors'(PEs, Ds).
+
+totient(N, T) :-
+    '$int_arg'(N, 1, not_less_than_one, totient/2),
+    factorize_(N, PEs),
+    '$totient'(PEs, T).
+
+factorial(N, F) :-
+    '$int_arg'(N, 0, not_less_than_zero, factorial/2),
+    '$factorial'(N, F).
+
+binomial(N, K, B) :-
+    '$int_arg'(N, 0, not_less_than_zero, binomial/3),
+    '$int_arg'(K, none, _, binomial/3),
+    '$binomial'(N, K, B).
+
+isqrt(N, R) :-
+    '$int_arg'(N, 0, not_less_than_zero, isqrt/2),
+    '$isqrt'(N, R).
+
+iroot(N, K, R) :-
+    '$int_arg'(N, 0, not_less_than_zero, iroot/3),
+    '$int_arg'(K, 1, not_less_than_one, iroot/3),
+    '$iroot'(N, K, R).
+
+mod_inverse(A, M, I) :-
+    '$int_arg'(A, none, _, mod_inverse/3),
+    '$int_arg'(M, 1, not_less_than_one, mod_inverse/3),
+    '$mod_inverse'(A, M, I).
+
+jacobi(A, N, J) :-
+    '$int_arg'(A, none, _, jacobi/3),
+    '$int_arg'(N, 1, not_less_than_one, jacobi/3),
+    (   N /\ 1 =:= 1 -> '$jacobi'(A, N, J)
+    ;   domain_error(odd, N, jacobi/3)
+    ).
+
+% kleine Faktoren durch Probedivision (aufsteigend), der Rest hat nur
+% größere
+factorize_(N, PEs) :-
+    '$trial_factor'(N, PEs0, M),
+    factor_big(M, Ps0),
+    msort(Ps0, Ps),
+    pack(Ps, PEs1),
+    append(PEs0, PEs1, PEs).
+
+factor_big(1, []) :- !.
+factor_big(M, [M]) :- '$is_prime'(M), !.
+factor_big(M, Ps) :-
+    '$perfect_power'(M, R, K), !,
+    factor_big(R, Ps0),
+    copies(K, Ps0, Ps).
+factor_big(M, Ps) :-
+    split(M, D),
+    M1 is M // D,
+    factor_big(D, Ps1),
+    factor_big(M1, Ps2),
+    append(Ps1, Ps2, Ps).
+
+copies(0, _, []) :- !.
+copies(K, Ps0, Ps) :-
+    K1 is K - 1,
+    copies(K1, Ps0, Ps1),
+    append(Ps0, Ps1, Ps).
+
+% ein echter Teiler D von M (ungerade, zusammengesetzt, keine Potenz)
+split(M, D) :-
+    (   M >= 18446744073709551616, pm1(M, 2, 0, D0) -> D = D0
+    ;   rho(M, 1, D)
+    ).
+
+pm1(M, A, I, D) :-
+    '$pm1'(M, A, I, R),
+    (   R = found(D) -> true
+    ;   R = more(A1, I1) -> pm1(M, A1, I1, D)
+    ).
+
+rho(M, C, D) :-
+    rho_(M, C, start, D).
+
+rho_(M, C, S, D) :-
+    '$rho'(M, C, S, R),
+    (   R = found(D) -> true
+    ;   R = more(S1) -> rho_(M, C, S1, D)
+    ;   C1 is C + 1,
+        rho(M, C1, D)
+    ).
+
+pack([], []).
+pack([P|Ps], [P-E|PEs]) :-
+    run(Ps, P, 1, E, Rest),
+    pack(Rest, PEs).
+
+run([Q|Qs], P, E0, E, Rest) :-
+    Q =:= P, !,
+    E1 is E0 + 1,
+    run(Qs, P, E1, E, Rest).
+run(Rest, _, E, E, Rest).
+
+expand_pes([], []).
+expand_pes([P-E|PEs], Ps) :-
+    expand_pe(E, P, Ps, Ps1),
+    expand_pes(PEs, Ps1).
+
+expand_pe(0, _, Ps, Ps) :- !.
+expand_pe(E, P, [P|Ps], Ps1) :-
+    E1 is E - 1,
+    expand_pe(E1, P, Ps, Ps1).
