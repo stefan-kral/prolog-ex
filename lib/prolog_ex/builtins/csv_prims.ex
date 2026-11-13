@@ -5,7 +5,7 @@ defmodule PrologEx.Builtins.CsvPrims do
   """
   use PrologEx.Builtin
   alias PrologEx.{Csv, Error, Stream}
-  import PrologEx.Builtins.IO, only: [input!: 2, output!: 2]
+  import PrologEx.Builtins.IO, only: [input!: 2, output!: 2, current_in!: 1, current_out!: 1]
 
   # '$csv_parse'(+Quelle, +Record, -Zeilen): Quelle text(Codes|Zeichen)
   # oder stream(S); bindet die Stelligkeit im Record an die der ersten
@@ -17,7 +17,7 @@ defmodule PrologEx.Builtins.CsvPrims do
     text =
       case resolve(source) do
         {:struct, "text", [l]} -> list_text(l)
-        {:struct, "stream", [s]} -> read_rest(input!(s, :text))
+        {:struct, "stream", [s]} -> read_rest(in_stream(s))
       end
 
     {:struct, _, rargs} = rec
@@ -52,7 +52,7 @@ defmodule PrologEx.Builtins.CsvPrims do
   # '$csv_read_record'(+Stream, +Record, -Felder): ein Datensatz wie
   # csv_read_row/3 (end_of_file am Ende); scheitert, wenn er kein CSV ist
   defbuiltin "$csv_read_record", [stream, record, fields] do
-    id = input!(deref(stream), :text)
+    id = in_stream(deref(stream))
     o = Csv.opts(resolve(record))
 
     case Csv.read_record(id, o) do
@@ -79,7 +79,7 @@ defmodule PrologEx.Builtins.CsvPrims do
 
   # '$csv_write'(+Stream, +Zeilen, +Trenner)
   defbuiltin "$csv_write", [stream, rows, sep] do
-    id = output!(deref(stream), :text)
+    id = out_stream(deref(stream))
     Stream.put_text(id, Csv.emit(list!(resolve(rows)), deref(sep)))
     :ok
   end
@@ -112,4 +112,11 @@ defmodule PrologEx.Builtins.CsvPrims do
       _ -> read_rest(id, acc)
     end
   end
+
+  # wie bei SWI auch current_input bzw. current_output
+  defp in_stream({:atom, "current_input"}), do: current_in!(:text)
+  defp in_stream(st), do: input!(st, :text)
+
+  defp out_stream({:atom, "current_output"}), do: current_out!(:text)
+  defp out_stream(st), do: output!(st, :text)
 end

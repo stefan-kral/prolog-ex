@@ -1,0 +1,236 @@
+'a,b,c\n1,2,3\n'-[]-[row(a,b,c),row(1,2,3)]
+'a,b,c\n1,2,3\n'-[separator(59)]-[row('a,b,c'),row('1,2,3')]
+'a,b,c\n1,2,3\n'-[convert(false)]-[row(a,b,c),row('1','2','3')]
+'a,b,c\n1,2,3\n'-[case(down)]-[row(a,b,c),row(1,2,3)]
+'a,b,c\n1,2,3\n'-[case(up)]-[row('A','B','C'),row(1,2,3)]
+'a,b,c\n1,2,3\n'-[strip(true)]-[row(a,b,c),row(1,2,3)]
+'a,b,c\n1,2,3\n'-[functor(r)]-[r(a,b,c),r(1,2,3)]
+'a,b,c\n1,2,3\n'-[arity(2)]-err(domain_error(row_arity(2),3))
+'a,b,c\n1,2,3\n'-[arity(2)]-fail
+'a,b,c\n1,2,3\n'-[match_arity(false)]-[row(a,b,c),row(1,2,3)]
+'a,b,c\n1,2,3\n'-[ignore_quotes(true)]-[row(a,b,c),row(1,2,3)]
+'a,b,c\n1,2,3\n'-[skip_header(#)]-[row(a,b,c),row(1,2,3)]
+'a,b\n'-[]-[row(a,b)]
+'a,b\n'-[separator(59)]-[row('a,b')]
+'a,b\n'-[convert(false)]-[row(a,b)]
+'a,b\n'-[case(down)]-[row(a,b)]
+'a,b\n'-[case(up)]-[row('A','B')]
+'a,b\n'-[strip(true)]-[row(a,b)]
+'a,b\n'-[functor(r)]-[r(a,b)]
+'a,b\n'-[arity(2)]-[row(a,b)]
+'a,b\n'-[match_arity(false)]-[row(a,b)]
+'a,b\n'-[ignore_quotes(true)]-[row(a,b)]
+'a,b\n'-[skip_header(#)]-[row(a,b)]
+'a,b'-[]-[row(a,b)]
+'a,b'-[separator(59)]-[row('a,b')]
+'a,b'-[convert(false)]-[row(a,b)]
+'a,b'-[case(down)]-[row(a,b)]
+'a,b'-[case(up)]-[row('A','B')]
+'a,b'-[strip(true)]-[row(a,b)]
+'a,b'-[functor(r)]-[r(a,b)]
+'a,b'-[arity(2)]-[row(a,b)]
+'a,b'-[match_arity(false)]-[row(a,b)]
+'a,b'-[ignore_quotes(true)]-[row(a,b)]
+'a,b'-[skip_header(#)]-[row(a,b)]
+''-[]-[]
+''-[separator(59)]-[]
+''-[convert(false)]-[]
+''-[case(down)]-[]
+''-[case(up)]-[]
+''-[strip(true)]-[]
+''-[functor(r)]-[]
+''-[arity(2)]-[]
+''-[match_arity(false)]-[]
+''-[ignore_quotes(true)]-[]
+''-[skip_header(#)]-[]
+'\n'-[]-[row('')]
+'\n'-[separator(59)]-[row('')]
+'\n'-[convert(false)]-[row('')]
+'\n'-[case(down)]-[row('')]
+'\n'-[case(up)]-[row('')]
+'\n'-[strip(true)]-[row('')]
+'\n'-[functor(r)]-[r('')]
+'\n'-[arity(2)]-err(domain_error(row_arity(2),1))
+'\n'-[arity(2)]-fail
+'\n'-[match_arity(false)]-[row('')]
+'\n'-[ignore_quotes(true)]-[row('')]
+'\n'-[skip_header(#)]-[]
+'a\n\nb\n'-[]-[row(a),row(''),row(b)]
+'a\n\nb\n'-[separator(59)]-[row(a),row(''),row(b)]
+'a\n\nb\n'-[convert(false)]-[row(a),row(''),row(b)]
+'a\n\nb\n'-[case(down)]-[row(a),row(''),row(b)]
+'a\n\nb\n'-[case(up)]-[row('A'),row(''),row('B')]
+'a\n\nb\n'-[strip(true)]-[row(a),row(''),row(b)]
+'a\n\nb\n'-[functor(r)]-[r(a),r(''),r(b)]
+'a\n\nb\n'-[arity(2)]-err(domain_error(row_arity(2),1))
+'a\n\nb\n'-[arity(2)]-fail
+'a\n\nb\n'-[match_arity(false)]-[row(a),row(''),row(b)]
+'a\n\nb\n'-[ignore_quotes(true)]-[row(a),row(''),row(b)]
+'a\n\nb\n'-[skip_header(#)]-[row(a),row(''),row(b)]
+'x,"y ""q"" z",w\n'-[]-[row(x,'y "q" z',w)]
+'x,"y ""q"" z",w\n'-[separator(59)]-[row('x,"y ""q"" z",w')]
+'x,"y ""q"" z",w\n'-[convert(false)]-[row(x,'y "q" z',w)]
+'x,"y ""q"" z",w\n'-[case(down)]-[row(x,'y "q" z',w)]
+'x,"y ""q"" z",w\n'-[case(up)]-[row('X','Y "Q" Z','W')]
+'x,"y ""q"" z",w\n'-[strip(true)]-[row(x,'y "q" z',w)]
+'x,"y ""q"" z",w\n'-[functor(r)]-[r(x,'y "q" z',w)]
+'x,"y ""q"" z",w\n'-[arity(2)]-err(domain_error(row_arity(2),3))
+'x,"y ""q"" z",w\n'-[arity(2)]-fail
+'x,"y ""q"" z",w\n'-[match_arity(false)]-[row(x,'y "q" z',w)]
+'x,"y ""q"" z",w\n'-[ignore_quotes(true)]-[row(x,'"y ""q"" z"',w)]
+'x,"y ""q"" z",w\n'-[skip_header(#)]-[row(x,'y "q" z',w)]
+'"multi\nline",x\r\n'-[]-[row('multi\nline',x)]
+'"multi\nline",x\r\n'-[separator(59)]-fail
+'"multi\nline",x\r\n'-[convert(false)]-[row('multi\nline',x)]
+'"multi\nline",x\r\n'-[case(down)]-[row('multi\nline',x)]
+'"multi\nline",x\r\n'-[case(up)]-[row('MULTI\nLINE','X')]
+'"multi\nline",x\r\n'-[strip(true)]-[row('multi\nline',x)]
+'"multi\nline",x\r\n'-[functor(r)]-[r('multi\nline',x)]
+'"multi\nline",x\r\n'-[arity(2)]-[row('multi\nline',x)]
+'"multi\nline",x\r\n'-[match_arity(false)]-[row('multi\nline',x)]
+'"multi\nline",x\r\n'-[ignore_quotes(true)]-err(domain_error(row_arity(1),2))
+'"multi\nline",x\r\n'-[ignore_quotes(true)]-fail
+'"multi\nline",x\r\n'-[skip_header(#)]-[row('multi\nline',x)]
+'"bad"x,1\n'-[]-fail
+'"bad"x,1\n'-[separator(59)]-fail
+'"bad"x,1\n'-[convert(false)]-fail
+'"bad"x,1\n'-[case(down)]-fail
+'"bad"x,1\n'-[case(up)]-fail
+'"bad"x,1\n'-[strip(true)]-fail
+'"bad"x,1\n'-[functor(r)]-fail
+'"bad"x,1\n'-[arity(2)]-fail
+'"bad"x,1\n'-[match_arity(false)]-fail
+'"bad"x,1\n'-[ignore_quotes(true)]-[row('"bad"x',1)]
+'"bad"x,1\n'-[skip_header(#)]-fail
+'"unterminated'-[]-fail
+'"unterminated'-[separator(59)]-fail
+'"unterminated'-[convert(false)]-fail
+'"unterminated'-[case(down)]-fail
+'"unterminated'-[case(up)]-fail
+'"unterminated'-[strip(true)]-fail
+'"unterminated'-[functor(r)]-fail
+'"unterminated'-[arity(2)]-fail
+'"unterminated'-[match_arity(false)]-fail
+'"unterminated'-[ignore_quotes(true)]-[row('"unterminated')]
+'"unterminated'-[skip_header(#)]-fail
+'a;b\n'-[]-[row('a;b')]
+'a;b\n'-[separator(59)]-[row(a,b)]
+'a;b\n'-[convert(false)]-[row('a;b')]
+'a;b\n'-[case(down)]-[row('a;b')]
+'a;b\n'-[case(up)]-[row('A;B')]
+'a;b\n'-[strip(true)]-[row('a;b')]
+'a;b\n'-[functor(r)]-[r('a;b')]
+'a;b\n'-[arity(2)]-err(domain_error(row_arity(2),1))
+'a;b\n'-[arity(2)]-fail
+'a;b\n'-[match_arity(false)]-[row('a;b')]
+'a;b\n'-[ignore_quotes(true)]-[row('a;b')]
+'a;b\n'-[skip_header(#)]-[row('a;b')]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[]-[row(' 12',5,-3,26,10000000000.0,1500.0,7,1000,' -5','- 5','12abc',inf)]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[separator(59)]-[row(' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf')]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[convert(false)]-[row(' 12','+5','-3','0x1A','1e10','1.5E3','007','1_000',' -5','- 5','12abc',inf)]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[case(down)]-[row(' 12',5,-3,26,10000000000.0,1500.0,7,1000,' -5','- 5','12abc',inf)]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[case(up)]-[row(' 12',5,-3,26,10000000000.0,1500.0,7,1000,' -5','- 5','12ABC','INF')]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[strip(true)]-[row(12,5,-3,26,10000000000.0,1500.0,7,1000,-5,'- 5','12abc',inf)]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[functor(r)]-[r(' 12',5,-3,26,10000000000.0,1500.0,7,1000,' -5','- 5','12abc',inf)]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[arity(2)]-err(domain_error(row_arity(2),12))
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[arity(2)]-fail
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[match_arity(false)]-[row(' 12',5,-3,26,10000000000.0,1500.0,7,1000,' -5','- 5','12abc',inf)]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[ignore_quotes(true)]-[row(' 12',5,-3,26,10000000000.0,1500.0,7,1000,' -5','- 5','12abc',inf)]
+' 12,+5,-3,0x1A,1e10,1.5E3,007,1_000, -5,- 5,12abc,inf\n'-[skip_header(#)]-[row(' 12',5,-3,26,10000000000.0,1500.0,7,1000,' -5','- 5','12abc',inf)]
+'  x  ,  "y"  ,z \n'-[]-[row('  x  ','  "y"  ','z ')]
+'  x  ,  "y"  ,z \n'-[separator(59)]-[row('  x  ,  "y"  ,z ')]
+'  x  ,  "y"  ,z \n'-[convert(false)]-[row('  x  ','  "y"  ','z ')]
+'  x  ,  "y"  ,z \n'-[case(down)]-[row('  x  ','  "y"  ','z ')]
+'  x  ,  "y"  ,z \n'-[case(up)]-[row('  X  ','  "Y"  ','Z ')]
+'  x  ,  "y"  ,z \n'-[strip(true)]-[row(x,'"y"',z)]
+'  x  ,  "y"  ,z \n'-[functor(r)]-[r('  x  ','  "y"  ','z ')]
+'  x  ,  "y"  ,z \n'-[arity(2)]-err(domain_error(row_arity(2),3))
+'  x  ,  "y"  ,z \n'-[arity(2)]-fail
+'  x  ,  "y"  ,z \n'-[match_arity(false)]-[row('  x  ','  "y"  ','z ')]
+'  x  ,  "y"  ,z \n'-[ignore_quotes(true)]-[row('  x  ','  "y"  ','z ')]
+'  x  ,  "y"  ,z \n'-[skip_header(#)]-[row('  x  ','  "y"  ','z ')]
+'a,b\n1\n'-[]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[]-fail
+'a,b\n1\n'-[separator(59)]-[row('a,b'),row(1)]
+'a,b\n1\n'-[convert(false)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[convert(false)]-fail
+'a,b\n1\n'-[case(down)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[case(down)]-fail
+'a,b\n1\n'-[case(up)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[case(up)]-fail
+'a,b\n1\n'-[strip(true)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[strip(true)]-fail
+'a,b\n1\n'-[functor(r)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[functor(r)]-fail
+'a,b\n1\n'-[arity(2)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[arity(2)]-fail
+'a,b\n1\n'-[match_arity(false)]-[row(a,b),row(1)]
+'a,b\n1\n'-[ignore_quotes(true)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[ignore_quotes(true)]-fail
+'a,b\n1\n'-[skip_header(#)]-err(domain_error(row_arity(2),1))
+'a,b\n1\n'-[skip_header(#)]-fail
+'a\rb\rc'-[]-[row(a),row(b),row(c)]
+'a\rb\rc'-[separator(59)]-[row(a),row(b),row(c)]
+'a\rb\rc'-[convert(false)]-[row(a),row(b),row(c)]
+'a\rb\rc'-[case(down)]-[row(a),row(b),row(c)]
+'a\rb\rc'-[case(up)]-[row('A'),row('B'),row('C')]
+'a\rb\rc'-[strip(true)]-[row(a),row(b),row(c)]
+'a\rb\rc'-[functor(r)]-[r(a),r(b),r(c)]
+'a\rb\rc'-[arity(2)]-err(domain_error(row_arity(2),1))
+'a\rb\rc'-[arity(2)]-fail
+'a\rb\rc'-[match_arity(false)]-[row(a),row(b),row(c)]
+'a\rb\rc'-[ignore_quotes(true)]-[row(a),row(b),row(c)]
+'a\rb\rc'-[skip_header(#)]-[row(a),row(b),row(c)]
+'a,b\r\nc,d\r\n'-[]-[row(a,b),row(c,d)]
+'a,b\r\nc,d\r\n'-[separator(59)]-[row('a,b'),row('c,d')]
+'a,b\r\nc,d\r\n'-[convert(false)]-[row(a,b),row(c,d)]
+'a,b\r\nc,d\r\n'-[case(down)]-[row(a,b),row(c,d)]
+'a,b\r\nc,d\r\n'-[case(up)]-[row('A','B'),row('C','D')]
+'a,b\r\nc,d\r\n'-[strip(true)]-[row(a,b),row(c,d)]
+'a,b\r\nc,d\r\n'-[functor(r)]-[r(a,b),r(c,d)]
+'a,b\r\nc,d\r\n'-[arity(2)]-[row(a,b),row(c,d)]
+'a,b\r\nc,d\r\n'-[match_arity(false)]-[row(a,b),row(c,d)]
+'a,b\r\nc,d\r\n'-[ignore_quotes(true)]-[row(a,b),row(c,d)]
+'a,b\r\nc,d\r\n'-[skip_header(#)]-[row(a,b),row(c,d)]
+',,\n'-[]-[row('','','')]
+',,\n'-[separator(59)]-[row(',,')]
+',,\n'-[convert(false)]-[row('','','')]
+',,\n'-[case(down)]-[row('','','')]
+',,\n'-[case(up)]-[row('','','')]
+',,\n'-[strip(true)]-[row('','','')]
+',,\n'-[functor(r)]-[r('','','')]
+',,\n'-[arity(2)]-err(domain_error(row_arity(2),3))
+',,\n'-[arity(2)]-fail
+',,\n'-[match_arity(false)]-[row('','','')]
+',,\n'-[ignore_quotes(true)]-[row('','','')]
+',,\n'-[skip_header(#)]-[row('','','')]
+'"",x\n'-[]-[row('',x)]
+'"",x\n'-[separator(59)]-fail
+'"",x\n'-[convert(false)]-[row('',x)]
+'"",x\n'-[case(down)]-[row('',x)]
+'"",x\n'-[case(up)]-[row('','X')]
+'"",x\n'-[strip(true)]-[row('',x)]
+'"",x\n'-[functor(r)]-[r('',x)]
+'"",x\n'-[arity(2)]-[row('',x)]
+'"",x\n'-[match_arity(false)]-[row('',x)]
+'"",x\n'-[ignore_quotes(true)]-[row('""',x)]
+'"",x\n'-[skip_header(#)]-[row('',x)]
+'#h1\n#h2\n\na,b\n'-[]-err(domain_error(row_arity(1),2))
+'#h1\n#h2\n\na,b\n'-[]-fail
+'#h1\n#h2\n\na,b\n'-[separator(59)]-[row('#h1'),row('#h2'),row(''),row('a,b')]
+'#h1\n#h2\n\na,b\n'-[convert(false)]-err(domain_error(row_arity(1),2))
+'#h1\n#h2\n\na,b\n'-[convert(false)]-fail
+'#h1\n#h2\n\na,b\n'-[case(down)]-err(domain_error(row_arity(1),2))
+'#h1\n#h2\n\na,b\n'-[case(down)]-fail
+'#h1\n#h2\n\na,b\n'-[case(up)]-err(domain_error(row_arity(1),2))
+'#h1\n#h2\n\na,b\n'-[case(up)]-fail
+'#h1\n#h2\n\na,b\n'-[strip(true)]-err(domain_error(row_arity(1),2))
+'#h1\n#h2\n\na,b\n'-[strip(true)]-fail
+'#h1\n#h2\n\na,b\n'-[functor(r)]-err(domain_error(row_arity(1),2))
+'#h1\n#h2\n\na,b\n'-[functor(r)]-fail
+'#h1\n#h2\n\na,b\n'-[arity(2)]-err(domain_error(row_arity(2),1))
+'#h1\n#h2\n\na,b\n'-[arity(2)]-fail
+'#h1\n#h2\n\na,b\n'-[match_arity(false)]-[row('#h1'),row('#h2'),row(''),row(a,b)]
+'#h1\n#h2\n\na,b\n'-[ignore_quotes(true)]-err(domain_error(row_arity(1),2))
+'#h1\n#h2\n\na,b\n'-[ignore_quotes(true)]-fail
+'#h1\n#h2\n\na,b\n'-[skip_header(#)]-[row(a,b)]

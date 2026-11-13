@@ -1158,7 +1158,11 @@ Rows = [row(name,alter),row('Anna',31),row('B, C',2.5)].
   * Gelesen wird in Elixir (`PrologEx.Csv`), auf fertigen Listen, Dateien
     und Streams. Für faule Listen, etwa `phrase_from_file(csv(Rows),
     Datei)`, nimmt `csv//2` dieselbe DCG wie SWI. Beide Wege sind gegen
-    SWIs Ausgaben getestet.
+    SWIs Ausgaben getestet. Dazu kommen Programme in `test/fixtures/csv`,
+    die auch in SWI 9.0.4 bzw. Scryer liefen; ihre Ausgaben sind die
+    Erwartung.
+  * Als Stream gehen wie bei SWI auch `current_output` und
+    `current_input`.
   * 100 000 Zeilen (3 MB) lesen dauert 0,7 s, schreiben 0,56 s; SWI
     braucht 1,05 s und 0,83 s.
   * Unterschiede zu SWI:
