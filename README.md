@@ -977,6 +977,75 @@ Unterschiede zu Scryer (alle am Anfang der Dateien vermerkt):
     `test/http_test.exs`).
   * Ohne `library(clpz)` und `library(crypto)`, die es hier nicht gibt.
 
+## JSON: `library(http/json)`, `library(serialization/json)`
+
+Zwei Bibliotheken, wie bei SWI-Prolog und bei Scryer Prolog.
+
+**`library(http/json)`** ist SWI-Prologs JSON-Bibliothek in der
+klassischen Darstellung (ohne Dicts): `json_read/2,3`, `json_write/2,3`,
+`atom_json_term/3`, `is_json_term/1,2`. Ein Objekt ist
+`json([Name=Wert, …])` (Name ein Atom), ein Array eine Liste, ein String
+ein Atom; `true`, `false` und `null` sind `@(true)`, `@(false)` und
+`@(null)`.
+
+```prolog
+?- use_module(library(http/json)).
+?- atom_json_term('{"name":"Demo", "tags":["red","green"], "ok":true}', T, []).
+T = json([name='Demo',tags=[red,green],ok= @(true)]).
+
+?- json_write(current_output, json([name='Demo', n=[1,2,3], x= @(null)])).
+{"name":"Demo", "n": [1, 2, 3 ], "x":null}
+```
+
+Lesen und Schreiben laufen in Elixir (`PrologEx.Json`) und verhalten sich
+wie SWI-Prolog 9.0.4. Die Tests vergleichen mit SWIs Ausgaben,
+Fehlerpositionen eingeschlossen:
+
+  * `json_read/2,3` liest Zeichen für Zeichen einen Wert. Danach steht
+    der Stream hinter dem Wert, so lassen sich mehrere Werte
+    hintereinander lesen; am Ende gibt `end_of_file(Term)` den Term
+    zurück. Weitere Optionen: `null/1`, `true/1`, `false/1`,
+    `value_string_as/1`.
+  * Leerraum sind nur Leerzeichen, Tab und Zeilenwechsel; Kommentare gibt
+    es nicht. Vor `]` und `}` darf ein Komma stehen.
+  * Zahlen wie bei SWI: `01` ist 1, `2.` ist 2, `1e5` ein Float.
+  * Fehler sind `syntax_error(json(Grund))`, bei Zahlen
+    `syntax_error(illegal_number)`, jeweils mit
+    `stream(S, Zeile, Spalte, Zeichen)`.
+  * `json_write/2,3` hat SWIs Layout. Ein Wert, der in die Breite (72)
+    passt, steht in einer Zeile: `[1, 2, 3 ]`, `{"a":1, "b":2}`. Sonst
+    wird er eingerückt, um 2 Stellen je Ebene, ab Spalte 8 mit Tabs.
+    Optionen: `width/1`, `step/1`, `tab/1`, `indent/1`,
+    `serialize_unknown/1`, `null/1`, `true/1`, `false/1`.
+  * Paare dürfen auch `Name-Wert` oder `Name(Wert)` sein. `#(Term)`
+    schreibt den Term als String.
+  * Bei einem Fehler bleibt stehen, was schon geschrieben ist.
+  * `atom_json_term/3` liest ein Atom (oder eine Code- bzw. Zeichenliste).
+    Ist das erste Argument ungebunden, schreibt es; `as(Typ)` wählt
+    `atom`, `codes`, `chars` oder `string`.
+  * Als Stream gehen wie bei SWI auch `current_output` und
+    `current_input`.
+
+Unterschiede zu SWI:
+
+  * Ein UTF-16-Ersatzpaar `😀` wird ein Zeichen (😀). Ein
+    einzelnes Ersatzzeichen wird U+FFFD. SWI 9.0.4 behält beides als
+    einzelne Codes.
+  * PrologEx hat keinen Stringtyp. `value_string_as(string)` und
+    `as(string)` geben daher eine Zeichen- oder Codeliste, je nach Flag
+    `double_quotes`. Dazu gibt es `value_string_as(codes)` und
+    `value_string_as(chars)`.
+  * Floats schreibt PrologEx als `1.0e100`, SWI als `1.0e+100`. Beides
+    ist gültiges JSON.
+
+**`library(serialization/json)`** ist Scryers Bibliothek (Aram Panasenco,
+BSD-3) mit `json_chars//1`. Sie parst und erzeugt JSON als Zeichenliste,
+mit Termen wie `pairs([string("k")-list([number(1), boolean(true),
+null])])`. Der Quelltext ist unverändert, nur das Modul heißt
+`serialization_json` statt `json`, damit beide Bibliotheken zusammen
+gehen. `library(dif)` gibt es jetzt auch; es exportiert das eingebaute
+`dif/2`, wie bei Scryer und SWI.
+
 ## Bibliotheken aus Scryer Prolog
 
 Als Prolog-Quelltext übernommen (`priv/library/`). Geändert sind nur die

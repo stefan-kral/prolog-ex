@@ -80,6 +80,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Heaps,
     PrologEx.Builtins.RbtreePrims,
     PrologEx.Builtins.IntPrims,
+    PrologEx.Builtins.JsonPrims,
     PrologEx.Builtins.ClpbPrims,
     PrologEx.Builtins.ClpzPrims,
     PrologEx.Builtins.Pcre,
@@ -390,6 +391,8 @@ defmodule PrologEx.Builtins do
     # term_size/2 wie SWI
     "terms" => Map.put(@home_reexports["terms"], {"numbervars", 3}, "system"),
     "freeze" => %{{"freeze", 2} => "system"},
+    # wie Scryers und SWIs library(dif) (dif/2 ist eingebaut)
+    "dif" => %{{"dif", 2} => "system"},
     # wie SICStus' library(between)
     "between" => %{
       {"between", 3} => "system",
