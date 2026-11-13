@@ -10,3 +10,6 @@ erl_crash.dump
 .elixir_ls/
 /tools/gprolog/reader
 /tmp
+
+# Assembler-Listings der BEAM (erlc +S / @compile :S), nur zur Analyse
+*.S
