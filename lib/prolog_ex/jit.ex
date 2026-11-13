@@ -51,6 +51,12 @@ defmodule PrologEx.Jit do
   Klausel darf nichts einen Fehler werfen können (der Interpreter würde
   sie beim Zurücksetzen versuchen).
 
+  Schließen sich die Klauseln nicht aus, wird ein Prädikat
+  nichtdeterministisch übersetzt (Flag jit_nondet), wenn jeder Rumpf wie
+  oben ist und höchstens als letztes Ziel ein nichtdeterministisches
+  Prädikat ruft (nd_irs!/3): Lösungen als Schritte samt Fortsetzung
+  (nd_tail/3), die der Interpreter als Choice Point hält.
+
   Die Modi (Eingabe/Ausgabe je Argument): steht eine Kopfvariable zuerst
   in einem Vergleich oder rechts in `is`, ist sie Eingabe, links in `is`
   Ausgabe, als Argument eines Aufrufs wie dort. Die übrigen Positionen
@@ -572,17 +578,33 @@ defmodule PrologEx.Jit do
       end
     end
 
-    case evidence(scc, parsed, other) do
+    # deterministisch, wo es geht; sonst (ein Prädikat, Klauseln, die sich
+    # nicht ausschließen) nichtdeterministisch (siehe nd_irs!/3)
+    case evidence(scc, parsed, other, false) do
       :no ->
         for k <- scc, do: why(k, "Modi widersprechen sich")
-        nil
+        nd_solve(scc, parsed, other, num)
 
       {:ok, fixed} ->
-        solve_modes(scc, parsed, other, num, fixed)
+        solve_modes(scc, parsed, other, num, fixed, false) || nd_solve(scc, parsed, other, num)
     end
   end
 
-  defp solve_modes(scc, parsed, other, num, fixed) do
+  # Hinweise auf Modi hier nur von der ersten Stelle einer Kopfvariablen
+  # (btw(L, H, L): die dritte Stelle ist Ausgabe, auch wenn L verglichen
+  # wird)
+  defp nd_solve([_] = scc, parsed, other, num) do
+    if PrologEx.Flags.get("jit_nondet") == {:atom, "true"} do
+      case evidence(scc, parsed, other, true) do
+        {:ok, fixed} -> solve_modes(scc, parsed, other, num, fixed, true)
+        :no -> nil
+      end
+    end
+  end
+
+  defp nd_solve(_, _, _, _), do: nil
+
+  defp solve_modes(scc, parsed, other, num, fixed, nd) do
     open =
       for key <- scc,
           k <- 0..(parsed[key].arity - 1),
@@ -591,14 +613,21 @@ defmodule PrologEx.Jit do
 
     open
     |> candidates()
-    |> Enum.find_value(fn assign ->
+    |> nd_find_value(scc, fn assign ->
       modes = Map.merge(fixed, assign)
 
       try do
-        {reqs, outs, irs} = types(scc, parsed, modes, other, num)
+        {reqs, outs, irs} = types(scc, parsed, modes, other, num, nd)
 
-        for key <- scc,
-            do: exclusive!(Enum.map(irs[key], & &1.ir), MapSet.member?(num, key))
+        irs =
+          if nd do
+            Map.new(irs, fn {key, cs} -> {key, nd_irs!(cs, scc, other)} end)
+          else
+            for key <- scc,
+                do: exclusive!(Enum.map(irs[key], & &1.ir), MapSet.member?(num, key))
+
+            irs
+          end
 
         {:ok,
          Map.new(scc, fn key ->
@@ -620,7 +649,8 @@ defmodule PrologEx.Jit do
                  into: %{},
                  do: {k, outs[{key, k}]}
                ),
-             num: MapSet.member?(num, key)
+             num: MapSet.member?(num, key),
+             nd: nd
            }
 
            {key, %{sig: sig, irs: Enum.map(irs[key], & &1.ir), p: p}}
@@ -633,6 +663,15 @@ defmodule PrologEx.Jit do
           nil
       end
     end)
+  end
+
+  # wie Enum.find_value/2; {:nd_stop, Grund} bricht ab (nil)
+  defp nd_find_value(cands, scc, f) do
+    Enum.find_value(cands, f)
+  catch
+    {:nd_stop, r} ->
+      for k <- scc, do: Process.put(@why_key, Map.put(Process.get(@why_key), k, r))
+      nil
   end
 
   # alle Belegungen der offenen Positionen: mehr Ausgaben zuerst, dann
@@ -654,13 +693,14 @@ defmodule PrologEx.Jit do
     end)
   end
 
-  defp evidence(scc, parsed, other) do
+  defp evidence(scc, parsed, other, first_only) do
     ev =
       for key <- scc,
           {head, goals} <- parsed[key].clauses,
           {a, k} <- Enum.with_index(head),
           match?({:var, _}, a),
           not anon?(a),
+          not first_only or Enum.find_index(head, &(&1 == a)) == k,
           e = first_use(a, goals),
           e not in [nil, :none] do
         case e do
@@ -756,7 +796,7 @@ defmodule PrologEx.Jit do
   # Ausgaben: {t, ps} – t vereinigt mit den Typen der Eingaben ps (deren
   # Anforderung :any ist: durchgereicht), am Aufrufort eingesetzt.
 
-  defp types(scc, parsed, modes, other, num) do
+  defp types(scc, parsed, modes, other, num, nd) do
     reqs0 =
       for key <- scc,
           k <- 0..(parsed[key].arity - 1),
@@ -771,12 +811,12 @@ defmodule PrologEx.Jit do
           into: %{},
           do: {{key, k}, {:bot, []}}
 
-    types_fix(scc, parsed, modes, {other, num}, reqs0, outs0, 12)
+    types_fix(scc, parsed, modes, {other, num, nd}, reqs0, outs0, 12)
   end
 
   defp types_fix(_, _, _, _, _, _, 0), do: no!("Typen kommen zu keinem Fixpunkt")
 
-  defp types_fix(scc, parsed, modes, {other, num} = on, reqs, outs, n) do
+  defp types_fix(scc, parsed, modes, {other, num, nd} = on, reqs, outs, n) do
     sig = fn ck ->
       if ck in scc do
         ar = parsed[ck].arity
@@ -797,7 +837,7 @@ defmodule PrologEx.Jit do
     irs =
       try do
         Map.new(scc, fn key ->
-          ctx = %{key: key, sig: sig, reqs: reqs, num: MapSet.member?(num, key)}
+          ctx = %{key: key, sig: sig, reqs: reqs, num: MapSet.member?(num, key), nd: nd}
           pre = if length(scc) > 1, do: "#{pi(key)}, ", else: ""
 
           {key,
@@ -1170,6 +1210,12 @@ defmodule PrologEx.Jit do
   # Muster gegen die Ergebnisse (Typ am Aufrufort eingesetzt)
   defp goal_flow({:call, ck, as}, d, ctx) do
     sig = ctx.sig.(ck)
+
+    # nichtdeterministisch übersetzt: nur aus ebensolchen, als letztes Ziel
+    # (nd_irs!/3)
+    if Map.get(sig, :nd, false) and not ctx.nd,
+      do: no!("ruft #{pi(ck)}, das nichtdeterministisch ist")
+
     indexed = Enum.with_index(as)
 
     ins =
@@ -1322,6 +1368,79 @@ defmodule PrologEx.Jit do
       if not defd?(d, v), do: no!("#{vname(v)} ist hier nicht bestimmt")
       need(:num, Map.get(d, v, {:bot, []}))
     end
+  end
+
+  # --- Nichtdeterministisch ("Blatt") ---------------------------------------
+  #
+  # Klauseln, die sich nicht ausschließen: jede Klausel ein Rumpf wie sonst
+  # (deterministisch), höchstens als letztes Ziel ein Aufruf eines
+  # nichtdeterministischen Prädikats (auch sich selbst) – {:tail_nd, ...}:
+  # dessen Lösungen sind (über die Ausgabemuster) die der Klausel. Ein
+  # Schnitt nur auf oberster Ebene des Rumpfs (danach keine weiteren
+  # Klauseln); nichtdeterministische Aufrufe sonst nirgends.
+
+  #
+  # Ein rekursiver letzter Aufruf nur ohne Hülle: in der letzten Klausel
+  # (oder nach einem Schnitt) und mit denselben Ausgaben wie die Klausel –
+  # sonst liefe jede Lösung aus Tiefe k durch k Hüllen (select/3 baut
+  # [H|R] auf jeder Stufe neu: über 3000 Elemente 45-mal langsamer als der
+  # Interpreter, der die Zellen einmal baut und nur bindet)
+  defp nd_irs!(cs, scc, other) do
+    nd? = fn ck -> ck in scc or Map.get(other.(ck), :nd, false) end
+    n = length(cs)
+
+    cs
+    |> Enum.with_index(1)
+    |> Enum.map(fn {c, i} ->
+      try do
+        goals = c.ir.goals
+
+        if Enum.any?(goals, &(match?({:ite, _, _, _, _, _}, &1) and cut_in?([&1]))),
+          do: no!("Schnitt in einem Zweig")
+
+        {pre, last} =
+          case Enum.reverse(goals) do
+            [{:call, ck, ins, outs} | r] ->
+              if nd?.(ck), do: {Enum.reverse(r), {:tail_nd, ck, ins, outs}}, else: {goals, nil}
+
+            _ ->
+              {goals, nil}
+          end
+
+        if nd_call_in?(pre, nd?), do: no!("nichtdeterministischer Aufruf nicht als letztes Ziel")
+
+        with {:tail_nd, ck, _, outs} <- last, true <- ck in scc do
+          if not (i == n or :cut in pre), do: no!("rekursiver Aufruf vor weiteren Klauseln")
+          # (kein schwächerer Modus danach: rule1([H|X], [H|Y]) :- rule1(X, Y)
+          # mit beiden Stellen als Eingabe passte, nützte aber keinem Aufruf)
+          if not same_outs?(outs, c.ir.hout),
+            do: throw({:nd_stop, "Klausel #{i}: rekursiver Aufruf mit anderen Ausgaben"})
+        end
+
+        %{c | ir: %{c.ir | goals: if(last, do: pre ++ [last], else: pre)}}
+      catch
+        {:no, r} -> no!("Klausel #{i}: #{r}")
+      end
+    end)
+  end
+
+  # die Ausgaben des Aufrufs sind die der Klausel (dieselben Variablen,
+  # in derselben Reihenfolge)
+  defp same_outs?(outs, hout) do
+    length(outs) == length(hout) and length(Enum.uniq(outs)) == length(outs) and
+      Enum.all?(Enum.zip(outs, hout), fn
+        {{:bind, v}, {_, {:var, _} = w}} -> v == w
+        _ -> false
+      end)
+  end
+
+  defp nd_call_in?(gs, nd?) do
+    Enum.any?(gs, fn
+      {:call, ck, _, _} -> nd?.(ck)
+      {:ite, c, _, t, e, _} -> nd_call_in?(c, nd?) or nd_call_in?(t, nd?) or nd_call_in?(e, nd?)
+      {:not, g} -> nd_call_in?(g, nd?)
+      _ -> false
+    end)
   end
 
   # --- Ausschließlichkeit -------------------------------------------------
@@ -1608,7 +1727,8 @@ defmodule PrologEx.Jit do
           num: sig.num,
           deps: r.p.deps,
           bdeps: r.p.bdeps,
-          sig: sig
+          sig: sig,
+          nd: Map.get(sig, :nd, false)
         }
       end)
 
@@ -1619,7 +1739,7 @@ defmodule PrologEx.Jit do
     # schon ein Vergleich spart mehr, als der Wechsel kostet; ein Fakt
     # nicht. Übersetzt wird trotzdem – für übersetzte Rufer
     entry =
-      length(scc) > 1 or Enum.any?(scc, &s.parsed[&1].rec) or
+      Enum.any?(infos, & &1.nd) or length(scc) > 1 or Enum.any?(scc, &s.parsed[&1].rec) or
         Enum.sum(Enum.map(scc, &s.parsed[&1].size)) >= @entry_size or
         Enum.any?(infos, fn i ->
           Enum.any?(i.deps, fn d ->
@@ -1650,7 +1770,7 @@ defmodule PrologEx.Jit do
         :erlang.term_to_binary(
           {Enum.map(
              infos,
-             &{Enum.map(&1.clauses, fn c -> canon(c) end), &1.ins, &1.outs, &1.num}
+             &{Enum.map(&1.clauses, fn c -> canon(c) end), &1.ins, &1.outs, &1.num, &1.nd}
            ), Enum.sort(remote)}
         )
       )
@@ -1705,7 +1825,7 @@ defmodule PrologEx.Jit do
 
     unless :erlang.module_loaded(mod) or :persistent_term.get(key, nil) != nil do
       callees = for({_, {:remote, m, _}} <- targets, do: m) |> Enum.uniq()
-      slim = Enum.map(infos, &Map.take(&1, [:j, :ins, :clauses, :num]))
+      slim = Enum.map(infos, &Map.take(&1, [:j, :ins, :clauses, :num, :nd]))
       # Aufrufzähler bis zur Schwelle (Flag jit_threshold, siehe run/7)
       :persistent_term.put(key, {:ir, slim, targets, callees, :atomics.new(1, [])})
     end
@@ -1771,18 +1891,28 @@ defmodule PrologEx.Jit do
 
         dispatch = gen_dispatch(1, n, ins, info.j)
 
-        [
-          quote do
-            def unquote(e)(unquote_splicing(ins), b) do
-              unquote(pf)(unquote_splicing(ins), b)
-            rescue
-              ArithmeticError -> PrologEx.Error.evaluation!("undefined")
-              SystemLimitError -> PrologEx.Error.resource!("memory")
-            end
-          end,
-          quote(do: def(unquote(pf)(unquote_splicing(ins), b), do: unquote(dispatch)))
-          | clause_funs
-        ]
+        if Map.get(info, :nd, false) do
+          t1 = {:"t#{info.j}_1", [], ins ++ [Macro.var(:b, __MODULE__)]}
+
+          [
+            quote(do: def(unquote(e)(unquote_splicing(ins), b), do: unquote(t1))),
+            quote(do: def(unquote(pf)(unquote_splicing(ins), b), do: unquote(t1)))
+            | gen_nd_chain(info, ins, n) ++ clause_funs
+          ]
+        else
+          [
+            quote do
+              def unquote(e)(unquote_splicing(ins), b) do
+                unquote(pf)(unquote_splicing(ins), b)
+              rescue
+                ArithmeticError -> PrologEx.Error.evaluation!("undefined")
+                SystemLimitError -> PrologEx.Error.resource!("memory")
+              end
+            end,
+            quote(do: def(unquote(pf)(unquote_splicing(ins), b), do: unquote(dispatch)))
+            | clause_funs
+          ]
+        end
       end)
 
     quote do
@@ -1790,6 +1920,40 @@ defmodule PrologEx.Jit do
         @moduledoc false
         @compile {:no_warn_undefined, PrologEx.Jit}
         unquote_splicing(funs)
+      end
+    end
+  end
+
+  # nichtdeterministisch: t<j>_<i> versucht Klausel i, dann (beim
+  # Zurücksetzen) die nächsten. Ergebnis {:sol, b, Ausgaben, weiter} (weiter:
+  # fn b -> ... end oder nil, wenn nichts mehr kommt) oder {:none, b}
+  defp gen_nd_chain(info, ins, n) do
+    b = Macro.var(:b, __MODULE__)
+    j = info.j
+
+    for {c, i} <- Enum.with_index(info.clauses, 1) do
+      tnext = {:"t#{j}_#{i + 1}", [], ins ++ [b]}
+      last = i == n or :cut in c.goals
+      next = if last, do: nil, else: quote(do: fn b -> unquote(tnext) end)
+      failnext = if i == n, do: quote(do: {:none, b}), else: tnext
+
+      quote do
+        defp unquote(:"t#{j}_#{i}")(unquote_splicing(ins), b) do
+          case unquote(ccall(j, i, ins)) do
+            {:tail, step, mapf} ->
+              PrologEx.Jit.nd_tail(step, mapf, unquote(next))
+
+            r when is_tuple(r) ->
+              [b | outs] = Tuple.to_list(r)
+              {:sol, b, outs, unquote(next)}
+
+            b when b >= 0 ->
+              unquote(failnext)
+
+            nb ->
+              {:none, -nb - 1}
+          end
+        end
       end
     end
   end
@@ -2078,6 +2242,37 @@ defmodule PrologEx.Jit do
     )
   end
 
+  # letzter Aufruf eines nichtdeterministischen Prädikats: seine Lösungen
+  # (step) und wie aus seinen Ausgaben die der Klausel werden (mapf: fn
+  # Ausgaben, b -> {b, Ausgaben der Klausel} | b; nil, wenn sie dieselben
+  # sind)
+  defp gen_goals([{:tail_nd, ck, ins, outs} | _], st) do
+    args = Enum.map(ins, &build_ast(&1, st))
+    step = call_ast(st.targets[ck], args)
+
+    if same_outs?(outs, st.hout) do
+      counted(quote(do: {:tail, unquote(step), nil}))
+    else
+      st2 = %{st | cut: false, local: true}
+      tmps = for {_, j} <- Enum.with_index(outs), do: Macro.var(:"o#{j}", __MODULE__)
+      houts = for {_, bt} <- st.hout, do: build_ast(bt, st)
+
+      body =
+        outs
+        |> Enum.zip(tmps)
+        |> Enum.reverse()
+        |> Enum.reduce(quote(do: {b, unquote(houts)}), fn {mp, tmp}, acc ->
+          match_ast(tmp, mp, acc, st2)
+        end)
+
+      counted(
+        quote do
+          {:tail, unquote(step), fn unquote(tmps), b -> unquote(body) end}
+        end
+      )
+    end
+  end
+
   defp gen_goals([{:not, g} | gs], st) do
     inner = gen_goals(g ++ [{:yield, :cond, []}], %{st | local: true})
 
@@ -2332,6 +2527,79 @@ defmodule PrologEx.Jit do
       :retry -> go(m, ins, chunk, check, store, outs, false)
       r -> r
     end
+  end
+
+  # --- nichtdeterministisch übersetzte Prädikate ---------------------------
+  #
+  # Lösungen als Schritte: {:sol, b, Ausgaben, weiter} (weiter: fn b ->
+  # Schritt end oder nil) oder {:none, b}. Der Interpreter legt für weiter
+  # einen Choice Point an ({:jit_nd, ...}) und ruft es beim Zurücksetzen
+  # über nd_resume/6 – mit neuem Block und neuem Eintrag unter @run_key.
+
+  @doc false
+  # Lösungen eines letzten Aufrufs (step) über mapf zu denen der Klausel,
+  # danach die weiteren Klauseln (alt)
+  def nd_tail({:none, b}, _mapf, nil), do: {:none, b}
+  def nd_tail({:none, b}, _mapf, alt), do: alt.(b)
+  def nd_tail({:sol, _, _, _} = step, nil, nil), do: step
+  def nd_tail({:sol, b, outs, nx}, nil, alt), do: {:sol, b, outs, nd_chain(nx, nil, alt)}
+
+  def nd_tail({:sol, b, outs, nx}, mapf, alt) do
+    case mapf.(outs, b) do
+      {b, houts} ->
+        {:sol, b, houts, nd_chain(nx, mapf, alt)}
+
+      b ->
+        case nx do
+          nil -> nd_tail({:none, b}, mapf, alt)
+          f -> nd_tail(f.(b), mapf, alt)
+        end
+    end
+  end
+
+  defp nd_chain(nil, _mapf, alt), do: alt
+  defp nd_chain(nx, mapf, alt), do: fn b -> nd_tail(nx.(b), mapf, alt) end
+
+  @doc false
+  # erster Aufruf: {:sol, Ausgaben, verbraucht, weiter} | {:fail, verbraucht}
+  # | :deopt | :warming | {:thrown, ball}
+  def nd_run({mod, entry, _, _, _}, ins, chunk, check, store, outs) do
+    if :erlang.module_loaded(mod) or warm?(mod),
+      do: nd_go(fn b -> apply(mod, entry, ins ++ [b]) end, chunk, check, store, outs),
+      else: :warming
+  end
+
+  @doc false
+  # beim Zurücksetzen: die nächste Lösung (wie nd_run/6)
+  def nd_resume(next, chunk, check, store, outs), do: nd_go(next, chunk, check, store, outs)
+
+  defp nd_go(f, chunk, check, store, outs) do
+    Process.put(@run_key, {chunk, check, store, nil, outs})
+
+    try do
+      case f.(chunk) do
+        {:sol, b, vals, nx} -> {:sol, vals, chunk_now() - b, nx}
+        {:none, b} -> {:fail, chunk_now() - b}
+      end
+    rescue
+      e in PrologEx.Error -> {:thrown, e.term}
+      ArithmeticError -> nd_error(fn -> PrologEx.Error.evaluation!("undefined") end)
+      SystemLimitError -> nd_error(fn -> PrologEx.Error.resource!("memory") end)
+      UndefinedFunctionError -> :deopt
+    catch
+      :jit_deopt -> :deopt
+    after
+      case Process.delete(@run_key) do
+        {_, _, _, {old, _}, _} -> Process.flag(:min_heap_size, old)
+        _ -> :ok
+      end
+    end
+  end
+
+  defp nd_error(f) do
+    f.()
+  rescue
+    e in PrologEx.Error -> {:thrown, e.term}
   end
 
   defp chunk_now, do: elem(Process.get(@run_key), 0)

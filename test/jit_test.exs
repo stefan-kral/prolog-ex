@@ -168,13 +168,32 @@ defmodule PrologEx.JitTest do
   nrv([H|T], R) :- nrv(T, RT), append(RT, [H], R).
   tap(X, Y, Z) :- append(X, Y, Z).
   tapc(X, Z) :- append(X, [c], Z).
+  % nichtdeterministisch ("Blatt")
+  mem(X, [X|_]).
+  mem(X, [_|T]) :- mem(X, T).
+  btw(L, H, L) :- L =< H.
+  btw(L, H, X) :- L < H, L1 is L + 1, btw(L1, H, X).
+  sel(X, [X|T], T).
+  sel(X, [H|T], [H|R]) :- sel(X, T, R).
+  pk(X, Y) :- X > 2, !, Y = big.
+  pk(_, small).
+  nde(X, Y) :- Y is X.
+  nde(X, Y) :- Y is 1 // X.
+  ndl(_, first).
+  ndl(L, Y) :- L = [_, Y|_].
+  wrap(L, s(X)) :- mem(X, L).
+  ones(L, k) :- mem(1, L).
+  sq3(N, Y) :- N > 0, M is N * N, btw(1, M, Y).
+  ndf(X, Y) :- X > 0, Y = pos.
+  ndf(X, Y) :- X >= 0, Y = nonneg.
+  ndf(_, any).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
   # übersetzte Rufer ({:jit_info, ...})
   defp jitted?(db, {m, n, a} = k),
     do:
-      match?({:pred, _, _, {:jit, _, _, _, _, _}, _}, db[k]) or
+      match?({:pred, _, _, {t, _, _, _, _, _}, _} when t in [:jit, :jit_nd], db[k]) or
         Map.has_key?(db, {:jit_info, m, n, a})
 
   setup_all do
@@ -261,8 +280,8 @@ defmodule PrologEx.JitTest do
     # Z nur in einem Zweig bestimmt: nein
     refute jitted.({"user", "pz", 2})
     # vor X > 0 kann 1 // X werfen (der Interpreter würde die Klausel nach
-    # wd(0, Y) beim Zurücksetzen versuchen): nein
-    refute jitted.({"user", "wd", 2})
+    # wd(0, Y) beim Zurücksetzen versuchen): nichtdeterministisch
+    assert jitted.({"user", "wd", 2})
     # mit Flag jit = false nichts
     refute jitted?(c.int, {"user", "fib", 2})
   end
@@ -292,9 +311,23 @@ defmodule PrologEx.JitTest do
           {"tins_", 5},
           {"nrv", 2},
           {"tap", 3},
-          {"tapc", 2}
+          {"tapc", 2},
+          {"mem", 2},
+          {"btw", 3},
+          {"pk", 2},
+          {"nde", 2},
+          {"ndl", 2},
+          {"wrap", 2},
+          {"ones", 2},
+          {"sq3", 2},
+          {"ndf", 2}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
+
+    # select/3: der rekursive Aufruf baut [H|R] auf jeder Stufe – jede
+    # Lösung aus Tiefe k liefe durch k Hüllen: nicht übersetzt (auch in
+    # keinem schwächeren Modus)
+    refute jitted?(c.jit, {"user", "sel", 3})
 
     # Schnitt in einem Zweig: dort schneidet er die Klausel ab – bleibt
     # eine Disjunktion, nicht übersetzt
@@ -646,7 +679,41 @@ defmodule PrologEx.JitTest do
         "app([X], [], X), X = [Y|_], Y == X",
         "set_prolog_flag(occurs_check, true), \\+ app([1], X, X)",
         "set_prolog_flag(occurs_check, error), catch(app([1], X, X), error(E, _), true)",
-        "findall(Y, wd(0, Y), L)"
+        "findall(Y, wd(0, Y), L)",
+        # nichtdeterministisch übersetzt: dieselben Lösungen, Inferenzen,
+        # Fehler, Schnitte, Grenzen
+        "findall(X, mem(X, [a,b,c]), L)",
+        "mem(X, [a,b,c])",
+        "mem(X, [])",
+        "findall(X, (mem(X, [1,2,3,4]), X > 2), L)",
+        "mem(X, [1,2,3]), X > 1, !",
+        "once(mem(X, [f(Y), g(Z)]))",
+        "call_nth(mem(X, [a,b,c,d]), 3)",
+        "findall(X, mem(X, [A, B, A]), L)",
+        "inf(findall(X, mem(X, [a,b,c,d,e]), _), I)",
+        "findall(X, btw(1, 6, X), L)",
+        "btw(3, 1, X)",
+        "inf(findall(X, btw(1, 20, X), _), I)",
+        "findall(X, (btw(1, 30, X), X mod 7 =:= 0), L)",
+        "catch(btw(a, 3, X), error(E, _), true)",
+        "findall(X-R, sel(X, [1,2,3], R), L)",
+        "findall(X-R, sel(X, [], R), L)",
+        "inf(findall(X-R, sel(X, [1,2,3,4], R), _), I)",
+        "findall(Y, pk(5, Y), L)",
+        "findall(Y, pk(1, Y), L)",
+        "catch(findall(Y, nde(0, Y), L), error(E, _), true)",
+        "findall(Y, nde(2, Y), L)",
+        "findall(Y, ndl([a|T], Y), L)",
+        "findall(Y, ndl([a,b,c], Y), L)",
+        "findall(Y, wrap([1,2], Y), L)",
+        "findall(K, ones([1,2,1], K), L)",
+        "findall(Y, sq3(2, Y), L)",
+        "findall(Y, ndf(1, Y), L)",
+        "findall(Y, ndf(0, Y), L)",
+        "findall(Y, ndf(-1, Y), L)",
+        "call_with_inference_limit(findall(X, btw(1, 1000, X), _), 500, R)",
+        "call_with_inference_limit(mem(X, [a,b]), 100, R)",
+        "mem(X, [1,2]), X > 5"
       ] do
     test q, c do
       Reader.put_current(c.reader)
@@ -736,7 +803,8 @@ defmodule PrologEx.JitTest do
     assert out =~ ~r"% pz/2 +nein +Klausel 1: Z ist nur in einem Zweig"
     assert out =~ ~r"% cnj/2 +nein +ruft nj/2, das nicht übersetzt wird"
     assert out =~ ~r"% nj/2 +nein +Klausel 1: Ziel atom_length/2"
-    assert out =~ ~r"% wd/2 +nein +Klauseln 1 und 2 schließen sich nicht nachweislich aus"
+    assert out =~ ~r"% wd/2 +\S+ +wd\(\+int, -int\)  nichtdeterministisch"
+    assert out =~ ~r"% mem/2 +\S+ +mem\(-any, \+list\)  nichtdeterministisch"
     assert out =~ ~r"% udsq/2 +nein +Klausel 1: ruft das dynamische dsq/2"
     {out, _} = TableCase.run(c.reader, c.int, "jit_listing(fib/2)")
     assert out =~ ~r"% fib/2 +wäre übersetzbar"

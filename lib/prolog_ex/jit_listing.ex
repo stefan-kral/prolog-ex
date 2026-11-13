@@ -7,6 +7,7 @@ defmodule PrologEx.JitListing do
       % app/3       übersetzt          app(+list, +any, -)
       % sq/2        nur für Rufer      sq(+int, -int)
       % klasse/2    nein               Klausel 2: Ziel is_list/1
+      % mem/2       übersetzt          mem(-any, +list)  nichtdeterministisch
 
   Status: „übersetzt“ (Code geladen), „analysiert“ (übersetzt ab dem n-ten
   Aufruf, Flag jit_threshold), „nur für Rufer“ (übersetzt, aber der Interpreter tritt nicht ein:
@@ -80,7 +81,7 @@ defmodule PrologEx.JitListing do
   # übersetzt? {status, info} oder nil
   defp status(db, module, {n, a}, p) do
     case p do
-      {:pred, _, _, {:jit, info, _, _, _, _}, _} ->
+      {:pred, _, _, {t, info, _, _, _, _}, _} when t in [:jit, :jit_nd] ->
         {loaded(info), info}
 
       _ ->
@@ -109,7 +110,8 @@ defmodule PrologEx.JitListing do
         end
       end
 
-    "#{n}(#{Enum.join(args, ", ")})"
+    nd = if Map.get(sig, :nd, false), do: "  nichtdeterministisch", else: ""
+    "#{n}(#{Enum.join(args, ", ")})#{nd}"
   end
 
   defp tdesc(:num, false), do: "int"

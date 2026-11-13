@@ -1080,12 +1080,15 @@ defmodule PrologEx do
           deps = Enum.map(deps, fn {dn, da} -> {module, dn, da} end)
           info = {mod, e, pf, deps, sig}
 
+          # nichtdeterministisch übersetzt: {:jit_nd, ...} (jit_nd_run/5)
+          tag = if Map.get(sig, :nd, false), do: :jit_nd, else: :jit
+
           if sig.entry,
             do:
               Map.put(
                 acc,
                 {module, n, a},
-                {:pred, cls, by_key, {:jit, info, ins, outs, vo, :atomics.new(3, [])}, entries}
+                {:pred, cls, by_key, {tag, info, ins, outs, vo, :atomics.new(3, [])}, entries}
               ),
             else: acc |> Map.put({module, n, a}, p) |> Map.put({:jit_info, module, n, a}, info)
 
@@ -1104,7 +1107,7 @@ defmodule PrologEx do
 
       info =
         case db do
-          %{^k => {:pred, _, _, {:jit, i, _, _, _, _}, _}} -> i
+          %{^k => {:pred, _, _, {t, i, _, _, _, _}, _}} when t in [:jit, :jit_nd] -> i
           %{{:jit_info, ^module, ^n, ^a} => i} -> i
           _ -> nil
         end
@@ -1159,7 +1162,10 @@ defmodule PrologEx do
     end
   end
 
-  defp jit_deps(k, {:pred, _, _, {:jit, {_, _, _, deps, _}, _, _, _, _}, _}), do: [{k, deps}]
+  defp jit_deps(k, {:pred, _, _, {t, {_, _, _, deps, _}, _, _, _, _}, _})
+       when t in [:jit, :jit_nd],
+       do: [{k, deps}]
+
   defp jit_deps({:jit_info, m, n, a}, {_, _, _, deps, _}), do: [{{m, n, a}, deps}]
   defp jit_deps(_, _), do: []
 
@@ -1178,7 +1184,8 @@ defmodule PrologEx do
                 db = Map.delete(db, {:jit_info, m, n, a})
 
                 case db do
-                  %{^k => {:pred, cls, by_key, {:jit, _, _, _, vo, _}, entries}} ->
+                  %{^k => {:pred, cls, by_key, {t, _, _, _, vo, _}, entries}}
+                  when t in [:jit, :jit_nd] ->
                     Map.put(db, k, {:pred, cls, by_key, vo, entries})
 
                   _ ->
@@ -1472,6 +1479,7 @@ defmodule PrologEx do
   defp fallback(l, _k) when is_list(l), do: l
   defp fallback({:spec, l}, _k), do: l
   defp fallback({:jit, _, _, _, vo, _}, k), do: fallback(vo, k)
+  defp fallback({:jit_nd, _, _, _, vo, _}, k), do: fallback(vo, k)
 
   defp fallback({:classes, m, all}, k) do
     case key_class(k) do
@@ -2910,6 +2918,21 @@ defmodule PrologEx do
     run(%{rearm(st) | goals: rest})
   end
 
+  # '$nojit'(G): G im Interpreter, auch wenn es übersetzt ist (nach dem
+  # Aufgeben eines nichtdeterministisch übersetzten Aufrufs, jit_nd_retry/2)
+  defp step({:struct, "$nojit", [g]}, _cutb, mod, rest, st) do
+    {name, args} =
+      case Store.walk(g, st.subst) do
+        {_, f, as} when is_binary(f) and is_list(as) -> {f, as}
+        other -> name_args(other)
+      end
+
+    case Map.fetch(current_db(), {mod, name, length(args)}) do
+      {:ok, {:pred, _, _, _, _} = pred} -> interp_call(pred, g, name, args, mod, rest, st)
+      _ -> run(%{st | goals: [{g, st.height, mod} | rest]})
+    end
+  end
+
   # '$sleep'(Ms): schlafen, aber höchstens bis zur nächsten Deadline –
   # dann time_limit_exceeded
   defp step({:struct, "$sleep", [ms]}, _cutb, _mod, rest, st) do
@@ -3385,6 +3408,35 @@ defmodule PrologEx do
             throw_ball(ball, st)
         end
 
+      # nichtdeterministisch übersetzt: Lösungen über einen Choice Point
+      # {:jit_nd, ...}
+      {:ok, {:pred, _, _, {:jit_nd, info, ins, outs, _, stats}, _} = pred} ->
+        r =
+          cond do
+            st.dlimit != nil or jit_cold?(stats) -> :cold
+            true -> jit_nd_call(info, ins, outs, goal, args, mod, rest, st)
+          end
+
+        case r do
+          :cold ->
+            interp_call(pred, goal, name, args, mod, rest, st)
+
+          :no ->
+            :atomics.add(stats, 2, 1)
+            interp_call(pred, goal, name, args, mod, rest, st)
+
+          :deopt ->
+            :atomics.add(stats, 2, @jit_deopt_weight)
+            interp_call(pred, goal, name, args, mod, rest, st)
+
+          :warming ->
+            interp_call(pred, goal, name, args, mod, rest, st)
+
+          {:go, k} ->
+            :atomics.add(stats, 1, 1)
+            k.()
+        end
+
       # ohne aufgeschobenes Anhängen und ohne Tiefengrenze (der häufige
       # Fall): ohne Hilfsaufrufe
       {:ok, {:pred, all, _, _, _} = pred} when not is_tuple(all) and st.dlimit == nil ->
@@ -3555,6 +3607,103 @@ defmodule PrologEx do
     case depth_enter(st, rest, mod) do
       {st, rest} -> try_clauses(args, candidates(pred, mod, name, args, st.subst), rest, mod, st)
       :fail -> backtrack(st)
+    end
+  end
+
+  # nichtdeterministisch übersetzt: erste Lösung; weitere über den Choice
+  # Point {:jit_nd, weiter, info, ausgaben, ziel, modul, rest, subst, answer,
+  # n} (n: so viele Lösungen sind schon geliefert). {:go, k} – k.() macht
+  # weiter (Tail Call in call_pred/4), sonst wie jit_call/4
+  defp jit_nd_call(info, ins, outs, goal, args, mod, rest, st) do
+    s = st.subst
+
+    with {:ok, ov} <- jit_outs(outs, args, 0, s, []),
+         {:ok, iv} <- jit_ins(ins, args, 0, s, []) do
+      n0 = :atomics.get(st.icount, 1)
+      chunk = if st.ilimit == nil, do: @jit_chunk, else: min(st.ilimit - n0, @jit_chunk)
+
+      if chunk < 1 or PrologEx.Flags.jit_off?() do
+        :warming
+      else
+        check = fn consumed -> jit_check(consumed, st) end
+
+        case PrologEx.Jit.nd_run(info, iv, chunk, check, s, ov) do
+          :deopt ->
+            :atomics.put(st.icount, 1, n0)
+            :deopt
+
+          :warming ->
+            :warming
+
+          r ->
+            {:go, fn -> jit_nd_result(r, info, ov, goal, mod, rest, 0, st) end}
+        end
+      end
+    else
+      _ -> :no
+    end
+  end
+
+  # Ergebnis eines Schritts (erster Aufruf oder Zurücksetzen): Lösung binden,
+  # für weitere einen Choice Point davor
+  defp jit_nd_result(r, info, ov, goal, mod, rest, n, st) do
+    case r do
+      {:sol, values, used, nx} ->
+        c = :atomics.add_get(st.icount, 1, used)
+
+        if jit_over?(c, st) do
+          throw_ball({:atom, "inference_limit_exceeded"}, st)
+        else
+          s = st.subst
+
+          st =
+            if nx == nil,
+              do: st,
+              else:
+                push(
+                  st,
+                  {:jit_nd, nx, info, ov, goal, mod, rest, Store.fast_snapshot(s), st.answer,
+                   n + 1}
+                )
+
+          case jit_bind(ov, values, s) do
+            {:ok, s1} -> run(%{st | goals: rest, subst: s1})
+            :error -> backtrack(st)
+            {:thrown, ball} -> throw_ball(ball, st)
+          end
+        end
+
+      {:fail, used} ->
+        c = :atomics.add_get(st.icount, 1, used)
+
+        if jit_over?(c, st),
+          do: throw_ball({:atom, "inference_limit_exceeded"}, st),
+          else: backtrack(st)
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+    end
+  end
+
+  # Zurücksetzen in ein nichtdeterministisch übersetztes Prädikat. Gibt der
+  # Code jetzt auf (nach n Lösungen), rechnet der Interpreter den Aufruf
+  # neu und überspringt die ersten n: call_nth('$nojit'(Ziel), I), I > n
+  # (dieselben Lösungen in derselben Reihenfolge; die Inferenzen der
+  # Wiederholung zählen mit)
+  defp jit_nd_retry({:jit_nd, nx, info, ov, goal, mod, rest, _s, _a, n}, st) do
+    n0 = :atomics.get(st.icount, 1)
+    chunk = if st.ilimit == nil, do: @jit_chunk, else: min(st.ilimit - n0, @jit_chunk)
+    check = fn consumed -> jit_check(consumed, st) end
+
+    case PrologEx.Jit.nd_resume(nx, max(chunk, 1), check, st.subst, ov) do
+      :deopt ->
+        :atomics.put(st.icount, 1, n0)
+        i = {:var, PrologEx.Vars.next()}
+        skip = mk(",", [mk("call_nth", [mk("$nojit", [goal]), i]), mk(">", [i, n])])
+        run(%{st | goals: [{skip, st.height, mod} | rest]})
+
+      r ->
+        jit_nd_result(r, info, ov, goal, mod, rest, n, st)
     end
   end
 
@@ -5198,6 +5347,16 @@ defmodule PrologEx do
         | cps: cps,
           height: st.height - 1,
           goals: [goal | rest],
+          subst: Store.fast_restore(subst),
+          answer: answer
+      })
+
+  defp backtrack(%{cps: [{:jit_nd, _, _, _, _, _, _, subst, answer, _} = cp | cps]} = st),
+    do:
+      jit_nd_retry(cp, %{
+        st
+        | cps: cps,
+          height: st.height - 1,
           subst: Store.fast_restore(subst),
           answer: answer
       })

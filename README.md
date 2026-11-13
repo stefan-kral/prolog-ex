@@ -81,6 +81,32 @@ Ein Prolog-Kern in Elixir:
     Muster ohne Gemeinsames wie `integer(X)` / `float(X)` / `[]`; davor
     darf in der späteren Klausel nichts werfen können). Eine Variable, die nur ein
     Zweig eines If-then-else bestimmt, darf danach nicht mehr vorkommen.
+  - **Nichtdeterministische „Blatt“-Prädikate** (Flag `jit_nondet`,
+    Voreinstellung `true`): Schließen sich die Klauseln eines Prädikats
+    nicht aus, wird es trotzdem übersetzt, wenn jeder Rumpf wie oben
+    deterministisch ist und höchstens als letztes Ziel ein solches
+    Prädikat ruft (auch sich selbst): `member/2`, `between/3` in ihrer
+    üblichen Form, Faktentabellen, Prüfungen wie `divisible/2`. Ein
+    rekursiver letzter Aufruf nur in der letzten Klausel (oder nach einem
+    Schnitt) und mit denselben Ausgaben wie die Klausel – `select/3` baut
+    `[H|R]` auf jeder Stufe neu, jede Lösung aus Tiefe k liefe durch k
+    Hüllen (über 3000 Elemente 45-mal langsamer als der Interpreter, der
+    die Zellen einmal baut und nur bindet); solche bleiben im Interpreter.
+    Ein Schnitt nur auf oberster Ebene des Rumpfs.
+    Der Code liefert eine Lösung samt Fortsetzung (Closure); der
+    Interpreter legt dafür einen Choice Point an und ruft sie beim
+    Zurücksetzen – dieselben Lösungen in derselben Reihenfolge, dieselben
+    Inferenzen und Fehler. Sind die Ausgaben des letzten Aufrufs die der
+    Klausel (`mem(X, [_|T]) :- mem(X, T)`), reicht die Klausel seine
+    Lösungen ohne Hülle weiter. Gibt der Code nach der n-ten Lösung auf,
+    rechnet der Interpreter den Aufruf neu und überspringt die ersten n
+    (`call_nth/2`; die Inferenzen der Wiederholung zählen mit).
+    Deterministische Prädikate rufen solche nicht (sie bleiben dann im
+    Interpreter). `jit_listing/0` vermerkt „nichtdeterministisch“.
+    Gemessen, 200× bis zur letzten Lösung: `member/2` über 10 000 Elemente
+    1,8 s → 1,0 s, `between/3` bis 10 000 4,4 s → 1,3 s; SWI-Benchmarks
+    `perfect` ×7, der Rest im Rauschen (±15 %). `repeat/1` ist eingebaut und bleibt es
+    (Prädikate ohne Argumente übersetzt der JIT nicht).
   - Modi und Typen: steht eine Kopfvariable zuerst in einem Vergleich
     oder rechts in `is`, ist sie Eingabe, links in `is` Ausgabe, als
     Argument eines Aufrufs wie dort; die übrigen Positionen werden
