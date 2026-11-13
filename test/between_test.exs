@@ -82,6 +82,17 @@ defmodule PrologEx.BetweenTest do
     assert ask(c, "numlist(3, L)", 10, db) == ["L = [1,2,3]"]
     assert ask(c, "numlist(2, 4, L)", 10, db) == ["L = [2,3,4]"]
     assert ask(c, "findall(x, repeat(3), L)", 10, db) == ["L = \"xxx\""]
+    # ein Ausdruck als Anzahl (between/3 bleibt streng, wie der Prologue-Entwurf)
+    assert ask(c, "findall(x, repeat(2+1), L)", 10, db) == ["L = \"xxx\""]
+    assert ask(c, "findall(x, repeat(2^2-4), L)", 10, db) == ["L = []"]
+    assert ask(c, "\\+ \\+ (findall(x, repeat(10^5), L), length(L, 100000))", 10, db) == ["true"]
+    assert ask(c, "repeat(a)", 10, db) == {:error, "type_error(integer,a)"}
+    assert ask(c, "repeat(2.0)", 10, db) == {:error, "type_error(integer,2.0)"}
+    assert ask(c, "repeat(4/2.0)", 10, db) == {:error, "type_error(integer,2.0)"}
+    assert ask(c, "repeat(foo(1))", 10, db) == {:error, "type_error(evaluable,foo/1)"}
+    assert ask(c, "repeat(_)", 10, db) == {:error, "instantiation_error"}
+    assert ask(c, "repeat(1+_)", 10, db) == {:error, "instantiation_error"}
+    assert ask(c, "between(1, 2^2, X)", 10, db) == {:error, "type_error(integer,2^2)"}
     assert ask(c, "between(1, 3, X)", 10, db) == ["X = 1", "X = 2", "X = 3"]
 
     # Import-Liste mit eingebautem between/3, lists dazu ohne Konflikt

@@ -307,9 +307,9 @@ defmodule PrologEx.LibraryTest do
 
       assert out ==
                "% repeat/0: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
-                 "repeat(N) :-\n    '$must_be_integer'(N),\n    N>0,\n    '$repeat'(N).\n\n" <>
-                 "% $must_be_integer/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
-                 "% $repeat/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n"
+                 "repeat(N) :-\n    '$repeat_count'(N,M),\n    M>0,\n    '$repeat'(M).\n\n" <>
+                 "% $repeat/1: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n\n" <>
+                 "% $repeat_count/2: eingebaut, in Elixir realisiert (PrologEx.Builtins.Core)\n"
     end
 
     test "listing(append/3) zeigt das klassische Hilfsprädikat" do

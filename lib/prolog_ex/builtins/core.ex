@@ -15,13 +15,20 @@ defmodule PrologEx.Builtins.Core do
 
   defp repeat_forever, do: [:ok | &repeat_forever/0]
 
-  # repeat/1 ist in Prolog definiert (siehe library/0); hier nur die Prüfung
-  defbuiltin "$must_be_integer", [x] do
-    case deref(x) do
-      n when is_integer(n) -> :ok
-      {:var, _} -> PrologEx.Error.instantiation!()
-      other -> PrologEx.Error.type!("integer", other)
-    end
+  # repeat/1 ist in Prolog definiert (siehe library/0); hier nur die Zahl:
+  # eine Ganzzahl, oder ein Ausdruck, der eine ergibt (repeat(10^6)) –
+  # sonst type_error(integer, X) (ein Atom wird nicht ausgewertet)
+  defbuiltin "$repeat_count", [x, n] do
+    s = subst()
+
+    v =
+      case deref(x) do
+        {:var, _} -> PrologEx.Error.instantiation!()
+        {tag, _, _} = e when tag in [:struct, :gstruct] -> PrologEx.Arith.eval(e, s)
+        other -> other
+      end
+
+    if is_integer(v), do: {:unify, [{n, v}]}, else: PrologEx.Error.type!("integer", resolve(v))
   end
 
   # $repeat(N), N >= 1: genau N Lösungen als lazy Liste – der Rest wird
@@ -39,7 +46,9 @@ defmodule PrologEx.Builtins.Core do
     import PrologEx, only: [s: 2, v: 1, rule: 2]
     n = v("N")
 
-    [rule(s("repeat", [n]), [s("$must_be_integer", [n]), s(">", [n, 0]), s("$repeat", [n])])]
+    m = v("M")
+
+    [rule(s("repeat", [n]), [s("$repeat_count", [n, m]), s(">", [m, 0]), s("$repeat", [m])])]
   end
 
   # succ(X, Y): Y = X + 1 für natürliche Zahlen (in beide Richtungen);

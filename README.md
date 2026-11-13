@@ -1336,6 +1336,10 @@ Wie SICStus: `gen_nat/1` (0, 1, 2, … ohne Ende), `gen_int/1` (0, 1, -1, 2,
 N = 4, X = 3, Y = 5, Z = 7`; Länge aus Length, der Liste oder Lower/Step/
 Upper), dazu `between/3`, `repeat/1` und `numlist/2,3` – `between/3` und
 `repeat/1` gibt es nur hier (siehe Module: Heimat-Bibliotheken).
+`repeat(N)` nimmt auch einen Ausdruck, der eine Ganzzahl ergibt
+(`repeat(10^6)`; ein Atom wird nicht ausgewertet, ein Float ist ein
+`type_error(integer, X)`); `between/3` bleibt streng (`between(1, 10^6, X)`
+ist ein `type_error(integer, 10^6)`, wie der Prologue-Entwurf es verlangt).
 
 ## Zufall: `library(random)`
 
