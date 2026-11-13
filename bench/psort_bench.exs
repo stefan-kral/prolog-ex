@@ -13,7 +13,7 @@ n = String.to_integer(System.get_env("N", "13"))
 
 PrologEx.put_db(%{})
 
-for q <- ["use_module(library(lists))"] do
+for q <- ["use_module(library(lists))", "use_module(library(lambda))"] do
   [{:term, g, _}] = PrologEx.Reader.read_terms(r, q <> ".")
   [_] = PrologEx.query(PrologEx.current_db(), g) |> Enum.take(1)
 end
@@ -30,6 +30,10 @@ end
     sorted_wh([]).
     sorted_wh([_]).
     sorted_wh([X,Y|Zs]) :- when((nonvar(X), nonvar(Y)), X =< Y), sorted_wh([Y|Zs]).
+    % ordered/2 (SICStus) mit einem Hilfsprädikat bzw. einem Lambda
+    psort_or(Xs, Ys) :- length(Xs, N), length(Ys, N), ordered(ordered2, Ys), perm(Xs, Ys).
+    ordered2(X, Y) :- freeze(X, freeze(Y, X =< Y)).
+    psort_la(Xs, Ys) :- length(Xs, N), length(Ys, N), ordered(\\X^Y^freeze(X, freeze(Y, X =< Y)), Ys), perm(Xs, Ys).
     perm([], []).
     perm(Xs, [Y|Ys]) :- select(Y, Xs, Xs1), perm(Xs1, Ys).
     % eine feste Durchmischung von 1..N
@@ -66,3 +70,5 @@ end
 IO.puts("N = #{n}")
 IO.puts("freeze(X, freeze(Y, X =< Y))        " <> time.("mixed(#{n}, L), psort_fz(L, _)"))
 IO.puts("when((nonvar(X), nonvar(Y)), X =< Y)" <> time.("mixed(#{n}, L), psort_wh(L, _)"))
+IO.puts("ordered(ordered2, Ys)               " <> time.("mixed(#{n}, L), psort_or(L, _)"))
+IO.puts("ordered(\\X^Y^freeze(...), Ys)       " <> time.("mixed(#{n}, L), psort_la(L, _)"))

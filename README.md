@@ -3232,7 +3232,10 @@ Gemessen (`mix run bench/dif_bench.exs`, `bench/psort_bench.exs`,
 1,3 → 0,9 s, `dif` an 300 Variablen paarweise 440 → 380 ms. Permutation
 Sort (13 Elemente, Sortiertheit mit `freeze` auf den Elementen) 241 → 162
 ms, mit `when` 194 → 135 ms – dort waren von 75 000 Maschinenschritten
-63 000 Weck-Verwaltung, jetzt 48 000 insgesamt. Was bleibt, ist bei
+63 000 Weck-Verwaltung, jetzt 48 000 insgesamt. Stand 13. 11. 2026
+(`MIX_ENV=prod`, N = 13): geschachteltes `freeze` 72 ms, `when` 73 ms,
+`ordered(ordered2, Ys)` 70 ms, `ordered(\X^Y^freeze(X, freeze(Y, X =<
+Y)), Ys)` mit `library(lambda)` 73 ms – alle vier gleich schnell. Was bleibt, ist bei
 großen Substitutionen der Preis der Map-Zugriffe (ein Schreibzugriff auf
 eine Map mit 300 000 Einträgen kostet 2–3 µs statt 0,2) – siehe
 `PrologEx.bind/3` (`:wake`) und die Kompaktierung lebender attributierter
@@ -3735,35 +3738,35 @@ scryer-prolog -g main -g halt bench/compare.pl
 swipl -g main -t halt bench/compare.pl
 ```
 
-Stand 12. November 2026 (OTP 28, Scryer `master` b7066b4 als
+Stand 13. November 2026 (OTP 28, Scryer `master` b7066b4 als
 Release-Build, SWI-Prolog 9.0.4 aus Ubuntu, dieselbe Maschine, alles in
 einer Sitzung; Zeiten in ms, beste von zwei Runden; „ohne JIT“: `mix
 prolog --no-jit`; Faktoren: PrologEx mit JIT durch Scryer bzw. SWI):
 
 | Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
 |---|---|---|---|---|---|---|
-| nrev (30, 2000-mal) | 36 | 883 | 115 | 24 | 0,31 | 1,5 |
-| loop (1 Mio., `is`) | 8 | 968 | 95 | 14 | 0,08 | 0,57 |
-| tak (18, 12, 6) | < 1 | 117 | 8 | 5 | < 0,15 | < 0,2 |
-| queens (8, alle) | 27 | 42 | 6 | 5 | ≈ 4,5 | ≈ 5,4 |
-| deriv (20 000) | 30 | 385 | 91 | 21 | 0,33 | 1,4 |
-| facts (Backtracking) | 474 | 476 | 62 | 30 | 7,6 | 16 |
-| foldl/4 (300 000) | 417 | 418 | 132 | 67 | 3,2 | 6,2 |
-| dieselbe Summe von Hand | 10 | 342 | 110 | 54 | 0,09 | 0,19 |
-| findall + sort (200 000) | 480 | 430 | 206 | 67 | 2,3 | 7,2 |
-| clpb (kleine Formeln) | 37 | 35 | 190 | 54 | 0,19 | 0,69 |
+| nrev (30, 2000-mal) | 25 | 689 | 92 | 19 | 0,27 | 1,3 |
+| loop (1 Mio., `is`) | 8 | 703 | 75 | 11 | 0,11 | 0,73 |
+| tak (18, 12, 6) | 1 | 91 | 7 | 4 | ≈ 0,14 | ≈ 0,25 |
+| queens (8, alle) | 21 | 34 | 5 | 3 | ≈ 4,2 | ≈ 7,0 |
+| deriv (20 000) | 21 | 303 | 72 | 17 | 0,29 | 1,2 |
+| facts (Backtracking) | 358 | 356 | 50 | 23 | 7,2 | 16 |
+| foldl/4 (300 000) | 310 | 270 | 107 | 54 | 2,9 | 5,7 |
+| dieselbe Summe von Hand | 4 | 244 | 89 | 44 | 0,04 | 0,09 |
+| findall + sort (200 000) | 330 | 304 | 162 | 53 | 2,0 | 6,2 |
+| clpb (kleine Formeln) | 26 | 26 | 159 | 44 | 0,16 | 0,59 |
 
-Im geometrischen Mittel (ohne tak) 0,70-mal die Zeit von Scryer (ohne
-JIT 3,4-mal) und 2,0-mal die von SWI (ohne JIT 10-mal). Wo der JIT
-greift – deterministische Rekursion über Zahlen, Listen und jetzt auch
-Strukturen (deriv: 354 → 30 ms seit dem 11. November) –, ist PrologEx
-3- bis 12-mal schneller als Scryer und liegt bei SWI (nrev, deriv
-1,4–1,5-mal dessen Zeit, loop und die Summe darunter). Wo er nicht
-greift – Backtracking (facts, queens), eingebaute Prädikate (findall,
-sort, foldl mit einem Schritt aus einem einzigen `is`) –, bleibt es
-beim Interpreter: 2- bis 8-mal langsamer als Scryer, 5- bis 16-mal als
-SWI. tak und queens sind bei Scryer und SWI so kurz, dass ihre Faktoren
-grob sind.
+Im geometrischen Mittel (ohne tak) 0,61-mal die Zeit von Scryer (ohne
+JIT 3,2-mal) und 1,8-mal die von SWI (ohne JIT 9,6-mal); am 12. November
+waren es 0,70 und 2,0. Wo der JIT greift – deterministische Rekursion
+über Zahlen, Listen und Strukturen –, ist PrologEx 3- bis 20-mal
+schneller als Scryer und liegt bei SWI (nrev, deriv 1,2–1,3-mal dessen
+Zeit, loop und die Summe darunter). Wo er nicht greift, bleibt es beim
+Interpreter: facts ist eine Fehlschlagschleife (`between(1, N, _),
+p(_), fail` – ohne Argumente, nichts für den JIT), foldl ruft `call/N`,
+findall und sort sind eingebaut; dort 2- bis 7-mal langsamer als
+Scryer, 6- bis 16-mal als SWI. tak und queens sind bei Scryer und SWI so
+kurz, dass ihre Faktoren grob sind.
 
 clpz: `bench/compare_clpz.pl`, ebenso unverändert in allen dreien (SWI
 nimmt `library(clpfd)` über `bench/swi/clpz.pl`):
@@ -3777,17 +3780,18 @@ swipl -p library=bench/swi -g main -t halt bench/compare_clpz.pl
 
 | Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
 |---|---|---|---|---|---|---|
-| 20 Damen (`ff`) | 26 | 27 | 59 | 9 | 0,44 | 2,9 |
-| 40 Damen | 81 | 84 | 135 | 25 | 0,60 | 3,2 |
-| 8 Damen, alle 92 | 73 | 80 | 216 | 31 | 0,34 | 2,4 |
-| Sudoku | 22 | 24 | 184 | 35 | 0,12 | 0,63 |
-| magisches Quadrat 4×4 | 7 | 11 | 34 | 7 | 0,21 | 1,0 |
-| magisches Quadrat 5×5 | 359 | 340 | 1 628 | 367 | 0,22 | 0,98 |
-| 100 Damen | 482 | 454 | 750 | 149 | 0,64 | 3,2 |
+| 20 Damen (`ff`) | 17 | 19 | 49 | 8 | 0,35 | 2,1 |
+| 40 Damen | 64 | 60 | 110 | 20 | 0,58 | 3,2 |
+| 8 Damen, alle 92 | 59 | 60 | 174 | 25 | 0,34 | 2,4 |
+| Sudoku | 14 | 18 | 145 | 28 | 0,10 | 0,50 |
+| magisches Quadrat 4×4 | 9 | 9 | 26 | 5 | 0,35 | 1,8 |
+| magisches Quadrat 5×5 | 253 | 256 | 1 212 | 293 | 0,21 | 0,86 |
+| 100 Damen | 318 | 352 | 599 | 124 | 0,53 | 2,6 |
 
-Im geometrischen Mittel 0,32-mal die Zeit von Scryer und 1,7-mal die von
-SWI; der JIT spielt hier keine Rolle (was in clpz viel läuft, ist schon
-Elixir oder arbeitet mit attributierten Variablen).
+Im geometrischen Mittel 0,31-mal die Zeit von Scryer und 1,6-mal die von
+SWI (Stand 13. 11., wie oben); der JIT spielt hier keine Rolle (was in
+clpz viel läuft, ist schon Elixir oder arbeitet mit attributierten
+Variablen).
 
 Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
 tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist
