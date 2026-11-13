@@ -1046,6 +1046,81 @@ null])])`. Der Quelltext ist unverändert, nur das Modul heißt
 gehen. `library(dif)` gibt es jetzt auch; es exportiert das eingebaute
 `dif/2`, wie bei Scryer und SWI.
 
+## XML und HTML: `library(sgml)`, `library(xpath)`
+
+`library(sgml)` und `library(xpath)` kommen von Scryer Prolog und haben
+dieselbe Schnittstelle. Dazu kommen Optionen und Schreiben wie bei
+SWI-Prolog.
+
+```prolog
+?- use_module(library(sgml)), use_module(library(xpath)).
+?- load_html("<html><head><title>Hallo!</title></head></html>", Es, []),
+   xpath(Es, //title(text), T).
+T = "Hallo!", Es = [element(html,[],[element(head,[],[element(title,[],["Hallo!"])]),element(body,[],[])])].
+
+?- load_xml("<r a='1'>x<b/></r>", Es, [cdata(atom)]).
+Es = [element(r,[a="1"],[x,element(b,[],[])])].
+```
+
+**`load_html(+Quelle, -DOM, +Optionen)`, `load_xml/3`**: Die Quelle ist
+eine Zeichenliste, `stream(S)` oder `file(Name)`. Der DOM ist eine Liste
+aus `element(Name, [Attr=Wert, …], Kinder)`, Text, bei HTML auch
+`comment(T)` und `doctype(T)`. Text und Attributwerte sind wie bei Scryer
+Zeichenlisten.
+
+Scryer parst mit Rust-Bibliotheken: XML mit roxmltree, HTML mit
+html5ever. Hier sind beide Parser in Elixir (`PrologEx.Sgml.Xml`,
+`PrologEx.Sgml.Html`). Getestet sind sie gegen Scryer: an einigen hundert
+HTML- und XML-Dateien dieses Rechners und an etwa 1700 zufällig erzeugten,
+oft kaputten HTML-Schnipseln. Die Bäume sind dieselben, abgesehen von
+Dateien, die kein UTF-8 sind (siehe unten).
+
+  * XML wie roxmltree: nur wohlgeformtes XML, sonst scheitert
+    `load_xml/3`. Eine DTD gibt es nicht; `<!DOCTYPE …>` scheitert
+    ebenfalls, und nur die fünf vordefinierten Entitäten gelten.
+    Namensräume werden geprüft. Element- und Attributnamen stehen ohne
+    Präfix im DOM, die `xmlns`-Attribute fallen weg. CDATA geht im Text
+    auf. Kommentare und Verarbeitungsanweisungen im Element werden
+    `element('', [], [])`, wie bei Scryer.
+  * HTML wie ein Browser, eine vereinfachte Fassung des HTML5-Algorithmus:
+    * `html`, `head` und `body` werden ergänzt.
+    * Leere Elemente (`br`, `img`, …) haben keinen Inhalt.
+    * `p`, `li`, `td` usw. werden implizit geschlossen; Tabellen bekommen
+      `tbody`, und fremder Inhalt kommt vor die Tabelle.
+    * Formatierungselemente werden über Absätze hinweg wiederhergestellt
+      (Adoption-Agency-Algorithmus).
+    * Alle 2231 benannten Zeichenreferenzen gelten
+      (`priv/html_entities.txt`), auch ohne `;`, wie im Standard.
+    * Rohtext in `script` und `style`; SVG mit `viewBox` und
+      `foreignObject`; der Quirks-Modus ohne Doctype.
+    * Attribute sind nach Namen sortiert, wie bei Scryer.
+  * Die Optionen kommen von SWI:
+    * `cdata(Typ)` und `attribute_value(Typ)` mit `chars` (Vorgabe),
+      `atom`, `codes` oder `string`. `string` gibt hier nach dem Flag
+      `double_quotes` eine Zeichen- oder Codeliste.
+    * `space(Modus)` mit `preserve` (Vorgabe), `sgml`, `default` oder
+      `remove`, wie bei SWI.
+  * Unterschiede zu Scryer:
+    * Eine Datei, die kein gültiges UTF-8 ist, wird als Latin-1 gelesen.
+      Scryer meldet `syntax_error(invalid_data)`.
+    * `file(Name)` nimmt auch ein Atom.
+
+**`xml_write(+Stream, +DOM, +Optionen)`, `html_write/3`** (auch mit zwei
+Argumenten, auf die aktuelle Ausgabe) schreiben wie SWIs
+`library(sgml_write)`:
+
+  * Kopfzeile `<?xml …?>`.
+  * Einrückung um 2 je Ebene bei Elementinhalt; gemischter Inhalt bleibt
+    in einer Zeile.
+  * Lange Attributlisten mit einem Attribut je Zeile.
+  * `<a/>` in XML; in HTML `<br>`, `<p></p>` und `script` unverändert.
+  * Optionen: `header/1`, `layout/1`, `indent/1`, `doctype/1`, `public/1`,
+    `system/1`, `nsmap/1`, `cleanns/1`, `net/1`.
+
+Text darf ein Atom, eine Zeichen- oder eine Codeliste sein. Ein
+Scryer-DOM lässt sich also direkt schreiben und wieder laden.
+Namensraum-Präfixe ergänzt `xml_write/3` nicht von selbst; SWI tut das.
+
 ## Bibliotheken aus Scryer Prolog
 
 Als Prolog-Quelltext übernommen (`priv/library/`). Geändert sind nur die

@@ -81,6 +81,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.RbtreePrims,
     PrologEx.Builtins.IntPrims,
     PrologEx.Builtins.JsonPrims,
+    PrologEx.Builtins.SgmlPrims,
     PrologEx.Builtins.ClpbPrims,
     PrologEx.Builtins.ClpzPrims,
     PrologEx.Builtins.Pcre,
