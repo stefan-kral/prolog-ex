@@ -4027,6 +4027,23 @@ SWI (Stand 13. 11., wie oben); der JIT spielt hier keine Rolle (was in
 clpz viel läuft, ist schon Elixir oder arbeitet mit attributierten
 Variablen).
 
+Lineare Gleichungen (Propagator `scalar_product_eq`):
+`bench/scalar_product_clpz.pl`, aufgerufen wie oben (`main([coins])`
+für einzelne Fälle); jeder Fall gibt eine Prüfsumme aus, die in allen
+drei Systemen gleich ist.
+
+| Fall | PrologEx | Scryer | SWI | ÷ Scryer | ÷ SWI |
+|---|---|---|---|---|---|
+| 300 Gleichungen, 12 Variablen, nur aufstellen | 95 | 116 | 47 | 0,82 | 2,0 |
+| 2000 Gleichungen mit je 6 eigenen Variablen | 1 010 | 760 | 167 | 1,3 | 6,0 |
+| Münzen: 100 aus 1, 2, 5, 10, 20, 50 (4562) | 1 465 | 6 152 | 880 | 0,24 | 1,7 |
+| Rucksack, 7 Gewichte, Summe 400 (497) | 535 | 2 506 | 373 | 0,21 | 1,4 |
+| 4 Gleichungen, 6 Unbekannte, alle Lösungen | 558 | 3 681 | 676 | 0,15 | 0,83 |
+| 60 Variablen, 60 Runden enger (Aufwecken) | 1 161 | 6 396 | 1 377 | 0,18 | 0,84 |
+
+Im geometrischen Mittel 0,34-mal Scryer und 1,65-mal SWI (14. 11.).
+Ausreißer ist das Aufstellen vieler kleiner Gleichungen.
+
 Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
 tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist
 seitdem schneller geworden.
