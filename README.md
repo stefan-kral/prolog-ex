@@ -4023,85 +4023,51 @@ Release-Build, SWI-Prolog 9.0.4 aus Ubuntu, dieselbe Maschine, alles in
 einer Sitzung; Zeiten in ms, beste von zwei Runden; „ohne JIT“: `mix
 prolog --no-jit`; Faktoren: PrologEx mit JIT durch Scryer bzw. SWI):
 
-| Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
-|---|---|---|---|---|---|---|
-| nrev (30, 2000-mal) | 25 | 689 | 92 | 19 | 0,27 | 1,3 |
-| loop (1 Mio., `is`) | 8 | 703 | 75 | 11 | 0,11 | 0,73 |
-| tak (18, 12, 6) | 1 | 91 | 7 | 4 | ≈ 0,14 | ≈ 0,25 |
-| queens (8, alle) | 21 | 34 | 5 | 3 | ≈ 4,2 | ≈ 7,0 |
-| deriv (20 000) | 21 | 303 | 72 | 17 | 0,29 | 1,2 |
-| facts (Backtracking) | 358 | 356 | 50 | 23 | 7,2 | 16 |
-| foldl/4 (300 000) | 310 | 270 | 107 | 54 | 2,9 | 5,7 |
-| dieselbe Summe von Hand | 4 | 244 | 89 | 44 | 0,04 | 0,09 |
-| findall + sort (200 000) | 330 | 304 | 162 | 53 | 2,0 | 6,2 |
-| clpb (kleine Formeln) | 26 | 26 | 159 | 44 | 0,16 | 0,59 |
+| Fall | PrologEx | Scryer | SWI | ÷ Scryer | ÷ SWI |
+|---|---|---|---|---|---|
+| 20 Damen (`ff`) | 26 | 60 | 9 | 0,43 | 2,9 |
+| 40 Damen | 60 | 136 | 24 | 0,44 | 2,5 |
+| 8 Damen, alle 92 | 64 | 217 | 32 | 0,29 | 2,0 |
+| Sudoku | 18 | 259 | 45 | 0,07 | 0,40 |
+| magisches Quadrat 4×4 | 8 | 38 | 7 | 0,21 | 1,1 |
+| magisches Quadrat 5×5 | 325 | 1 633 | 375 | 0,20 | 0,87 |
+| 100 Damen | 400 | 921 | 145 | 0,43 | 2,8 |
 
-Im geometrischen Mittel (ohne tak) 0,61-mal die Zeit von Scryer (ohne
-JIT 3,2-mal) und 1,8-mal die von SWI (ohne JIT 9,6-mal); am 12. November
-waren es 0,70 und 2,0. Wo der JIT greift – deterministische Rekursion
-über Zahlen, Listen und Strukturen –, ist PrologEx 3- bis 20-mal
-schneller als Scryer und liegt bei SWI (nrev, deriv 1,2–1,3-mal dessen
-Zeit, loop und die Summe darunter). Wo er nicht greift, bleibt es beim
-Interpreter: facts ist eine Fehlschlagschleife (`between(1, N, _),
-p(_), fail` – ohne Argumente, nichts für den JIT), foldl ruft `call/N`,
-findall und sort sind eingebaut; dort 2- bis 7-mal langsamer als
-Scryer, 6- bis 16-mal als SWI. tak und queens sind bei Scryer und SWI so
-kurz, dass ihre Faktoren grob sind.
-
-clpz: `bench/compare_clpz.pl`, ebenso unverändert in allen dreien (SWI
-nimmt `library(clpfd)` über `bench/swi/clpz.pl`):
-
-```sh
-MIX_ENV=prod mix prolog bench/compare_clpz.pl -g main -q
-scryer-prolog -g main -g halt bench/compare_clpz.pl
-swipl -p library=bench/swi -g main -t halt bench/compare_clpz.pl
-```
-
-
-| Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
-|---|---|---|---|---|---|---|
-| 20 Damen (`ff`) | 17 | 19 | 49 | 8 | 0,35 | 2,1 |
-| 40 Damen | 64 | 60 | 110 | 20 | 0,58 | 3,2 |
-| 8 Damen, alle 92 | 59 | 60 | 174 | 25 | 0,34 | 2,4 |
-| Sudoku | 14 | 18 | 145 | 28 | 0,10 | 0,50 |
-| magisches Quadrat 4×4 | 9 | 9 | 26 | 5 | 0,35 | 1,8 |
-| magisches Quadrat 5×5 | 253 | 256 | 1 212 | 293 | 0,21 | 0,86 |
-| 100 Damen | 318 | 352 | 599 | 124 | 0,53 | 2,6 |
-
-Im geometrischen Mittel 0,31-mal die Zeit von Scryer und 1,6-mal die von
-SWI (Stand 13. 11., wie oben); der JIT spielt hier keine Rolle (was in
-clpz viel läuft, ist schon Elixir oder arbeitet mit attributierten
-Variablen).
+Im geometrischen Mittel 0,26-mal die Zeit von Scryer und 1,5-mal die von
+SWI (14. 11., alle drei hintereinander auf derselben, an diesem Tag
+langsameren Maschine; am 13. 11. waren es 0,31 und 1,6). Der JIT spielt
+hier keine Rolle (was in clpz viel läuft, ist schon Elixir oder arbeitet
+mit attributierten Variablen). Am weitesten hinter SWI liegen die Damen
+(`#\=` und `abs(…) #\=` paarweise, Labeling mit `ff`), vorn das Sudoku
+(`all_distinct/1`).
 
 Lineare Gleichungen (Propagator `scalar_product_eq`):
 `bench/scalar_product_clpz.pl`, aufgerufen wie oben (`main([coins])`
 für einzelne Fälle); jeder Fall gibt eine Prüfsumme aus, die in allen
 drei Systemen gleich ist.
 
-| Fall | PrologEx | vorher | Scryer | SWI | ÷ Scryer | ÷ SWI |
-|---|---|---|---|---|---|---|
-| 300 Gleichungen, 12 Variablen, nur aufstellen | 23 | 95 | 116 | 47 | 0,20 | 0,49 |
-| 2000 Gleichungen mit je 6 eigenen Variablen | 422 | 1 010 | 760 | 167 | 0,56 | 2,5 |
-| Münzen: 100 aus 1, 2, 5, 10, 20, 50 (4562) | 1 522 | 1 465 | 6 152 | 880 | 0,25 | 1,7 |
-| Rucksack, 7 Gewichte, Summe 400 (497) | 510 | 535 | 2 506 | 373 | 0,20 | 1,4 |
-| 4 Gleichungen, 6 Unbekannte, alle Lösungen | 518 | 558 | 3 681 | 676 | 0,14 | 0,77 |
-| 60 Variablen, 60 Runden enger (Aufwecken) | 1 021 | 1 161 | 6 396 | 1 377 | 0,16 | 0,74 |
-| magisches Quadrat 3×3, alle 8, 20-mal | 316 | 380 | 1 261 | 266 | 0,25 | 1,2 |
-| magisches Quadrat 4×4, erstes, 20-mal | 180 | 236 | 694 | 137 | 0,26 | 1,3 |
-| magisches Quadrat 5×5, erstes (`ff`) | 357 | 348 | 1 581 | 353 | 0,23 | 1,0 |
-| nur Summen 3×3, 1..20, Summe 30 (181) | 236 | 261 | 945 | 170 | 0,25 | 1,4 |
-| nur Summen 4×4, 1..4, Summe 10 (1440) | 632 | 703 | 2 443 | 384 | 0,26 | 1,7 |
-| Summen eines 6×6-Quadrats 300-mal aufstellen | 473 | 1 385 | 1 339 | 227 | 0,35 | 2,1 |
+| Fall | PrologEx | Scryer | SWI | ÷ Scryer | ÷ SWI |
+|---|---|---|---|---|---|
+| 300 Gleichungen, 12 Variablen, nur aufstellen | 24 | 123 | 25 | 0,20 | 0,96 |
+| 2000 Gleichungen mit je 6 eigenen Variablen | 351 | 773 | 160 | 0,45 | 2,2 |
+| Münzen: 100 aus 1, 2, 5, 10, 20, 50 (4562) | 1 358 | 5 629 | 880 | 0,24 | 1,5 |
+| Rucksack, 7 Gewichte, Summe 400 (497) | 481 | 2 345 | 387 | 0,21 | 1,2 |
+| 4 Gleichungen, 6 Unbekannte, alle Lösungen | 484 | 3 393 | 748 | 0,14 | 0,65 |
+| 60 Variablen, 60 Runden enger (Aufwecken) | 978 | 6 158 | 1 437 | 0,16 | 0,68 |
+| magisches Quadrat 3×3, alle 8, 20-mal | 291 | 1 202 | 261 | 0,24 | 1,1 |
+| magisches Quadrat 4×4, erstes, 20-mal | 175 | 672 | 139 | 0,26 | 1,3 |
+| magisches Quadrat 5×5, erstes (`ff`) | 341 | 1 610 | 369 | 0,21 | 0,92 |
+| nur Summen 3×3, 1..20, Summe 30 (181) | 224 | 989 | 171 | 0,23 | 1,3 |
+| nur Summen 4×4, 1..4, Summe 10 (1440) | 610 | 2 742 | 421 | 0,22 | 1,4 |
+| Summen eines 6×6-Quadrats 300-mal aufstellen | 428 | 1 239 | 235 | 0,35 | 1,8 |
 
 Die unteren sechs haben die Form von `magic_square(N)`: 2N+2 Summen über
 je N Variablen, Koeffizienten 1 (die drei oberen mit `all_different/1`).
-„vorher“: vor den Abkürzern für `ins/2`, `sum/3` und
-`scalar_product/4` (siehe dort); alle Zahlen vom 14. 11. Im
-geometrischen Mittel aller zwölf 0,24-mal Scryer und 1,23-mal SWI
-(vorher 0,34 und 1,75). Das Aufstellen ist jetzt so schnell wie bei SWI
-oder schneller, solange die Bedingungen die Abkürzer treffen; was bei
-vielen kleinen Gleichungen bleibt (2,1- und 2,5-mal SWI), ist der
-Prolog-Code drumherum (Listen, `transpose/2`, Zufallszahlen).
+Im geometrischen Mittel aller zwölf 0,23-mal Scryer und 1,19-mal SWI
+(14. 11., wie oben; vor den Abkürzern für `ins/2`, `sum/3`,
+`scalar_product/4` und `#=` am selben Tag 0,34 und 1,75). Was bei vielen
+kleinen Gleichungen bleibt (1,8- und 2,2-mal SWI), ist der Prolog-Code
+drumherum (Listen, `transpose/2`, Zufallszahlen).
 
 Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
 tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist
