@@ -87,7 +87,8 @@
        '$clpz_scalar_product'/4; Originale sum_ref/3,
        scalar_product_ref/4); scalar_product_//4 mit #= ('$clpz_sp_eq'/3,
        Original sp_eq_ref/3) und vor dem Matcher von X #= Y der Abkürzer
-       für lineare Summen ('$clpz_eq_linear'/2)
+       für lineare Summen ('$clpz_eq_linear'/2); die Expansion von
+       X #= Y für einfache Ausdrücke als '$clpz_eq_exp'/4
      - Labeling: select_var/4 ('$clpz_select_var'/4, Original
        select_var_ref/4); das Weckziel nach einer Bindung ist
        '$clpz_do_queue'(Q) statt phrase(do_queue, [Q], _)
@@ -3027,6 +3028,16 @@ clpz_expansion(A #<==> B, Reif) :-
                           ; clpz:reify(A, RA),
                             clpz:reify(B, RA)
                           ), Reif).
+% PrologEx: für einfache Seiten wie bei #\= unten ein Builtin
+% ('$clpz_eq_exp'/4) statt der Fallunterscheidung
+clpz_expansion(X0 #= Y0, Equal) :-
+        \+ monotonic,
+        simple_arith(X0),
+        simple_arith(Y0),
+        !,
+        term_variables(X0, XVs),
+        term_variables(Y0, YVs),
+        Equal = clpz:'$clpz_eq_exp'(X0, Y0, XVs, YVs).
 clpz_expansion(X0 #= Y0, Equal) :-
         phrase(expr_conds(X0, X), CsX),
         phrase(expr_conds(Y0, Y), CsY),

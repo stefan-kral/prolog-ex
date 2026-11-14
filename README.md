@@ -2667,6 +2667,14 @@ Bisher in Elixir:
     ganz aufbaut, steht dann `'$clpz_neq_exp'(X, Y, XVs, YVs)`, das sie in
     einem Schritt auswertet (gegen sie mit Zufallsausdrücken getestet).
     Aufstellen der 100 Damen −22 %, ganz −9 % Reduktionen.
+  * Ebenso `X #= Y` im Programm: für einfache Seiten
+    `'$clpz_eq_exp'(X, Y, XVs, YVs)` statt der Fallunterscheidung
+    (beide Seiten Zahlen: `=:=`, ist dann eine Seite eine ungebundene
+    Variable: binden; eine Seite Zahlen: auswerten und `clpz_equal/2` mit
+    dem Wert; sonst `clpz_equal/2`), gegen sie mit Zufallsausdrücken
+    getestet. Reduktionen: `Z #= A*B + C - 2` mit Zahlen −55 %, eine
+    Prüfung `15 #= …` −28 %, Binden einer Variablen mit Domäne −17 %;
+    eine lineare Summe über Variablen −1,5 % (dort zählt das Aufstellen).
   * `variables_same_queue/1` bindet beim Zusammenlegen die Variablen der
     übrigen Queues; deren Wecken tut nichts (kein clpz/1, nur
     clpz-Attribute, `verify_attributes/3` gibt `[]`). Ist clpz das einzige

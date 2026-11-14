@@ -699,6 +699,25 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # '$clpz_eq_exp'/4 ebenso gegen die Fallunterscheidung für X0 #= Y0
+  # (var(Y)/var(X): die Seite ist eine ungebundene Variable)
+  test "'$clpz_eq_exp'/4: wie die Expansion von #=", c do
+    check(c, 500, fn ->
+      x = simple_expr(Enum.random(0..2))
+      y = simple_expr(Enum.random(0..2))
+
+      ref =
+        "(maplist(integer, XVs) -> (var(Y0) -> Y0 is X0 ; maplist(integer, YVs) -> " <>
+          "X0 =:= Y0 ; T is X0, clpz:clpz_equal(T, Y0)) ; maplist(integer, YVs) -> " <>
+          "(var(X0) -> X0 is Y0 ; T is Y0, clpz:clpz_equal(X0, T)) ; clpz:clpz_equal(X0, Y0))"
+
+      scenario(
+        "X0 = #{x}, Y0 = #{y}, term_variables(X0, XVs), term_variables(Y0, YVs), " <>
+          "same(#{ref}, clpz:'$clpz_eq_exp'(X0, Y0, XVs, YVs), Vs-X0-Y0)"
+      )
+    end)
+  end
+
   # clpz_neq_fast/3 (X #\= Y nach '$clpz_neq_kind'/3): Elixir gegen das
   # Original, alle vier Formen, auch mit Zahlen und Variablen ohne Domäne
   test "clpz_neq_fast/3: num_a, num_b, pneq, absdiff wie das Original", c do

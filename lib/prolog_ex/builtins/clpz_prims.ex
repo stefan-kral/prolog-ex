@@ -2426,6 +2426,36 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # '$clpz_eq_exp'(X0, Y0, XVs, YVs): die Expansion von X0 #= Y0 für
+  # einfache Seiten, wie '$clpz_neq_exp'/4: beide – X0 =:= Y0 (ist Y0 eine
+  # ungebundene Variable: Y0 is X0), eine – auswerten (die andere eine
+  # ungebundene Variable: binden, sonst clpz_equal/2 mit dem Wert), keine
+  # – clpz_equal(X0, Y0)
+  defbuiltin "$clpz_eq_exp", [x0, y0, xvs, yvs] do
+    s = subst()
+    cx = all_ints?(xvs, s)
+    eq = &{:call, mk(":", [a("clpz"), mk("clpz_equal", [&1, &2])])}
+
+    cond do
+      cx ->
+        x = PrologEx.Arith.eval(x0, s)
+
+        cond do
+          var?(PrologEx.Store.walk(y0, s)) -> {:unify, [{y0, x}]}
+          all_ints?(yvs, s) -> PrologEx.Arith.compare_num("=:=", x, PrologEx.Arith.eval(y0, s))
+          true -> eq.(x, y0)
+        end
+
+      all_ints?(yvs, s) ->
+        y = PrologEx.Arith.eval(y0, s)
+
+        if var?(PrologEx.Store.walk(x0, s)), do: {:unify, [{x0, y}]}, else: eq.(x0, y)
+
+      true ->
+        eq.(x0, y0)
+    end
+  end
+
   defp all_ints?(l, s) do
     case PrologEx.Store.walk(l, s) do
       [] -> true
