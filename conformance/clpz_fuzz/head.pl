@@ -7,16 +7,18 @@
 % je Fall: p(Id, Vs) stellt die Bedingungen (übersetzt, mit Goal-Expansion),
 % g(Id, Vs, G) enthält dieselben als Term für call/1, o(Id, Optionen) für
 % labeling/2; Zeilen post/lab für p, postc/labc für call(G). Scryer
-% expandiert auch call/1 (zur Laufzeit), PrologEx nicht: die Restziele
-% sind dort verschieden, aber gleichwertig – postc zeigt nur die Domänen
+% expandiert call/1 teils zur Laufzeit, PrologEx nicht: postc zeigt nur
+% die Domänen
 go :- forall(o(Id, _), (catch(run(Id), E, (write(Id), write(' crash '), pp(E), nl)))).
 
 run(Id) :-
     o(Id, Opts),
-    run(Id, Opts, post, lab, state, Vs^p(Id, Vs)),
-    run(Id, Opts, postc, labc, doms, Vs^(g(Id, Vs, G), call(G))).
+    run(Id, Opts, post, lab, state, =, Vs^p(Id, Vs)),
+    run(Id, Opts, postc, labc, doms, msort_, Vs^(g(Id, Vs, G), call(G))).
 
-run(Id, Opts, TP, TL, Show, Post) :-
+% über call/1 die Lösungen sortiert: ohne Expansion bleiben teils tote
+% Propagatoren hängen, die bei ffc die Reihenfolge ändern
+run(Id, Opts, TP, TL, Show, Sort, Post) :-
     write(Id), write(' '), write(TP), write(' '),
     (   catch((post(Post, Vs) -> R = ok(Vs) ; R = fail), error(E, C), err(E, C, R)) ->
         true
@@ -27,7 +29,8 @@ run(Id, Opts, TP, TL, Show, Post) :-
     ),
     nl,
     write(Id), write(' '), write(TL), write(' '),
-    catch(( findall(Vs2, (post(Post, Vs2), labeling(Opts, Vs2)), L), length(L, N),
+    catch(( findall(Vs2, (post(Post, Vs2), labeling(Opts, Vs2)), L0),
+            call(Sort, L0, L), length(L, N),
             first(L, 40, F), pp(N-F) ),
           error(E2, C2), (err(E2, C2, R2), pp(R2))),
     nl.

@@ -28,12 +28,16 @@ def norm(v):
 def kind(v):
     return 'fail' if v in (None, "'fail'") else v if v.startswith("'err'") else 'ok'
 
+def count(v):
+    m = re.match(r"^'-'\((\d+),", v or '')
+    return m.group(1) if m else v
+
 def scryer_known(i, t, a, b):
     s, p = a.get((i, t)), b.get((i, t))
     S = lambda k: a.get((i, k)); P = lambda k: b.get((i, k))
     if (t in ('post', 'lab')
-            and (norm(S('lab')) != norm(S('labc')) or kind(S('post')) != kind(S('postc')))
-            and norm(P('lab')) == norm(S('labc')) and norm(P('labc')) == norm(S('labc'))
+            and (count(S('lab')) != count(S('labc')) or kind(S('post')) != kind(S('postc')))
+            and count(P('lab')) == count(S('labc')) and P('labc') == S('labc')
             and kind(P('post')) == kind(S('postc'))):
         return True
     return (s is not None and ("'type_error'('evaluable'" in s or "'is')" in s)
