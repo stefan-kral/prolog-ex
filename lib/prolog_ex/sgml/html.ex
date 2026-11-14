@@ -200,7 +200,16 @@ defmodule PrologEx.Sgml.Html do
             {{:comment, c}, r}
 
           :nomatch ->
-            {{:comment, String.replace_suffix(rest, "--", "")}, ""}
+            # Dateiende: angefangene Endmarke weg ("-", "--", "--!")
+            c =
+              cond do
+                String.ends_with?(rest, "--!") -> String.slice(rest, 0..-4//1)
+                String.ends_with?(rest, "--") -> String.slice(rest, 0..-3//1)
+                String.ends_with?(rest, "-") -> String.slice(rest, 0..-2//1)
+                true -> rest
+              end
+
+            {{:comment, c}, ""}
         end
     end
   end
@@ -319,6 +328,8 @@ defmodule PrologEx.Sgml.Html do
   end
 
   # Rohtext bis zum End-Tag `</name` (Groß/klein egal) vor Leerraum, / oder >
+  defp raw_text(input, "script"), do: script_text(input, 0, :data)
+
   defp raw_text(input, name) do
     re = Regex.compile!("</" <> Regex.escape(name) <> "[\\t\\n\\f />]", "i")
 
@@ -327,6 +338,55 @@ defmodule PrologEx.Sgml.Html do
       nil -> {input, ""}
     end
   end
+
+  # Skriptdaten mit den Zuständen „escaped“ (nach <!--) und „double
+  # escaped“ (nach <script darin): dort beendet </script> das Skript nicht
+  # bzw. erst nach -->
+  defp script_text(input, i, state) do
+    case input do
+      <<_::binary-size(^i)>> ->
+        {input, ""}
+
+      <<_::binary-size(^i), "</", rest::binary>> ->
+        cond do
+          script_tag?(rest) and state != :double -> split_at(input, i)
+          script_tag?(rest) -> script_text(input, i + 8, :escaped)
+          true -> script_text(input, i + 2, state)
+        end
+
+      <<_::binary-size(^i), "<!--", _::binary>> when state == :data ->
+        # "<!-->" und "<!--->" kehren sofort zurück
+        j = skip_dashes(input, i + 4)
+
+        case input do
+          <<_::binary-size(^j), ">", _::binary>> -> script_text(input, j + 1, :data)
+          _ -> script_text(input, j, :escaped)
+        end
+
+      <<_::binary-size(^i), "<", rest::binary>> when state == :escaped ->
+        if script_tag?(rest),
+          do: script_text(input, i + 7, :double),
+          else: script_text(input, i + 1, state)
+
+      <<_::binary-size(^i), "-->", _::binary>> when state != :data ->
+        script_text(input, i + 3, :data)
+
+      _ ->
+        script_text(input, i + 1, state)
+    end
+  end
+
+  defp skip_dashes(input, j) do
+    case input do
+      <<_::binary-size(^j), "-", _::binary>> -> skip_dashes(input, j + 1)
+      _ -> j
+    end
+  end
+
+  defp script_tag?(<<s::binary-size(6), c, _::binary>>),
+    do: String.downcase(s, :ascii) == "script" and c in [?\t, ?\n, ?\f, ?\s, ?/, ?>]
+
+  defp script_tag?(_), do: false
 
   # --- Baum --------------------------------------------------------------------------
 
@@ -352,7 +412,10 @@ defmodule PrologEx.Sgml.Html do
       skip_nl: false,
       raw: nil,
       foster: false,
-      form: nil
+      form: nil,
+      tmpl: [],
+      frameset_ok: true,
+      table_text: nil
     }
 
     st = run(text, st)
@@ -376,8 +439,9 @@ defmodule PrologEx.Sgml.Html do
     run(rest, pop(st))
   end
 
+  # plaintext: der Rest ist Text (mit Wiederherstellen der Formatierung)
   defp run(input, %{raw: :plaintext} = st),
-    do: if(input == "", do: st, else: insert_text(st, input, false))
+    do: if(input == "", do: st, else: in_body({:text, input}, st))
 
   # CDATA-Abschnitt in SVG/MathML: Text
   defp run("<![CDATA[" <> rest = input, st) do
@@ -399,10 +463,30 @@ defmodule PrologEx.Sgml.Html do
 
   defp run_token(input, st) do
     case token(input) do
-      :eof -> st
-      {{:text, ""}, rest} -> run(rest, st)
-      {tok, rest} -> run(rest, handle(tok, st))
+      :eof ->
+        flush_table_text(st)
+
+      {{:text, ""}, rest} ->
+        run(rest, st)
+
+      {{:text, _} = tok, rest} ->
+        run(rest, handle(tok, st))
+
+      {tok, rest} ->
+        # ein Zeilenwechsel nach <pre> zählt nur direkt danach
+        st = %{flush_table_text(st) | skip_nl: false}
+        run(rest, handle(tok, st))
     end
+  end
+
+  # Text in Tabellen wird gesammelt und als Ganzes entschieden: nur
+  # Leerraum bleibt in der Tabelle, sonst kommt alles davor
+  defp flush_table_text(%{table_text: nil} = st), do: st
+
+  defp flush_table_text(st) do
+    t = IO.iodata_to_binary(st.table_text)
+    st = %{st | table_text: nil}
+    if blank?(t), do: insert_text(st, t, false), else: foster({:text, t}, st)
   end
 
   # --- Knoten ---------------------------------------------------------------------
@@ -457,9 +541,18 @@ defmodule PrologEx.Sgml.Html do
     cur = hd(st.stack)
 
     if (foster? or st.foster) and html_el?(st, cur, ~w(table tbody tfoot thead tr)) do
-      case Enum.find(st.stack, &html_el?(st, &1, ["table"])) do
+      tmpl = Enum.find_index(st.stack, &html_el?(st, &1, ["template"]))
+      table_i = Enum.find_index(st.stack, &html_el?(st, &1, ["table"]))
+
+      case if(tmpl != nil and (table_i == nil or tmpl < table_i),
+             do: :template,
+             else: table_i && Enum.at(st.stack, table_i)
+           ) do
+        :template ->
+          {content(st, Enum.at(st.stack, tmpl)), nil}
+
         nil ->
-          {cur, nil}
+          {content(st, cur), nil}
 
         table ->
           case Map.get(node(st, table), :parent) do
@@ -472,7 +565,15 @@ defmodule PrologEx.Sgml.Html do
           end
       end
     else
-      {cur, nil}
+      {content(st, cur), nil}
+    end
+  end
+
+  # in ein template-Element kommt der Inhalt in sein Fragment
+  defp content(st, id) do
+    case node(st, id) do
+      %{t: :el, name: "template", ns: :html, frag: f} -> f
+      _ -> id
     end
   end
 
@@ -501,7 +602,7 @@ defmodule PrologEx.Sgml.Html do
 
   defp insert_comment(st, parent, text) do
     {id, st} = new_node(st, %{t: :comment, text: text})
-    append(st, parent, id)
+    append(st, content(st, parent), id)
   end
 
   defp create(st, name, attrs, ns), do: new_node(st, %{t: :el, name: name, attrs: attrs, ns: ns})
@@ -551,7 +652,6 @@ defmodule PrologEx.Sgml.Html do
                   {:math, "mn"},
                   {:math, "ms"},
                   {:math, "mtext"},
-                  {:math, "annotation-xml"},
                   {:svg, "foreignObject"},
                   {:svg, "desc"},
                   {:svg, "title"}
@@ -590,23 +690,14 @@ defmodule PrologEx.Sgml.Html do
     if in_scope?(st, ["p"], :button), do: st |> implied_end("p") |> pop_until(["p"]), else: st
   end
 
+  # wie html5ever nur HTML-Elemente (die Liste der Spezifikation hat auch
+  # mi, mo, …, foreignObject, desc, title)
   @special ~w(address applet area article aside base basefont bgsound blockquote body br button
               caption center col colgroup dd details dir div dl dt embed fieldset figcaption figure
               footer form frame frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html iframe img
-              input keygen li link listing main marquee menu meta nav noembed noframes noscript
-              object ol p param plaintext pre script search section select source style summary
-              table tbody td template textarea tfoot th thead title tr track ul wbr xmp) ++
-             [
-               {:math, "mi"},
-               {:math, "mo"},
-               {:math, "mn"},
-               {:math, "ms"},
-               {:math, "mtext"},
-               {:math, "annotation-xml"},
-               {:svg, "foreignObject"},
-               {:svg, "desc"},
-               {:svg, "title"}
-             ]
+              input isindex keygen li link listing main marquee menu meta nav noembed noframes noscript
+              object ol p param plaintext pre script section select source style summary
+              table tbody td template textarea tfoot th thead title tr track ul wbr xmp)
 
   defp special?(st, id), do: name_of(node(st, id)) in @special
 
@@ -614,9 +705,27 @@ defmodule PrologEx.Sgml.Html do
 
   @formatting ~w(a b big code em font i nobr s small strike strong tt u)
 
+  # mit „Noah's Ark“: höchstens drei gleiche Einträge (Name und Attribute)
+  # nach der letzten Marke, sonst fällt der früheste weg
   defp push_afe(st, id) do
     n = node(st, id)
-    %{st | afe: [{id, n.name, n.attrs} | st.afe]}
+    key = {n.name, Enum.sort(n.attrs)}
+    {recent, older} = Enum.split_while(st.afe, &(&1 != :marker))
+
+    same =
+      for {{eid, name, attrs}, i} <- Enum.with_index(recent),
+          {name, Enum.sort(attrs)} == key,
+          do: {eid, i}
+
+    recent =
+      if length(same) >= 3 do
+        {_, i} = List.last(same)
+        List.delete_at(recent, i)
+      else
+        recent
+      end
+
+    %{st | afe: [{id, n.name, n.attrs} | recent ++ older]}
   end
 
   defp push_marker(st), do: %{st | afe: [:marker | st.afe]}
@@ -664,7 +773,7 @@ defmodule PrologEx.Sgml.Html do
   defp adoption(st, subject) do
     cur = hd(st.stack)
 
-    if cur_name(st) == subject and afe_find(st, subject) != cur do
+    if cur_name(st) == subject and not Enum.any?(st.afe, &match?({^cur, _, _}, &1)) do
       pop(st)
     else
       adoption_loop(st, subject, 0)
@@ -704,13 +813,18 @@ defmodule PrologEx.Sgml.Html do
   defp adopt(st, fe, fb) do
     [_ | below_fe] = Enum.drop_while(st.stack, &(&1 != fe))
     common = hd(below_fe)
-    bookmark = Enum.find_index(st.afe, &match?({^fe, _, _}, &1))
+    bookmark = {:replace, fe}
 
     # innere Schleife: Knoten zwischen fb und fe
     fb_pos = Enum.find_index(st.stack, &(&1 == fb))
     {st, last, bookmark} = inner(st, fe, fb, fb, fb_pos + 1, 0, bookmark)
 
-    st = st |> detach(last) |> append(common, last)
+    st = detach(st, last)
+
+    st =
+      if html_el?(st, common, ~w(table tbody tfoot thead tr)),
+        do: insert_at(st, place(%{st | stack: [common | st.stack]}, true), last),
+        else: append(st, content(st, common), last)
 
     {_, name, attrs} = Enum.find(st.afe, &match?({^fe, _, _}, &1))
     {new, st} = create(st, name, attrs, :html)
@@ -724,9 +838,24 @@ defmodule PrologEx.Sgml.Html do
 
     st = append(st, fb, new)
 
-    # Liste: fe entfernen, new an die Lesezeichen-Stelle
-    afe = Enum.reject(st.afe, &match?({^fe, _, _}, &1))
-    afe = List.insert_at(afe, min(bookmark, length(afe)), {new, name, attrs})
+    # Liste: new an die Lesezeichen-Stelle (statt fe oder neuer als der
+    # Knoten), fe entfernen
+    afe =
+      case bookmark do
+        {:replace, ^fe} ->
+          Enum.map(st.afe, fn
+            {^fe, _, _} -> {new, name, attrs}
+            e -> e
+          end)
+
+        {:after, b} ->
+          i = Enum.find_index(st.afe, &match?({^b, _, _}, &1))
+
+          st.afe
+          |> List.insert_at(i, {new, name, attrs})
+          |> Enum.reject(&match?({^fe, _, _}, &1))
+      end
+
     # Stapel: fe entfernen, new direkt über fb (tiefer im Baum)
     stack = List.delete(st.stack, fe)
     i = Enum.find_index(stack, &(&1 == fb))
@@ -762,8 +891,7 @@ defmodule PrologEx.Sgml.Html do
         stack = Enum.map(st.stack, &if(&1 == node_id, do: new, else: &1))
         st = %{st | afe: afe, stack: stack}
 
-        bookmark =
-          if last == fb, do: Enum.find_index(st.afe, &match?({^new, _, _}, &1)), else: bookmark
+        bookmark = if last == fb, do: {:after, new}, else: bookmark
 
         st = st |> detach(last) |> append(new, last)
         inner(st, fe, fb, new, pos + 1, counter, bookmark)
@@ -805,7 +933,7 @@ defmodule PrologEx.Sgml.Html do
 
   defp ensure_html(st), do: st
 
-  defp handle(tok, %{mode: :initial} = st) do
+  defp mode_handle(tok, %{mode: :initial} = st) do
     case tok do
       {:text, t} ->
         case split_ws(t) do
@@ -826,7 +954,7 @@ defmodule PrologEx.Sgml.Html do
     end
   end
 
-  defp handle(tok, %{mode: :before_html} = st) do
+  defp mode_handle(tok, %{mode: :before_html} = st) do
     case tok do
       {:doctype, _} ->
         st
@@ -852,7 +980,7 @@ defmodule PrologEx.Sgml.Html do
     end
   end
 
-  defp handle(tok, %{mode: :before_head} = st) do
+  defp mode_handle(tok, %{mode: :before_head} = st) do
     case tok do
       {:text, t} ->
         case split_ws(t) do
@@ -880,7 +1008,7 @@ defmodule PrologEx.Sgml.Html do
     end
   end
 
-  defp handle(tok, %{mode: :in_head} = st) do
+  defp mode_handle(tok, %{mode: :in_head} = st) do
     case tok do
       {:text, t} ->
         case split_ws(t) do
@@ -911,6 +1039,9 @@ defmodule PrologEx.Sgml.Html do
       {:end, "head"} ->
         close_head(st)
 
+      {:end, "template"} ->
+        close_template(st)
+
       {:end, n} when n not in ~w(body html br) ->
         st
 
@@ -919,7 +1050,7 @@ defmodule PrologEx.Sgml.Html do
     end
   end
 
-  defp handle(tok, %{mode: :after_head} = st) do
+  defp mode_handle(tok, %{mode: :after_head} = st) do
     case tok do
       {:text, t} ->
         case split_ws(t) do
@@ -963,7 +1094,7 @@ defmodule PrologEx.Sgml.Html do
     end
   end
 
-  defp handle(tok, %{mode: :in_frameset} = st) do
+  defp mode_handle(tok, %{mode: :in_frameset} = st) do
     case tok do
       {:text, t} ->
         ws = for <<c <- t>>, c in @ws, into: "", do: <<c>>
@@ -981,19 +1112,56 @@ defmodule PrologEx.Sgml.Html do
       {:start, "noframes", attrs, _} ->
         head_element(st, "noframes", attrs)
 
+      {:start, "html", _, _} ->
+        in_body(tok, st)
+
       {:end, "frameset"} ->
-        if cur_name(st) == "html", do: st, else: pop(st)
+        if cur_name(st) == "html" do
+          st
+        else
+          st = pop(st)
+          if cur_name(st) == "frameset", do: st, else: %{st | mode: :after_frameset}
+        end
 
       _ ->
         st
     end
   end
 
-  defp handle(tok, %{mode: :after_body} = st) do
+  defp mode_handle(tok, %{mode: mode} = st)
+       when mode in [:after_frameset, :after_after_frameset] do
+    case tok do
+      {:text, t} ->
+        ws = for <<c <- t>>, c in @ws, into: "", do: <<c>>
+
+        cond do
+          ws == "" -> st
+          mode == :after_frameset -> insert_text(st, ws, false)
+          true -> in_body({:text, ws}, st)
+        end
+
+      {:comment, c} ->
+        insert_comment(st, if(mode == :after_frameset, do: hd(st.stack), else: 0), c)
+
+      {:start, "html", _, _} ->
+        in_body(tok, st)
+
+      {:start, "noframes", attrs, _} ->
+        head_element(st, "noframes", attrs)
+
+      {:end, "html"} when mode == :after_frameset ->
+        %{st | mode: :after_after_frameset}
+
+      _ ->
+        st
+    end
+  end
+
+  defp mode_handle(tok, %{mode: :after_body} = st) do
     case tok do
       {:text, t} ->
         case split_ws(t) do
-          {_, ""} -> body(tok, st)
+          {_, ""} -> in_body(tok, st)
           _ -> body(tok, %{st | mode: :in_body})
         end
 
@@ -1014,7 +1182,7 @@ defmodule PrologEx.Sgml.Html do
     end
   end
 
-  defp handle(tok, %{mode: :after_after_body} = st) do
+  defp mode_handle(tok, %{mode: :after_after_body} = st) do
     case tok do
       {:comment, c} ->
         insert_comment(st, 0, c)
@@ -1024,7 +1192,7 @@ defmodule PrologEx.Sgml.Html do
 
       {:text, t} ->
         case split_ws(t) do
-          {_, ""} -> body(tok, st)
+          {_, ""} -> in_body(tok, st)
           _ -> body(tok, %{st | mode: :in_body})
         end
 
@@ -1036,6 +1204,11 @@ defmodule PrologEx.Sgml.Html do
     end
   end
 
+  defp mode_handle(tok, st), do: by_mode(tok, st)
+
+  # Verteiler (HTML5 13.2.6): ist der aktuelle Knoten fremd (SVG, MathML),
+  # gelten – außer an Integrationspunkten – die Regeln für fremden Inhalt,
+  # in jedem Einfügemodus
   defp handle(tok, st), do: body(tok, st)
 
   defp open_head(st, attrs) do
@@ -1065,8 +1238,69 @@ defmodule PrologEx.Sgml.Html do
       n in ~w(noscript noframes style script) ->
         %{insert_el!(st, n, attrs) | raw: {:rawtext, n}}
 
+      n == "template" ->
+        {id, st} = insert_el(st, n, attrs)
+        open_template(st, id)
+
       true ->
         insert_el!(st, n, attrs)
+    end
+  end
+
+  # template: Fragment für den Inhalt, Marke, eigener Einfügemodus
+  defp open_template(st, id) do
+    st = %{st | frameset_ok: false}
+    {frag, st} = new_node(st, %{t: :fragment})
+    st = append(st, id, frag)
+    st = put_node(st, id, Map.put(node(st, id), :frag, frag))
+    %{push_marker(st) | mode: :in_template, tmpl: [:in_template | st.tmpl]}
+  end
+
+  @thorough ~w(caption colgroup dd dt li optgroup option p rb rp rt rtc tbody td tfoot th thead tr)
+
+  defp close_template(st) do
+    if Enum.any?(st.stack, &html_el?(st, &1, ["template"])) do
+      st = implied_thorough(st)
+      st = pop_until(st, ["template"]) |> clear_afe_to_marker()
+      reset_mode(%{st | tmpl: Enum.drop(st.tmpl, 1)})
+    else
+      st
+    end
+  end
+
+  defp implied_thorough(st) do
+    if cur_name(st) in @thorough, do: st |> pop() |> implied_thorough(), else: st
+  end
+
+  defp template_open?(st), do: Enum.any?(st.stack, &html_el?(st, &1, ["template"]))
+
+  # Einfügemodus „in template“
+  defp template(tok, st) do
+    case tok do
+      {tag, _} when tag in [:text, :comment, :doctype] ->
+        in_body(tok, st)
+
+      {:start, n, attrs, _}
+      when n in ~w(base basefont bgsound link meta noframes script style template title) ->
+        head_element(st, n, attrs)
+
+      {:end, "template"} ->
+        close_template(st)
+
+      {:start, n, _, _} ->
+        mode =
+          cond do
+            n in ~w(caption colgroup tbody tfoot thead) -> :in_table
+            n == "col" -> :in_column_group
+            n == "tr" -> :in_table_body
+            n in ~w(td th) -> :in_row
+            true -> :in_body
+          end
+
+        handle(tok, %{st | mode: mode, tmpl: [mode | Enum.drop(st.tmpl, 1)]})
+
+      {:end, _} ->
+        st
     end
   end
 
@@ -1075,6 +1309,7 @@ defmodule PrologEx.Sgml.Html do
     st = append(st, st.head, id)
 
     cond do
+      n == "template" -> open_template(%{st | stack: [id | st.stack]}, id)
       n in ~w(base basefont bgsound link meta) -> st
       n == "title" -> %{st | stack: [id | st.stack], raw: {:rcdata, n}}
       n in ~w(noframes style script) -> %{st | stack: [id | st.stack], raw: {:rawtext, n}}
@@ -1093,9 +1328,16 @@ defmodule PrologEx.Sgml.Html do
   defp body(tok, st) do
     cn = cur_name(st)
 
-    if foreign?(cn) and not html_rules_in_foreign?(cn, tok),
+    html? =
+      case html_rules_in_foreign?(cn, tok) do
+        # scrapers TreeSink kennt keine annotation-xml-Integrationspunkte
+        :annotation -> false
+        b -> b
+      end
+
+    if foreign?(cn) and not html?,
       do: foreign(tok, st),
-      else: by_mode(tok, st)
+      else: mode_handle(tok, st)
   end
 
   # nach den Regeln des Einfügemodus (für HTML-Inhalt)
@@ -1106,8 +1348,9 @@ defmodule PrologEx.Sgml.Html do
       :in_cell -> if cell_token?(tok), do: cell(tok, st), else: in_body(tok, st)
       :in_caption -> if caption_token?(tok), do: caption(tok, st), else: in_body(tok, st)
       m when m in [:in_select, :in_select_in_table] -> select(tok, st)
+      :in_template -> template(tok, st)
       m when m in [:in_body, :after_body, :after_after_body] -> in_body(tok, st)
-      _ -> handle(tok, st)
+      _ -> mode_handle(tok, st)
     end
   end
 
@@ -1148,6 +1391,12 @@ defmodule PrologEx.Sgml.Html do
       "frameset" ->
         %{st | mode: :in_frameset}
 
+      "template" ->
+        %{st | mode: List.first(st.tmpl, :in_body)}
+
+      "head" when not last? ->
+        %{st | mode: :in_head}
+
       "html" ->
         %{st | mode: if(st.head == nil, do: :before_head, else: :after_head)}
 
@@ -1165,27 +1414,47 @@ defmodule PrologEx.Sgml.Html do
   defp foreign?(_), do: false
 
   # Integrationspunkte: darin gelten die HTML-Regeln
-  defp html_rules_in_foreign?({:svg, n}, _tok) when n in ["foreignObject", "desc", "title"],
-    do: true
+  # an HTML-Integrationspunkten: Start-Tags und Text nach HTML-Regeln,
+  # End-Tags nach denen für fremden Inhalt
+  defp html_rules_in_foreign?({:svg, n}, tok) when n in ["foreignObject", "desc", "title"],
+    do: match?({:text, _}, tok) or match?({:start, _, _, _}, tok)
 
   defp html_rules_in_foreign?({:math, n}, tok) when n in ~w(mi mo mn ms mtext),
     do:
       match?({:text, _}, tok) or
         (match?({:start, _, _, _}, tok) and elem(tok, 1) not in ["mglyph", "malignmark"])
 
+  defp html_rules_in_foreign?({:math, "annotation-xml"}, tok) do
+    case tok do
+      {:start, "svg", _, _} -> true
+      {:start, _, _, _} -> :annotation
+      {:text, _} -> :annotation
+      _ -> false
+    end
+  end
+
   defp html_rules_in_foreign?(_, _), do: false
 
   defp cell_token?({:start, n, _, _}),
     do: n in ~w(caption col colgroup tbody td tfoot th thead tr)
 
-  defp cell_token?({:end, n}), do: n in ~w(td th table tbody tfoot thead tr)
+  defp cell_token?({:end, n}),
+    do: n in ~w(td th table tbody tfoot thead tr body caption col colgroup html)
+
   defp cell_token?(_), do: false
 
   defp caption_token?({:start, n, _, _}),
     do: n in ~w(caption col colgroup tbody td tfoot th thead tr)
 
-  defp caption_token?({:end, n}), do: n in ~w(caption table)
+  defp caption_token?({:end, n}),
+    do: n in ~w(caption table body col colgroup html tbody td tfoot th thead tr)
+
   defp caption_token?(_), do: false
+
+  defp blank?(t), do: t |> String.to_charlist() |> Enum.all?(&(&1 in @ws))
+
+  defp hidden?(attrs),
+    do: Enum.any?(attrs, fn {k, v} -> k == "type" and String.downcase(v, :ascii) == "hidden" end)
 
   defp in_body(tok, st) do
     case tok do
@@ -1195,6 +1464,7 @@ defmodule PrologEx.Sgml.Html do
             do: {binary_part(t, 1, byte_size(t) - 1), %{st | skip_nl: false}},
             else: {t, %{st | skip_nl: false}}
 
+        st = if blank?(t), do: st, else: %{st | frameset_ok: false}
         if t == "", do: st, else: st |> reconstruct() |> insert_text(t, false)
 
       {:comment, c} ->
@@ -1212,18 +1482,37 @@ defmodule PrologEx.Sgml.Html do
   end
 
   defp start(st, n, attrs, self?) do
+    st =
+      if n in ~w(pre listing li dd dt button applet marquee object table area br embed img
+                  keygen wbr hr textarea xmp iframe select) or
+           (n == "input" and not hidden?(attrs)),
+         do: %{st | frameset_ok: false},
+         else: st
+
     cond do
       n == "html" ->
-        merge_attrs(st, st.html, attrs)
+        if template_open?(st), do: st, else: merge_attrs(st, st.html, attrs)
 
       n in ~w(base basefont bgsound link meta noframes script style template title) ->
         head_element(st, n, attrs)
 
       n == "body" ->
-        merge_attrs(st, st.body, attrs)
+        body = Enum.at(st.stack, -3)
+
+        if body != nil and html_el?(st, body, ["body"]) and not template_open?(st),
+          do: %{merge_attrs(st, body, attrs) | frameset_ok: false},
+          else: st
 
       n == "frameset" ->
-        st
+        body = Enum.at(st.stack, -3)
+
+        if st.frameset_ok and body != nil and html_el?(st, body, ["body"]) do
+          st = detach(st, body)
+          st = %{st | stack: Enum.take(st.stack, -2)}
+          %{insert_el!(st, "frameset", attrs) | mode: :in_frameset}
+        else
+          st
+        end
 
       n in @p_closers ->
         st |> close_p() |> insert_el!(n, attrs)
@@ -1369,6 +1658,9 @@ defmodule PrologEx.Sgml.Html do
 
   defp stop(st, n) do
     cond do
+      n == "template" ->
+        close_template(st)
+
       n in ["body", "html"] ->
         if in_scope?(st, ["body"]) do
           st = %{st | mode: :after_body}
@@ -1424,14 +1716,81 @@ defmodule PrologEx.Sgml.Html do
 
   # --- Tabellen --------------------------------------------------------------------
 
-  defp table(tok, st) do
+  # Einfügemodi „in table“, „in table body“, „in row“ (HTML5 13.2.6.4.9,
+  # .13, .14)
+  defp table(tok, %{mode: :in_table_body} = st) do
+    case tok do
+      {:start, "tr", attrs, _} ->
+        %{(st |> clear_to(~w(tbody tfoot thead)) |> insert_el!("tr", attrs)) | mode: :in_row}
+
+      {:start, n, _, _} when n in @cells ->
+        st = st |> clear_to(~w(tbody tfoot thead)) |> insert_el!("tr", [])
+        handle(tok, %{st | mode: :in_row})
+
+      {:end, n} when n in ~w(tbody tfoot thead) ->
+        if in_scope?(st, [n], :table),
+          do: %{(st |> clear_to(~w(tbody tfoot thead)) |> pop()) | mode: :in_table},
+          else: st
+
+      {tag, n, _, _} when tag == :start and n in ~w(caption col colgroup tbody tfoot thead) ->
+        close_section(tok, st)
+
+      {:end, "table"} ->
+        close_section(tok, st)
+
+      {:end, n} when n in ~w(body caption col colgroup html td th tr) ->
+        st
+
+      _ ->
+        in_table(tok, st)
+    end
+  end
+
+  defp table(tok, %{mode: :in_row} = st) do
+    case tok do
+      {:start, n, attrs, _} when n in @cells ->
+        st = st |> clear_to(["tr"]) |> insert_el!(n, attrs) |> push_marker()
+        %{st | mode: :in_cell}
+
+      {:end, "tr"} ->
+        if in_scope?(st, ["tr"], :table), do: close_row(st), else: st
+
+      {:start, n, _, _} when n in ~w(caption col colgroup tbody tfoot thead tr) ->
+        if in_scope?(st, ["tr"], :table), do: handle(tok, close_row(st)), else: st
+
+      {:end, "table"} ->
+        if in_scope?(st, ["tr"], :table), do: handle(tok, close_row(st)), else: st
+
+      {:end, n} when n in ~w(tbody tfoot thead) ->
+        cond do
+          not in_scope?(st, [n], :table) -> st
+          not in_scope?(st, ["tr"], :table) -> st
+          true -> handle(tok, close_row(st))
+        end
+
+      {:end, n} when n in ~w(body caption col colgroup html td th) ->
+        st
+
+      _ ->
+        in_table(tok, st)
+    end
+  end
+
+  defp table(tok, st), do: in_table(tok, st)
+
+  defp close_section(tok, st) do
+    if in_scope?(st, ~w(tbody thead tfoot), :table),
+      do: handle(tok, %{(st |> clear_to(~w(tbody tfoot thead)) |> pop()) | mode: :in_table}),
+      else: st
+  end
+
+  defp close_row(st), do: %{(st |> clear_to(["tr"]) |> pop()) | mode: :in_table_body}
+
+  defp in_table(tok, st) do
     case tok do
       {:text, t} ->
-        if cur_name(st) in @table_ctx do
-          case split_ws(t) do
-            {_, ""} -> insert_text(st, t, false)
-            _ -> foster(tok, st)
-          end
+        if cur_name(st) in @table_ctx or cur_name(st) == "template" do
+          %{st | table_text: [st.table_text || [], t]}
         else
           foster(tok, st)
         end
@@ -1460,16 +1819,13 @@ defmodule PrologEx.Sgml.Html do
       {:start, n, attrs, _} when n in ~w(tbody tfoot thead) ->
         %{(st |> clear_to(["table"]) |> insert_el!(n, attrs)) | mode: :in_table_body}
 
-      {:start, "tr", attrs, _} ->
-        st = clear_to(st, ~w(tbody tfoot thead table))
-        st = if cur_name(st) == "table", do: insert_el!(st, "tbody", []), else: st
-        %{insert_el!(st, "tr", attrs) | mode: :in_row}
-
-      {:start, n, attrs, _} when n in @cells ->
-        st = clear_to(st, ~w(tbody tfoot thead table tr))
-        st = if cur_name(st) == "table", do: insert_el!(st, "tbody", []), else: st
-        st = if cur_name(st) in ~w(tbody tfoot thead), do: insert_el!(st, "tr", []), else: st
-        %{(st |> insert_el!(n, attrs) |> push_marker()) | mode: :in_cell}
+      {:start, n, _, _} when n in ~w(td th tr) ->
+        handle(tok, %{
+          (st
+           |> clear_to(["table"])
+           |> insert_el!("tbody", []))
+          | mode: :in_table_body
+        })
 
       {:start, "table", _, _} ->
         if in_scope?(st, ["table"], :table),
@@ -1480,12 +1836,14 @@ defmodule PrologEx.Sgml.Html do
         head_element(st, n, attrs)
 
       {:start, "input", attrs, _} ->
-        if Enum.any?(attrs, fn {k, v} -> k == "type" and String.downcase(v) == "hidden" end),
-          do: insert_void(st, "input", attrs),
-          else: foster(tok, st)
+        if Enum.any?(attrs, fn {k, v} ->
+             k == "type" and String.downcase(v, :ascii) == "hidden"
+           end),
+           do: insert_void(st, "input", attrs),
+           else: foster(tok, st)
 
       {:start, "form", attrs, _} ->
-        if st.form do
+        if st.form != nil or template_open?(st) do
           st
         else
           {id, st} = insert_el(st, "form", attrs)
@@ -1495,20 +1853,15 @@ defmodule PrologEx.Sgml.Html do
       {:start, _, _, _} ->
         foster(tok, st)
 
+      {:end, "template"} ->
+        close_template(st)
+
       {:end, "table"} ->
         if in_scope?(st, ["table"], :table),
           do: st |> pop_until(["table"]) |> reset_mode(),
           else: st
 
-      {:end, n} when n in ~w(tbody tfoot thead) ->
-        if in_scope?(st, [n], :table), do: %{pop_until(st, [n]) | mode: :in_table}, else: st
-
-      {:end, "tr"} ->
-        if in_scope?(st, ["tr"], :table),
-          do: %{pop_until(st, ["tr"]) | mode: :in_table_body},
-          else: st
-
-      {:end, n} when n in ~w(body caption col colgroup html td th) ->
+      {:end, n} when n in ~w(body caption col colgroup html tbody td tfoot th thead tr) ->
         st
 
       {:end, _} ->
@@ -1534,6 +1887,12 @@ defmodule PrologEx.Sgml.Html do
       {:start, "col", attrs, _} ->
         insert_void(st, "col", attrs)
 
+      {:start, "template", attrs, _} ->
+        head_element(st, "template", attrs)
+
+      {:end, "template"} ->
+        close_template(st)
+
       {:end, "colgroup"} ->
         if cur_name(st) == "colgroup", do: %{pop(st) | mode: :in_table}, else: st
 
@@ -1551,7 +1910,7 @@ defmodule PrologEx.Sgml.Html do
 
   # Tabellenkontext: bis eines der Elemente oben liegt
   defp clear_to(st, names) do
-    if cur_name(st) in (names ++ ["html", "template"]) or hd(st.stack) == 0,
+    if cur_name(st) in names or cur_name(st) in ["html", "template"] or hd(st.stack) == 0,
       do: st,
       else: clear_to(pop(st), names)
   end
@@ -1566,12 +1925,17 @@ defmodule PrologEx.Sgml.Html do
 
       {:start, _, _, _} ->
         if in_scope?(st, @cells, :table), do: handle(tok, close_cell(st)), else: st
+
+      {:end, _} ->
+        st
     end
   end
 
   defp close_cell(st) do
     %{(st |> implied_end() |> pop_until(@cells) |> clear_afe_to_marker()) | mode: :in_row}
   end
+
+  defp caption({:end, n}, st) when n not in ["caption", "table"], do: st
 
   defp caption(tok, st) do
     if in_scope?(st, ["caption"], :table) do
@@ -1645,6 +2009,9 @@ defmodule PrologEx.Sgml.Html do
       {:end, "option"} ->
         if cur_name(st) == "option", do: pop(st), else: st
 
+      {:end, "template"} ->
+        close_template(st)
+
       {:end, "select"} ->
         if in_scope?(st, ["select"], :select), do: close_select(st), else: st
 
@@ -1674,14 +2041,17 @@ defmodule PrologEx.Sgml.Html do
       {:start, n, attrs, self?} ->
         if n in @breakout or
              (n == "font" and Enum.any?(attrs, fn {k, _} -> k in ~w(color face size) end)) do
-          st = pop_foreign(st)
-          body(tok, st)
+          # nach den Regeln des Einfügemodus (HTML-Inhalt)
+          by_mode(tok, pop_foreign(st))
         else
           name = if ns == :svg, do: svg_name(n), else: n
-          ns2 = if n == "svg", do: :svg, else: if(n == "math", do: :math, else: ns)
-          {_, st} = insert_el(st, name, foreign_attrs(attrs, ns2), ns2)
+          # im fremden Inhalt gilt der Namensraum des aktuellen Knotens
+          {_, st} = insert_el(st, name, foreign_attrs(attrs, ns), ns)
           if self?, do: pop(st), else: st
         end
+
+      {:end, n} when n in ["br", "p"] ->
+        by_mode(tok, pop_foreign(st))
 
       {:end, n} ->
         foreign_end(st, st.stack, n)
@@ -1788,7 +2158,7 @@ defmodule PrologEx.Sgml.Html do
         {id, st} = create(st, "head", [], :html)
         st = %{st | head: id}
         html = node(st, st.html)
-        put_node(st, st.html, %{html | kids: html.kids ++ [id]}) |> set_parent(id, st.html)
+        put_node(st, st.html, %{html | kids: [id | html.kids]}) |> set_parent(id, st.html)
       else
         st
       end
@@ -1825,6 +2195,9 @@ defmodule PrologEx.Sgml.Html do
 
         %{t: :text, text: t} ->
           {:text, t}
+
+        %{t: :fragment} ->
+          {:fragment, out(st, k)}
 
         %{t: :comment, text: t} ->
           {:comment, t}

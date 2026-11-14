@@ -90,6 +90,7 @@ defmodule PrologEx.Sgml do
   defp term({:comment, t}, o), do: mk("comment", [text(o.cdata, t)])
   defp term({:doctype, t}, o), do: mk("doctype", [text(o.cdata, t)])
   defp term({:other}, _o), do: mk("element", [a(""), [], []])
+  defp term({:fragment, kids}, o), do: mk("fragment", [Enum.map(kids, &term(&1, o))])
 
   # Leerraum wie SWIs space/1 (in Elementen)
   defp space(nodes, :preserve, _in_el?), do: nodes

@@ -1109,6 +1109,11 @@ Dateien, die kein UTF-8 sind (siehe unten).
     * Rohtext in `script` und `style`; SVG mit `viewBox` und
       `foreignObject`; der Quirks-Modus ohne Doctype.
     * Attribute sind nach Namen sortiert, wie bei Scryer.
+    * Nach html5ever nachgezogen: die Einfügemodi für Tabellen
+      (Tabellentext wird als Ganzes entschieden), `template` mit
+      `fragment(…)`, `frameset`, die Escape-Zustände in `script`, die
+      Begrenzung auf drei gleiche Formatierungselemente („Noah's Ark“)
+      und fremder Inhalt (SVG, MathML) vor jedem Einfügemodus.
   * Die Optionen kommen von SWI:
     * `cdata(Typ)` und `attribute_value(Typ)` mit `chars` (Vorgabe),
       `atom`, `codes` oder `string`. `string` gibt hier nach dem Flag
