@@ -4023,6 +4023,41 @@ Release-Build, SWI-Prolog 9.0.4 aus Ubuntu, dieselbe Maschine, alles in
 einer Sitzung; Zeiten in ms, beste von zwei Runden; „ohne JIT“: `mix
 prolog --no-jit`; Faktoren: PrologEx mit JIT durch Scryer bzw. SWI):
 
+| Fall | PrologEx | ohne JIT | Scryer | SWI | ÷ Scryer | ÷ SWI |
+|---|---|---|---|---|---|---|
+| nrev (30, 2000-mal) | 25 | 689 | 92 | 19 | 0,27 | 1,3 |
+| loop (1 Mio., `is`) | 8 | 703 | 75 | 11 | 0,11 | 0,73 |
+| tak (18, 12, 6) | 1 | 91 | 7 | 4 | ≈ 0,14 | ≈ 0,25 |
+| queens (8, alle) | 21 | 34 | 5 | 3 | ≈ 4,2 | ≈ 7,0 |
+| deriv (20 000) | 21 | 303 | 72 | 17 | 0,29 | 1,2 |
+| facts (Backtracking) | 358 | 356 | 50 | 23 | 7,2 | 16 |
+| foldl/4 (300 000) | 310 | 270 | 107 | 54 | 2,9 | 5,7 |
+| dieselbe Summe von Hand | 4 | 244 | 89 | 44 | 0,04 | 0,09 |
+| findall + sort (200 000) | 330 | 304 | 162 | 53 | 2,0 | 6,2 |
+| clpb (kleine Formeln) | 26 | 26 | 159 | 44 | 0,16 | 0,59 |
+
+Im geometrischen Mittel (ohne tak) 0,61-mal die Zeit von Scryer (ohne
+JIT 3,2-mal) und 1,8-mal die von SWI (ohne JIT 9,6-mal); am 12. November
+waren es 0,70 und 2,0. Wo der JIT greift – deterministische Rekursion
+über Zahlen, Listen und Strukturen –, ist PrologEx 3- bis 20-mal
+schneller als Scryer und liegt bei SWI (nrev, deriv 1,2–1,3-mal dessen
+Zeit, loop und die Summe darunter). Wo er nicht greift, bleibt es beim
+Interpreter: facts ist eine Fehlschlagschleife (`between(1, N, _),
+p(_), fail` – ohne Argumente, nichts für den JIT), foldl ruft `call/N`,
+findall und sort sind eingebaut; dort 2- bis 7-mal langsamer als
+Scryer, 6- bis 16-mal als SWI. tak und queens sind bei Scryer und SWI so
+kurz, dass ihre Faktoren grob sind.
+
+clpz: `bench/compare_clpz.pl`, ebenso unverändert in allen dreien (SWI
+nimmt `library(clpfd)` über `bench/swi/clpz.pl`):
+
+```sh
+MIX_ENV=prod mix prolog bench/compare_clpz.pl -g main -q
+scryer-prolog -g main -g halt bench/compare_clpz.pl
+swipl -p library=bench/swi -g main -t halt bench/compare_clpz.pl
+```
+
+
 | Fall | PrologEx | Scryer | SWI | ÷ Scryer | ÷ SWI |
 |---|---|---|---|---|---|
 | 20 Damen (`ff`) | 26 | 60 | 9 | 0,43 | 2,9 |
