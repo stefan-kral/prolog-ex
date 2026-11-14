@@ -4040,9 +4040,19 @@ drei Systemen gleich ist.
 | Rucksack, 7 Gewichte, Summe 400 (497) | 535 | 2 506 | 373 | 0,21 | 1,4 |
 | 4 Gleichungen, 6 Unbekannte, alle Lösungen | 558 | 3 681 | 676 | 0,15 | 0,83 |
 | 60 Variablen, 60 Runden enger (Aufwecken) | 1 161 | 6 396 | 1 377 | 0,18 | 0,84 |
+| magisches Quadrat 3×3, alle 8, 20-mal | 380 | 1 261 | 266 | 0,30 | 1,4 |
+| magisches Quadrat 4×4, erstes, 20-mal | 236 | 694 | 137 | 0,34 | 1,7 |
+| magisches Quadrat 5×5, erstes (`ff`) | 348 | 1 581 | 353 | 0,22 | 0,99 |
+| nur Summen 3×3, 1..20, Summe 30 (181) | 261 | 945 | 170 | 0,28 | 1,5 |
+| nur Summen 4×4, 1..4, Summe 10 (1440) | 703 | 2 443 | 384 | 0,29 | 1,8 |
+| Summen eines 6×6-Quadrats 300-mal aufstellen | 1 385 | 1 339 | 227 | 1,0 | 6,1 |
 
-Im geometrischen Mittel 0,34-mal Scryer und 1,65-mal SWI (14. 11.).
-Ausreißer ist das Aufstellen vieler kleiner Gleichungen.
+Die unteren sechs haben die Form von `magic_square(N)`: 2N+2 Summen über
+je N Variablen, Koeffizienten 1 (die drei oberen mit `all_different/1`).
+Im geometrischen Mittel aller zwölf 0,34-mal Scryer und 1,75-mal SWI
+(14. 11.). Ausreißer ist das Aufstellen vieler kleiner Gleichungen: dort
+6-mal SWI und gleichauf mit Scryer, beim Propagieren und Suchen 0,8- bis
+1,8-mal SWI.
 
 Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
 tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist

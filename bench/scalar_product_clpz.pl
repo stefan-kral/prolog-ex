@@ -131,6 +131,53 @@ narrow_([K|Ks], Vs) :-
         narrow_(Ks, Vs).
 tighten(Lo, Hi, V) :- V #=< Hi, V #>= Lo.
 
+% --- wie in magic_square(N): 2N+2 Summen über je N Variablen ---------------
+
+% Quadrat N×N mit Zeilen-, Spalten- und Diagonalsummen Sum, Zahlen in
+% Lo..Hi (ohne Verschiedenheit)
+square(N, Lo, Hi, Sum, Rows, Vs) :-
+        length(Rows, N), maplist(same_length(Rows), Rows),
+        append(Rows, Vs), Vs ins Lo..Hi,
+        maplist(sum_eq(Sum), Rows),
+        transpose(Rows, Cols), maplist(sum_eq(Sum), Cols),
+        diag(Rows, 0, D1), sum_eq(Sum, D1),
+        maplist(reverse, Rows, RR), diag(RR, 0, D2), sum_eq(Sum, D2).
+sum_eq(S, L) :- sum(L, #=, S).
+diag([], _, []).
+diag([R|Rs], I, [X|Xs]) :- nth0(I, R, X), I1 is I + 1, diag(Rs, I1, Xs).
+
+% magic_square(N) wie in Triskas Beispiel: Zahlen 1..N², verschieden
+magic_square(N, Rows, Vs) :-
+        NN is N*N, S is N*(NN+1)//2,
+        square(N, 1, NN, S, Rows, Vs),
+        all_different(Vs).
+
+% ms3all: 20-mal alle 8 magischen Quadrate 3×3 (label)
+ms3all(N) :-
+        findall(x, (between(1, 20, _), magic_square(3, _, Vs), label(Vs)), L),
+        length(L, N).
+
+% ms4: 20-mal das erste magische Quadrat 4×4 (label)
+ms4(N) :-
+        findall(Vs, (between(1, 20, _), once((magic_square(4, _, Vs), label(Vs)))), L),
+        length(L, N).
+
+% ms5ff: das erste magische Quadrat 5×5 (labeling([ff]))
+ms5ff(Vs) :- magic_square(5, _, Vs), labeling([ff], Vs).
+
+% sq3: alle 3×3-Quadrate mit Summe 30 aus 1..20, Zahlen dürfen sich
+% wiederholen
+sq3(N) :- findall(x, (square(3, 1, 20, 30, _, Vs), label(Vs)), L), length(L, N).
+
+% sq4: alle 4×4-Quadrate mit Summe 10 aus 1..4
+sq4(N) :- findall(x, (square(4, 1, 4, 10, _, Vs), label(Vs)), L), length(L, N).
+
+% sqpost: 300-mal die Summen eines 6×6-Quadrats aufstellen (14 Gleichungen
+% mit je 6 Variablen, 1..36), ohne Beschriftung
+sqpost(300) :- sqpost_(300).
+sqpost_(0) :- !.
+sqpost_(K) :- square(6, 1, 36, 111, _, _), K1 is K - 1, sqpost_(K1).
+
 % --- Messen ----------------------------------------------------------------
 
 run(G, T, R) :-
@@ -144,7 +191,8 @@ best(G, Best, R) :-
         findall(T-R0, (between(1, 3, _), run(G, T, R0)), TRs),
         keysort(TRs, [Best-R|_]).
 
-main :- main([post, posteach, coins, knap, linsys, narrow]).
+main :- main([post, posteach, coins, knap, linsys, narrow,
+               ms3all, ms4, ms5ff, sq3, sq4, sqpost]).
 
 main(Gs) :-
         (   member(G, Gs),
