@@ -4344,3 +4344,9 @@ keine unnötigen Zwischenstrukturen: Prolog-Listen gleich durchlaufen,
 statt sie erst in eine Elixir-Liste zu kopieren. `PrologEx.Builtins.ClpzPrims`
 und `ClpzDom` folgen dem schon (Reduktionen der Damen und des Sudoku
 −7 bis −10 %); der übrige Code nach und nach.
+Strings als Muster in Funktionsköpfen sind billig – der Compiler baut
+daraus einen Entscheidungsbaum über die Bytes (`select_val`) –, `x in
+@liste` in einem Guard dagegen ist eine Kette von Vergleichen, einer
+nach dem anderen: bei langen Listen besser eine Klausel je Eintrag
+erzeugen (`for p <- @liste, do: defp p?(unquote(p)), do: true`), wie bei
+`ported?/1` in `ClpzPrims` (35 Namen: bis zu 190 → unter 20 ns).

@@ -2255,6 +2255,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
   @doc "Die Propagatoren, die activate_propagator//1 in Elixir rechnet"
   def ported, do: @ported
 
+  # Ist n einer davon? Eine Klausel je Name: der Compiler macht daraus
+  # einen Entscheidungsbaum über die Bytes (select_val); `n in @ported` im
+  # Guard wären bis zu 35 Vergleiche nacheinander (bis zu 190 ns)
+  for p <- @ported do
+    defp ported?(unquote(p)), do: true
+  end
+
+  defp ported?(_), do: false
+
   defbuiltin "$clpz_activate", [prop, s0, s1] do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
       s = subst_now()
@@ -2302,8 +2311,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
         true ->
           {name, args} =
             case ws(p, s) do
-              {tag, n, args} when tag in [:struct, :gstruct] and n in @ported -> {n, args}
-              _ -> throw(:fallback)
+              {tag, n, args} when tag in [:struct, :gstruct] ->
+                if ported?(n), do: {n, args}, else: throw(:fallback)
+
+              _ ->
+                throw(:fallback)
             end
 
           # freeze, dif, when (oder ein anderes Modul) am Zustand: das
