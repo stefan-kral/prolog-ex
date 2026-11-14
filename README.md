@@ -2241,6 +2241,31 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     Summen (`C+D` statt `D+C`: die Standardordnung der Variablen ist
     Sache des Systems) und dass Scryer zwei `freeze/2` auf derselben
     Variablen zu einem zusammenfasst.
+  * Differentielles Fuzzing gegen Scryer (`conformance/clpz_fuzz/`, für
+    Läufe über Nacht): `gen.py` erzeugt kleine Probleme mit 1–4 Variablen
+    (Arithmetik mit allen Operatoren, lineare Summen, `sum/3`,
+    `scalar_product/4`, Reifikation, `all_different/1`,
+    `global_cardinality/2`, `element/3`, `tuples_in/2`, `lex_chain/1`,
+    `chain/2`, `zcompare/3`, `in`/`ins`), `head.pl` gibt nach dem Posten
+    Domänen und Restziele (Flag `clpz_residuals` auf `scryer`) und dann
+    alle Lösungen von `labeling/2` mit zufälligen Optionen aus, `cmp.py`
+    vergleicht. Nicht gezählt werden die Reihenfolge und
+    Modulqualifikation der Restziele, `put_atts/2`-Ziele Scryers (für die
+    Relationsvariablen von `tuples_in/2`, die kein `attribute_goals//1`
+    beschreibt) und `freeze/2`-Konjunktionen. Gefunden hat das bisher
+    einen Fehler im portierten `prem` (bei gebundenem Z ein `interval/5`
+    statt `{interval/3}`; seither prüft `test/clpz_listing_test.exs`, dass
+    jedes Ziel in clpz definiert ist), und in Scryer einen
+    `type_error(evaluable, n/1)` bzw. `[]/0`, etwa bei `[X] ins 4, 5 #= X`
+    (PrologEx scheitert richtig; `cmp.py` zählt die Fälle als bekannt).
+
+    ```
+    SCRYER=/pfad/scryer-prolog MIX_ENV=prod conformance/clpz_fuzz/run.sh 7
+    SCRYER=… MIX_ENV=prod conformance/clpz_fuzz/night.sh 1000 1999   # 500 000 Fälle
+    ```
+
+    Ausgaben unter `tmp/clpz_fuzz/` (`summary.txt`, Seeds mit
+    Unterschieden in `found.txt`, Einzelheiten in `d<Seed>.txt`).
 
 Geschwindigkeit: ohne Start (PrologEx rund 1 s, das Laden von clpz,
 Scryer 0,4 s) gemessen braucht PrologEx für die Beispielprogramme das 9-
