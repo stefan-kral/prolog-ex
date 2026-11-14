@@ -20,6 +20,33 @@ defmodule PrologEx.ClpzListingTest do
 
   defp out(c, db, q), do: elem(TableCase.run(c.reader, db, q), 0)
 
+  # jedes Ziel in den Klauseln von clpz ruft etwas, das es gibt – etwa kein
+  # interval/5, weil in einer DCG-Regel {…} fehlt (gefunden vom Fuzzer
+  # gegen Scryer: prem//2 mit Z gebunden)
+  test "clpz ruft nur, was definiert ist", c do
+    missing =
+      for {{"clpz", n, a}, p} <- c.clpz,
+          is_binary(n),
+          p = PrologEx.materialize(p),
+          match?({:pred, _, _, _, _}, p),
+          {_, {_h, body}, _} <- PrologEx.pred_entries(p),
+          {gn, ga} = g <- goals(PrologEx.unmark(body), []),
+          not PrologEx.Builtins.system?(g),
+          PrologEx.locate(c.clpz, "clpz", gn, ga) == :none,
+          uniq: true,
+          do: "#{gn}/#{ga} in #{n}/#{a}"
+
+    assert missing == []
+  end
+
+  defp goals({:struct, op, [a, b]}, acc) when op in [",", ";", "->", "*->"],
+    do: goals(b, goals(a, acc))
+
+  defp goals({:struct, "\\+", [a]}, acc), do: goals(a, acc)
+  defp goals({:struct, f, as}, acc), do: [{f, length(as)} | acc]
+  defp goals({:atom, f}, acc), do: [{f, 0} | acc]
+  defp goals(_, acc), do: acc
+
   test "Übersicht: Zahlen, Stufen, Propagatoren", c do
     o = out(c, c.clpz, "clpz_listing")
     assert o =~ ~r"% library\(clpz\): \d+ Prädikate – \d+ in Elixir, \d+ mit Abkürzer"

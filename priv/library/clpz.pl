@@ -5425,7 +5425,9 @@ run_propagator(prem(X,Y,Z), MState) -->
                 (   { fd_get(Z, ZD, ZPs) } ->
                     { interval(ZL,ZU,I_5634), domains_intersection(ZD, I_5634, ZD1) },
                     fd_put(Z, ZD1, ZPs)
-                ;   interval(Z, Z, ZD1)
+                ;   % PrologEx: in geschweiften Klammern (im Original
+                    % ZD1 = from_to(n(Z), n(Z)), dort =//2)
+                    { interval(Z, Z, ZD1) }
                 ),
                 (   { fd_get(X, XD, _), domain_infimum(XD, Min), integer(Min) } ->
                     Z1 is Min rem Y,
