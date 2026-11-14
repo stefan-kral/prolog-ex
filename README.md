@@ -1114,6 +1114,10 @@ Dateien, die kein UTF-8 sind (siehe unten).
       `fragment(…)`, `frameset`, die Escape-Zustände in `script`, die
       Begrenzung auf drei gleiche Formatierungselemente („Noah's Ark“)
       und fremder Inhalt (SVG, MathML) vor jedem Einfügemodus.
+    * Gegen Scryer abgeglichen an rund 15 000 zufälligen, oft kaputten
+      HTML-Texten (allgemein, verschachtelte Formatierung, fremder
+      Inhalt, Tokenizer, `script`): gleich. Eine Auswahl steht in
+      `test/fixtures/sgml/html_read.pl`.
   * Die Optionen kommen von SWI:
     * `cdata(Typ)` und `attribute_value(Typ)` mit `chars` (Vorgabe),
       `atom`, `codes` oder `string`. `string` gibt hier nach dem Flag

@@ -1349,7 +1349,7 @@ defmodule PrologEx.Sgml.Html do
       :in_caption -> if caption_token?(tok), do: caption(tok, st), else: in_body(tok, st)
       m when m in [:in_select, :in_select_in_table] -> select(tok, st)
       :in_template -> template(tok, st)
-      m when m in [:in_body, :after_body, :after_after_body] -> in_body(tok, st)
+      :in_body -> in_body(tok, st)
       _ -> mode_handle(tok, st)
     end
   end

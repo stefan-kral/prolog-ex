@@ -2,7 +2,8 @@ defmodule PrologEx.SgmlFixturesTest do
   # library(sgml) gegen die Vorbilder: zufällig erzeugte (oft kaputte)
   # XML-Texte für load_xml/3 mit Scryer Prologs Ausgabe als Erwartung
   # (xml_read), zufällige DOMs mit Optionen für xml_write/3 und
-  # html_write/3 mit SWI-Prologs Ausgabe (xml_write)
+  # html_write/3 mit SWI-Prologs Ausgabe (xml_write), zufällige (oft
+  # kaputte) HTML-Texte für load_html/3 mit Scryers Ausgabe (html_read)
   use ExUnit.Case, async: true
   alias PrologEx.{Reader, TableCase}
 
@@ -14,7 +15,7 @@ defmodule PrologEx.SgmlFixturesTest do
     {:ok, reader: r}
   end
 
-  for name <- ["xml_read", "xml_write"] do
+  for name <- ["xml_read", "xml_write", "html_read"] do
     test "#{name}: wie das Vorbild", c do
       text = File.read!(Path.join(@dir, unquote(name) <> ".pl"))
       {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, text))
