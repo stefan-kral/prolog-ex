@@ -11,7 +11,7 @@ go :- forall(o(Id, _), (catch(run(Id), E, (write(Id), write(' crash '), pp(E), n
 run(Id) :-
     o(Id, Opts),
     write(Id), write(' post '),
-    (   catch((p(Id, Vs) -> R = ok(Vs) ; R = fail), error(E, _), R = err(E)) ->
+    (   catch((p(Id, Vs) -> R = ok(Vs) ; R = fail), error(E, C), err(E, C, R)) ->
         true
     ;   R = fail
     ),
@@ -22,8 +22,12 @@ run(Id) :-
     write(Id), write(' lab '),
     catch(( findall(Vs2, (p(Id, Vs2), labeling(Opts, Vs2)), L), length(L, N),
             first(L, 40, F), pp(N-F) ),
-          error(E2, _), pp(err(E2))),
+          error(E2, C2), (err(E2, C2, R2), pp(R2))),
     nl.
+
+% Fehler; aus is/2 mit Kontext (in Scryer Fehler von library(clpz) mit
+% gebundenen attributierten Variablen in übersetzten Klauseln)
+err(E, C, R) :- ( nonvar(C), C = (is)/2 -> R = err(E, is) ; R = err(E) ).
 
 % Domänen und Restbedingungen
 % freeze/2 schreibt PrologEx wie SWI (unqualifiziert, vor den Zielen von

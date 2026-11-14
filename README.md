@@ -2255,9 +2255,13 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     beschreibt) und `freeze/2`-Konjunktionen. Gefunden hat das bisher
     einen Fehler im portierten `prem` (bei gebundenem Z ein `interval/5`
     statt `{interval/3}`; seither prüft `test/clpz_listing_test.exs`, dass
-    jedes Ziel in clpz definiert ist), und in Scryer einen
-    `type_error(evaluable, n/1)` bzw. `[]/0`, etwa bei `[X] ins 4, 5 #= X`
-    (PrologEx scheitert richtig; `cmp.py` zählt die Fälle als bekannt).
+    jedes Ziel in clpz definiert ist), und einen Fehler in Scryer: in einer
+    übersetzten Klausel vergleicht `5 >= X` gleich nach `X = 2` mit einer
+    attributierten Variablen X falsch (`type_error(evaluable, user/0)`
+    o. Ä. aus `is/2`, ganz ohne clpz:
+    `t(X) :- put_atts(X, a(1)), X = 2, 5 >= X.`). Die Expansion von clpz
+    erzeugt genau solche Vergleiche, etwa für `X in 1..3, X = 2, X #=< 5`
+    oder `[X] ins 4, 5 #= X`; `cmp.py` zählt diese Fälle als bekannt.
 
     ```
     SCRYER=/pfad/scryer-prolog MIX_ENV=prod conformance/clpz_fuzz/run.sh 7

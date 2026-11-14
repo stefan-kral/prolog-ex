@@ -15,11 +15,14 @@ def load(f):
 def norm(v):
     return v.split(' NORM ')[1] if v and ' NORM ' in v else v
 
-# bekannte Fehler von Scryer: library(clpz) wirft type_error(evaluable, …)
-# etwa bei [X] ins 4, 5 #= X (PrologEx rechnet richtig)
+# bekannte Fehler von Scryer: in übersetzten Klauseln rechnet is/2 mit
+# einer eben gebundenen attributierten Variablen falsch
+# (type_error(evaluable, …) oder instantiation_error), etwa bei
+# X in 1..3, X = 2, X #=< 5 oder [X] ins 4, 5 #= X; PrologEx rechnet
+# richtig (und kommt danach vielleicht zu einem anderen Fehler)
 def scryer_known(s, p):
-    return (s is not None and "'type_error'('evaluable'" in s
-            and (p is None or "'err'(" not in p))
+    return (s is not None and ("'type_error'('evaluable'" in s or "'is')" in s)
+            and s != p)
 
 a = load(sys.argv[1]); b = load(sys.argv[2])
 src = {}

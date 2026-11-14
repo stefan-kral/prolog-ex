@@ -83,7 +83,7 @@ def constraint(st):
         tups = ['[%s]' % ','.join(str(random.randint(-1, 4)) for _ in l) for _ in range(random.randint(1, 4))]
         return 'tuples_in([[%s]], [%s])' % (','.join(l), ','.join(tups))
     if r < 0.85: return 'lex_chain([%s,%s])' % (lst(st, 2), lst(st, 2))
-    if r < 0.87: return 'chain(%s, (%s))' % (lst(st), random.choice(['#<', '#=<', '#>', '#>=', '#=']))
+    if r < 0.87: return 'chain((%s), %s)' % (random.choice(['#<', '#=<', '#>', '#>=', '#=']), lst(st))
     if r < 0.89: return 'zcompare(%s, %s, %s)' % (random.choice(['O', '(<)', '(=)', '(>)']), expr(st, 1), expr(st, 1))
     if r < 0.92: return '%s in %s' % (var(st), dom())
     if r < 0.95: return '%s ins %s' % (lst(st), dom())
