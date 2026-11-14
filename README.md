@@ -2649,6 +2649,17 @@ Bisher in Elixir:
     Variablen ohne Domäne: das Original. Beides gegen die Originale mit
     Zufallslisten getestet. 6 Variablen `ins 1..36` 150 → 40 µs (SWI
     18 µs), eine Summe über sie 370 → 100 µs (SWI 100 µs).
+  * Ebenso `X #= Y` mit linearen Summen: Kann keine Klausel des
+    Matchers vor der für lineare Summen greifen (die ersten fünf
+    verlangen auf einer Seite eine Variable oder Zahl und auf der anderen
+    eine solche oder `A+B`, `A-B`, `A*B`, `-A` daraus), prüft
+    `'$clpz_eq_linear'/2` das in einem Schritt (beide Seiten azyklisch,
+    nicht `monotonic`), und `clpz_equal/2` nimmt gleich jene Klausel
+    statt alle davor aufzubauen. `scalar_product_//4` mit `#=` (aus dem
+    Matcher, `scalar_product_ref/4` & Co.) läuft wie oben in Elixir
+    (`'$clpz_sp_eq'/3`, Original `sp_eq_ref/3`). Gegen den Weg ohne
+    Abkürzer mit Zufallsausdrücken getestet. `A+B+C+D+E+F #= 111` über
+    Variablen mit Domäne aufstellen: 290 → 110–160 µs (SWI 60 µs).
   * Die Expansion von `X #\= Y` im Programm: Sind beide Seiten einfach
     (Variablen, Zahlen, `-`, `abs`, `+`, `*`, `min`, `max`), sind die
     Bedingungen von `expr_conds//2` genau `integer/1` je Variable; statt

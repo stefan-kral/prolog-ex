@@ -221,6 +221,24 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # X #= Y (clpz_equal/2): der Abkürzer vor dem Matcher
+  # ('$clpz_eq_linear'/2) und scalar_product_//4 mit #= ('$clpz_sp_eq'/3)
+  # gegen den Weg ganz ohne Abkürzer
+  test "X #= Y: lineare Summen am Matcher vorbei wie das Original", c do
+    check(c, 700, fn ->
+      l = lin_expr(Enum.random(0..4))
+      r = lin_expr(Enum.random(0..2))
+      mono = :rand.uniform(6) == 1
+      goal = "clpz:clpz_equal(#{l}, #{r})"
+
+      scenario(
+        "(#{if mono, do: "assertz(clpz:monotonic)", else: "true"}), " <>
+          "catch(same(fast(off, (#{goal})), fast(on, (#{goal})), Vs-N-M), E, true), " <>
+          "clpz:'$clpz_fast'(on), retractall(clpz:monotonic), var(E)"
+      )
+    end)
+  end
+
   # eine reifizierbare (oder nicht reifizierbare) Formel
   defp reif_expr(0) do
     a =

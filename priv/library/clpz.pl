@@ -85,7 +85,9 @@
        ins_ref/2); sum/3 und scalar_product/4 mit #= und einer Zahl
        rechts über Variablen mit Domäne und Zahlen ('$clpz_sum'/3,
        '$clpz_scalar_product'/4; Originale sum_ref/3,
-       scalar_product_ref/4)
+       scalar_product_ref/4); scalar_product_//4 mit #= ('$clpz_sp_eq'/3,
+       Original sp_eq_ref/3) und vor dem Matcher von X #= Y der Abkürzer
+       für lineare Summen ('$clpz_eq_linear'/2)
      - Labeling: select_var/4 ('$clpz_select_var'/4, Original
        select_var_ref/4); das Weckziel nach einer Bindung ist
        '$clpz_do_queue'(Q) statt phrase(do_queue, [Q], _)
@@ -2263,19 +2265,10 @@ abs(N, A) :- A is abs(N).
 
 divide(D, N, R) :- R is N // D.
 
-scalar_product_(#=, Cs0, Vs, S0) :-
-        (   Cs0 = [C|Rest] ->
-            gcd(Rest, C, GCD),
-            S0 mod GCD =:= 0,
-            maplist(divide(GCD), [S0|Cs0], [S|Cs])
-        ;   S0 =:= 0, S = S0, Cs = Cs0
-        ),
-        (   S0 =:= 0 ->
-            maplist(abs, Cs, As),
-            multiples(As, Vs, [])
-        ;   true
-        ),
-        propagator_init_trigger(Vs, scalar_product_eq(Cs, Vs, S)).
+% PrologEx: in Elixir ('$clpz_sp_eq'/3: gcd, teilen, pit/4 und
+% trigger_once_/2 in einem Zug), Konstante 0 und Unerwartetes: das
+% Original sp_eq_ref/3
+scalar_product_(#=, Cs0, Vs, S0) :- '$clpz_sp_eq'(Cs0, Vs, S0).
 scalar_product_(#\=, Cs, Vs, C) :-
         propagator_init_trigger(Vs, scalar_product_neq(Cs, Vs, C)).
 scalar_product_(#=<, Cs, Vs, C) :-
@@ -2290,6 +2283,20 @@ scalar_product_(#>=, Cs, Vs, C) :-
         maplist(negative, Cs, Cs1),
         C1 is -C,
         scalar_product_(#=<, Cs1, Vs, C1).
+
+sp_eq_ref(Cs0, Vs, S0) :-
+        (   Cs0 = [C|Rest] ->
+            gcd(Rest, C, GCD),
+            S0 mod GCD =:= 0,
+            maplist(divide(GCD), [S0|Cs0], [S|Cs])
+        ;   S0 =:= 0, S = S0, Cs = Cs0
+        ),
+        (   S0 =:= 0 ->
+            maplist(abs, Cs, As),
+            multiples(As, Vs, [])
+        ;   true
+        ),
+        propagator_init_trigger(Vs, scalar_product_eq(Cs, Vs, S)).
 
 negative(X0, X) :- X is -X0.
 
@@ -2927,7 +2934,18 @@ X #=< Y :- Y #>= X.
 
 X #= Y :- clpz_equal(X, Y).
 
-clpz_equal(X, Y) :- clpz_equal_(X, Y), reinforce(X).
+% PrologEx: '$clpz_eq_linear'/2 gelingt, wenn keine Klausel des Matchers
+% vor der für lineare Summen (m_c(any(X) #= any(Y), left_right_linsum_const
+% ...)) greifen kann – keine Seite eine Variable oder Zahl gegenüber einer
+% Variablen, Zahl oder X+Y, X-Y, X*Y, -X aus solchen; beide azyklisch;
+% kein ?(_), #(_) dort, nicht monotonic. Dann gleich jene Klausel
+clpz_equal(X, Y) :-
+        (   '$clpz_eq_linear'(X, Y),
+            left_right_linsum_const(X, Y, Cs, Vs, S) ->
+            scalar_product_(#=, Cs, Vs, S)
+        ;   clpz_equal_(X, Y)
+        ),
+        reinforce(X).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    Conditions under which an equality can be compiled to built-in

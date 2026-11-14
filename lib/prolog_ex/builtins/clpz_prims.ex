@@ -2642,6 +2642,83 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # '$clpz_sp_eq'(Cs0, Vs, S0): scalar_product_//4 mit #= wie sp_eq_ref/3
+  # (aus dem Matcher von X #= Y, scalar_product_ref/4 & Co.) für Cs0 eine
+  # nicht leere Liste aus Zahlen ungleich 0, Vs eine gleich lange aus
+  # Variablen und Zahlen, S0 eine Zahl ungleich 0; sonst das Original
+  defbuiltin "$clpz_sp_eq", [cs, vs, s0] do
+    db = ctx.db
+
+    run("sp_eq", [cs, vs, s0], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
+
+      coeffs =
+        Enum.map(list_items(cs, s), fn c ->
+          case PrologEx.Store.walk(c, s) do
+            i when is_integer(i) and i != 0 -> i
+            _ -> throw(:fallback)
+          end
+        end)
+
+      xs = Enum.map(list_items(vs, s), &PrologEx.Store.walk(&1, s))
+
+      r =
+        case PrologEx.Store.walk(s0, s) do
+          r when is_integer(r) and r != 0 -> r
+          _ -> throw(:fallback)
+        end
+
+      unless coeffs != [] and length(coeffs) == length(xs) and
+               Enum.all?(xs, &(var?(&1) or is_integer(&1))),
+             do: throw(:fallback)
+
+      sp_eq(Enum.zip(xs, coeffs), r, s, db)
+    end)
+  end
+
+  # '$clpz_eq_linear'(X, Y): keine Klausel des Matchers von X #= Y vor der
+  # für lineare Summen kann greifen (die ersten fünf verlangen auf einer
+  # Seite eine Variable oder Zahl und auf der anderen eine solche oder
+  # A+B, A-B, A*B, -A aus solchen); beide Seiten azyklisch (die erste
+  # Klausel prüft das), kein ?(_)/#(_) an diesen Stellen, nicht monotonic
+  # (dort prüft schon v_or_i/1). Sonst scheitert es: der Matcher
+  defbuiltin "$clpz_eq_linear", [x0, y0] do
+    s = subst()
+
+    with nil <- Process.get(:clpz_no_fast),
+         false <- monotonic?(ctx.db),
+         x = PrologEx.unmark_top(PrologEx.Store.walk(x0, s)),
+         y = PrologEx.unmark_top(PrologEx.Store.walk(y0, s)),
+         vx when vx != :unsafe <- vlike(x),
+         vy when vy != :unsafe <- vlike(y),
+         false <- vx and vy,
+         false <- vx and vform(y, s),
+         false <- vy and vform(x, s),
+         true <- PrologEx.Builtins.Terms.acyclic?(x, s),
+         true <- PrologEx.Builtins.Terms.acyclic?(y, s) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  # Variable oder Zahl (v_or_i/1 ohne monotonic), ?(_)/#(_): :unsafe
+  defp vlike({:var, _}), do: true
+  defp vlike(i) when is_integer(i), do: true
+  defp vlike({tag, f, [_]}) when tag in [:struct, :gstruct] and f in ["?", "#"], do: :unsafe
+  defp vlike(_), do: false
+
+  # A+B, A-B, A*B, -A mit A, B wie vlike/1 (:unsafe zählt als ja: dann
+  # entscheidet der Matcher)
+  defp vform({tag, f, [a, b]}, s) when tag in [:struct, :gstruct] and f in ["+", "-", "*"],
+    do: vlike(ww(a, s)) != false and vlike(ww(b, s)) != false
+
+  defp vform({tag, "-", [a]}, s) when tag in [:struct, :gstruct], do: vlike(ww(a, s)) != false
+  defp vform(_, _s), do: false
+
+  defp ww(t, s), do: PrologEx.unmark_top(PrologEx.Store.walk(t, s))
+
   # scalar_product_(#=, Cs0, Vs, S0) mit S0 =/= 0
   defp sp_eq([{_, c} | rest] = merged, s0, s, db) do
     g = Enum.reduce(rest, c, fn {_, n}, g0 -> Integer.gcd(n, g0) end)
