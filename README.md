@@ -302,7 +302,14 @@ Ein Prolog-Kern in Elixir:
   Choice Point: nicht mehr erreichbare Zwischenstände (etwa die Bäume
   `A0, A1, …` einer `foldl`-Schleife mit `put_assoc/4`) halten so die
   Speicherbereinigung nicht auf – dort rund 40 % schneller, endrekursive
-  Rechenschleifen 6–18 %.
+  Rechenschleifen 6–18 %. Die Schwelle zählt die Bindungen des obersten
+  Choice Points dazu: zu ihnen kehrt das nächste Backtracking
+  unkompaktiert zurück (sie gehören dem Choice Point), und lägen sie
+  schon über der Schwelle, kompaktierte jeder Schritt nach jedem
+  Backtracking aufs Neue – beim Labeling über einen Zustand, der vor der
+  Suche nie kompaktiert wurde, zehnmal so oft (Rucksack aus
+  `bench/scalar_product_clpz.pl`: 1158 statt 1 Kompaktierung, +20 %
+  Zeit).
 - Geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
   Knoten eines BDDs) bearbeitet jede Operation, die Terme abläuft, nur
   einmal: Kompaktieren, Auflösen, Kopieren (`copy_term/2,3`, `findall`,
@@ -2580,6 +2587,12 @@ Bisher in Elixir:
     `do_queue_/3`. 20 Damen −30 %, alle 8-Damen-Lösungen −25 %, 100 Damen
     −13 %, 40 Damen −6 % (Reduktionen −10 bis −15 %); Sudoku und SEND+MORE
     gleich.
+    `ff` hört bei der ersten Variablen mit zwei Werten auf zu suchen:
+    eine kleinere ist nie ungebunden (eine Domäne aus einem Wert reiht
+    `X = F` als Ziel ein, das vor jedem Propagator läuft, und gewählt
+    wird erst nach dem Fixpunkt), das Ergebnis ist also dasselbe. Steht
+    sie vorn in einer Liste von 100 Variablen, 53 → 9 µs je Wahl; bei
+    den Damen nicht messbar.
   * `scalar_product_eq` (lineare Summen) fiel auf das Original zurück,
     sobald beim Labeling nur noch 1, 2 oder (Summe 0) 3 Variablen übrig
     waren: das tötet sich und stellt `{ A + B #= P }` & Co. über den Parser
@@ -2622,6 +2635,20 @@ Bisher in Elixir:
     (`'$clpz_neq_fast'/3`; `neq_num/2`, bzw. `pit/4` und `trigger_once_/2`
     in einem Zug), Original `clpz_neq_fast_ref/3`. Aufstellen der 40 Damen
     −16 %, ganz −10 % Reduktionen.
+  * Aufstellen von `Vs ins D` (`'$clpz_ins'/2`, Original `ins_ref/2`):
+    für eine echte Liste aus Variablen und Zahlen und D eine Zahl oder
+    `N..M` je Element `domain/2` in Elixir (Schnitt, `fd_put/3` bis zum
+    Fixpunkt, `reinforce/1`); braucht die Queue Prolog, machen
+    `do_queue_/3` und `domains/2` dort weiter. Und `sum/3`,
+    `scalar_product/4` mit `#=` und einer Zahl rechts über Variablen mit
+    Domäne und Zahlen (`'$clpz_sum'/3`, `'$clpz_scalar_product'/4`,
+    Originale `sum_ref/3`, `scalar_product_ref/4`): Prüfungen,
+    Linearsumme wie `'$clpz_linsum'/5`, gcd und Teilen, `pit/4` und
+    `trigger_once_/2` in einem Zug; Konstante 0 (dort stellt
+    `multiples/3` weitere Bedingungen auf), andere Relationen und
+    Variablen ohne Domäne: das Original. Beides gegen die Originale mit
+    Zufallslisten getestet. 6 Variablen `ins 1..36` 150 → 40 µs (SWI
+    18 µs), eine Summe über sie 370 → 100 µs (SWI 100 µs).
   * Die Expansion von `X #\= Y` im Programm: Sind beide Seiten einfach
     (Variablen, Zahlen, `-`, `abs`, `+`, `*`, `min`, `max`), sind die
     Bedingungen von `expr_conds//2` genau `integer/1` je Variable; statt
@@ -4032,27 +4059,30 @@ Lineare Gleichungen (Propagator `scalar_product_eq`):
 für einzelne Fälle); jeder Fall gibt eine Prüfsumme aus, die in allen
 drei Systemen gleich ist.
 
-| Fall | PrologEx | Scryer | SWI | ÷ Scryer | ÷ SWI |
-|---|---|---|---|---|---|
-| 300 Gleichungen, 12 Variablen, nur aufstellen | 95 | 116 | 47 | 0,82 | 2,0 |
-| 2000 Gleichungen mit je 6 eigenen Variablen | 1 010 | 760 | 167 | 1,3 | 6,0 |
-| Münzen: 100 aus 1, 2, 5, 10, 20, 50 (4562) | 1 465 | 6 152 | 880 | 0,24 | 1,7 |
-| Rucksack, 7 Gewichte, Summe 400 (497) | 535 | 2 506 | 373 | 0,21 | 1,4 |
-| 4 Gleichungen, 6 Unbekannte, alle Lösungen | 558 | 3 681 | 676 | 0,15 | 0,83 |
-| 60 Variablen, 60 Runden enger (Aufwecken) | 1 161 | 6 396 | 1 377 | 0,18 | 0,84 |
-| magisches Quadrat 3×3, alle 8, 20-mal | 380 | 1 261 | 266 | 0,30 | 1,4 |
-| magisches Quadrat 4×4, erstes, 20-mal | 236 | 694 | 137 | 0,34 | 1,7 |
-| magisches Quadrat 5×5, erstes (`ff`) | 348 | 1 581 | 353 | 0,22 | 0,99 |
-| nur Summen 3×3, 1..20, Summe 30 (181) | 261 | 945 | 170 | 0,28 | 1,5 |
-| nur Summen 4×4, 1..4, Summe 10 (1440) | 703 | 2 443 | 384 | 0,29 | 1,8 |
-| Summen eines 6×6-Quadrats 300-mal aufstellen | 1 385 | 1 339 | 227 | 1,0 | 6,1 |
+| Fall | PrologEx | vorher | Scryer | SWI | ÷ Scryer | ÷ SWI |
+|---|---|---|---|---|---|---|
+| 300 Gleichungen, 12 Variablen, nur aufstellen | 23 | 95 | 116 | 47 | 0,20 | 0,49 |
+| 2000 Gleichungen mit je 6 eigenen Variablen | 422 | 1 010 | 760 | 167 | 0,56 | 2,5 |
+| Münzen: 100 aus 1, 2, 5, 10, 20, 50 (4562) | 1 522 | 1 465 | 6 152 | 880 | 0,25 | 1,7 |
+| Rucksack, 7 Gewichte, Summe 400 (497) | 510 | 535 | 2 506 | 373 | 0,20 | 1,4 |
+| 4 Gleichungen, 6 Unbekannte, alle Lösungen | 518 | 558 | 3 681 | 676 | 0,14 | 0,77 |
+| 60 Variablen, 60 Runden enger (Aufwecken) | 1 021 | 1 161 | 6 396 | 1 377 | 0,16 | 0,74 |
+| magisches Quadrat 3×3, alle 8, 20-mal | 316 | 380 | 1 261 | 266 | 0,25 | 1,2 |
+| magisches Quadrat 4×4, erstes, 20-mal | 180 | 236 | 694 | 137 | 0,26 | 1,3 |
+| magisches Quadrat 5×5, erstes (`ff`) | 357 | 348 | 1 581 | 353 | 0,23 | 1,0 |
+| nur Summen 3×3, 1..20, Summe 30 (181) | 236 | 261 | 945 | 170 | 0,25 | 1,4 |
+| nur Summen 4×4, 1..4, Summe 10 (1440) | 632 | 703 | 2 443 | 384 | 0,26 | 1,7 |
+| Summen eines 6×6-Quadrats 300-mal aufstellen | 473 | 1 385 | 1 339 | 227 | 0,35 | 2,1 |
 
 Die unteren sechs haben die Form von `magic_square(N)`: 2N+2 Summen über
 je N Variablen, Koeffizienten 1 (die drei oberen mit `all_different/1`).
-Im geometrischen Mittel aller zwölf 0,34-mal Scryer und 1,75-mal SWI
-(14. 11.). Ausreißer ist das Aufstellen vieler kleiner Gleichungen: dort
-6-mal SWI und gleichauf mit Scryer, beim Propagieren und Suchen 0,8- bis
-1,8-mal SWI.
+„vorher“: vor den Abkürzern für `ins/2`, `sum/3` und
+`scalar_product/4` (siehe dort); alle Zahlen vom 14. 11. Im
+geometrischen Mittel aller zwölf 0,24-mal Scryer und 1,23-mal SWI
+(vorher 0,34 und 1,75). Das Aufstellen ist jetzt so schnell wie bei SWI
+oder schneller, solange die Bedingungen die Abkürzer treffen; was bei
+vielen kleinen Gleichungen bleibt (2,1- und 2,5-mal SWI), ist der
+Prolog-Code drumherum (Listen, `transpose/2`, Zufallszahlen).
 
 Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
 tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist

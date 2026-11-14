@@ -5774,8 +5774,33 @@ defmodule PrologEx do
         cps: cps,
         subst: attrs,
         counters: counters,
-        threshold: max(st.min_threshold, 2 * max(size, Store.size(attrs)))
+        threshold: threshold(st, size, Store.size(attrs))
     }
+  end
+
+  # Nächste Schwelle: das Doppelte des Größeren von lebenden Knoten und
+  # Einträgen – über der Substitution des obersten Choice Points: zu ihr
+  # kehrt das nächste Backtracking zurück, unkompaktiert (sie gehört dem
+  # Choice Point). Läge sie schon über der Schwelle, kompaktierte jeder
+  # Schritt nach jedem Backtracking aufs Neue (Labeling über einen Zustand,
+  # der vor der Suche nie kompaktiert wurde: zehnmal so viele
+  # Kompaktierungen)
+  defp threshold(st, size, entries) do
+    base = max(st.min_threshold, 2 * max(size, entries))
+    base + cp_subst_size(st.cps, 8)
+  end
+
+  defp cp_subst_size([], _), do: 0
+  defp cp_subst_size(_, 0), do: 0
+
+  defp cp_subst_size([cp | cps], n) do
+    case cp do
+      {:clauses, _, _, _, _, s, _} when is_map(s) -> map_size(s)
+      {:alt, _, _, s, _} when is_map(s) -> map_size(s)
+      {:solutions_list, _, _, _, s, _} when is_map(s) -> map_size(s)
+      {:solutions, _, _, _, s, _} when is_map(s) -> map_size(s)
+      _ -> cp_subst_size(cps, n - 1)
+    end
   end
 
   defp counter_ref({:nth_cleanup, ref, _, _}), do: ref

@@ -756,35 +756,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
            {:ok, rs, cr} <- linsum(r, s, mono),
            items = ls ++ Enum.map(rs, fn {v, n} -> {v, -n} end),
            [_ | _] <- items do
-        sorted =
-          Enum.sort(items, fn {v1, n1}, {v2, n2} ->
-            case PrologEx.Order.compare(v1, v2, s) do
-              :lt -> true
-              :gt -> false
-              :eq -> n1 <= n2
-            end
-          end)
-
-        merged =
-          Enum.chunk_while(
-            sorted,
-            nil,
-            fn
-              {v, n}, nil ->
-                {:cont, {v, n}}
-
-              {v, n}, {v0, n0} ->
-                if PrologEx.Order.compare(v, v0, s) == :eq,
-                  do: {:cont, {v0, n0 + n}},
-                  else: {:cont, {v0, n0}, {v, n}}
-            end,
-            fn acc -> {:cont, acc, nil} end
-          )
-
-        # Koeffizient 0: constrain_to_integer/1 (eine Variable ohne Domäne
-        # bekommt dort eine: das Original)
-        for {{:var, _} = v, 0} <- merged, not fdvar?(v, s), do: throw(:fallback)
-        merged = Enum.reject(merged, fn {_, n} -> n == 0 end)
+        merged = lin_merge(items, s)
 
         out_all(
           [
@@ -798,6 +770,41 @@ defmodule PrologEx.Builtins.ClpzPrims do
         _ -> :fail
       end
     end)
+  end
+
+  # Glieder [{V, N}] wie samsort/2, vns_coeffs_variables/5 und
+  # filter_linsum/4: nach vn(V, N) stabil sortiert, gleiche V
+  # zusammengefasst, Koeffizienten 0 weg
+  defp lin_merge(items, s) do
+    sorted =
+      Enum.sort(items, fn {v1, n1}, {v2, n2} ->
+        case PrologEx.Order.compare(v1, v2, s) do
+          :lt -> true
+          :gt -> false
+          :eq -> n1 <= n2
+        end
+      end)
+
+    merged =
+      Enum.chunk_while(
+        sorted,
+        nil,
+        fn
+          {v, n}, nil ->
+            {:cont, {v, n}}
+
+          {v, n}, {v0, n0} ->
+            if PrologEx.Order.compare(v, v0, s) == :eq,
+              do: {:cont, {v0, n0 + n}},
+              else: {:cont, {v0, n0}, {v, n}}
+        end,
+        fn acc -> {:cont, acc, nil} end
+      )
+
+    # Koeffizient 0: constrain_to_integer/1 (eine Variable ohne Domäne
+    # bekommt dort eine: das Original)
+    for {{:var, _} = v, 0} <- merged, not fdvar?(v, s), do: throw(:fallback)
+    Enum.reject(merged, fn {_, n} -> n == 0 end)
   end
 
   defp out_all(pairs, s) do
@@ -2488,6 +2495,166 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- Aufstellen: Vs ins D ----------------------------------------------------
+  #
+  # '$clpz_ins'(Vs, D) wie ins_ref/2 für eine echte Liste aus Variablen und
+  # Zahlen und D eine Zahl oder N..M (wie '$clpz_in_dom'/3): je Element
+  # domain/2 – eine Zahl muss in D liegen; eine Variable: fd_get/3,
+  # Schnitt, fd_put/3 (frische Queue bis zum Fixpunkt), reinforce/1. Braucht
+  # die Queue Prolog, macht do_queue_/3 weiter, danach reinforce/1 und
+  # domains/2 über den Rest. Anderes: das Original
+
+  defbuiltin "$clpz_ins", [vs, d0] do
+    db = ctx.db
+
+    run("ins", [vs, d0], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
+      items = list_items(vs, s)
+      unless Enum.all?(items, &var_or_int?(&1, s)), do: throw(:fallback)
+
+      dt =
+        case simple_drep(ws(d0, s), s) do
+          {:ok, dt} -> dt
+          :error -> throw(:fallback)
+        end
+
+      ins_items(items, dom(dt), dt, s, db)
+    end)
+  end
+
+  defp ins_items([], _dd, _dt, s, _db), do: {:subst, s}
+
+  defp ins_items([x | rest], dd, dt, s, db) do
+    case PrologEx.Store.walk(x, s) do
+      i when is_integer(i) ->
+        if ClpzDom.contains?(dd, i), do: ins_items(rest, dd, dt, s, db), else: :fail
+
+      {:var, _} = v ->
+        {d0, ps} = fdget(v, s)
+
+        case ClpzDom.intersection(dd, d0) do
+          [] ->
+            :fail
+
+          d1 ->
+            q = new_queue()
+
+            native(q, s, fn s ->
+              case fdput(v, d1, ps, q, s) do
+                :fail -> :fail
+                s -> loop_q(q, s, db)
+              end
+            end)
+            |> case do
+              :fail ->
+                :fail
+
+              {:next, {:atom, "none"}, s} ->
+                ins_items(rest, dd, dt, reinforce_one(v, s), db)
+
+              {:next, t, s} ->
+                goals = [
+                  mk("do_queue_", [t, [q], fresh_var()]),
+                  mk("reinforce", [v]),
+                  mk("domains", [list(rest), dt])
+                ]
+
+                {:call, mk(":", [a("clpz"), conj(goals)]), s}
+            end
+        end
+    end
+  end
+
+  defp conj([g]), do: g
+  defp conj([g | gs]), do: mk(",", [g, conj(gs)])
+
+  # --- Aufstellen: sum/3, scalar_product/4 mit #= ------------------------------
+  #
+  # '$clpz_sum'(Vs, Op, Value) und '$clpz_scalar_product'(Cs, Vs, Op, Value)
+  # wie die Originale (sum_ref/3, scalar_product_ref/4), wenn Op #= ist,
+  # Value eine Zahl, Cs eine echte Liste aus Zahlen und Vs eine gleich
+  # lange aus Zahlen und Variablen mit Domäne: alle Vs Zahlen – die Summe
+  # vergleichen; sonst left_right_linsum_const/5 (wie '$clpz_linsum'/5),
+  # scalar_product_/4 (gcd, teilen) und pit/4 mit trigger_once_/2 in einem
+  # Zug. Eine Konstante 0 (multiples/3), keine Glieder, Variablen ohne
+  # Domäne, andere Relationen, Fehler: das Original
+
+  defbuiltin "$clpz_sum", [vs, op, value] do
+    db = ctx.db
+
+    run("sum", [vs, op, value], subst(), fn ->
+      s = subst_now()
+      items = list_items(vs, s)
+      sp_post(Enum.map(items, fn _ -> 1 end), items, op, value, s, db)
+    end)
+  end
+
+  defbuiltin "$clpz_scalar_product", [cs, vs, op, value] do
+    db = ctx.db
+
+    run("scalar_product", [cs, vs, op, value], subst(), fn ->
+      s = subst_now()
+
+      coeffs =
+        Enum.map(list_items(cs, s), fn c ->
+          case PrologEx.Store.walk(c, s) do
+            i when is_integer(i) -> i
+            _ -> throw(:fallback)
+          end
+        end)
+
+      sp_post(coeffs, list_items(vs, s), op, value, s, db)
+    end)
+  end
+
+  defp sp_post(cs, items, op, value, s, db) do
+    if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
+    unless ws(op, s) == a("#="), do: throw(:fallback)
+    unless length(cs) == length(items), do: throw(:fallback)
+
+    r =
+      case PrologEx.Store.walk(value, s) do
+        r when is_integer(r) -> r
+        _ -> throw(:fallback)
+      end
+
+    xs = Enum.map(items, &PrologEx.Store.walk(&1, s))
+
+    if Enum.all?(xs, &is_integer/1) do
+      # ground(Vs): foldl(coeff_int_linsum, Cs, Vs, 0, Right)
+      if Enum.sum(Enum.zip_with(cs, xs, &(&1 * &2))) == r, do: {:subst, s}, else: :fail
+    else
+      terms =
+        Enum.zip_with(cs, xs, fn c, x ->
+          case x do
+            {:var, _} -> if fdvar?(x, s), do: {x, c}, else: throw(:fallback)
+            i when is_integer(i) -> {i, c}
+            _ -> throw(:fallback)
+          end
+        end)
+
+      case lin_merge(terms, s) do
+        [] -> throw(:fallback)
+        _ when r == 0 -> throw(:fallback)
+        merged -> sp_eq(merged, r, s, db)
+      end
+    end
+  end
+
+  # scalar_product_(#=, Cs0, Vs, S0) mit S0 =/= 0
+  defp sp_eq([{_, c} | rest] = merged, s0, s, db) do
+    g = Enum.reduce(rest, c, fn {_, n}, g0 -> Integer.gcd(n, g0) end)
+
+    if rem(s0, g) == 0 do
+      vs = Enum.map(merged, &elem(&1, 0))
+      cs = Enum.map(merged, &div(elem(&1, 1), g))
+      pit_trigger(vs, mk("scalar_product_eq", [list(cs), list(vs), div(s0, g)]), s, db)
+    else
+      :fail
+    end
+  end
+
   # --- Aufstellen: all_distinct/1, all_different/1 ---------------------------
   #
   # Nach den Typprüfungen (in Prolog) der Rest wie im Original, in Elixir:
@@ -2664,10 +2831,16 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # Kleiner als 2 wird keine ungebundene Variable: eine Domäne aus einem
+  # Wert bindet sie (put_terminating//3 reiht X = F als Ziel ein, das vor
+  # jedem Propagator läuft), und gewählt wird erst nach dem Fixpunkt. Die
+  # erste Variable mit 2 Werten ist also schon die, die das Original wählt
+  # (die erste mit der kleinsten Größe) – der Rest der Liste bleibt
+  # ungesehen
   defp sel_ff(v, tl, vars, s) do
     case fd_size(v, s) do
       n when is_integer(n) ->
-        best = find_ff(list_items(tl, s), v, n, s)
+        best = if n <= 2, do: v, else: find_ff(tl, v, n, s)
         {:ok, best, delete_eq(vars, best, s)}
 
       _ ->
@@ -2675,18 +2848,25 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp find_ff([], best, _n, _s), do: best
+  defp find_ff(l, best, n0, s) do
+    case cell(l, s) do
+      nil ->
+        if ws(l, s) == [], do: best, else: throw(:fallback)
 
-  defp find_ff([v | vs], best, n0, s) do
-    w = PrologEx.Store.walk(v, s)
+      {v, vs} ->
+        w = PrologEx.Store.walk(v, s)
 
-    if match?({:var, _}, w) do
-      case fd_size(w, s) do
-        n when is_integer(n) and n < n0 -> find_ff(vs, w, n, s)
-        _ -> find_ff(vs, best, n0, s)
-      end
-    else
-      find_ff(vs, best, n0, s)
+        if match?({:var, _}, w) do
+          case fd_size(w, s) do
+            n when is_integer(n) and n < n0 ->
+              if n <= 2, do: w, else: find_ff(vs, w, n, s)
+
+            _ ->
+              find_ff(vs, best, n0, s)
+          end
+        else
+          find_ff(vs, best, n0, s)
+        end
     end
   end
 

@@ -734,6 +734,70 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # Vs ins D, sum/3 und scalar_product/4: Elixir gegen das Original –
+  # Listen aus Variablen (auch doppelt), Zahlen, einer Variablen ohne
+  # Domäne, unechte Listen; Domänen und Relationen auch außerhalb der
+  # Abkürzer (dort rechnet ohnehin das Original)
+  test "ins/2, sum/3, scalar_product/4: Aufstellen wie das Original", c do
+    check(c, 500, fn ->
+      item = fn ->
+        case :rand.uniform(10) do
+          1 -> "#{Enum.random(-2..6)}"
+          2 -> "N"
+          _ -> Enum.random(@vars ++ ["B"])
+        end
+      end
+
+      n = Enum.random(0..5)
+      items = for _ <- 1..n//1, do: item.()
+
+      l =
+        case :rand.uniform(12) do
+          1 -> "[#{Enum.join(items ++ ["T"], ",")}|T]"
+          2 -> "L"
+          _ -> "[#{Enum.join(items, ",")}]"
+        end
+
+      value =
+        case :rand.uniform(8) do
+          1 -> "V"
+          2 -> "0"
+          3 -> "X+1"
+          _ -> "#{Enum.random(-6..20)}"
+        end
+
+      op = if :rand.uniform(5) == 1, do: Enum.random(~w(#=< #\\= #> R)), else: "#="
+
+      case :rand.uniform(3) do
+        1 ->
+          d =
+            Enum.random(
+              ~w(1..3 0..5 -2..2 4 0..sup inf..1 inf..sup 3..1 1..a sup..1 1..2\\/5..6 D)
+            )
+
+          scenario("same(clpz:ins_ref(#{l}, #{d}), '$clpz_ins'(#{l}, #{d}), Vs)")
+
+        2 ->
+          scenario(
+            "same(clpz:sum_ref(#{l}, #{op}, #{value}), '$clpz_sum'(#{l}, #{op}, #{value}), Vs-V)"
+          )
+
+        3 ->
+          cs =
+            case :rand.uniform(10) do
+              1 -> "[#{Enum.join(for(_ <- 1..(n + 1), do: Enum.random(-3..3)), ",")}]"
+              2 -> "[1,a]"
+              _ -> "[#{Enum.join(for(_ <- 1..n//1, do: Enum.random(-4..4)), ",")}]"
+            end
+
+          scenario(
+            "same(clpz:scalar_product_ref(#{cs}, #{l}, #{op}, #{value}), " <>
+              "'$clpz_scalar_product'(#{cs}, #{l}, #{op}, #{value}), Vs-V)"
+          )
+      end
+    end)
+  end
+
   test "put_terminating//3: neue Domäne ablegen und Propagatoren einreihen", c do
     check(c, 250, fn ->
       scenario(

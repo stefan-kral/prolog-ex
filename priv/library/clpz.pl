@@ -80,7 +80,12 @@
      - Aufstellen: der Rest von all_distinct/1 und all_different/1 nach
        den Typprüfungen ('$clpz_all_distinct_post'/1,
        '$clpz_all_different_post'/2; Originale all_distinct_post_ref/1,
-       all_different_post_ref/2)
+       all_different_post_ref/2); Vs ins D für eine Liste aus Variablen
+       und Zahlen und D eine Zahl oder N..M ('$clpz_ins'/2, Original
+       ins_ref/2); sum/3 und scalar_product/4 mit #= und einer Zahl
+       rechts über Variablen mit Domäne und Zahlen ('$clpz_sum'/3,
+       '$clpz_scalar_product'/4; Originale sum_ref/3,
+       scalar_product_ref/4)
      - Labeling: select_var/4 ('$clpz_select_var'/4, Original
        select_var_ref/4); das Weckziel nach einer Bindung ist
        '$clpz_do_queue'(Q) statt phrase(do_queue, [Q], _)
@@ -1640,7 +1645,11 @@ fd_variable(V) :- can_be(integer, V).
 %
 %  The variables in the list Vars are elements of Domain.
 
-Vs ins D :-
+% PrologEx: in Elixir ('$clpz_ins'/2) für eine Liste aus Variablen und
+% Zahlen und D eine Zahl oder N..M (Zahlen, inf, sup); sonst das Original
+Vs ins D :- '$clpz_ins'(Vs, D).
+
+ins_ref(Vs, D) :-
         fd_must_be_list(Vs),
         maplist(fd_variable, Vs),
         drep_to_domain(D, Dom),
@@ -2183,7 +2192,14 @@ zero_or_more([_|_], N) :- N #> 0.
 % C in 0..100.
 % ```
 
-sum(Vs, Op, Value) :-
+% PrologEx: sum/3 und scalar_product/4 mit #= und einer Zahl rechts über
+% Variablen mit Domäne und Zahlen in Elixir ('$clpz_sum'/3,
+% '$clpz_scalar_product'/4: Prüfungen, Linearsumme, gcd, pit/4 und
+% trigger_once_/2 in einem Zug); sonst die Originale sum_ref/3 und
+% scalar_product_ref/4
+sum(Vs, Op, Value) :- '$clpz_sum'(Vs, Op, Value).
+
+sum_ref(Vs, Op, Value) :-
         must_be(list, Vs),
         same_length(Vs, Ones),
         maplist(=(1), Ones),
@@ -2195,7 +2211,9 @@ sum(Vs, Op, Value) :-
 % Cs is a list of integers, Vs is a list of variables and integers.
 % Rel is #=, #\=, #<, #>, #=< or #>=.
 
-scalar_product(Cs, Vs, Op, Value) :-
+scalar_product(Cs, Vs, Op, Value) :- '$clpz_scalar_product'(Cs, Vs, Op, Value).
+
+scalar_product_ref(Cs, Vs, Op, Value) :-
         must_be(list(integer), Cs),
         must_be(list, Vs),
         maplist(fd_variable, Vs),
