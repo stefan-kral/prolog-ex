@@ -533,12 +533,20 @@ defmodule PrologEx.Consult do
       k == own or Map.has_key?(st.pending, k) or MapSet.member?(st.own_metas, n)
     end
 
-    # (nicht in den Bibliotheken des Systems: clpz ersetzt beim Laden
-    # Prädikate nach ihrer Form)
+    # (nicht in den Bibliotheken des Systems – außer clpz, dort auch
+    # phrase/2,3: Typprüfungen und Aufbau laufen bei jeder Bedingung, ein
+    # Metaaufruf je Element oder Nichtterminal ist zu teuer)
     {body, aux} =
-      if system_library?(st.file),
-        do: {body, []},
-        else: PrologEx.ApplyMacros.expand(head, body, st.db, st.module, local?)
+      cond do
+        st.module == "clpz" and system_library?(st.file) ->
+          PrologEx.ApplyMacros.expand(head, body, st.db, st.module, local?, phrase: true)
+
+        system_library?(st.file) ->
+          {body, []}
+
+        true ->
+          PrologEx.ApplyMacros.expand(head, body, st.db, st.module, local?)
+      end
 
     st = Enum.reduce(aux, st, &store_aux/2)
 

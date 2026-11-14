@@ -3901,10 +3901,15 @@ tuple_in_conjunction(Tuple, Element, Conj) :-
         maplist(var_eq, Tuple, Element, Eqs),
         fold_statement(conjunction, Eqs, Conj).
 
+% PrologEx: die beiden Operationen der Aufrufer ausgeschrieben, damit
+% foldl/4 eine bekannte Closure hat (ein Hilfsprädikat statt call/4)
 fold_statement(Operation, List, Statement) :-
         (   List = [] -> Statement = 1
         ;   List = [First|Rest],
-            foldl(Operation, Rest, First, Statement)
+            (   Operation == conjunction -> foldl(conjunction, Rest, First, Statement)
+            ;   Operation == disjunction -> foldl(disjunction, Rest, First, Statement)
+            ;   foldl(Operation, Rest, First, Statement)
+            )
         ).
 
 conjunction(E, Conj, Conj #/\ E).

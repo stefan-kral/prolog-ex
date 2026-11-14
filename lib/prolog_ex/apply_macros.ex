@@ -55,12 +55,20 @@ defmodule PrologEx.ApplyMacros do
   [{name, arity, klauseln}]}` – die Hilfsprädikate in module. `local?`:
   ist name/arity in module (weiter vorn) definiert?
   """
-  def expand(head, body, db, module, local?) do
+  def expand(head, body, db, module, local?, opts \\ []) do
     if PrologEx.Flags.get("apply_macros") == {:atom, "false"} do
       {body, []}
     else
       {head, body} = {PrologEx.unmark(head), PrologEx.unmark(body)}
-      ctx = %{db: db, module: module, local?: local?, clause: mk(":-", [head, body])}
+
+      ctx = %{
+        db: db,
+        module: module,
+        local?: local?,
+        clause: mk(":-", [head, body]),
+        phrase: Keyword.get(opts, :phrase, false)
+      }
+
       walk(body, ctx, [])
     end
   end
@@ -76,17 +84,71 @@ defmodule PrologEx.ApplyMacros do
     {{:struct, "\\+", [x]}, acc}
   end
 
+  # phrase(G, L), phrase(G, L, R) mit beim Laden bekanntem G (Option
+  # phrase:, für clpz): gleich der übersetzte Rumpf (PrologEx.DCG.body/3)
+  # statt des Metaaufrufs – dasselbe, was phrase/2,3 zur Laufzeit ausführt
+  # (die Listen prüft es nicht). Nicht, wenn G einen Schnitt enthält
+  # (phrase/3 schneidet nur in G, inline schnitte er die Klausel ab) oder
+  # sich nicht ganz übersetzen lässt
+  defp walk({:struct, "phrase", [g, l | r]} = goal, %{phrase: true} = ctx, acc)
+       when length(r) <= 1 do
+    with false <- match?({:var, _}, g),
+         false <- has_cut?(g),
+         true <- builtin_phrase?(ctx, 2 + length(r)),
+         {:ok, body} <- dcg_body(g, l, if(r == [], do: [], else: hd(r))) do
+      walk(body, ctx, acc)
+    else
+      _ -> {goal, acc}
+    end
+  end
+
   defp walk({:struct, name, args} = g, ctx, acc) do
     with kind when kind != nil <- Map.get(@metas, {name, length(args)}),
          true <- library?(ctx, name, length(args)),
-         {:ok, call, aux} <- macro(kind, args, ctx) do
-      {call, [aux | acc]}
+         {:ok, call, {name, ar, clauses}} <- macro(kind, args, ctx) do
+      # die Rümpfe des Hilfsprädikats ebenso (maplist(maplist(p), Lss))
+      {clauses, acc} = walk_clauses(clauses, ctx, acc)
+      {call, [{name, ar, clauses} | acc]}
     else
       _ -> {g, acc}
     end
   end
 
   defp walk(g, _ctx, acc), do: {g, acc}
+
+  defp walk_clauses([], _ctx, acc), do: {[], acc}
+
+  defp walk_clauses([{head, body} | cls], ctx, acc) do
+    {body, acc} = walk(body, %{ctx | clause: mk(":-", [head, body])}, acc)
+    {cls, acc} = walk_clauses(cls, ctx, acc)
+    {[{head, body} | cls], acc}
+  end
+
+  defp has_cut?({:atom, "!"}), do: true
+  defp has_cut?({:struct, _, args}), do: any_cut?(args)
+  defp has_cut?([h | t]), do: has_cut?(h) or has_cut?(t)
+  defp has_cut?(_), do: false
+
+  defp any_cut?([]), do: false
+  defp any_cut?([a | as]), do: has_cut?(a) or any_cut?(as)
+
+  defp builtin_phrase?(ctx, ar) do
+    not ctx.local?.("phrase", ar) and
+      match?(
+        {:builtin, m, _} when m in ["system", "dcgs"],
+        PrologEx.locate(ctx.db, ctx.module, "phrase", ar)
+      )
+  end
+
+  defp dcg_body(g, l, r) do
+    body = PrologEx.DCG.body(g, l, r)
+    PrologEx.check_body!(body, PrologEx.Store.new())
+    {:ok, body}
+  rescue
+    _ -> :error
+  catch
+    _ -> :error
+  end
 
   # das Metaprädikat ist im Modul das aus library(apply)
   defp library?(ctx, name, ar) do

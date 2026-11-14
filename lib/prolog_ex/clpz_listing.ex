@@ -119,11 +119,13 @@ defmodule PrologEx.ClpzListing do
   end
 
   # die Prädikate von clpz ohne die Originale (name_ref) – die stehen bei
-  # ihrem Prädikat
+  # ihrem Prädikat – und ohne die Hilfsprädikate der apply-Makros
+  # ('$apply_maplist_…', aus maplist/foldl beim Laden)
   defp preds(db) do
     for {{@mod, n, a}, _} <- db,
         is_binary(n),
         not String.ends_with?(n, "_ref"),
+        not String.starts_with?(n, "$apply_"),
         do: {n, a},
         into: MapSet.new()
   end
@@ -184,12 +186,18 @@ defmodule PrologEx.ClpzListing do
   defp tail_post?(goals, db) do
     case Enum.reverse(goals) do
       [{"$clpz_" <> base, k} | pre] ->
-        original(db, base, k) != nil and Enum.all?(pre, fn {gn, _} -> gn in @checks end)
+        original(db, base, k) != nil and all_checks?(pre)
 
       _ ->
         false
     end
   end
+
+  # (maplist(fd_variable, Ls) steht nach dem Laden als Hilfsprädikat da)
+  defp all_checks?([]), do: true
+
+  defp all_checks?([{gn, _} | gs]),
+    do: (gn in @checks or String.starts_with?(gn, "$apply_")) and all_checks?(gs)
 
   # Rumpf ein einziges Builtin (höchstens mit Cut)
   defp delegation?(goals) do
