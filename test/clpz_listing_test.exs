@@ -36,6 +36,9 @@ defmodule PrologEx.ClpzListingTest do
   test "ein Prädikat, ein Propagator im Einzelnen", c do
     o = out(c, c.clpz, "clpz_listing(label/5)")
     assert o =~ "% label/5: Prolog mit Elixir-Bausteinen"
+    assert o =~ "%     ruft '$clpz_label_step'/4 (Original label_step_ref/4)"
+
+    o = out(c, c.clpz, "clpz_listing(choice_order_variable/7)")
     assert o =~ "%     ruft '$clpz_fd_get'/3 (Original fd_get_ref/3)"
 
     o = out(c, c.clpz, "clpz_listing(all_distinct)")

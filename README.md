@@ -2593,6 +2593,19 @@ Bisher in Elixir:
     wird erst nach dem Fixpunkt), das Ergebnis ist also dasselbe. Steht
     sie vorn in einer Liste von 100 Variablen, 53 → 9 µs je Wahl; bei
     den Damen nicht messbar.
+  * Der Schritt von `label/5` im Normalfall (`step`, `upto_ground`, also
+    ohne `enum`, `bisect`, `upto_in`, Optimierung) als ein Builtin:
+    `'$clpz_label_step'/4` überspringt gebundene Variablen, wählt mit
+    `select_var/4` und bestimmt mit `order_dom_next/3` den Wert – statt
+    `label/5`, `select_var/4`, `choice_order_variable/7`, `fd_get/3`,
+    `order_dom_next/3` & Co. in Prolog. Die Wahl `( Var = Next, … ;
+    neq_num(Var, Next), … )` bleibt in Prolog: Bindung und Wecken (auch
+    anderer Module) wie bisher. `neq_num/2` dazu als `'$clpz_neq_num'/2`
+    (fd_get, domain_remove, fd_put in einem Zug). Gegen den Weg ohne
+    Abkürzer geprüft: alle Lösungen in Reihenfolge, zufällige
+    Bedingungen und Optionen. Münzen 1246 → 988 ms (−20 % Reduktionen),
+    Rucksack −18 %, nur Summen 4×4 −11 %, alle 8-Damen-Lösungen −9 %;
+    wo die Propagation überwiegt (40 Damen, magische Quadrate) gleich.
   * `scalar_product_eq` (lineare Summen) fiel auf das Original zurück,
     sobald beim Labeling nur noch 1, 2 oder (Summe 0) 3 Variablen übrig
     waren: das tötet sich und stellt `{ A + B #= P }` & Co. über den Parser

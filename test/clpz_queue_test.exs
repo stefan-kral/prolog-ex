@@ -699,6 +699,52 @@ defmodule PrologEx.ClpzQueueTest do
     end)
   end
 
+  # labeling/2: der Schritt in Elixir ('$clpz_label_step'/4) gegen den
+  # Weg ohne Abkürzer – alle Lösungen in ihrer Reihenfolge, je zufällige
+  # Bedingungen und Optionen (auch solche, die das Original rechnet)
+  test "labeling/2: alle Lösungen in Reihenfolge wie das Original", c do
+    cs = [
+      "X #\\= Y",
+      "X + Y #= Z",
+      "abs(X - W) #\\= 1",
+      "X #< W",
+      "2*X + Y #= W + 1",
+      "Z #>= Y",
+      "X + Y + Z + W #= 6",
+      "sum([X,Y,Z], #=, W)",
+      "X #= Y",
+      "all_different([X,Y,Z])",
+      "Z #= max(X, W)",
+      "(X #= 1) #==> (Y #= 2)",
+      "W in 0..1 \\/ 3..5"
+    ]
+
+    check(c, 300, fn ->
+      g = cs |> Enum.take_random(Enum.random(0..3)) |> Enum.join(", ")
+      g = if g == "", do: "true", else: g
+
+      opts =
+        [
+          Enum.random([nil, "leftmost", "ff", "ffc", "min", "max"]),
+          Enum.random([nil, nil, "up", "down"]),
+          Enum.random([nil, nil, nil, "step", "enum", "bisect"])
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(",")
+
+      dom = Enum.random(["0..3", "0..2", "-1..2", "1..4"])
+      vs = Enum.random(["[X,Y,Z,W]", "[W,Z,Y,X]", "[X,3,Y,Z,W]", "[X,Y,X,Z,W]"])
+
+      lab =
+        "Vs = #{vs}, [X,Y,Z,W] ins #{dom}, #{g}, labeling([#{opts}], Vs)"
+
+      "catch(findall(Vs, fast(off, (#{lab})), L1), E1, L1 = err(E1)), " <>
+        "catch(findall(Vs, fast(on, (#{lab})), L2), E2, L2 = err(E2)), " <>
+        "clpz:'$clpz_fast'(on), " <>
+        "( L1 == L2 -> true ; throw(verschieden(L1, L2)) )"
+    end)
+  end
+
   # '$clpz_eq_exp'/4 ebenso gegen die Fallunterscheidung für X0 #= Y0
   # (var(Y)/var(X): die Seite ist eine ungebundene Variable)
   test "'$clpz_eq_exp'/4: wie die Expansion von #=", c do

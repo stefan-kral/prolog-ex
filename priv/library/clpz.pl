@@ -89,8 +89,11 @@
        Original sp_eq_ref/3) und vor dem Matcher von X #= Y der Abkürzer
        für lineare Summen ('$clpz_eq_linear'/2); die Expansion von
        X #= Y für einfache Ausdrücke als '$clpz_eq_exp'/4
-     - Labeling: select_var/4 ('$clpz_select_var'/4, Original
-       select_var_ref/4); das Weckziel nach einer Bindung ist
+     - Labeling: der Schritt von label/5 für step und upto_ground
+       ('$clpz_label_step'/4, Original label_step_ref/4), neq_num/2
+       ('$clpz_neq_num'/2, Original neq_num_ref/2); select_var/4
+       ('$clpz_select_var'/4, Original select_var_ref/4); das Weckziel
+       nach einer Bindung ist
        '$clpz_do_queue'(Q) statt phrase(do_queue, [Q], _)
      - der Kern von gcc_global//2 (Wertenetz, Fluss, Komponenten, die
        neq_num-Ziele) in Elixir: gcc_neq_goals/3; Original gcc_neq_goals_ref/3
@@ -1836,7 +1839,41 @@ label([], _, _, _, Consistency) :- !,
         (   Consistency = upto_in(I0,I) -> I0 = I
         ;   true
         ).
+% PrologEx: im Normalfall (step, upto_ground) bestimmt '$clpz_label_step'/4
+% in einem Schritt, was das Original über label/5, select_var/4,
+% choice_order_variable/7 und order_dom_next/3 tut: gebundene Variablen
+% überspringen, die nächste wählen, ihren ersten Wert – Step ist done oder
+% step(Var, Next, RVars, Vars0). Die Wahl selbst (Var = Next ; neq_num/2)
+% bleibt hier (label_step/3); das Original von Step: label_step_ref/4,
+% sonst label_ref/5
 label(Vars, Selection, Order, Choice, Consistency) :-
+        (   Choice == step, Consistency == upto_ground ->
+            '$clpz_label_step'(Vars, Selection, Order, Step),
+            label_step(Step, Selection, Order)
+        ;   label_ref(Vars, Selection, Order, Choice, Consistency)
+        ).
+
+label_step(done, _, _).
+label_step(step(Var, Next, RVars, Vars0), Selection, Order) :-
+        (   Var = Next,
+            label(RVars, Selection, Order, step, upto_ground)
+        ;   neq_num(Var, Next),
+            label(Vars0, Selection, Order, step, upto_ground)
+        ).
+
+label_step_ref(Vars, Selection, Order, Step) :-
+        (   Vars = [] -> Step = done
+        ;   Vars = [V|Vs], nonvar(V) -> label_step_ref(Vs, Selection, Order, Step)
+        ;   select_var(Selection, Vars, Var, RVars),
+            (   var(Var) ->
+                fd_get(Var, Dom, _),
+                order_dom_next(Order, Dom, Next),
+                Step = step(Var, Next, RVars, Vars)
+            ;   label_step_ref(RVars, Selection, Order, Step)
+            )
+        ).
+
+label_ref(Vars, Selection, Order, Choice, Consistency) :-
         (   Vars = [V|Vs], nonvar(V) -> label(Vs, Selection, Order, Choice, Consistency)
         ;   select_var(Selection, Vars, Var, RVars),
             (   var(Var) ->
@@ -3352,7 +3389,11 @@ x_neq_y_plus_z(X, Y, Z) :-
 % X is distinct from the number N. This is used internally, and does
 % not reinforce other constraints.
 
-neq_num(X, N) :-
+% PrologEx: in Elixir ('$clpz_neq_num'/2: fd_get/3, domain_remove/3 und
+% fd_put/3 in einem Zug), Original neq_num_ref/2
+neq_num(X, N) :- '$clpz_neq_num'(X, N).
+
+neq_num_ref(X, N) :-
         (   fd_get(X, XD, XPs) ->
             domain_remove(XD, N, XD1),
             fd_put(X, XD1, XPs)

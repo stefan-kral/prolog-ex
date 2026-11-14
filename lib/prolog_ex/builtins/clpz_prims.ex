@@ -2409,6 +2409,40 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # '$clpz_neq_num'(X, N): neq_num/2 – fd_get/3, domain_remove/3, fd_put/3
+  # wie '$clpz_fd_put'/3 in einem Zug; X keine Variable oder N keine Zahl:
+  # das Original (X =\= N, Fehler)
+  defbuiltin "$clpz_neq_num", [x, n] do
+    run("neq_num", [x, n], subst(), fn ->
+      s = subst_now()
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
+
+      with {:var, _} = v <- PrologEx.Store.walk(x, s),
+           k when is_integer(k) <- PrologEx.Store.walk(n, s) do
+        {d, ps} = fdget(v, s)
+
+        case remove(d, k) do
+          [] ->
+            :fail
+
+          d1 ->
+            q = new_queue()
+            db = ctx.db
+
+            native(q, s, fn s ->
+              case fdput(v, d1, ps, q, s) do
+                :fail -> :fail
+                s -> loop_q(q, s, db)
+              end
+            end)
+            |> then(&queue_out(q, &1))
+        end
+      else
+        _ -> throw(:fallback)
+      end
+    end)
+  end
+
   # '$clpz_parse_simple'(E, R): E ist eine ganze Zahl oder eine Variable
   # mit clpz-Attribut (also schon eine Domäne): R = E (der Abkürzer vor
   # parse_clpz/2, siehe make_parse_clpz/1); sonst scheitern
@@ -3084,14 +3118,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
       s = subst_now()
 
       r =
-        case {w(sel), cell(vars, s)} do
-          {_, nil} -> throw(:fallback)
-          {{:atom, "leftmost"}, {v, tl}} -> {:ok, v, tl}
-          {{:atom, "ff"}, {v, tl}} -> sel_ff(v, tl, vars, s)
-          {{:atom, "ffc"}, {v, tl}} -> sel_by(v, tl, vars, s, :ffc)
-          {{:atom, "min"}, {v, tl}} -> sel_by(v, tl, vars, s, :min)
-          {{:atom, "max"}, {v, tl}} -> sel_by(v, tl, vars, s, :max)
-          _ -> throw(:fallback)
+        case cell(vars, s) do
+          nil -> throw(:fallback)
+          {v, tl} -> select_first(w(sel), v, tl, vars, s)
         end
 
       case r do
@@ -3100,6 +3129,70 @@ defmodule PrologEx.Builtins.ClpzPrims do
       end
     end)
   end
+
+  # --- Labeling: ein Schritt von label/5 (step, upto_ground) ------------------
+  #
+  # '$clpz_label_step'(Vars, Selection, Order, Step) wie label_step_ref/4:
+  # gebundene Variablen vorn überspringen, mit select_var/4 wählen (eine
+  # gebundene: weiter mit RVars), dann fd_get/3 und order_dom_next/3 – Step
+  # ist done (alles gebunden) oder step(Var, Next, RVars, Vars0); scheitert,
+  # wo das Original scheitert (Schranke unendlich, eine Größe keine Zahl).
+  # Anderes: das Original
+
+  defbuiltin "$clpz_label_step", [vars, sel, order, step] do
+    run("label_step", [vars, sel, order, step], subst(), fn ->
+      s = subst_now()
+
+      up =
+        case w(order) do
+          {:atom, "up"} -> true
+          {:atom, "down"} -> false
+          _ -> throw(:fallback)
+        end
+
+      case label_step(vars, w(sel), up, s) do
+        :done -> {:unify, [{step, a("done")}]}
+        :fail -> :fail
+        {var, next, rvars, vars0} -> {:unify, [{step, mk("step", [var, next, rvars, vars0])}]}
+      end
+    end)
+  end
+
+  defp label_step(vars, sel, up, s) do
+    case cell(vars, s) do
+      nil ->
+        if ws(vars, s) == [], do: :done, else: throw(:fallback)
+
+      {v, tl} ->
+        if var?(PrologEx.Store.walk(v, s)) do
+          case select_first(sel, v, tl, vars, s) do
+            :fail ->
+              :fail
+
+            {:ok, x, rvars} ->
+              case PrologEx.Store.walk(x, s) do
+                {:var, _} = var ->
+                  {d, _} = fdget_ro(var, s)
+                  next = if up, do: inf_dec(d), else: sup_dec(d)
+                  if is_integer(next), do: {var, next, rvars, vars}, else: :fail
+
+                _ ->
+                  label_step(rvars, sel, up, s)
+              end
+          end
+        else
+          label_step(tl, sel, up, s)
+        end
+    end
+  end
+
+  # select_var/4 für Vars = [v | tl]
+  defp select_first({:atom, "leftmost"}, v, tl, _vars, _s), do: {:ok, v, tl}
+  defp select_first({:atom, "ff"}, v, tl, vars, s), do: sel_ff(v, tl, vars, s)
+  defp select_first({:atom, "ffc"}, v, tl, vars, s), do: sel_by(v, tl, vars, s, :ffc)
+  defp select_first({:atom, "min"}, v, tl, vars, s), do: sel_by(v, tl, vars, s, :min)
+  defp select_first({:atom, "max"}, v, tl, vars, s), do: sel_by(v, tl, vars, s, :max)
+  defp select_first(_, _v, _tl, _vars, _s), do: throw(:fallback)
 
   # fd_size_/2: Anzahl der Elemente (:sup unendlich), 1 für eine Zahl
   defp fd_size(v, s) do
