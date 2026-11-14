@@ -4256,7 +4256,16 @@ wäre also ohnehin jedes Mal frisch), und die Argumente reichen für alle
 Parameter. Sonst ruft das Hilfsprädikat das Lambda wie bisher.
 Expandiert wird im Rumpf und in `,`, `;`, `->`, `*->`, `\+`, nicht in
 Zielen, die erst zur Laufzeit entstehen (Anfragen, `findall/3`-Ziele),
-und nicht in den Bibliotheken des Systems. Definiert der geladene Text
+und nicht in den Bibliotheken des Systems – außer in clpz: dort laufen
+Typprüfungen und Aufbau bei jeder Bedingung, ein Metaaufruf je Element
+ist zu teuer. In clpz werden zudem `phrase/2,3` mit beim Laden bekanntem
+Nichtterminal (ohne Schnitt) gleich zum übersetzten DCG-Rumpf, und die
+Rümpfe der Hilfsprädikate werden ebenso expandiert
+(`maplist(maplist(fd_variable), Tuples)`). Von 119 `maplist`, 18
+`foldl` und 72 `phrase` bleiben ein `foldl` mit variabler Closure und
+ein `phrase` im vom Matcher erzeugten Code; 89 Hilfsprädikate (in
+`clpz_listing/0` nicht aufgeführt). Reduktionen: `tuples_in/2` −6 %,
+Sudoku −2,5 %, Aufstellen und Labeling-Start −1 %. Definiert der geladene Text
 ein solches Metaprädikat selbst (irgendwo, auch nach dem Aufruf), bleibt
 es bei dessen Namen beim Aufruf; eine spätere Definition in einem
 anderen Ladevorgang ändert bereits geladene Rufer nicht (wie bei SWI).
