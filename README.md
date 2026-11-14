@@ -2250,8 +2250,11 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     Domänen und Restziele (Flag `clpz_residuals` auf `scryer`) und dann
     alle Lösungen von `labeling/2` mit zufälligen Optionen aus, einmal
     für die übersetzte Klausel (mit Goal-Expansion), einmal für dieselben
-    Bedingungen mit `call/1` (nur Domänen: Scryer expandiert dort zur
-    Laufzeit, PrologEx nicht), `cmp.py` vergleicht. Nicht gezählt werden die Reihenfolge und
+    Bedingungen mit `call/1`, `cmp.py` vergleicht. Über `call/1` zählen
+    nur verschiedene Lösungen: ohne Expansion propagiert clpz manches
+    schwächer oder stärker (`X//X #= max(2,-2)` scheitert ohne Expansion,
+    in Scryer wie in PrologEx, mit Expansion nicht), und Scryer expandiert
+    dort nicht immer. Nicht gezählt werden die Reihenfolge und
     Modulqualifikation der Restziele, `put_atts/2`-Ziele Scryers (für die
     Relationsvariablen von `tuples_in/2`, die kein `attribute_goals//1`
     beschreibt) und `freeze/2`-Konjunktionen. Gefunden hat das bisher

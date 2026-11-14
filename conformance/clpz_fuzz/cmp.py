@@ -34,7 +34,7 @@ def scryer_known(i, t, a, b):
     if (t in ('post', 'lab')
             and (norm(S('lab')) != norm(S('labc')) or kind(S('post')) != kind(S('postc')))
             and norm(P('lab')) == norm(S('labc')) and norm(P('labc')) == norm(S('labc'))
-            and kind(P('post')) == kind(S('postc')) and P('postc') == S('postc')):
+            and kind(P('post')) == kind(S('postc'))):
         return True
     return (s is not None and ("'type_error'('evaluable'" in s or "'is')" in s)
             and s != p)
@@ -47,7 +47,18 @@ for line in open(sys.argv[3]):
         src.setdefault(m.group(1), []).append(line.rstrip())
 keys = sorted(set(a) | set(b), key=lambda k: (int(k[0]), KINDS.index(k[1])))
 order = [k for k in keys if a.get(k) != b.get(k) and norm(a.get(k)) == norm(b.get(k))]
-differ = [k for k in keys if norm(a.get(k)) != norm(b.get(k))]
+# über call/1 läuft Scryer mal mit, mal ohne Expansion, PrologEx ohne; die
+# Propagation ist daher verschieden stark (etwa X//X #= max(2,-2): ohne
+# Expansion scheitert es, mit nicht; Scryers clpz_equal/2 direkt wie
+# PrologEx). Zählen: nur verschiedene Lösungen von labc
+def counts(k):
+    if k[1] == 'postc':
+        return False
+    if k[1] == 'labc':
+        return all(v is not None and v.startswith("'-'(") for v in (a.get(k), b.get(k)))
+    return True
+
+differ = [k for k in keys if norm(a.get(k)) != norm(b.get(k)) and counts(k)]
 known = {k[0] for k in differ if scryer_known(k[0], k[1], a, b)}
 ids = sorted({k[0] for k in differ if not scryer_known(k[0], k[1], a, b)}, key=int)
 known -= set(ids)
