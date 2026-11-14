@@ -5,25 +5,34 @@
 :- use_module(library(terms)).
 
 % je Fall: p(Id, Vs) stellt die Bedingungen (übersetzt, mit Goal-Expansion),
-% o(Id, Optionen) für labeling/2
+% g(Id, Vs, G) enthält dieselben als Term für call/1, o(Id, Optionen) für
+% labeling/2; Zeilen post/lab für p, postc/labc für call(G). Scryer
+% expandiert auch call/1 (zur Laufzeit), PrologEx nicht: die Restziele
+% sind dort verschieden, aber gleichwertig – postc zeigt nur die Domänen
 go :- forall(o(Id, _), (catch(run(Id), E, (write(Id), write(' crash '), pp(E), nl)))).
 
 run(Id) :-
     o(Id, Opts),
-    write(Id), write(' post '),
-    (   catch((p(Id, Vs) -> R = ok(Vs) ; R = fail), error(E, C), err(E, C, R)) ->
+    run(Id, Opts, post, lab, state, Vs^p(Id, Vs)),
+    run(Id, Opts, postc, labc, doms, Vs^(g(Id, Vs, G), call(G))).
+
+run(Id, Opts, TP, TL, Show, Post) :-
+    write(Id), write(' '), write(TP), write(' '),
+    (   catch((post(Post, Vs) -> R = ok(Vs) ; R = fail), error(E, C), err(E, C, R)) ->
         true
     ;   R = fail
     ),
-    (   R = ok(Vs1) -> state(Vs1)
+    (   R = ok(Vs1) -> call(Show, Vs1)
     ;   pp(R)
     ),
     nl,
-    write(Id), write(' lab '),
-    catch(( findall(Vs2, (p(Id, Vs2), labeling(Opts, Vs2)), L), length(L, N),
+    write(Id), write(' '), write(TL), write(' '),
+    catch(( findall(Vs2, (post(Post, Vs2), labeling(Opts, Vs2)), L), length(L, N),
             first(L, 40, F), pp(N-F) ),
           error(E2, C2), (err(E2, C2, R2), pp(R2))),
     nl.
+
+post(Vs0^G0, Vs) :- copy_term(Vs0^G0, Vs^G), call(G).
 
 % Fehler; aus is/2 mit Kontext (in Scryer Fehler von library(clpz) mit
 % gebundenen attributierten Variablen in übersetzten Klauseln)
@@ -51,6 +60,8 @@ state(Vs) :-
     flat_freeze(Fs2, Fs3),
     msort_(Gs3, N1), msort_(Fs3, N2),
     write(' NORM '), pp(N1-N2).
+
+doms(Vs) :- maplist(dom, Vs, Ds), copy_term(Ds, T, _), numbervars(T, 0, _), pp(T).
 
 unqual(G, U) :- ( G = _:U0 -> unqual(U0, U) ; U = G ).
 no_atts([], []).

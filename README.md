@@ -2248,8 +2248,10 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     `global_cardinality/2`, `element/3`, `tuples_in/2`, `lex_chain/1`,
     `chain/2`, `zcompare/3`, `in`/`ins`), `head.pl` gibt nach dem Posten
     Domänen und Restziele (Flag `clpz_residuals` auf `scryer`) und dann
-    alle Lösungen von `labeling/2` mit zufälligen Optionen aus, `cmp.py`
-    vergleicht. Nicht gezählt werden die Reihenfolge und
+    alle Lösungen von `labeling/2` mit zufälligen Optionen aus, einmal
+    für die übersetzte Klausel (mit Goal-Expansion), einmal für dieselben
+    Bedingungen mit `call/1` (nur Domänen: Scryer expandiert dort zur
+    Laufzeit, PrologEx nicht), `cmp.py` vergleicht. Nicht gezählt werden die Reihenfolge und
     Modulqualifikation der Restziele, `put_atts/2`-Ziele Scryers (für die
     Relationsvariablen von `tuples_in/2`, die kein `attribute_goals//1`
     beschreibt) und `freeze/2`-Konjunktionen. Gefunden hat das bisher
@@ -2261,13 +2263,18 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     o. Ä. aus `is/2`, ganz ohne clpz:
     `t(X) :- put_atts(X, a(1)), X = 2, 5 >= X.`). Die Expansion von clpz
     erzeugt genau solche Vergleiche, etwa für `X in 1..3, X = 2, X #=< 5`
-    oder `[X] ins 4, 5 #= X`; `cmp.py` zählt diese Fälle als bekannt.
+    oder `[X] ins 4, 5 #= X`; je nach Speicherinhalt kommt auch ein
+    falsches Ergebnis heraus (`[X] ins 2..2, -3*X #=< -(0), X #=< 0`
+    gelingt mit X = 2, `X in 0, …, X #=< 0` scheitert). `cmp.py` zählt
+    einen Fall als bekannt, wenn sich Scryer übersetzt und mit `call/1`
+    widerspricht und PrologEx der Fassung mit `call/1` folgt.
 
     ```
     SCRYER=/pfad/scryer-prolog MIX_ENV=prod conformance/clpz_fuzz/run.sh 7
-    SCRYER=… MIX_ENV=prod conformance/clpz_fuzz/night.sh 1000 1999   # 500 000 Fälle
+    SCRYER=… MIX_ENV=prod conformance/clpz_fuzz/night.sh 1000 1999   # 500 000 Fälle, gut 5 h
     ```
 
+    Ein Seed (500 Fälle, beide Fassungen) braucht etwa 20 s.
     Ausgaben unter `tmp/clpz_fuzz/` (`summary.txt`, Seeds mit
     Unterschieden in `found.txt`, Einzelheiten in `d<Seed>.txt`).
 

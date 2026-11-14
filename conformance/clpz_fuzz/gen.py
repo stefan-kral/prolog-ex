@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Zufällige kleine clpz-Probleme: p(Id, [X1,..]) :- Bedingungen.  o(Id, Optionen).
+# Zufällige kleine clpz-Probleme: p(Id, [X1,..]) :- Bedingungen.  dieselben
+# Bedingungen als Term g(Id, [X1,..], Bedingungen).  o(Id, Optionen).
 import random, sys
 
 def var(st):
@@ -108,10 +109,11 @@ def case(i):
     if random.random() < 0.4: opts.append(random.choice(['up', 'down']))
     if random.random() < 0.2: opts.append(random.choice(['step', 'enum', 'bisect']))
     PS.append('p(%d, [%s]) :- %s.' % (i, ','.join(vs + ['B']), ', '.join(goals)))
+    GS.append('g(%d, [%s], (%s)).' % (i, ','.join(vs + ['B']), ', '.join(goals)))
     OS.append('o(%d, [%s]).' % (i, ','.join(opts)))
 
-PS = []; OS = []
+PS = []; GS = []; OS = []
 seed = int(sys.argv[1]); n = int(sys.argv[2])
 random.seed(seed)
 for i in range(n): case(seed * 100000 + i)
-print('\n'.join(PS)); print('\n'.join(OS))
+print('\n'.join(PS)); print('\n'.join(GS)); print('\n'.join(OS))
