@@ -92,9 +92,18 @@ defmodule PrologEx.Builtins.ClpzDom do
   """
   def from_intervals(ivs) do
     ivs
-    |> Enum.flat_map(fn {l, u} -> interval(l, u) end)
+    |> nonempty()
     |> Enum.sort(&leq(elem(&1, 0), elem(&2, 0)))
     |> merge([])
+  end
+
+  # die nicht leeren Intervalle (wie interval/2)
+  defp nonempty([]), do: []
+
+  defp nonempty([{l, u} = iv | ivs]) do
+    if leq(l, u) and l != :sup and u != :inf,
+      do: [iv | nonempty(ivs)],
+      else: nonempty(ivs)
   end
 
   # sortierte Intervalle zusammenfassen (überlappend oder benachbart)
@@ -112,7 +121,10 @@ defmodule PrologEx.Builtins.ClpzDom do
   defp adjacent_or_overlapping?(u0, l), do: leq(l, u0 + 1)
 
   @doc "Aus einer Liste ganzer Zahlen (unsortiert, mit Dubletten)"
-  def from_list(ns), do: from_intervals(Enum.map(ns, &{&1, &1}))
+  def from_list(ns), do: from_intervals(points(ns))
+
+  defp points([]), do: []
+  defp points([n | ns]), do: [{n, n} | points(ns)]
 
   @doc "Ist das eine kanonische Domäne?"
   def valid?([]), do: true
@@ -144,9 +156,10 @@ defmodule PrologEx.Builtins.ClpzDom do
   def supremum(d), do: elem(List.last(d), 1)
 
   @doc "Anzahl der Elemente (:sup, wenn unendlich)"
-  def num_elements(d) do
-    Enum.reduce(d, 0, fn {l, u}, n -> plus(n, plus(minus(u, l), 1)) end)
-  end
+  def num_elements(d), do: num_elements(d, 0)
+
+  defp num_elements([], n), do: n
+  defp num_elements([{l, u} | d], n), do: num_elements(d, plus(n, plus(minus(u, l), 1)))
 
   @doc "Enthält die Domäne die Zahl x?"
   def contains?(d, x) when is_integer(x), do: contains_(d, x)
@@ -172,19 +185,31 @@ defmodule PrologEx.Builtins.ClpzDom do
   """
   def subdomain?([], _sub), do: false
 
-  def subdomain?(d, sub) do
-    Enum.all?(sub, fn {l, u} -> Enum.any?(d, fn {l0, u0} -> leq(l0, l) and leq(u, u0) end) end)
-  end
+  def subdomain?(d, sub), do: all_covered?(sub, d)
+
+  defp all_covered?([], _d), do: true
+  defp all_covered?([{l, u} | sub], d), do: covered?(d, l, u) and all_covered?(sub, d)
+
+  defp covered?([], _l, _u), do: false
+  defp covered?([{l0, u0} | d], l, u), do: (leq(l0, l) and leq(u, u0)) or covered?(d, l, u)
 
   @doc "Die Intervalle als Liste von {Von, Bis}"
   def intervals(d), do: d
 
   @doc "Alle Elemente aufsteigend; :error, wenn unendlich"
   def to_list(d) do
-    if Enum.all?(d, fn {l, u} -> is_integer(l) and is_integer(u) end),
-      do: {:ok, Enum.flat_map(d, fn {l, u} -> Enum.to_list(l..u//1) end)},
-      else: :error
+    if finite?(d), do: {:ok, elements(d)}, else: :error
   end
+
+  defp finite?([]), do: true
+  defp finite?([{l, u} | d]), do: is_integer(l) and is_integer(u) and finite?(d)
+
+  defp elements([]), do: []
+  defp elements([{l, u} | d]), do: range(l, u, elements(d))
+
+  # l, l+1, …, u vor rest
+  defp range(l, u, rest) when l > u, do: rest
+  defp range(l, u, rest), do: range(l, u - 1, [u | rest])
 
   @doc """
   domain_smallest_finite/2: die untere Schranke des ersten Intervalls, oder
@@ -297,23 +322,18 @@ defmodule PrologEx.Builtins.ClpzDom do
   @doc "Komplement (alle ganzen Zahlen außer d)"
   def complement([]), do: all()
 
-  def complement(d) do
-    {acc, from} =
-      Enum.reduce(d, {[], :inf}, fn {l, u}, {acc, from} ->
-        acc =
-          case {from, l} do
-            {:inf, :inf} -> acc
-            {from, l} -> [{from, minus(l, 1)} | acc]
-          end
+  def complement(d), do: complement(d, :inf)
 
-        {acc, if(u == :sup, do: nil, else: u + 1)}
-      end)
+  # from: der Anfang der nächsten Lücke (nil: keine mehr, das letzte
+  # Intervall reicht bis sup)
+  defp complement([], nil), do: []
+  defp complement([], from), do: [{from, :sup}]
 
-    case from do
-      nil -> Enum.reverse(acc)
-      from -> Enum.reverse([{from, :sup} | acc])
-    end
-  end
+  defp complement([{:inf, u} | d], :inf), do: complement(d, next_from(u))
+  defp complement([{l, u} | d], from), do: [{from, minus(l, 1)} | complement(d, next_from(u))]
+
+  defp next_from(:sup), do: nil
+  defp next_from(u), do: u + 1
 
   @doc "Differenz d ohne sub"
   def subtract(d, sub), do: intersection(d, complement(sub))
@@ -321,10 +341,14 @@ defmodule PrologEx.Builtins.ClpzDom do
   # --- Arithmetik (für ptimes, pplus) --------------------------------------
 
   @doc "Um o verschoben"
-  def shift(d, o) when is_integer(o), do: Enum.map(d, fn {l, u} -> {plus(l, o), plus(u, o)} end)
+  def shift([], o) when is_integer(o), do: []
+  def shift([{l, u} | d], o) when is_integer(o), do: [{plus(l, o), plus(u, o)} | shift(d, o)]
 
   @doc "Gespiegelt (−x)"
-  def negate(d), do: d |> Enum.reverse() |> Enum.map(fn {l, u} -> {uminus(u), uminus(l)} end)
+  def negate(d), do: negate(d, [])
+
+  defp negate([], acc), do: acc
+  defp negate([{l, u} | d], acc), do: negate(d, [{uminus(u), uminus(l)} | acc])
 
   # negatives m: erst spiegeln, dann mit |m|
   defp neg_abs(d, m) when m < 0, do: {negate(d), -m}
@@ -338,8 +362,11 @@ defmodule PrologEx.Builtins.ClpzDom do
 
   def expand(d, m) when is_integer(m) do
     {d, m} = neg_abs(d, m)
-    d |> Enum.map(fn {l, u} -> {times(l, m), times(u, m)} end) |> from_intervals()
+    d |> scale(m) |> from_intervals()
   end
+
+  defp scale([], _m), do: []
+  defp scale([{l, u} | d], m), do: [{times(l, m), times(u, m)} | scale(d, m)]
 
   @doc """
   domain_expand_more/3: l..u wird zur Menge aller x mit x // m in l..u
@@ -348,13 +375,15 @@ defmodule PrologEx.Builtins.ClpzDom do
   def expand_more(d, m) when is_integer(m) do
     {d, m} = neg_abs(d, m)
 
-    d
-    |> Enum.map(fn {l0, u0} ->
-      l = if leq(l0, 0), do: plus(times(minus(l0, 1), m), 1), else: times(l0, m)
-      u = if lt(u0, 0), do: times(u0, m), else: minus(times(plus(u0, 1), m), 1)
-      {l, u}
-    end)
-    |> from_intervals()
+    d |> scale_more(m) |> from_intervals()
+  end
+
+  defp scale_more([], _m), do: []
+
+  defp scale_more([{l0, u0} | d], m) do
+    l = if leq(l0, 0), do: plus(times(minus(l0, 1), m), 1), else: times(l0, m)
+    u = if lt(u0, 0), do: times(u0, m), else: minus(times(plus(u0, 1), m), 1)
+    [{l, u} | scale_more(d, m)]
   end
 
   @doc """
@@ -364,32 +393,34 @@ defmodule PrologEx.Builtins.ClpzDom do
   def contract(d, m) when is_integer(m) and m != 0 do
     {d, m} = neg_abs(d, m)
 
-    d
-    |> Enum.map(fn {l0, u0} ->
-      l = if leq(0, l0), do: slash(minus(plus(l0, m), 1), m), else: slash(l0, m)
-      u = if leq(0, u0), do: slash(u0, m), else: slash(plus(minus(u0, m), 1), m)
-      {l, u}
-    end)
-    |> from_intervals()
+    d |> shrink(m) |> from_intervals()
+  end
+
+  defp shrink([], _m), do: []
+
+  defp shrink([{l0, u0} | d], m) do
+    l = if leq(0, l0), do: slash(minus(plus(l0, m), 1), m), else: slash(l0, m)
+    u = if leq(0, u0), do: slash(u0, m), else: slash(plus(minus(u0, m), 1), m)
+    [{l, u} | shrink(d, m)]
   end
 
   @doc "domain_contract_less/3: l..u wird l//m..u//m; m ≠ 0"
   def contract_less(d, m) when is_integer(m) and m != 0 do
     {d, m} = neg_abs(d, m)
-    d |> Enum.map(fn {l, u} -> {slash(l, m), slash(u, m)} end) |> from_intervals()
+    d |> shrink_less(m) |> from_intervals()
   end
+
+  defp shrink_less([], _m), do: []
+  defp shrink_less([{l, u} | d], m), do: [{slash(l, m), slash(u, m)} | shrink_less(d, m)]
 
   # --- Prolog-Term ---------------------------------------------------------
 
   import PrologEx, only: [mk: 2, a: 1]
 
   @doc "Als Prolog-Term: [inf..3, 5, 9..13, 16..sup]"
-  def to_term(d) do
-    Enum.map(d, fn
-      {x, x} -> x
-      {l, u} -> mk("..", [bt(l), bt(u)])
-    end)
-  end
+  def to_term([]), do: []
+  def to_term([{x, x} | d]), do: [x | to_term(d)]
+  def to_term([{l, u} | d]), do: [mk("..", [bt(l), bt(u)]) | to_term(d)]
 
   defp bt(:inf), do: a("inf")
   defp bt(:sup), do: a("sup")

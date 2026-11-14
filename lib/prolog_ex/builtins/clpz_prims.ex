@@ -537,16 +537,26 @@ defmodule PrologEx.Builtins.ClpzPrims do
       unless alone?(ctx.db), do: throw(:fallback)
       p = mk("propagator", [p0, fresh_var()])
       q = new_queue()
-      items = list_items(vs, s)
 
-      s
-      |> then(&Enum.reduce(items, &1, fn v, s -> seq(s, fn s -> init_one(v, p, q, s) end) end))
-      |> seq(&same_queue(items, &1))
-      |> case do
-        :fail -> :fail
-        s -> out_all([{prop, p}, {qout, q}], drop_inert_wake(s))
+      with s when s != :fail <- init_all(vs, p, q, s),
+           s when s != :fail <- same_queue(vs, s),
+           s = drop_inert_wake(s),
+           {:ok, s} <- PrologEx.unify(prop, p, s),
+           {:ok, s} <- PrologEx.unify(qout, q, s) do
+        {:subst, s}
+      else
+        _ -> :fail
       end
     end)
+  end
+
+  defp constrain_all([], s), do: s
+
+  defp constrain_all([v | vs], s) do
+    case put_terminating(v, default_dom(), no_props(), new_queue(), s) do
+      :fail -> :fail
+      s -> constrain_all(vs, s)
+    end
   end
 
   # a//3, a//2, a//1: die Einträge a(...) für Hilfsvariablen
@@ -672,11 +682,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
       # ohne Propagatoren, die Queue bleibt leer). Scheitert der Test, wirft
       # reify/3 ohnehin domain_error (die Bindungen sind dann zurück)
       if ok do
-        vs
-        |> Enum.reduce(s, fn v, s ->
-          seq(s, &put_terminating(v, default_dom(), no_props(), new_queue(), &1))
-        end)
-        |> case do
+        case constrain_all(vs, s) do
           :fail -> :fail
           s -> {:subst, s}
         end
@@ -752,20 +758,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
       s = subst_now()
       mono = monotonic?(ctx.db)
 
-      with {:ok, ls, cl} <- linsum(l, s, mono),
-           {:ok, rs, cr} <- linsum(r, s, mono),
-           items = ls ++ Enum.map(rs, fn {v, n} -> {v, -n} end),
-           [_ | _] <- items do
-        merged = lin_merge(items, s)
-
-        out_all(
-          [
-            {cs, list(Enum.map(merged, &elem(&1, 1)))},
-            {vs, list(Enum.map(merged, &elem(&1, 0)))},
-            {c, cr - cl}
-          ],
-          s
-        )
+      # die Glieder rechts negiert gleich dazu; ihre Reihenfolge ist
+      # gleich, lin_merge/2 sortiert (gleiche {V, N} sind gleich)
+      with {:ok, items, cl} <- lin(l, s, mono, 1, []),
+           {:ok, [_ | _] = items, k} <- lin(r, s, mono, -1, items),
+           merged = lin_merge(items, s),
+           {:ok, s} <- PrologEx.unify(cs, term_coeffs(merged), s),
+           {:ok, s} <- PrologEx.unify(vs, term_vars(merged), s),
+           {:ok, s} <- PrologEx.unify(c, -(cl + k), s) do
+        {:subst, s}
       else
         _ -> :fail
       end
@@ -776,59 +777,47 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # filter_linsum/4: nach vn(V, N) stabil sortiert, gleiche V
   # zusammengefasst, Koeffizienten 0 weg
   defp lin_merge(items, s) do
-    sorted =
-      Enum.sort(items, fn {v1, n1}, {v2, n2} ->
-        case PrologEx.Order.compare(v1, v2, s) do
-          :lt -> true
-          :gt -> false
-          :eq -> n1 <= n2
-        end
-      end)
-
-    merged =
-      Enum.chunk_while(
-        sorted,
-        nil,
-        fn
-          {v, n}, nil ->
-            {:cont, {v, n}}
-
-          {v, n}, {v0, n0} ->
-            if PrologEx.Order.compare(v, v0, s) == :eq,
-              do: {:cont, {v0, n0 + n}},
-              else: {:cont, {v0, n0}, {v, n}}
-        end,
-        fn acc -> {:cont, acc, nil} end
-      )
-
-    # Koeffizient 0: constrain_to_integer/1 (eine Variable ohne Domäne
-    # bekommt dort eine: das Original)
-    for {{:var, _} = v, 0} <- merged, not fdvar?(v, s), do: throw(:fallback)
-    Enum.reject(merged, fn {_, n} -> n == 0 end)
-  end
-
-  defp out_all(pairs, s) do
-    Enum.reduce_while(pairs, {:subst, s}, fn {t, v}, {:subst, s} ->
-      case PrologEx.unify(t, v, s) do
-        {:ok, s} -> {:cont, {:subst, s}}
-        :error -> {:halt, :fail}
+    items
+    |> Enum.sort(fn {v1, n1}, {v2, n2} ->
+      case PrologEx.Order.compare(v1, v2, s) do
+        :lt -> true
+        :gt -> false
+        :eq -> n1 <= n2
       end
     end)
+    |> merge_terms(s)
   end
+
+  defp merge_terms([], _s), do: []
+  defp merge_terms([{v, n} | ts], s), do: merge_terms(ts, v, n, s)
+
+  defp merge_terms([{v, n} | ts], v0, n0, s) do
+    if PrologEx.Order.compare(v, v0, s) == :eq,
+      do: merge_terms(ts, v0, n0 + n, s),
+      else: keep_term(v0, n0, merge_terms(ts, v, n, s), s)
+  end
+
+  defp merge_terms([], v0, n0, s), do: keep_term(v0, n0, [], s)
+
+  # Koeffizient 0 fällt weg – bei einer Variablen ohne Domäne nicht:
+  # constrain_to_integer/1 gibt ihr eine (das Original)
+  defp keep_term({:var, _} = v, 0, ts, s), do: if(fdvar?(v, s), do: ts, else: throw(:fallback))
+  defp keep_term(_v, 0, ts, _s), do: ts
+  defp keep_term(v, n, ts, _s), do: [{v, n} | ts]
+
+  # die Listen Cs und Vs der Glieder (mit cons/2 wie list/1: ein grundes
+  # Ende als glist)
+  defp term_coeffs([]), do: []
+  defp term_coeffs([{_, n} | ts]), do: cons(n, term_coeffs(ts))
+
+  defp term_vars([]), do: []
+  defp term_vars([{v, _} | ts]), do: cons(v, term_vars(ts))
 
   defp monotonic?(db) do
     case Map.get(db, {"clpz", "monotonic", 0}) do
       nil -> false
       {:pred, [], _, _, _} -> false
       _ -> true
-    end
-  end
-
-  # linsum//3: {:ok, [{V, N}], Konstante} oder :fail
-  defp linsum(t, s, mono) do
-    case lin(t, s, mono, 1, []) do
-      {:ok, acc, k} -> {:ok, Enum.reverse(acc), k}
-      :fail -> :fail
     end
   end
 
@@ -998,7 +987,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
     run("domain_intervals", [d, is], subst(), fn -> out(is, e_intervals(dom(d))) end)
   end
 
-  defp e_intervals(d), do: list(Enum.map(d, fn {l, u} -> mk("-", [eb(l), eb(u)]) end))
+  defp e_intervals([]), do: []
+  defp e_intervals([{l, u} | d]), do: cons(mk("-", [eb(l), eb(u)]), e_intervals(d))
 
   # Liste von Intervallen A-B (Schranken), auch unsortiert oder überlappend
   defp interval_list(t) do
@@ -1037,70 +1027,105 @@ defmodule PrologEx.Builtins.ClpzPrims do
     run("gcc_neq_goals", [vs, kns, gs], subst(), fn ->
       s = subst_now()
 
-      vals =
-        list_items(kns, s)
-        |> Enum.flat_map(fn p ->
-          {key, num0} =
-            case ws(p, s) do
-              {tag, "-", [k, n0]} when tag in [:struct, :gstruct] ->
-                case {val(k, s), PrologEx.Store.walk(n0, s)} do
-                  {k, {:var, _} = n0} when is_integer(k) -> {k, n0}
-                  _ -> throw(:fallback)
-                end
-
-              _ ->
-                throw(:fallback)
-            end
-
-          case att(num0, s, "clpz_gcc_vs", 1) do
-            nil ->
-              []
-
-            [gvs] ->
-              [num] = att(num0, s, "clpz_gcc_num", 1) || throw(:fallback)
-              [occ] = att(num0, s, "clpz_gcc_occurred", 1) || throw(:fallback)
-              occ = val(occ, s)
-              is_integer(occ) || throw(:fallback)
-
-              {l, u} =
-                case val(num, s) do
-                  i when is_integer(i) ->
-                    {i - occ, i - occ}
-
-                  {:var, _} = v ->
-                    case ibounds(v, s) do
-                      {l0, u0} when is_integer(l0) and is_integer(u0) -> {l0 - occ, u0 - occ}
-                      _ -> throw(:fallback)
-                    end
-
-                  _ ->
-                    throw(:fallback)
-                end
-
-              [{key, l, u, var_counts(list_items(gvs, s), s)}]
-          end
-        end)
-
-      case PrologEx.Builtins.ClpzGcc.goals(vals, var_counts(list_items(vs, s), s)) do
-        :fail ->
-          :fail
-
-        goals ->
-          out(gs, PrologEx.list(Enum.map(goals, fn {v, k} -> mk("neq_num", [v, k]) end)))
+      case PrologEx.Builtins.ClpzGcc.goals(gcc_vals(kns, s), var_counts(vs, s)) do
+        :fail -> :fail
+        goals -> out(gs, neq_goals(goals))
       end
     end)
   end
 
-  # variables_with_num_occurrences/2: die Variablen (stabil sortiert) mit
-  # ihrer Anzahl
-  defp var_counts(items, s) do
-    items
-    |> Enum.map(&PrologEx.Store.walk(&1, s))
-    |> Enum.filter(&match?({:var, _}, &1))
-    |> Enum.sort(fn a, b -> PrologEx.Order.compare(a, b, s) != :gt end)
-    |> Enum.chunk_by(& &1)
-    |> Enum.map(fn [v | _] = l -> {v, length(l)} end)
+  # je Paar Key-Num0 mit clpz_gcc_vs: {Key, L, U, Variablen mit Anzahl}
+  defp gcc_vals(kns, s) do
+    case ws(kns, s) do
+      [] ->
+        []
+
+      [p | kns] ->
+        {key, num0} = gcc_pair_arg(p, s)
+
+        case att(num0, s, "clpz_gcc_vs", 1) do
+          nil ->
+            gcc_vals(kns, s)
+
+          [gvs] ->
+            [num] = att(num0, s, "clpz_gcc_num", 1) || throw(:fallback)
+            [occ] = att(num0, s, "clpz_gcc_occurred", 1) || throw(:fallback)
+            occ = val(occ, s)
+            is_integer(occ) || throw(:fallback)
+
+            {l, u} =
+              case val(num, s) do
+                i when is_integer(i) ->
+                  {i - occ, i - occ}
+
+                {:var, _} = v ->
+                  case ibounds(v, s) do
+                    {l0, u0} when is_integer(l0) and is_integer(u0) -> {l0 - occ, u0 - occ}
+                    _ -> throw(:fallback)
+                  end
+
+                _ ->
+                  throw(:fallback)
+              end
+
+            [{key, l, u, var_counts(gvs, s)} | gcc_vals(kns, s)]
+        end
+
+      _ ->
+        throw(:fallback)
+    end
   end
+
+  # Key-Num0 mit Key einer Zahl und Num0 einer Variablen
+  defp gcc_pair_arg(p, s) do
+    case ws(p, s) do
+      {tag, "-", [k, n0]} when tag in [:struct, :gstruct] ->
+        case val(k, s) do
+          k when is_integer(k) ->
+            case PrologEx.Store.walk(n0, s) do
+              {:var, _} = n0 -> {k, n0}
+              _ -> throw(:fallback)
+            end
+
+          _ ->
+            throw(:fallback)
+        end
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  defp neq_goals([]), do: []
+  defp neq_goals([{v, k} | gs]), do: cons(mk("neq_num", [v, k]), neq_goals(gs))
+
+  # variables_with_num_occurrences/2: die Variablen der Liste vs (stabil
+  # sortiert) mit ihrer Anzahl
+  defp var_counts(vs, s) do
+    vs
+    |> ws(s)
+    |> open_vars(s)
+    |> Enum.sort(fn a, b -> PrologEx.Order.compare(a, b, s) != :gt end)
+    |> count_runs()
+  end
+
+  # die ungebundenen Variablen einer Liste (unecht: das Original)
+  defp open_vars([], _s), do: []
+
+  defp open_vars([v | vs], s) do
+    case PrologEx.Store.walk(v, s) do
+      {:var, _} = w -> [w | open_vars(ws(vs, s), s)]
+      _ -> open_vars(ws(vs, s), s)
+    end
+  end
+
+  defp open_vars(_, _s), do: throw(:fallback)
+
+  defp count_runs([]), do: []
+  defp count_runs([v | vs]), do: count_runs(vs, v, 1)
+  defp count_runs([v | vs], v, n), do: count_runs(vs, v, n + 1)
+  defp count_runs([w | vs], v, n), do: [{v, n} | count_runs(vs, w, 1)]
+  defp count_runs([], v, n), do: [{v, n}]
 
   defbuiltin "$clpz_domains_union", [d1, d2, u] do
     run("domains_union", [d1, d2, u], subst(), fn -> out(u, ed(union!(dom(d1), dom(d2)))) end)
@@ -1248,33 +1273,51 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # Attribut name/ar entfernen (wie put_atts(V, -A))
   defp del_att(s, v, name, ar) do
-    items = all_items(v |> PrologEx.get_attrs(s) |> Map.get("clpz", []), s)
+    l = v |> PrologEx.get_attrs(s) |> Map.get("clpz", [])
+    PrologEx.put_attr(s, v, "clpz", del_items(l, s, name, ar))
+  end
 
-    kept =
-      Enum.reject(items, fn h ->
+  defp del_items(l, s, name, ar) do
+    case cell(l, s) do
+      nil ->
+        []
+
+      {h, tl} ->
         case ws(h, s) do
-          {tag, ^name, args} when tag in [:struct, :gstruct] -> length(args) == ar
-          {:atom, ^name} -> ar == 0
-          _ -> false
+          {tag, ^name, args} when tag in [:struct, :gstruct] and length(args) == ar ->
+            del_items(tl, s, name, ar)
+
+          {:atom, ^name} when ar == 0 ->
+            del_items(tl, s, name, ar)
+
+          _ ->
+            cons(h, del_items(tl, s, name, ar))
         end
-      end)
-
-    PrologEx.put_attr(s, v, "clpz", list(kept))
-  end
-
-  defp all_items(l, s) do
-    case cell(l, s) do
-      nil -> []
-      {h, tl} -> [h | all_items(tl, s)]
     end
   end
 
-  defp list_items(l, s) do
-    case cell(l, s) do
-      nil -> if ws(l, s) == [], do: [], else: throw(:fallback)
-      {h, tl} -> [h | list_items(tl, s)]
+  # append/3 zweier echter Listen (unecht: das Original)
+  defp pl_append(x, y, s) do
+    case ws(x, s) do
+      [] -> proper_list!(y, s)
+      [h | t] -> cons(h, pl_append(t, y, s))
+      _ -> throw(:fallback)
     end
   end
+
+  defp proper_list!(l, s) do
+    case ws(l, s) do
+      [] -> []
+      [h | t] -> cons(h, proper_list!(t, s))
+      _ -> throw(:fallback)
+    end
+  end
+
+  # Länge einer echten Liste (unecht: das Original)
+  defp pl_length(l, s), do: pl_length(ws(l, s), s, 0)
+  defp pl_length([], _s, n), do: n
+  defp pl_length([_ | t], s, n), do: pl_length(ws(t, s), s, n + 1)
+  defp pl_length(_, _s, _n), do: throw(:fallback)
 
   # die Queue aus dem DCG-Zustand [Queue|_]
   defp state_q(s0, s) do
@@ -1392,8 +1435,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # Argument which (1..4) von queue(Goals, Fast, Slow, Aux)
+  defp qarg([a, _, _, _], 1), do: a
+  defp qarg([_, a, _, _], 2), do: a
+  defp qarg([_, _, a, _], 3), do: a
+  defp qarg([_, _, _, a], 4), do: a
+
   defp insert_term(elem, which, args, s) do
-    arg = PrologEx.Store.walk(Enum.at(args, which - 1), s)
+    arg = PrologEx.Store.walk(qarg(args, which), s)
     unless match?({:var, _}, arg), do: throw(:fallback)
     tail = fresh_var()
 
@@ -1485,12 +1534,19 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defp trigger_all(ps, q, s) do
-    Enum.reduce_while(list_items(ps, s), s, fn p, s ->
-      case trigger(p, q, s) do
-        :fail -> {:halt, :fail}
-        s -> {:cont, s}
-      end
-    end)
+    case ws(ps, s) do
+      [] ->
+        s
+
+      [p | ps] ->
+        case trigger(p, q, s) do
+          :fail -> :fail
+          s -> trigger_all(ps, q, s)
+        end
+
+      _ ->
+        throw(:fallback)
+    end
   end
 
   defp then_all(:fail, _ps, _q), do: :fail
@@ -1597,6 +1653,24 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # init_propagator_//2: init_one/4 für jedes Element der Liste vs (eine
+  # Prolog- oder Elixir-Liste; unecht: das Original)
+  defp init_all(vs, prop, q, s) do
+    case ws(vs, s) do
+      [] ->
+        s
+
+      [v | vs] ->
+        case init_one(v, prop, q, s) do
+          :fail -> :fail
+          s -> init_all(vs, prop, q, s)
+        end
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
   # init_propagator(V, Prop) für eine Variable, mit der Queue q
   defp init_one(v, prop, q, s) do
     case fd_get(v, s) do
@@ -1611,8 +1685,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
       s = subst_now()
       q = state_q(s0, s)
 
-      list_items(vs, s)
-      |> Enum.reduce(s, fn v, s -> seq(s, &init_one(v, prop, q, &1)) end)
+      vs
+      |> init_all(prop, q, s)
       |> result(s1, s0)
     end)
   end
@@ -1646,13 +1720,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  defp reinforce_all([], s), do: s
+  defp reinforce_all([v | vs], s), do: reinforce_all(vs, reinforce_one(v, s))
+
   defbuiltin "$clpz_reinforce", [x] do
     run("reinforce", [x], subst(), fn ->
       s = subst_now()
 
-      PrologEx.Builtins.Order.variables(x, s)
-      |> Enum.reduce(s, &reinforce_one/2)
-      |> then(&{:subst, &1})
+      {:subst, reinforce_all(PrologEx.Builtins.Order.variables(x, s), s)}
     end)
   end
 
@@ -1671,56 +1746,71 @@ defmodule PrologEx.Builtins.ClpzPrims do
       # dazwischen: mit weiteren Hook-Modulen das Original
       unless alone?(ctx.db), do: throw(:fallback)
 
-      case same_queue(list_items(vs0, s), s) do
+      case same_queue(vs0, s) do
         :fail -> :fail
         s -> {:subst, drop_inert_wake(s)}
       end
     end)
   end
 
-  defp same_queue(items, s) do
-    vs = for v <- items, w = PrologEx.Store.walk(v, s), var?(w), do: w
+  # vs: Prolog- oder Elixir-Liste (unecht: das Original)
+  defp same_queue(vs, s) do
+    case var_queues(ws(vs, s), s, []) do
+      [] ->
+        s
 
-    if vs == [] do
-      s
-    else
-      qs0 =
-        for v <- vs do
-          with [attr] <- att(v, s, "clpz", 1),
-               {tag, "clpz_attr", [_, _, _, _, _, q]} when tag in [:struct, :gstruct] <-
-                 ws(attr, s) do
-            q
-          else
-            _ -> throw(:fallback)
-          end
+      qs0 ->
+        [q | qs] = PrologEx.Order.sort_unique(qs0, s)
+
+        # Queue-Variablen mit fremden Attributen (freeze, …): das Original
+        for qi <- qs, v <- queue_args(qi, s), not only_clpz_attrs?(v, s), do: throw(:fallback)
+
+        s
+        |> append_queues(queue_args(q, s), qs)
+        |> clear_queues(qs)
+        |> unify_queues(q, qs)
+    end
+  end
+
+  # die Queues der ungebundenen Variablen (umgekehrt; sort_unique ordnet)
+  defp var_queues([], _s, acc), do: acc
+
+  defp var_queues([v | vs], s, acc) do
+    case PrologEx.Store.walk(v, s) do
+      {:var, _} = w ->
+        with [attr] <- att(w, s, "clpz", 1),
+             {tag, "clpz_attr", [_, _, _, _, _, q]} when tag in [:struct, :gstruct] <-
+               ws(attr, s) do
+          var_queues(ws(vs, s), s, [q | acc])
+        else
+          _ -> throw(:fallback)
         end
 
-      [q | qs] = PrologEx.Order.sort_unique(qs0, s)
+      _ ->
+        var_queues(ws(vs, s), s, acc)
+    end
+  end
 
-      # Queue-Variablen mit fremden Attributen (freeze, …): das Original
-      for qi <- qs, v <- queue_args(qi, s), not only_clpz_attrs?(v, s), do: throw(:fallback)
+  defp var_queues(_, _s, _acc), do: throw(:fallback)
 
-      args = queue_args(q, s)
+  # append_queues_/3: jede Queue an die vorige
+  defp append_queues(s, _args0, []), do: s
 
-      {s, _} =
-        Enum.reduce(qs, {s, args}, fn qi, {s, args0} ->
-          argsi = queue_args(qi, s)
-          [g0, f0, sl0, _] = args0
-          [g, f, sl, _] = argsi
-          s = s |> append_queue(g0, g) |> append_queue(f0, f) |> append_queue(sl0, sl)
-          {s, argsi}
-        end)
+  defp append_queues(s, [g0, f0, sl0, _], [qi | qs]) do
+    [g, f, sl, _] = argsi = queue_args(qi, s)
+    s = s |> append_queue(g0, g) |> append_queue(f0, f) |> append_queue(sl0, sl)
+    append_queues(s, argsi, qs)
+  end
 
-      s = Enum.reduce(qs, s, &clear_queue(&2, &1))
+  defp clear_queues(s, []), do: s
+  defp clear_queues(s, [qi | qs]), do: s |> clear_queue(qi) |> clear_queues(qs)
 
-      Enum.reduce(qs, s, fn qi, s ->
-        seq(s, fn s ->
-          case PrologEx.unify(q, qi, s) do
-            {:ok, s} -> s
-            :error -> :fail
-          end
-        end)
-      end)
+  defp unify_queues(s, _q, []), do: s
+
+  defp unify_queues(s, q, [qi | qs]) do
+    case PrologEx.unify(q, qi, s) do
+      {:ok, s} -> unify_queues(s, q, qs)
+      :error -> :fail
     end
   end
 
@@ -1731,27 +1821,37 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # die Maschine sie also nicht zu wecken
   defp drop_inert_wake(s) do
     case Store.take_wake(s) do
-      {ws, s1} -> if Enum.all?(ws, &inert?(&1, s)), do: s1, else: s
+      {ws, s1} -> if all_inert?(ws, s), do: s1, else: s
       :none -> s
     end
   end
 
+  defp all_inert?([], _s), do: true
+  defp all_inert?([v | vs], s), do: inert?(v, s) and all_inert?(vs, s)
+
   defp inert?({:var, {:attv, id}}, s) do
     case Store.attrs(s, id) do
-      m when map_size(m) == 0 ->
-        true
-
-      %{"clpz" => l} = m when map_size(m) == 1 ->
-        Enum.all?(all_items(l, s), fn t ->
-          not match?({tag, "clpz", [_]} when tag in [:struct, :gstruct], ws(t, s))
-        end)
-
-      _ ->
-        false
+      m when map_size(m) == 0 -> true
+      %{"clpz" => l} = m when map_size(m) == 1 -> no_clpz_attr?(l, s)
+      _ -> false
     end
   end
 
   defp inert?(_, _s), do: false
+
+  # kein Eintrag clpz(_) in der Attributliste l
+  defp no_clpz_attr?(l, s) do
+    case cell(l, s) do
+      nil ->
+        true
+
+      {t, tl} ->
+        case ws(t, s) do
+          {tag, "clpz", [_]} when tag in [:struct, :gstruct] -> false
+          _ -> no_clpz_attr?(tl, s)
+        end
+    end
+  end
 
   # die vier Variablen einer Queue queue(Goals, Fast, Slow, Aux)
   defp queue_args(q, s) do
@@ -1886,8 +1986,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
           dom1 ->
             {g0, b0, o0} = props(ps, s)
             {g1, b1, o1} = props(ops, s)
-            app = fn x, y -> list(list_items(x, s) ++ list_items(y, s)) end
-            ps1 = mk("fd_props", [app.(g0, g1), app.(b0, b1), app.(o0, o1)])
+
+            ps1 =
+              mk("fd_props", [pl_append(g0, g1, s), pl_append(b0, b1, s), pl_append(o0, o1, s)])
+
             q0 = new_queue()
 
             s
@@ -2075,7 +2177,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # vorne aus Liste which: {Element, s} oder nil
   defp pop(args, which, s) do
-    arg = PrologEx.Store.walk(Enum.at(args, which - 1), s)
+    arg = PrologEx.Store.walk(qarg(args, which), s)
 
     with {:var, _} <- arg,
          [h, t] <- att(arg, s, "queue", 2),
@@ -2104,7 +2206,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           _ -> throw(:fallback)
         end
 
-      aux = PrologEx.Store.walk(Enum.at(args, 3), s)
+      aux = PrologEx.Store.walk(qarg(args, 4), s)
 
       {t, s} =
         cond do
@@ -2456,11 +2558,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  defp ints?([]), do: true
+  defp ints?([i | l]), do: is_integer(i) and ints?(l)
+
   defp all_ints?(l, s) do
     case PrologEx.Store.walk(l, s) do
       [] -> true
       [h | t] -> is_integer(PrologEx.Store.walk(h, s)) and all_ints?(t, s)
-      {:glist, l} -> Enum.all?(l, &is_integer/1)
+      {:glist, l} -> ints?(l)
       _ -> false
     end
   end
@@ -2505,8 +2610,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
     p = mk("propagator", [p0, fresh_var()])
     q = new_queue()
 
-    s
-    |> then(&Enum.reduce(vs, &1, fn v, s -> seq(s, fn s -> init_one(v, p, q, s) end) end))
+    vs
+    |> init_all(p, q, s)
     |> seq(&same_queue(vs, &1))
     |> case do
       :fail ->
@@ -2540,8 +2645,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
     run("ins", [vs, d0], subst(), fn ->
       s = subst_now()
       if Process.get(:clpz_no_fast), do: throw(:fallback)
-      items = list_items(vs, s)
-      unless Enum.all?(items, &var_or_int?(&1, s)), do: throw(:fallback)
+      # erst die ganze Liste prüfen: braucht ein Element Prolog, machen
+      # domains/2 dort weiter, und die prüfen nichts mehr
+      vars_or_ints!(vs, s)
 
       dt =
         case simple_drep(ws(d0, s), s) do
@@ -2549,13 +2655,27 @@ defmodule PrologEx.Builtins.ClpzPrims do
           :error -> throw(:fallback)
         end
 
-      ins_items(items, dom(dt), dt, s, db)
+      ins_items(vs, dom(dt), dt, s, db)
     end)
   end
 
-  defp ins_items([], _dd, _dt, s, _db), do: {:subst, s}
+  # eine echte Liste aus Variablen und Zahlen, sonst das Original
+  defp vars_or_ints!(l, s) do
+    case ws(l, s) do
+      [] -> :ok
+      [x | t] -> if var_or_int?(x, s), do: vars_or_ints!(t, s), else: throw(:fallback)
+      _ -> throw(:fallback)
+    end
+  end
 
-  defp ins_items([x | rest], dd, dt, s, db) do
+  defp ins_items(l, dd, dt, s, db) do
+    case ws(l, s) do
+      [] -> {:subst, s}
+      [x | rest] -> ins_item(x, rest, dd, dt, s, db)
+    end
+  end
+
+  defp ins_item(x, rest, dd, dt, s, db) do
     case PrologEx.Store.walk(x, s) do
       i when is_integer(i) ->
         if ClpzDom.contains?(dd, i), do: ins_items(rest, dd, dt, s, db), else: :fail
@@ -2584,20 +2704,17 @@ defmodule PrologEx.Builtins.ClpzPrims do
                 ins_items(rest, dd, dt, reinforce_one(v, s), db)
 
               {:next, t, s} ->
-                goals = [
-                  mk("do_queue_", [t, [q], fresh_var()]),
-                  mk("reinforce", [v]),
-                  mk("domains", [list(rest), dt])
-                ]
+                goal =
+                  mk(",", [
+                    mk("do_queue_", [t, [q], fresh_var()]),
+                    mk(",", [mk("reinforce", [v]), mk("domains", [rest, dt])])
+                  ])
 
-                {:call, mk(":", [a("clpz"), conj(goals)]), s}
+                {:call, mk(":", [a("clpz"), goal]), s}
             end
         end
     end
   end
-
-  defp conj([g]), do: g
-  defp conj([g | gs]), do: mk(",", [g, conj(gs)])
 
   # --- Aufstellen: sum/3, scalar_product/4 mit #= ------------------------------
   #
@@ -2613,11 +2730,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defbuiltin "$clpz_sum", [vs, op, value] do
     db = ctx.db
 
-    run("sum", [vs, op, value], subst(), fn ->
-      s = subst_now()
-      items = list_items(vs, s)
-      sp_post(Enum.map(items, fn _ -> 1 end), items, op, value, s, db)
-    end)
+    run("sum", [vs, op, value], subst(), fn -> sp_post(:ones, vs, op, value, subst_now(), db) end)
   end
 
   defbuiltin "$clpz_scalar_product", [cs, vs, op, value] do
@@ -2625,23 +2738,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
     run("scalar_product", [cs, vs, op, value], subst(), fn ->
       s = subst_now()
-
-      coeffs =
-        Enum.map(list_items(cs, s), fn c ->
-          case PrologEx.Store.walk(c, s) do
-            i when is_integer(i) -> i
-            _ -> throw(:fallback)
-          end
-        end)
-
-      sp_post(coeffs, list_items(vs, s), op, value, s, db)
+      sp_post(ws(cs, s), vs, op, value, s, db)
     end)
   end
 
-  defp sp_post(cs, items, op, value, s, db) do
+  # cs: die Koeffizienten (walked) oder :ones (sum/3)
+  defp sp_post(cs, vs, op, value, s, db) do
     if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
     unless ws(op, s) == a("#="), do: throw(:fallback)
-    unless length(cs) == length(items), do: throw(:fallback)
 
     r =
       case PrologEx.Store.walk(value, s) do
@@ -2649,28 +2753,53 @@ defmodule PrologEx.Builtins.ClpzPrims do
         _ -> throw(:fallback)
       end
 
-    xs = Enum.map(items, &PrologEx.Store.walk(&1, s))
-
-    if Enum.all?(xs, &is_integer/1) do
+    case sp_terms(cs, ws(vs, s), s, [], true) do
       # ground(Vs): foldl(coeff_int_linsum, Cs, Vs, 0, Right)
-      if Enum.sum(Enum.zip_with(cs, xs, &(&1 * &2))) == r, do: {:subst, s}, else: :fail
-    else
-      terms =
-        Enum.zip_with(cs, xs, fn c, x ->
-          case x do
-            {:var, _} -> if fdvar?(x, s), do: {x, c}, else: throw(:fallback)
-            i when is_integer(i) -> {i, c}
-            _ -> throw(:fallback)
-          end
-        end)
+      {terms, true} ->
+        if dot_terms(terms, 0) == r, do: {:subst, s}, else: :fail
 
-      case lin_merge(terms, s) do
-        [] -> throw(:fallback)
-        _ when r == 0 -> throw(:fallback)
-        merged -> sp_eq(merged, r, s, db)
-      end
+      {terms, false} ->
+        case lin_merge(terms, s) do
+          [] -> throw(:fallback)
+          _ when r == 0 -> throw(:fallback)
+          merged -> sp_eq(merged, r, s, db)
+        end
     end
   end
+
+  # die Glieder {X, C} (umgekehrt: lin_merge/2 sortiert ohnehin) und ob
+  # alle X Zahlen sind; X eine Zahl oder Variable mit Domäne, C eine Zahl,
+  # beide Listen echt und gleich lang, sonst das Original
+  defp sp_terms(:ones, [x | xs], s, acc, g), do: sp_term(1, :ones, x, xs, s, acc, g)
+
+  defp sp_terms([c | cs], [x | xs], s, acc, g) do
+    case PrologEx.Store.walk(c, s) do
+      c when is_integer(c) -> sp_term(c, ws(cs, s), x, xs, s, acc, g)
+      _ -> throw(:fallback)
+    end
+  end
+
+  defp sp_terms(:ones, [], _s, acc, g), do: {acc, g}
+  defp sp_terms([], [], _s, acc, g), do: {acc, g}
+  defp sp_terms(_, _, _s, _acc, _g), do: throw(:fallback)
+
+  defp sp_term(c, cs, x, xs, s, acc, g) do
+    case PrologEx.Store.walk(x, s) do
+      i when is_integer(i) ->
+        sp_terms(cs, ws(xs, s), s, [{i, c} | acc], g)
+
+      {:var, _} = v ->
+        if fdvar?(v, s),
+          do: sp_terms(cs, ws(xs, s), s, [{v, c} | acc], false),
+          else: throw(:fallback)
+
+      _ ->
+        throw(:fallback)
+    end
+  end
+
+  defp dot_terms([], sum), do: sum
+  defp dot_terms([{x, c} | ts], sum), do: dot_terms(ts, sum + c * x)
 
   # '$clpz_sp_eq'(Cs0, Vs, S0): scalar_product_//4 mit #= wie sp_eq_ref/3
   # (aus dem Matcher von X #= Y, scalar_product_ref/4 & Co.) für Cs0 eine
@@ -2683,29 +2812,39 @@ defmodule PrologEx.Builtins.ClpzPrims do
       s = subst_now()
       if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
 
-      coeffs =
-        Enum.map(list_items(cs, s), fn c ->
-          case PrologEx.Store.walk(c, s) do
-            i when is_integer(i) and i != 0 -> i
-            _ -> throw(:fallback)
-          end
-        end)
-
-      xs = Enum.map(list_items(vs, s), &PrologEx.Store.walk(&1, s))
-
       r =
         case PrologEx.Store.walk(s0, s) do
           r when is_integer(r) and r != 0 -> r
           _ -> throw(:fallback)
         end
 
-      unless coeffs != [] and length(coeffs) == length(xs) and
-               Enum.all?(xs, &(var?(&1) or is_integer(&1))),
-             do: throw(:fallback)
-
-      sp_eq(Enum.zip(xs, coeffs), r, s, db)
+      case sp_pairs(ws(cs, s), ws(vs, s), s) do
+        [] -> throw(:fallback)
+        merged -> sp_eq(merged, r, s, db)
+      end
     end)
   end
+
+  # [{X, C}] in der Reihenfolge der Listen: C eine Zahl ungleich 0, X eine
+  # Zahl oder Variable, beide Listen echt und gleich lang (sonst das
+  # Original)
+  defp sp_pairs([], [], _s), do: []
+
+  defp sp_pairs([c | cs], [x | xs], s) do
+    c =
+      case PrologEx.Store.walk(c, s) do
+        c when is_integer(c) and c != 0 -> c
+        _ -> throw(:fallback)
+      end
+
+    case PrologEx.Store.walk(x, s) do
+      x when is_integer(x) -> [{x, c} | sp_pairs(ws(cs, s), ws(xs, s), s)]
+      {:var, _} = x -> [{x, c} | sp_pairs(ws(cs, s), ws(xs, s), s)]
+      _ -> throw(:fallback)
+    end
+  end
+
+  defp sp_pairs(_, _, _s), do: throw(:fallback)
 
   # '$clpz_eq_linear'(X, Y): keine Klausel des Matchers von X #= Y vor der
   # für lineare Summen kann greifen (die ersten fünf verlangen auf einer
@@ -2751,16 +2890,23 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # scalar_product_(#=, Cs0, Vs, S0) mit S0 =/= 0
   defp sp_eq([{_, c} | rest] = merged, s0, s, db) do
-    g = Enum.reduce(rest, c, fn {_, n}, g0 -> Integer.gcd(n, g0) end)
+    g = gcd_terms(rest, c)
 
     if rem(s0, g) == 0 do
-      vs = Enum.map(merged, &elem(&1, 0))
-      cs = Enum.map(merged, &div(elem(&1, 1), g))
-      pit_trigger(vs, mk("scalar_product_eq", [list(cs), list(vs), div(s0, g)]), s, db)
+      vs = term_vars(merged)
+      pit_trigger(vs, mk("scalar_product_eq", [div_coeffs(merged, g), vs, div(s0, g)]), s, db)
     else
       :fail
     end
   end
+
+  # gcd/3 des Originals: mit C anfangen (bei einem Glied bleibt sein
+  # Vorzeichen)
+  defp gcd_terms([], g), do: g
+  defp gcd_terms([{_, n} | ts], g), do: gcd_terms(ts, Integer.gcd(n, g))
+
+  defp div_coeffs([], _g), do: []
+  defp div_coeffs([{_, n} | ts], g), do: cons(div(n, g), div_coeffs(ts, g))
 
   # --- Aufstellen: all_distinct/1, all_different/1 ---------------------------
   #
@@ -2783,7 +2929,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         |> distinct_attach(ls, prop, [], q)
         |> seq(&trigger(prop, q, &1))
       end)
-      |> post_out(fn s -> same_queue(list_items(ls, s), s) end, [
+      |> post_out(fn s -> same_queue(ls, s) end, [
         mk(":", [a("clpz"), mk("variables_same_queue", [ls])])
       ])
     end)
@@ -2834,9 +2980,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       {:prolog, t, q, s} ->
         goal = mk(":", [a("clpz"), mk("do_queue_", [t, [q], fresh_var()])])
-        {:call, Enum.reduce(then, goal, &mk(",", [&2, &1])), s}
+        {:call, then_goals(goal, then), s}
     end
   end
+
+  defp then_goals(goal, []), do: goal
+  defp then_goals(goal, [g | gs]), do: then_goals(mk(",", [goal, g]), gs)
 
   # distinct_attach//3
   defp distinct_attach(:fail, _l, _prop, _right, _q), do: :fail
@@ -2895,8 +3044,19 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp exclude_fire(s, left, right, e, q) do
     unless is_integer(e), do: throw(:fallback)
 
-    (list_items(left, s) ++ list_items(right, s))
-    |> Enum.reduce(s, fn y, s -> seq(s, &neq_num(y, e, q, &1)) end)
+    s |> neq_list(left, e, q) |> neq_list(right, e, q)
+  end
+
+  # neq_num(Y, E) für jedes Y der Liste l (Prolog oder Elixir; unecht: das
+  # Original)
+  defp neq_list(:fail, _l, _e, _q), do: :fail
+
+  defp neq_list(s, l, e, q) do
+    case ws(l, s) do
+      [] -> s
+      [y | l] -> y |> neq_num(e, q, s) |> neq_list(l, e, q)
+      _ -> throw(:fallback)
+    end
   end
 
   # --- Labeling: select_var/4 -------------------------------------------------
@@ -2916,9 +3076,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
           {_, nil} -> throw(:fallback)
           {{:atom, "leftmost"}, {v, tl}} -> {:ok, v, tl}
           {{:atom, "ff"}, {v, tl}} -> sel_ff(v, tl, vars, s)
-          {{:atom, "ffc"}, {v, tl}} -> sel_by(v, tl, vars, s, &ffc_lt/3)
-          {{:atom, "min"}, {v, tl}} -> sel_by(v, tl, vars, s, &min_lt/3)
-          {{:atom, "max"}, {v, tl}} -> sel_by(v, tl, vars, s, &max_gt/3)
+          {{:atom, "ffc"}, {v, tl}} -> sel_by(v, tl, vars, s, :ffc)
+          {{:atom, "min"}, {v, tl}} -> sel_by(v, tl, vars, s, :min)
+          {{:atom, "max"}, {v, tl}} -> sel_by(v, tl, vars, s, :max)
           _ -> throw(:fallback)
         end
 
@@ -2978,10 +3138,18 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # find_ffc/3, find_min/3, find_max/3: lt(V, Bisher) wählt V
-  defp sel_by(v, tl, vars, s, lt) do
-    best = Enum.reduce(list_items(tl, s), v, fn x, b -> if lt.(x, b, s), do: x, else: b end)
+  defp sel_by(v, tl, vars, s, kind) do
+    best = best_by(ws(tl, s), v, kind, s)
     {:ok, best, delete_eq(vars, best, s)}
   end
+
+  defp best_by([], b, _kind, _s), do: b
+  defp best_by([x | l], b, kind, s), do: best_by(ws(l, s), better(kind, x, b, s), kind, s)
+  defp best_by(_, _b, _kind, _s), do: throw(:fallback)
+
+  defp better(:ffc, x, b, s), do: if(ffc_lt(x, b, s), do: x, else: b)
+  defp better(:min, x, b, s), do: if(min_lt(x, b, s), do: x, else: b)
+  defp better(:max, x, b, s), do: if(max_gt(x, b, s), do: x, else: b)
 
   # ffc_lt/2: weniger Elemente, bei Gleichstand mehr Propagatoren
   defp ffc_lt(x, y, s) do
@@ -3008,7 +3176,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   defp props_number(ps, s) do
     {gs, bs, os} = props(ps, s)
-    length(list_items(gs, s)) + length(list_items(bs, s)) + length(list_items(os, s))
+    pl_length(gs, s) + pl_length(bs, s) + pl_length(os, s)
   end
 
   defp min_lt(x, y, s) do
@@ -3115,15 +3283,13 @@ defmodule PrologEx.Builtins.ClpzPrims do
               :fail
 
             {:next, t, s} ->
-              {[g, f, sl], s} = drain(oargs, s)
+              {g, s} = drain_list(oargs, 1, s, [])
+              {f, s} = drain_list(oargs, 2, s, [])
+              {sl, s} = drain_list(oargs, 3, s, [])
               # (der Schlüssel neu: das Parken gab der Variablen ein
               # Attribut, walk/2 liefert sie jetzt anders)
               key = PrologEx.Store.walk(hd(oargs), s)
-
-              Process.put(
-                @nq,
-                {key, :queue.from_list(g), :queue.from_list(f), :queue.from_list(sl)}
-              )
+              Process.put(@nq, {key, g, f, sl})
 
               Process.put(@nqa, oargs)
               {:next, t, s}
@@ -3147,10 +3313,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defp own_queue(args, s, fun) do
-    {ls, s} = drain(args, s)
+    {g, s} = drain_list(args, 1, s, [])
+    {f, s} = drain_list(args, 2, s, [])
+    {sl, s} = drain_list(args, 3, s, [])
     key = PrologEx.Store.walk(hd(args), s)
     unless match?({:var, _}, key), do: throw(:fallback)
-    [g, f, sl] = Enum.map(ls, &:queue.from_list/1)
     prev = Process.get(@nqa)
     Process.put(@nq, {key, g, f, sl})
     Process.put(@nqa, args)
@@ -3166,15 +3333,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  # alle Einträge aus dem Term holen: {[Ziele, Schnelle, Langsame], s}
-  defp drain(args, s) do
-    Enum.map_reduce(1..3, s, fn k, s -> drain_list(args, k, s, []) end)
-  end
-
+  # alle Einträge der Liste k aus dem Term holen: {:queue, s}
   defp drain_list(args, k, s, acc) do
     case pop(args, k, s) do
       {e, s} -> drain_list(args, k, s, [e | acc])
-      nil -> {Enum.reverse(acc), s}
+      nil -> {:queue.from_list(:lists.reverse(acc)), s}
     end
   end
 
@@ -3182,15 +3345,21 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp flush(args, s) do
     {_, g, f, sl} = Process.delete(@nq)
 
-    [{1, g}, {2, f}, {3, sl}]
-    |> Enum.reduce(s, fn {k, qu}, s ->
-      Enum.reduce(:queue.to_list(qu), s, fn e, s -> seq(s, &insert_term(e, k, args, &1)) end)
-    end)
+    s
+    |> insert_all(:queue.to_list(g), 1, args)
+    |> insert_all(:queue.to_list(f), 2, args)
+    |> insert_all(:queue.to_list(sl), 3, args)
     |> case do
       :fail -> throw(:fallback)
       s -> s
     end
   end
+
+  defp insert_all(:fail, _es, _k, _args), do: :fail
+  defp insert_all(s, [], _k, _args), do: s
+
+  defp insert_all(s, [e | es], k, args),
+    do: e |> insert_term(k, args, s) |> insert_all(es, k, args)
 
   defp nq_push({key, g, f, sl}, which, e, s) do
     Process.put(
@@ -3312,30 +3481,29 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Queues, andere Attribute als clpz, kein ganzzahliger Wert): :no,
   # zurück nach Prolog (again)
   defp absorb_wake(ws, q, s) do
-    vs = Enum.reverse(ws)
     nq = Process.get(@nq)
 
-    if Enum.all?(vs, &match?({:var, {:attv, _}}, &1)) and
-         Enum.all?(vs, &only_clpz_attrs?(&1, s)) do
-      pairs = for v <- vs, {:ok, val} = Store.binding(s, v), do: {v, val}
-      s0 = Enum.reduce(vs, s, &Store.unbind(&2, &1))
+    if absorbable?(ws, s) do
+      # die Bindungen in der Reihenfolge des Weckens (ws ist umgekehrt)
+      pairs = wake_bindings(ws, s, [])
+      s0 = unbind_all(ws, s)
       Process.put(:clpz_prims_subst, s0)
 
       try do
-        case Enum.reduce_while(pairs, {s0, []}, &absorb_hook(&1, &2)) do
+        case absorb_all(pairs, s0, []) do
           :fail ->
             :fail
 
           {s1, qs} ->
-            s2 = Enum.reduce(pairs, s1, fn {v, val}, acc -> Store.put_binding(acc, v, val) end)
+            s2 = rebind_all(pairs, s1)
 
             cond do
-              Enum.all?(qs, &PrologEx.Order.equal?(&1, q, s1)) ->
+              all_equal?(qs, q, s1) ->
                 {:ok, s2}
 
               # alle in einer anderen Queue: deren do_queue//0 läuft
               # geschachtelt bis zum Fixpunkt, dann geht es hier weiter
-              Enum.all?(qs, &PrologEx.Order.equal?(&1, hd(qs), s1)) ->
+              all_equal?(qs, hd(qs), s1) ->
                 case run_other(hd(qs), s2) do
                   :no -> restore_nq(nq, :no)
                   r -> r
@@ -3373,8 +3541,42 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # alle geweckten Variablen gebunden, nur mit Attributen von clpz
+  defp absorbable?([], _s), do: true
+
+  defp absorbable?([{:var, {:attv, _}} = v | ws], s),
+    do: only_clpz_attrs?(v, s) and absorbable?(ws, s)
+
+  defp absorbable?(_, _s), do: false
+
+  defp wake_bindings([], _s, acc), do: acc
+
+  defp wake_bindings([v | ws], s, acc) do
+    {:ok, val} = Store.binding(s, v)
+    wake_bindings(ws, s, [{v, val} | acc])
+  end
+
+  defp unbind_all([], s), do: s
+  defp unbind_all([v | ws], s), do: unbind_all(ws, Store.unbind(s, v))
+
+  defp rebind_all([], s), do: s
+  defp rebind_all([{v, val} | ps], s), do: rebind_all(ps, Store.put_binding(s, v, val))
+
+  defp all_equal?([], _q, _s), do: true
+  defp all_equal?([x | xs], q, s), do: PrologEx.Order.equal?(x, q, s) and all_equal?(xs, q, s)
+
+  # absorb_hook/3 für jedes Paar: {s, Queues} oder :fail
+  defp absorb_all([], s, qs), do: {s, qs}
+
+  defp absorb_all([p | ps], s, qs) do
+    case absorb_hook(p, s, qs) do
+      {:cont, {s, qs}} -> absorb_all(ps, s, qs)
+      {:halt, :fail} -> :fail
+    end
+  end
+
   # verify_attributes/3 von clpz für V = Val (Val eine Zahl)
-  defp absorb_hook({v, val}, {s, qs}) do
+  defp absorb_hook({v, val}, s, qs) do
     case att(v, s, "clpz", 1) do
       nil ->
         {:cont, {s, qs}}
@@ -3400,7 +3602,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
           case s |> then_all(pgs, qv) |> then_all(bs, qv) |> then_all(os, qv) do
             :fail -> {:halt, :fail}
-            s -> {:cont, {s, qs ++ [qv]}}
+            s -> {:cont, {s, [qv | qs]}}
           end
         else
           {:halt, :fail}
@@ -3429,7 +3631,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # nächster Eintrag wie queue_enabled//0, queue_get_goal//1,
   # queue_get_fast//1, queue_get_slow//1
   defp next_entry(args, s) do
-    aux = PrologEx.Store.walk(Enum.at(args, 3), s)
+    aux = PrologEx.Store.walk(qarg(args, 4), s)
 
     cond do
       match?({:var, _}, aux) and att(aux, s, "disabled", 0) != nil ->
@@ -3492,8 +3694,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
         q = new_queue()
         {_, _, qargs} = q
 
-        s
-        |> then(&Enum.reduce(vs, &1, fn v, s -> seq(s, fn s -> init_one(v, p, q, s) end) end))
+        vs
+        |> init_all(p, q, s)
         |> seq(&same_queue(vs, &1))
         |> seq(&nq_intact/1)
         |> seq(&drop_inert_wake/1)
@@ -3509,7 +3711,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
               :fail
 
             {:next, {:atom, "none"}, s} ->
-              Enum.reduce(left, s, &seq(&2, fn s -> reinforce_one(&1, s) end))
+              reinforce_all(left, s)
 
             {:next, _, _} ->
               throw(:fallback)
@@ -3798,11 +4000,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       s = disable_queue(q, s)
 
-      s =
-        Enum.reduce(list_items(l, s) ++ list_items(r, s), s, fn v, s ->
-          seq(s, &neq_num(v, x, q, &1))
-        end)
-
+      s = s |> neq_list(l, x, q) |> neq_list(r, x, q)
       enable_queue(q, s)
     else
       s
@@ -3862,18 +4060,16 @@ defmodule PrologEx.Builtins.ClpzPrims do
         _ -> throw(:fallback)
       end
 
-    {cvs, i} = coeffs_vars(list_items(cs0, s), list_items(vs0, s), s)
+    {cvs, i} = coeffs_vars(cs0, vs0, s)
     p = p0 - i
-    cs = Enum.map(cvs, &elem(&1, 0))
 
-    cond do
-      cvs == [] ->
+    case cvs do
+      [] ->
         s = kill(st, s)
         if s != :fail and p == 0, do: s, else: :fail
 
       # V = [V], Cs = [C]: kill, P mod C =:= 0, V is P // C
-      match?([_], cvs) ->
-        [{c, v}] = cvs
+      [{c, v}] ->
         if c == 0, do: throw(:fallback)
 
         case kill(st, s) do
@@ -3884,27 +4080,29 @@ defmodule PrologEx.Builtins.ClpzPrims do
       # zwei oder (P = 0) drei Variablen: das Original tötet sich und stellt
       # { L #= R } auf – pplus/4 über pit/4 und trigger_once_/2, danach
       # reinforce(L); siehe sp_simplify/5
-      cs in [[1, 1], [1, -1], [-1, 1], [-1, -1]] ->
-        [{_, a}, {_, b}] = cvs
+      [{1, a}, {1, b}] ->
+        sp_simplify(st, [a, b, p], [a, b], s)
 
-        case cs do
-          [1, 1] -> sp_simplify(st, [a, b, p], [a, b], s)
-          [1, -1] -> sp_simplify(st, [p, b, a], [a], s)
-          [-1, 1] -> sp_simplify(st, [p, a, b], [b], s)
-          [-1, -1] -> sp_simplify(st, [a, b, -p], [a, b], s)
-        end
+      [{1, a}, {-1, b}] ->
+        sp_simplify(st, [p, b, a], [a], s)
 
-      p == 0 and cs in [[1, 1, -1], [1, -1, 1], [-1, 1, 1]] ->
-        [{_, a}, {_, b}, {_, c}] = cvs
+      [{-1, a}, {1, b}] ->
+        sp_simplify(st, [p, a, b], [b], s)
 
-        case cs do
-          [1, 1, -1] -> sp_simplify(st, [a, b, c], [a, b], s)
-          [1, -1, 1] -> sp_simplify(st, [a, c, b], [a, c], s)
-          [-1, 1, 1] -> sp_simplify(st, [b, c, a], [b, c], s)
-        end
+      [{-1, a}, {-1, b}] ->
+        sp_simplify(st, [a, b, -p], [a, b], s)
 
-      true ->
-        if Enum.any?(cs, &(&1 == 0)), do: throw(:fallback)
+      [{1, a}, {1, b}, {-1, c}] when p == 0 ->
+        sp_simplify(st, [a, b, c], [a, b], s)
+
+      [{1, a}, {-1, b}, {1, c}] when p == 0 ->
+        sp_simplify(st, [a, c, b], [a, c], s)
+
+      [{-1, a}, {1, b}, {1, c}] when p == 0 ->
+        sp_simplify(st, [b, c, a], [b, c], s)
+
+      _ ->
+        if zero_coeff?(cvs), do: throw(:fallback)
         {infs, sups, inf, sup} = sum_finite(cvs, s)
         d1 = p - inf
         d2 = sup - p
@@ -4301,36 +4499,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Schleife). Sonst das Original.
 
   defp propagate(name, [pairs0], _st, q, s) when name in ["pgcc_check", "pgcc_check_single"] do
-    pairs =
-      Enum.map(list_items(pairs0, s), fn p ->
-        case ws(p, s) do
-          {tag, "-", [k, n0]} when tag in [:struct, :gstruct] ->
-            case {val(k, s), PrologEx.Store.walk(n0, s)} do
-              {k, {:var, _} = n0} when is_integer(k) -> {k, n0}
-              _ -> throw(:fallback)
-            end
-
-          _ ->
-            throw(:fallback)
-        end
-      end)
-
     # disable_queue//0 entfällt: hier liest nichts den Schalter (fd_put//3
     # reiht nur ein), enable_queue//0 am Ende wie im Original
-    n = length(pairs)
-
-    {s, pending} =
-      pairs
-      |> Enum.with_index(1)
-      |> Enum.reduce_while({s, nil}, fn {{key, num0}, i}, {s, nil} ->
-        case gcc_pair(key, num0, q, s) do
-          {:fail, _} -> {:halt, {:fail, nil}}
-          {s, nil} -> {:cont, {s, nil}}
-          {s, b} when i == n -> {:cont, {s, b}}
-          _ -> throw(:fallback)
-        end
-      end)
-
+    {s, pending} = gcc_pairs(ws(pairs0, s), q, s)
     s = enable_queue(q, s)
 
     case pending do
@@ -4355,14 +4526,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
             # integers_remaining/5: Vereinigung der Domänen der möglichen
             # Elemente (in einem Schritt zusammengefügt)
-            is =
-              list_items(is0, s)
-              |> Enum.with_index(1)
-              |> Enum.flat_map(fn {e, i} ->
-                if dcontains?(nd, i), do: element_dom(e, s), else: []
-              end)
-
-            vd1 = ClpzDom.from_intervals(is)
+            vd1 = ClpzDom.from_intervals(element_doms(ws(is0, s), 1, nd, s))
 
             put_isect(v, vd, vd1, vps, q, s)
 
@@ -4371,11 +4535,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
         end
 
       n when is_integer(n) ->
-        items = list_items(is0, s)
-
-        case n >= 1 and Enum.at(items, n - 1) do
-          e when e not in [nil, false] -> s |> kill_then(st) |> bind(e, v0)
-          _ -> s |> kill_then(st) |> then_fail()
+        case nth_item(ws(is0, s), n, s) do
+          nil -> s |> kill_then(st) |> then_fail()
+          e -> s |> kill_then(st) |> bind(e, v0)
         end
 
       _ ->
@@ -4549,22 +4711,25 @@ defmodule PrologEx.Builtins.ClpzPrims do
         _ -> throw(:fallback)
       end
 
-    {cvs, i} = coeffs_vars(list_items(cs0, s), list_items(vs0, s), s)
+    {cvs, i} = coeffs_vars(cs0, vs0, s)
     p = p0 - i
-    cs = Enum.map(cvs, &elem(&1, 0))
 
-    cond do
-      cvs == [] ->
+    case cvs do
+      [] ->
         s = kill(st, s)
         if s != :fail and p != 0, do: s, else: :fail
 
-      match?([_], cvs) or cs in [[1, -1], [-1, 1]] ->
+      [_] ->
         throw(:fallback)
 
-      p == 0 and cs in [[1, 1, -1], [1, -1, 1], [-1, 1, 1]] ->
+      [{c1, _}, {c2, _}] when (c1 == 1 and c2 == -1) or (c1 == -1 and c2 == 1) ->
         throw(:fallback)
 
-      true ->
+      [{c1, _}, {c2, _}, {c3, _}]
+      when p == 0 and c1 in [1, -1] and c2 in [1, -1] and c3 in [1, -1] and c1 + c2 + c3 == 1 ->
+        throw(:fallback)
+
+      _ ->
         s
     end
   end
@@ -4670,14 +4835,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
         _ -> throw(:fallback)
       end
 
-    {cvs, i} = coeffs_vars(list_items(cs0, s), list_items(vs0, s), s)
+    {cvs, i} = coeffs_vars(cs0, vs0, s)
     p = p0 - i
 
     if cvs == [] do
       s = kill(st, s)
       if s != :fail and p >= 0, do: s, else: :fail
     else
-      if Enum.any?(cvs, &(elem(&1, 0) == 0)), do: throw(:fallback)
+      if zero_coeff?(cvs), do: throw(:fallback)
       {infs, sups, inf, sup} = sum_finite(cvs, s)
       d1 = p - inf
       s = disable_queue(q, s)
@@ -5352,7 +5517,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           end
 
         is_integer(occ0) || throw(:fallback)
-        {min, os} = vs_key_min_others(list_items(vs, s), key, s)
+        {min, os} = vs_key_min_others(ws(vs, s), key, s, 0, [])
         occ1 = occ0 + min
 
         s =
@@ -5370,7 +5535,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
     cond do
       numv == occ1 ->
-        s = Enum.reduce(os, s, fn o, s -> seq(s, &neq_num(o, key, q, &1)) end)
+        s = neq_list(s, os, key, q)
         {seq(s, &gcc_done(num0, &1)), nil}
 
       os == [] ->
@@ -5421,23 +5586,67 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # vs_key_min_others/5: wie oft Key schon vorkommt, die Variablen, die Key
   # noch annehmen können
-  defp vs_key_min_others(vs, key, s) do
-    {min, os} =
-      Enum.reduce(vs, {0, []}, fn v, {min, os} ->
-        case val(v, s) do
-          {:var, _} = x ->
-            if dcontains?(elem(fdget_ro(x, s), 0), key), do: {min, [x | os]}, else: {min, os}
+  # gcc_pair/4 für jedes Paar Key-Num0: {s, nil}, {:fail, nil} oder – nur
+  # beim letzten Paar – {s, {V, Wert}} (eine Bindung danach)
+  defp gcc_pairs([], _q, s), do: {s, nil}
 
-          i when is_integer(i) ->
-            if i == key, do: {min + 1, os}, else: {min, os}
+  defp gcc_pairs([p | ps], q, s) do
+    {key, num0} = gcc_pair_arg(p, s)
+    ps = ws(ps, s)
 
-          _ ->
-            throw(:fallback)
-        end
-      end)
-
-    {min, Enum.reverse(os)}
+    case gcc_pair(key, num0, q, s) do
+      {:fail, _} -> {:fail, nil}
+      {s, nil} -> gcc_pairs(ps, q, s)
+      {s, b} when ps == [] -> {s, b}
+      _ -> throw(:fallback)
+    end
   end
+
+  defp gcc_pairs(_, _q, _s), do: throw(:fallback)
+
+  # die Intervalle der Elemente mit Index in nd (unecht: das Original)
+  defp element_doms([], _i, _nd, _s), do: []
+
+  defp element_doms([e | es], i, nd, s) do
+    if dcontains?(nd, i),
+      do: element_dom(e, s) ++ element_doms(ws(es, s), i + 1, nd, s),
+      else: element_doms(ws(es, s), i + 1, nd, s)
+  end
+
+  defp element_doms(_, _i, _nd, _s), do: throw(:fallback)
+
+  # das n-te Element (ab 1) oder nil; die Liste muss ganz echt sein
+  defp nth_item([], _n, _s), do: nil
+  defp nth_item([e | es], 1, s), do: if(proper_list?(es, s), do: e, else: throw(:fallback))
+  defp nth_item([_ | es], n, s), do: nth_item(ws(es, s), n - 1, s)
+  defp nth_item(_, _n, _s), do: throw(:fallback)
+
+  defp proper_list?(l, s) do
+    case ws(l, s) do
+      [] -> true
+      [_ | t] -> proper_list?(t, s)
+      _ -> false
+    end
+  end
+
+  defp vs_key_min_others([], _key, _s, min, os), do: {min, :lists.reverse(os)}
+
+  defp vs_key_min_others([v | vs], key, s, min, os) do
+    case val(v, s) do
+      {:var, _} = x ->
+        if dcontains?(elem(fdget_ro(x, s), 0), key),
+          do: vs_key_min_others(ws(vs, s), key, s, min, [x | os]),
+          else: vs_key_min_others(ws(vs, s), key, s, min, os)
+
+      ^key ->
+        vs_key_min_others(ws(vs, s), key, s, min + 1, os)
+
+      i when is_integer(i) ->
+        vs_key_min_others(ws(vs, s), key, s, min, os)
+    end
+  end
+
+  defp vs_key_min_others(_, _key, _s, _min, _os), do: throw(:fallback)
 
   defp gcc_done(_num0, :fail), do: :fail
 
@@ -5843,7 +6052,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp kill_entailed_all(:fail, _ps), do: :fail
 
   defp kill_entailed_all(s, ps) do
-    Enum.reduce(list_items(ps, s), s, fn e, s -> seq(s, &kill_entailed(e, &1)) end)
+    case ws(ps, s) do
+      [] -> s
+      [e | ps] -> e |> kill_entailed(s) |> kill_entailed_all(ps)
+      _ -> throw(:fallback)
+    end
   end
 
   defp kill_entailed(e, s) do
@@ -6123,24 +6336,6 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  # remove_dist_upper_leq//3: je Variable die Schranke über D1 kürzen
-  # (eine unendliche Schranke: das Original scheitert)
-  defp remove_dist_upper_leq(cvs, d1, q, s) do
-    each_cv(cvs, q, s, fn c, vd ->
-      if c < 0 do
-        case int_bound(sup_dec(vd)) do
-          nil -> nil
-          sup -> remove_lt(vd, sup + div(d1, c))
-        end
-      else
-        case int_bound(inf_dec(vd)) do
-          nil -> nil
-          inf -> remove_gt(vd, inf + div(d1, c))
-        end
-      end
-    end)
-  end
-
   defp then_put(s, v, d, ps, q), do: fdput(v, d, ps, q, s)
 
   defp inf_d(d), do: inf_dec(d)
@@ -6249,154 +6444,178 @@ defmodule PrologEx.Builtins.ClpzPrims do
     put_isect(v, d, iv(nl, nu), ps, q, s)
   end
 
-  # coeffs_variables_const/6: [{C, V}] der offenen Variablen und Σ C·V der
+  # coeffs_variables_const/6 gleich über den Prolog-Listen Cs und Vs:
+  # [{C, V}] der offenen Variablen (in ihrer Reihenfolge) und Σ C·V der
   # bekannten
-  defp coeffs_vars([], [], _s), do: {[], 0}
+  defp coeffs_vars(cs, vs, s), do: coeffs_vars(ws(cs, s), ws(vs, s), s, [], 0)
 
-  defp coeffs_vars([c | cs], [v | vs], s) do
+  defp coeffs_vars([], [], _s, acc, i), do: {:lists.reverse(acc), i}
+
+  defp coeffs_vars([c | cs], [v | vs], s, acc, i) do
     c =
       case val(c, s) do
-        i when is_integer(i) -> i
+        c when is_integer(c) -> c
         _ -> throw(:fallback)
       end
 
-    {rest, i} = coeffs_vars(cs, vs, s)
-
     case val(v, s) do
-      {:var, _} = var -> {[{c, var} | rest], i}
-      n -> {rest, i + c * n}
+      {:var, _} = var -> coeffs_vars(ws(cs, s), ws(vs, s), s, [{c, var} | acc], i)
+      n -> coeffs_vars(ws(cs, s), ws(vs, s), s, acc, i + c * n)
     end
   end
 
-  defp coeffs_vars(_, _, _s), do: throw(:fallback)
+  defp coeffs_vars(_, _, _s, _acc, _i), do: throw(:fallback)
+
+  defp zero_coeff?([{0, _} | _]), do: true
+  defp zero_coeff?([_ | cvs]), do: zero_coeff?(cvs)
+  defp zero_coeff?([]), do: false
 
   # sum_finite_domains/10: {Infs, Sups, Inf, Sup}; Infs/Sups die Glieder
   # C·V mit unendlicher Schranke, in der Reihenfolge des Originals
-  defp sum_finite(cvs, s) do
-    {infs, sups, inf, sup} =
-      Enum.reduce(cvs, {[], [], 0, 0}, fn {c, v}, {infs, sups, inf0, sup0} ->
-        {d, _} = fdget_ro(v, s)
-        {inf1, sup1} = {inf_dec(d), sup_dec(d)}
+  defp sum_finite(cvs, s), do: sum_finite(cvs, s, [], [], 0, 0)
 
-        {inf2a, sup2a, infs, sups} =
-          if is_integer(inf1) do
-            if c < 0,
-              do: {nil, sup0 + c * inf1, infs, sups},
-              else: {inf0 + c * inf1, nil, infs, sups}
-          else
-            if c < 0,
-              do: {nil, sup0, infs, [{c, v} | sups]},
-              else: {inf0, nil, [{c, v} | infs], sups}
-          end
+  defp sum_finite([], _s, infs, sups, inf, sup),
+    do: {:lists.reverse(infs), :lists.reverse(sups), inf, sup}
 
-        {inf2, sup2, infs, sups} =
-          if is_integer(sup1) do
-            if c < 0,
-              do: {inf0 + c * sup1, sup2a, infs, sups},
-              else: {inf2a, sup0 + c * sup1, infs, sups}
-          else
-            if c < 0,
-              do: {inf0, sup2a, [{c, v} | infs], sups},
-              else: {inf2a, sup0, infs, [{c, v} | sups]}
-          end
+  defp sum_finite([{c, v} = cv | cvs], s, infs, sups, inf, sup) do
+    {d, _} = fdget_ro(v, s)
+    l = inf_dec(d)
+    u = sup_dec(d)
 
-        {infs, sups, inf2, sup2}
-      end)
-
-    {Enum.reverse(infs), Enum.reverse(sups), inf, sup}
-  end
-
-  defp each_cv(cvs, q, s, f) do
-    Enum.reduce(cvs, s, fn {c, v}, s ->
-      seq(s, fn s ->
-        case val(v, s) do
-          {:var, _} ->
-            {d, ps} = fdget(v, s)
-
-            case f.(c, d) do
-              nil -> :fail
-              d2 -> fdput(v, d2, ps, q, s)
-            end
-
-          _ ->
-            s
+    # C < 0: die untere Schranke von V trägt zu Sup bei, die obere zu Inf
+    cond do
+      c < 0 ->
+        case {is_integer(l), is_integer(u)} do
+          {true, true} -> sum_finite(cvs, s, infs, sups, inf + c * u, sup + c * l)
+          {true, false} -> sum_finite(cvs, s, [cv | infs], sups, inf, sup + c * l)
+          {false, true} -> sum_finite(cvs, s, infs, [cv | sups], inf + c * u, sup)
+          {false, false} -> sum_finite(cvs, s, [cv | infs], [cv | sups], inf, sup)
         end
-      end)
-    end)
+
+      true ->
+        case {is_integer(l), is_integer(u)} do
+          {true, true} -> sum_finite(cvs, s, infs, sups, inf + c * l, sup + c * u)
+          {true, false} -> sum_finite(cvs, s, infs, [cv | sups], inf + c * l, sup)
+          {false, true} -> sum_finite(cvs, s, [cv | infs], sups, inf, sup + c * u)
+          {false, false} -> sum_finite(cvs, s, [cv | infs], [cv | sups], inf, sup)
+        end
+    end
   end
+
+  # Je offene Variable V der Glieder {C, V}: Domäne D durch narrow/5 ersetzen
+  # (nil: leer) und ablegen; kind wählt die Regel, a und b sind ihre Werte
+  defp each_cv([], _kind, _a, _b, _q, s), do: s
+
+  defp each_cv([{c, v} | cvs], kind, a, b, q, s) do
+    case val(v, s) do
+      {:var, _} ->
+        {d, ps} = fdget(v, s)
+
+        case narrow(kind, c, d, a, b) do
+          nil ->
+            :fail
+
+          d2 ->
+            case fdput(v, d2, ps, q, s) do
+              :fail -> :fail
+              s -> each_cv(cvs, kind, a, b, q, s)
+            end
+        end
+
+      _ ->
+        each_cv(cvs, kind, a, b, q, s)
+    end
+  end
+
+  # remove_dist_upper_lower//4
+  defp narrow(:ul, c, vd, d1, d2) when c < 0 do
+    with sup when sup != nil <- int_bound(sup_dec(vd)),
+         vd1 = remove_lt(vd, sup + div(d1, c)),
+         false <- vd1 == [],
+         inf when inf != nil <- int_bound(inf_dec(vd1)) do
+      remove_gt(vd1, inf - div(d2, c))
+    else
+      _ -> nil
+    end
+  end
+
+  defp narrow(:ul, c, vd, d1, d2) do
+    with inf when inf != nil <- int_bound(inf_dec(vd)),
+         vd1 = remove_gt(vd, inf + div(d1, c)),
+         false <- vd1 == [],
+         sup when sup != nil <- int_bound(sup_dec(vd1)) do
+      remove_lt(vd1, sup - div(d2, c))
+    else
+      _ -> nil
+    end
+  end
+
+  # remove_dist_upper//2
+  defp narrow(:upper, c, vd, d, _) when c < 0 do
+    case int_bound(sup_dec(vd)) do
+      nil -> vd
+      sup -> remove_lt(vd, sup + div(d, c))
+    end
+  end
+
+  defp narrow(:upper, c, vd, d, _) do
+    case int_bound(inf_dec(vd)) do
+      nil -> vd
+      inf -> remove_gt(vd, inf + div(d, c))
+    end
+  end
+
+  # remove_dist_upper_leq//3: wie :upper, ohne endliche Schranke leer
+  defp narrow(:upper_leq, c, vd, d1, _) when c < 0 do
+    case int_bound(sup_dec(vd)) do
+      nil -> nil
+      sup -> remove_lt(vd, sup + div(d1, c))
+    end
+  end
+
+  defp narrow(:upper_leq, c, vd, d1, _) do
+    case int_bound(inf_dec(vd)) do
+      nil -> nil
+      inf -> remove_gt(vd, inf + div(d1, c))
+    end
+  end
+
+  # remove_dist_lower//2
+  defp narrow(:lower, c, vd, d, _) when c < 0 do
+    case int_bound(inf_dec(vd)) do
+      nil -> vd
+      inf -> remove_gt(vd, inf - div(d, c))
+    end
+  end
+
+  defp narrow(:lower, c, vd, d, _) do
+    case int_bound(sup_dec(vd)) do
+      nil -> vd
+      sup -> remove_lt(vd, sup - div(d, c))
+    end
+  end
+
+  # remove_upper//2
+  defp narrow(:max, c, xd, max, _) do
+    d = div(max, c)
+    if c < 0, do: remove_lt(xd, d), else: remove_gt(xd, d)
+  end
+
+  # remove_lower//2
+  defp narrow(:min, c, xd, min, _) do
+    d = div(-min, c)
+    if c < 0, do: remove_gt(xd, d), else: remove_lt(xd, d)
+  end
+
+  defp remove_dist_ul(cvs, d1, d2, q, s), do: each_cv(cvs, :ul, d1, d2, q, s)
+  defp remove_dist_upper(cvs, d, q, s), do: each_cv(cvs, :upper, d, nil, q, s)
+  defp remove_dist_upper_leq(cvs, d1, q, s), do: each_cv(cvs, :upper_leq, d1, nil, q, s)
+  defp remove_dist_lower(cvs, d, q, s), do: each_cv(cvs, :lower, d, nil, q, s)
+  defp remove_upper(cvs, max, q, s), do: each_cv(cvs, :max, max, nil, q, s)
+  defp remove_lower(cvs, min, q, s), do: each_cv(cvs, :min, min, nil, q, s)
 
   defp int_bound(b) when is_integer(b), do: b
   defp int_bound(_), do: nil
-
-  defp remove_dist_ul(cvs, d1, d2, q, s) do
-    each_cv(cvs, q, s, fn c, vd ->
-      if c < 0 do
-        with sup when sup != nil <- int_bound(sup_dec(vd)),
-             vd1 = remove_lt(vd, sup + div(d1, c)),
-             false <- vd1 == [],
-             inf when inf != nil <- int_bound(inf_dec(vd1)) do
-          remove_gt(vd1, inf - div(d2, c))
-        else
-          _ -> nil
-        end
-      else
-        with inf when inf != nil <- int_bound(inf_dec(vd)),
-             vd1 = remove_gt(vd, inf + div(d1, c)),
-             false <- vd1 == [],
-             sup when sup != nil <- int_bound(sup_dec(vd1)) do
-          remove_lt(vd1, sup - div(d2, c))
-        else
-          _ -> nil
-        end
-      end
-    end)
-  end
-
-  defp remove_dist_upper(cvs, d, q, s) do
-    each_cv(cvs, q, s, fn c, vd ->
-      if c < 0 do
-        case int_bound(sup_dec(vd)) do
-          nil -> vd
-          sup -> remove_lt(vd, sup + div(d, c))
-        end
-      else
-        case int_bound(inf_dec(vd)) do
-          nil -> vd
-          inf -> remove_gt(vd, inf + div(d, c))
-        end
-      end
-    end)
-  end
-
-  defp remove_dist_lower(cvs, d, q, s) do
-    each_cv(cvs, q, s, fn c, vd ->
-      if c < 0 do
-        case int_bound(inf_dec(vd)) do
-          nil -> vd
-          inf -> remove_gt(vd, inf - div(d, c))
-        end
-      else
-        case int_bound(sup_dec(vd)) do
-          nil -> vd
-          sup -> remove_lt(vd, sup - div(d, c))
-        end
-      end
-    end)
-  end
-
-  defp remove_upper(cvs, max, q, s) do
-    each_cv(cvs, q, s, fn c, xd ->
-      d = div(max, c)
-      if c < 0, do: remove_lt(xd, d), else: remove_gt(xd, d)
-    end)
-  end
-
-  defp remove_lower(cvs, min, q, s) do
-    each_cv(cvs, q, s, fn c, xd ->
-      d = div(-min, c)
-      if c < 0, do: remove_gt(xd, d), else: remove_lt(xd, d)
-    end)
-  end
 
   # --- all_distinct/1 (Régin) und circuit/1 ---------------------------------
   #
@@ -6417,25 +6636,19 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       gs ->
         s = disable_queue(q, s)
-        s = Enum.reduce(gs, s, fn {v, n}, s -> seq(s, &neq_num(v, n, q, &1)) end)
+        s = neq_pairs(gs, q, s)
         enable_queue(q, s)
     end
   end
 
+  defp neq_pairs(_gs, _q, :fail), do: :fail
+  defp neq_pairs([], _q, s), do: s
+  defp neq_pairs([{v, n} | gs], q, s), do: neq_pairs(gs, q, neq_num(v, n, q, s))
+
   # [{Variable, Wert}] in der Reihenfolge des Originals, oder :fail
   defp distinct_goals(vs, s) do
-    left =
-      for v <- list_items(vs, s),
-          var?(PrologEx.Store.walk(v, s)),
-          v = PrologEx.Store.walk(v, s),
-          {d, _} = fdget_ro(v, s),
-          {:ok, ns} <- [ClpzDom.to_list(d)],
-          do: {v, ns}
-
-    if length(Enum.uniq_by(left, &elem(&1, 0))) != length(left), do: throw(:fallback)
-
-    n = length(left)
-    doms = left |> Enum.map(&elem(&1, 1)) |> List.to_tuple()
+    {left, n} = distinct_left(ws(vs, s), s, %{}, [], 0)
+    doms = List.to_tuple(left_doms(left))
     # Wert => Variablen (aufsteigend); die Schlüssel sind die vorkommenden Werte
     adj = adjacency(n - 1, doms, %{})
 
@@ -6446,6 +6659,35 @@ defmodule PrologEx.Builtins.ClpzPrims do
       _ -> :fail
     end
   end
+
+  # [{Variable, Werte}] der ungebundenen Variablen mit endlicher Domäne,
+  # in der Reihenfolge der Liste, und ihre Anzahl; eine Variable doppelt
+  # oder eine unechte Liste: das Original
+  defp distinct_left([], _s, _seen, acc, n), do: {:lists.reverse(acc), n}
+
+  defp distinct_left([v | vs], s, seen, acc, n) do
+    case PrologEx.Store.walk(v, s) do
+      {:var, _} = v ->
+        {d, _} = fdget_ro(v, s)
+
+        case ClpzDom.to_list(d) do
+          {:ok, ns} ->
+            if is_map_key(seen, v), do: throw(:fallback)
+            distinct_left(ws(vs, s), s, Map.put(seen, v, true), [{v, ns} | acc], n + 1)
+
+          :error ->
+            distinct_left(ws(vs, s), s, seen, acc, n)
+        end
+
+      _ ->
+        distinct_left(ws(vs, s), s, seen, acc, n)
+    end
+  end
+
+  defp distinct_left(_, _s, _seen, _acc, _n), do: throw(:fallback)
+
+  defp left_doms([]), do: []
+  defp left_doms([{_, ns} | left]), do: [ns | left_doms(left)]
 
   # (von hinten her vorangestellt, also aufsteigend; ohne Closure je Paar)
   defp adjacency(i, _doms, acc) when i < 0, do: acc
@@ -6514,15 +6756,36 @@ defmodule PrologEx.Builtins.ClpzPrims do
     # (Reihenfolge gleichgültig: reach liefert eine Menge)
     free = for {val, _} <- adj, not is_map_key(matched, val), do: {:n, val}
     reach = reach(free, succ, Map.new(free, &{&1, true}))
-    comp = tarjan(Enum.map(0..(n - 1)//1, &{:v, &1}), succ)
+    comp = tarjan(var_nodes(0, n), succ)
+    removable_edges(left, 0, mv, reach, comp)
+  end
 
-    for {{v, ns}, i} <- Enum.with_index(left),
-        mi <- [Map.get(mv, i)],
-        val <- Enum.reverse(ns),
-        mi != val,
-        not is_map_key(reach, {:n, val}),
-        Map.get(comp, {:v, i}) != Map.get(comp, {:n, val}),
-        do: {v, val}
+  defp var_nodes(i, n) when i >= n, do: []
+  defp var_nodes(i, n), do: [{:v, i} | var_nodes(i + 1, n)]
+
+  # je Variable i die Werte (absteigend), deren Kante weg kann
+  defp removable_edges([], _i, _mv, _reach, _comp), do: []
+
+  defp removable_edges([{v, ns} | left], i, mv, reach, comp) do
+    removable_vals(
+      :lists.reverse(ns),
+      v,
+      Map.get(mv, i),
+      Map.get(comp, {:v, i}),
+      reach,
+      comp,
+      removable_edges(left, i + 1, mv, reach, comp)
+    )
+  end
+
+  defp removable_vals([], _v, _mi, _ci, _reach, _comp, rest), do: rest
+
+  defp removable_vals([val | vals], v, mi, ci, reach, comp, rest) do
+    vals = removable_vals(vals, v, mi, ci, reach, comp, rest)
+
+    if mi != val and not is_map_key(reach, {:n, val}) and ci != Map.get(comp, {:n, val}),
+      do: [{v, val} | vals],
+      else: vals
   end
 
   # erreichbare Knoten (Map als Menge)
@@ -6545,9 +6808,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp tarjan(roots, succ) do
     st = %{index: 0, idx: %{}, low: %{}, stack: [], on: %{}, comp: %{}}
 
-    Enum.reduce(roots, st, fn v, st ->
-      if is_map_key(st.idx, v), do: st, else: strong(v, succ, st)
-    end).comp
+    tarjan_roots(roots, succ, st).comp
+  end
+
+  defp tarjan_roots([], _succ, st), do: st
+
+  defp tarjan_roots([v | vs], succ, st) do
+    st = if is_map_key(st.idx, v), do: st, else: strong(v, succ, st)
+    tarjan_roots(vs, succ, st)
   end
 
   defp strong(v, succ, st) do
@@ -6596,40 +6864,54 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # zusammenhängend (gebundene V_k: ihr Wert; ein Wert außerhalb 1..n oder
   # eine unendliche Domäne: scheitert)
   defp circuit_connected?(vs, s) do
-    items = list_items(vs, s)
-    n = length(items)
+    n = pl_length(vs, s)
 
-    arcs =
-      Enum.map(items, fn v ->
-        ns =
-          case val(v, s) do
-            {:var, _} = var ->
-              {d, _} = fdget_ro(var, s)
-
-              case ClpzDom.to_list(d) do
-                {:ok, ns} -> ns
-                :error -> nil
-              end
-
-            i ->
-              [i]
-          end
-
-        if ns != nil and Enum.all?(ns, &(&1 in 1..n//1)), do: ns, else: nil
-      end)
-
-    cond do
-      Enum.any?(arcs, &is_nil/1) ->
+    case circuit_arcs(ws(vs, s), 1, n, s, %{}) do
+      nil ->
         false
 
-      n == 0 ->
+      _ when n == 0 ->
         true
 
-      true ->
+      g ->
         # wie im Original: Tarjan ab Knoten 1, alle in dessen Komponente
-        g = arcs |> Enum.with_index(1) |> Map.new(fn {ns, k} -> {k, ns} end)
-        comp = tarjan(Enum.to_list(1..n), fn k -> Map.fetch!(g, k) end)
-        Enum.all?(1..n, &(comp[&1] == comp[1]))
+        comp = tarjan(int_nodes(1, n), &:erlang.map_get(&1, g))
+        same_comp?(2, n, comp, :erlang.map_get(1, comp))
     end
   end
+
+  # %{k => Nachfolger}, nil bei einem Wert außerhalb 1..n oder einer
+  # unendlichen Domäne (die Liste wird trotzdem ganz gelesen: val/2 wirft
+  # bei Unerwartetem, wie zuvor)
+  defp circuit_arcs([], _k, _n, _s, g), do: g
+
+  defp circuit_arcs([v | vs], k, n, s, g) do
+    ns =
+      case val(v, s) do
+        {:var, _} = var ->
+          {d, _} = fdget_ro(var, s)
+
+          case ClpzDom.to_list(d) do
+            {:ok, ns} -> ns
+            :error -> nil
+          end
+
+        i ->
+          [i]
+      end
+
+    g = if g != nil and ns != nil and all_in?(ns, n), do: Map.put(g, k, ns), else: nil
+    circuit_arcs(ws(vs, s), k + 1, n, s, g)
+  end
+
+  defp all_in?([], _n), do: true
+  defp all_in?([i | is], n), do: i >= 1 and i <= n and all_in?(is, n)
+
+  defp int_nodes(i, n) when i > n, do: []
+  defp int_nodes(i, n), do: [i | int_nodes(i + 1, n)]
+
+  defp same_comp?(k, n, _comp, _c) when k > n, do: true
+
+  defp same_comp?(k, n, comp, c),
+    do: :erlang.map_get(k, comp) == c and same_comp?(k + 1, n, comp, c)
 end

@@ -4332,3 +4332,14 @@ mix test                  # Tests (ohne die langsamen, @tag :slow)
 mix test --include slow   # mit den langsamen (Minuten)
 mix run bench/bench.exs   # Speicher- und Laufzeitmessung
 ```
+
+Stil im Elixir-Code: ohne konkreten Anlass (Sortieren, Maps,
+Mengenoperationen) explizite Rekursion statt `Enum.map`, `Enum.reduce`,
+`Enum.all?` und Co. – jede `Enum`-Funktion ruft eine Lambda indirekt
+auf, ein Tupel als Akkumulator von `Enum.reduce` wird je Schritt neu
+angelegt; eine eigene Funktion hält die Werte in Registern (gemessen:
+`Enum.reduce` mit 4-Tupel 2,5-mal so langsam wie die Rekursion). Und
+keine unnötigen Zwischenstrukturen: Prolog-Listen gleich durchlaufen,
+statt sie erst in eine Elixir-Liste zu kopieren. `PrologEx.Builtins.ClpzPrims`
+und `ClpzDom` folgen dem schon (Reduktionen der Damen und des Sudoku
+−7 bis −10 %); der übrige Code nach und nach.
