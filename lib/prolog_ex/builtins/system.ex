@@ -1,7 +1,7 @@
 defmodule PrologEx.Builtins.System do
   @moduledoc "Prolog-Flags und Zugriff auf die Datenbank (clause/2, current_predicate/1)."
   use PrologEx.Builtin
-  alias PrologEx.{Builtins, Compiler, Flags}
+  alias PrologEx.{Builtins, Compiler, Flags, Store}
   alias PrologEx.Builtins.Modules
 
   # clause(H, B): H :- B ist eine Klausel (Fakten: B = true). H darf
@@ -38,7 +38,7 @@ defmodule PrologEx.Builtins.System do
       bb -> Compiler.key(bb)
     end
 
-    clause_results(source(m, name, arity, head, db(), subst(), private), head, b)
+    clause_results(source(m, name, arity, head, db(), subst(), private), head, b, subst())
   end
 
   # current_predicate(PI), PI = Name/Arity oder M:Name/Arity: in M (sonst
@@ -152,18 +152,85 @@ defmodule PrologEx.Builtins.System do
     end
   end
 
-  # eine Lösung je Klausel, lazy; Kopf und Rumpf gemeinsam kopiert
-  defp clause_results([], _h, _b), do: []
-  defp clause_results([cl], h, b), do: [clause_result(cl, h, b)]
+  # eine Lösung je Klausel, lazy. Der Kopf der Quelle wird nicht kopiert,
+  # sondern gegen die Argumente des Ziels gelegt (wie beim Aufruf): eine
+  # Variable der Quelle steht bei ihrem ersten Auftreten für das Argument
+  # selbst (keine frische Variable, keine Bindung), Strukturen werden
+  # gegen Strukturen zerlegt. Übrig bleiben Paare für die Unifikation
+  # (wiederholte Variablen, Variablen des Ziels gegen Teile der Quelle,
+  # Konstanten); kopiert wird nur der Rumpf und was an Variablen des
+  # Ziels gebunden wird. Klauseln, deren Kopf so schon scheitert, fallen
+  # gleich weg
+  defp clause_results([], _h, _b, _s), do: []
 
-  defp clause_results([cl | rest], h, b),
-    do: [clause_result(cl, h, b) | fn -> clause_results(rest, h, b) end]
+  defp clause_results([{head, body} | rest], h, b, s) do
+    case match_head(PrologEx.Compiler.args_of(head), Compiler.args_of(h), %{}, [], s) do
+      :fail ->
+        clause_results(rest, h, b, s)
 
-  defp clause_result({head, body}, h, b) do
-    {_tag, "$clause", [head2, body2]} =
-      PrologEx.copy_fresh({:struct, "$clause", [head, body]}, %{})
+      {map, pairs} ->
+        {body2, _} = PrologEx.copy_mapped(body, map)
+        r = {:unify, :lists.reverse(pairs, [{b, converted_body(body2)}])}
+        if rest == [], do: [r], else: [r | fn -> clause_results(rest, h, b, s) end]
+    end
+  end
 
-    {:unify, [{h, head2}, {b, converted_body(body2)}]}
+  defp match_head([], [], map, acc, _s), do: {map, acc}
+
+  defp match_head([p | ps], [t | ts], map, acc, s) do
+    case match_src(p, t, map, acc, s) do
+      :fail -> :fail
+      {map, acc} -> match_head(ps, ts, map, acc, s)
+    end
+  end
+
+  defp match_head(_, _, _map, _acc, _s), do: :fail
+
+  defp match_src({:var, _} = v, t, map, acc, _s) do
+    case map do
+      %{^v => x} -> {map, [{x, t} | acc]}
+      _ -> {Map.put(map, v, t), acc}
+    end
+  end
+
+  defp match_src({:struct, f, ps} = p, t, map, acc, s) do
+    case Store.walk(t, s) do
+      {tag, ^f, ts} when tag in [:struct, :gstruct] -> match_head(ps, ts, map, acc, s)
+      {:var, _} = g -> bind_copy(g, p, map, acc)
+      _ -> :fail
+    end
+  end
+
+  defp match_src([ph | pt] = p, t, map, acc, s) do
+    case PrologEx.uncons(Store.walk(t, s)) do
+      {:cons, th, tt} ->
+        case match_src(ph, th, map, acc, s) do
+          :fail -> :fail
+          {map, acc} -> match_src(pt, tt, map, acc, s)
+        end
+
+      :other ->
+        case Store.walk(t, s) do
+          {:var, _} = g -> bind_copy(g, p, map, acc)
+          _ -> :fail
+        end
+
+      :empty ->
+        :fail
+    end
+  end
+
+  # atomar oder ground markiert: gleich (===) oder die Unifikation entscheidet
+  defp match_src(p, t, map, acc, s) do
+    case Store.walk(t, s) do
+      ^p -> {map, acc}
+      g -> {map, [{g, p} | acc]}
+    end
+  end
+
+  defp bind_copy(g, p, map, acc) do
+    {c, map} = PrologEx.copy_mapped(p, map)
+    {map, [{g, c} | acc]}
   end
 
   # ISO 7.6.1: im gespeicherten Rumpf steht jede Variable an Zielstelle

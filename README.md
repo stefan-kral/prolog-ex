@@ -4264,9 +4264,19 @@ private_procedure, …)` gibt – bei Builtins, Steuerkonstrukten und den in
 Elixir geschriebenen Bibliotheksprädikaten wie `lists:append/3`, die keine
 Klauseln haben. `solve(G) :- if(clausex(G, B), solve(B), call(G)).` führt
 solche Ziele direkt aus, ohne `catch/3`. Gemessen (`nrev` von 30 Elementen,
-`append/3` nativ, 3000-mal): `catch(clause(G, B), …)` 1,53 s,
-`predicate_property(G, number_of_clauses(_))` als Test 2,56 s, `clausex/2`
-1,13–1,34 s, direkt `call/1` 0,085 s. Andere Systeme: SWI liefert die
+`append/3` nativ, 3000-mal): `catch(clause(G, B), …)` 1,23 s,
+`predicate_property(G, number_of_clauses(_))` als Test 2,3 s, `clausex/2`
+0,85–0,94 s, direkt `call/1` 0,085 s; alles über den Meta-Interpreter
+(eigenes `app/3`) 6,3 s.
+
+`clause/2` (und `clausex/2`) kopiert den Kopf der Klausel nicht mehr,
+sondern legt ihn gegen das Ziel wie ein Aufruf: Eine Variable der Quelle
+steht bei ihrem ersten Auftreten für das Argument selbst (keine frische
+Variable, keine Bindung), Strukturen werden gegen Strukturen zerlegt,
+Klauseln mit unpassendem Kopf fallen gleich weg; kopiert wird nur der
+Rumpf. Der Vanilla-Meta-Interpreter über `nrev` wurde dadurch 35 %
+schneller (10,5 s → 6,3 s), der mit `clausex/2` und nativem `append/3`
+rund 30 %. Andere Systeme: SWI liefert die
 Klauseln auch von `lists:append/3` (Prolog-Code; Flag
 `protect_static_code`), Scryer und SICStus nur von dynamischen
 Prädikaten, GNU nur von `public`.

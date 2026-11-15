@@ -890,6 +890,12 @@ defmodule PrologEx do
     :"$cyclic" -> PrologEx.Cyclic.error!()
   end
 
+  @doc false
+  # Kopie eines Terms ohne Bindungen (etwa der Quelltext einer Klausel)
+  # mit vorgegebener Abbildung seiner Variablen (clause/2: auf Teile des
+  # Ziels); fehlende bekommen frische Variablen: {kopie, abbildung}
+  def copy_mapped(t, map), do: copy(t, %{}, map, 0)
+
   @doc """
   Wie `copy_fresh/2`, verträgt aber Zyklen: `{kopie, []}` oder, bei einem
   zyklischen Term, `{kopie, gleichungen}` – frische Variablen V mit ihren
