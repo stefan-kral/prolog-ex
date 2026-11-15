@@ -3775,7 +3775,10 @@ steht eingerückt darunter:
 
 Bibliotheken in Elixir (`lists`, `assoc`, ...) werden nicht geladen, nur
 importiert. Ist alles schon da: `user ← lists: nichts Neues` (nur bei
-`full`).
+`full`). Dieselbe Liste (gleiches Modul, gleiche Prädikate und
+Operatoren) steht während eines Ladevorgangs nur einmal; importieren etwa
+`format` und das mitgeladene `charsio` beide `error`, heißt es beim
+zweiten Mal `charsio ← error: 11 Prädikate (wie oben)`.
 
 ## Expansion: `term_expansion/2`, `goal_expansion/2`
 
