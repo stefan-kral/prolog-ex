@@ -24,8 +24,8 @@ defmodule PrologEx.Toplevel do
 
   Passiert beim Berechnen einer Antwort kein Seiteneffekt (Ausgabe,
   assert/retract, bb_put, Flags, op/3, Zufall, ...), rechnet der Toplevel
-  die nächste schon voraus und zeigt sie gleich mit an – bis eine
-  Bildschirmseite voll ist (Flag `answer_chunk`: `auto`, oder höchstens N
+  die nächste schon voraus und zeigt sie gleich mit an – bis die halbe
+  Höhe des Terminals voll ist (Flag `answer_chunk`: `auto`, oder höchstens N
   Antworten; `1` = einzeln wie früher; ohne Terminal immer einzeln). Das
   Vorausrechnen läuft in einem eigenen Prozess mit Zeitgrenze (#{500} ms)
   und gefangener Ausgabe; gibt es dabei Seiteneffekte oder dauert es zu
@@ -411,13 +411,19 @@ defmodule PrologEx.Toplevel do
     end
   end
 
-  # Seite: {:lines, n} (auto, Terminal mit n Zeilen), {:answers, n} oder nil
+  # Seite: {:lines, n, cols} (auto: die halbe Höhe des Terminals – die
+  # Anfrage und was davor stand bleiben sichtbar; cols: Breite, für lange
+  # Antworten, die das Terminal umbricht), {:answers, n} oder nil
   defp page do
     case PrologEx.Flags.get("answer_chunk") do
       {:atom, "auto"} ->
         case :io.rows() do
-          {:ok, rows} when rows > 3 -> {:lines, rows - 2}
-          _ -> nil
+          {:ok, rows} when rows > 3 ->
+            cols = with {:ok, c} when c > 0 <- :io.columns(), do: c, else: (_ -> nil)
+            {:lines, div(rows, 2), cols}
+
+          _ ->
+            nil
         end
 
       1 ->
@@ -432,11 +438,23 @@ defmodule PrologEx.Toplevel do
     end
   end
 
-  defp size(text, {:lines, _}), do: length(String.split(text, "\n"))
+  # Zeilen auf dem Schirm (eine Zeile länger als das Terminal breit ist,
+  # belegt mehrere; " ;" kommt dazu)
+  defp size(text, {:lines, _, cols}), do: screen_lines(String.split(text, "\n"), cols, 0)
+
   defp size(_text, _), do: 1
 
+  defp screen_lines([], _cols, n), do: n
+  defp screen_lines([_ | ls], nil, n), do: screen_lines(ls, nil, n + 1)
+
+  defp screen_lines([l], cols, n),
+    do: n + max(div(String.length(l) + 2 + cols - 1, cols), 1)
+
+  defp screen_lines([l | ls], cols, n),
+    do: screen_lines(ls, cols, n + max(div(String.length(l) + cols - 1, cols), 1))
+
   # Platz für eine weitere Antwort auf der Seite?
-  defp room?({:lines, n}, used), do: used + 1 <= n
+  defp room?({:lines, n, _}, used), do: used + 1 <= n
   defp room?({:answers, n}, used), do: used < n
 
   defp prolog_list([]), do: []

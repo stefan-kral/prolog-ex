@@ -116,10 +116,20 @@ defmodule PrologEx.LoadLog do
                 "op(#{p}, #{plain(type)}, #{quote_atom(plain(name))})"
               end)
 
-          for line <- wrap(items, 72), do: say("    " <> line)
+          for line <- wrap(items, width()), do: say("    " <> line)
         end
 
         :ok
+    end
+  end
+
+  # Zeilenlänge der Listen: die Breite des Terminals (beim Ausgeben gemessen,
+  # also auch nach Ändern der Fenstergröße) abzüglich "% ", Einrückung und
+  # "    "; ohne Terminal (umgeleitet) 72 wie bisher
+  defp width do
+    case :io.columns() do
+      {:ok, cols} -> max(cols - 6 - 2 * Process.get(@depth, 0), 40)
+      _ -> 72
     end
   end
 

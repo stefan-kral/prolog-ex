@@ -383,14 +383,17 @@ X = [], Y = [1,2] ;        % ";" + Enter für die nächste Lösung
 
 **Antworten seitenweise:** Passiert beim Berechnen einer Antwort kein
 Seiteneffekt (Ausgabe, `assert`, `bb_put`, Flags, `op/3`, Zufall, …), rechnet
-der Toplevel die nächste schon voraus und zeigt sie gleich mit – bis eine
-Bildschirmseite voll ist. Gefragt wird erst danach (`;` nächste Seite,
+der Toplevel die nächste schon voraus und zeigt sie gleich mit – bis die
+halbe Höhe des Terminals voll ist (die Anfrage und was davor stand bleiben
+sichtbar; gemessen mit `:io.rows()` und `:io.columns()` bei jeder
+Anfrage, also auch nach Ändern der Fenstergröße; eine Antwort, die breiter
+ist als das Terminal, zählt mit den Zeilen, die sie dort belegt). Gefragt wird erst danach (`;` nächste Seite,
 Enter Ende); zeigt das Vorausrechnen, dass nichts mehr kommt, endet die
 Antwort gleich mit `.`. Vorausgerechnet wird in einem eigenen Prozess mit
 Zeitgrenze (0,5 s) und gefangener Ausgabe: passiert dabei doch etwas oder
 dauert es zu lange, wird es verworfen und wie gewohnt gefragt. Nach einer
 Antwort mit Seiteneffekt wird nie vorausgerechnet. Flag `answer_chunk`:
-`auto` (Standard: eine Seite), `N` (höchstens N Antworten), `1` (einzeln wie
+`auto` (Standard: halbe Terminalhöhe), `N` (höchstens N Antworten), `1` (einzeln wie
 früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 
 **Zyklische Terme (rationale Bäume):** Ohne Occurs-Check (Flag
@@ -3756,7 +3759,8 @@ Werte wie SWI; Vorgabe hier `full` (SWI: `silent`), abschalten mit
 `silent` (das Programm kann es wieder setzen). Mit `normal` meldet das Laden auf
 stderr jede geladene Datei bzw. Bibliothek und je Import, wie viele
 Prädikate in welches Modul kamen. Mit `full` stehen die Prädikate und
-Operatoren einzeln dabei. Was eine Bibliothek beim Laden selbst importiert,
+Operatoren einzeln dabei, umbrochen auf die Breite des Terminals
+(`:io.columns()`, ohne Terminal 72 Zeichen). Was eine Bibliothek beim Laden selbst importiert,
 steht eingerückt darunter:
 
 ```
