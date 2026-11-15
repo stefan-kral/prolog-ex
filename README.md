@@ -4436,6 +4436,14 @@ und Co. dem ersten Aufrufer aus PrologEx (`bench/prof/`, siehe unten):
     ohne Regex: −56 %), je Zahl beim Lesen von JSON (−30 %), je Feld in
     CSV und je Textknoten in XML. Regex bleiben, wo sie selten laufen
     (Laden, Nicht-ASCII im Leser und Schreiber).
+  * Je Antwort (an den Aufrufer bzw. das Toplevel, nicht in `findall/3`
+    und Co.): außer dem Auflösen der Anfragevariablen liefen noch zwei
+    Durchgänge – die Suche nach attributierten Variablen für Restziele
+    über die ganze Antwort und, je Anfragevariable, eine nach Mutables
+    über die ganze Substitution. Beides merkt jetzt das Auflösen selbst
+    (kommt eine attributierte Variable vor?) und entfällt sonst: bei großen
+    Antworten −18 bis −37 % Reduktionen (`L` mit 100 000 Paaren aus
+    `findall/3` −17…−40 % Zeit).
 
 Die Werkzeuge dazu liegen in `bench/prof/` (Fälle aus `bench/suite.exs`,
 weitere über `EXTRA='name=Ziel@@…'`, Bibliotheken über `PRELUDE`):

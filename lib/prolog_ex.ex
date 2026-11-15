@@ -6174,22 +6174,24 @@ defmodule PrologEx do
     # zyklische Terme (nur ohne Occurs-Check möglich): resolve/2 liefe
     # endlos – resolve_answer/2 bricht ab (:cyclic), dann wie SWI X = f(X)
     # bzw. _A = [b|_A] als Gleichung
-    {ans, eqs, cyc} =
+    {ans, eqs, cyc, attv} =
       try do
-        {Map.new(st.answer, fn {n, t} ->
-           {n, t |> resolve_answer(st.subst) |> PrologEx.Builtins.Mutables.show(st.subst)}
-         end), [], MapSet.new()}
+        {ans, attv} = resolve_all(st.answer, st.subst, %{}, false)
+        {ans, [], MapSet.new(), attv}
       catch
         :cyclic ->
           cyc = cycle_vars(Enum.map(st.answer, &elem(&1, 1)), st.subst)
           {ans, eqs} = cyclic_answer(st, cyc)
-          {ans, eqs, cyc}
+          {ans, eqs, cyc, true}
       end
 
     # Restziele (freeze, dif, when) der in der Antwort vorkommenden
     # attributierten Variablen, wie im SWI/SICStus-Toplevel – nicht bei
-    # zyklischen Antworten (das Sammeln liefe durch den Zyklus)
-    res = if MapSet.size(cyc) == 0, do: residual_goals(Map.values(ans), st), else: []
+    # zyklischen Antworten (das Sammeln liefe durch den Zyklus), und gar
+    # nicht erst gesucht, wenn die Antwort keine attributierte Variable
+    # enthält (sonst ein zweiter Lauf über die ganze Antwort)
+    res =
+      if attv and MapSet.size(cyc) == 0, do: residual_goals(Map.values(ans), st), else: []
 
     ans =
       case eqs ++ res do
@@ -6205,10 +6207,24 @@ defmodule PrologEx do
   # Substitution ist eine obere Schranke) – mehr heißt Zyklus: throw(:cyclic).
   # Kostet je Knoten nur einen Vergleich.
   @doc false
-  def resolve_answer(t, subst) do
-    {r, _memo} = resolve_b(t, subst, %{}, 0, Store.size(subst))
-    r
+  def resolve_answer(t, subst), do: elem(resolve_answer_attv(t, subst), 0)
+
+  # dazu: kommt eine attributierte Variable vor? (im Memo unter :"$attv")
+  defp resolve_answer_attv(t, subst) do
+    {r, memo} = resolve_b(t, subst, %{}, 0, Store.size(subst))
+    {r, is_map_key(memo, :"$attv")}
   end
+
+  # die Anfragevariablen auflösen; Mutables (an attributierten Variablen)
+  # nur zeigen, wo es attributierte Variablen gibt – Mutables.show/2 sieht
+  # sonst die ganze Substitution durch
+  defp resolve_all([{n, t} | rest], subst, ans, attv) do
+    {r, a} = resolve_answer_attv(t, subst)
+    r = if a, do: PrologEx.Builtins.Mutables.show(r, subst), else: r
+    resolve_all(rest, subst, Map.put(ans, n, r), attv or a)
+  end
+
+  defp resolve_all([], _subst, ans, attv), do: {ans, attv}
 
   defp resolve_b(t, subst, memo, d, lim) do
     w = Store.walk(t, subst)
@@ -6245,6 +6261,9 @@ defmodule PrologEx do
 
       t when is_marked(t) ->
         {unmark(t), memo}
+
+      {:var, {:attv, _}} = v ->
+        {v, Map.put(memo, :"$attv", true)}
 
       other ->
         {other, memo}
