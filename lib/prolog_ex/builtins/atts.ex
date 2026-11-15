@@ -146,6 +146,22 @@ defmodule PrologEx.Builtins.Atts do
     end)
   end
 
+  @doc false
+  # wie put_one/4 für eine schon aufgelöste attributierte Variable (Kennung
+  # id) mit ihren schon gelesenen Attributen: kein walk, ein Schreibzugriff
+  def put_one_attv(s, id, attrs, mod, att) do
+    {f, n} = PrologEx.Compiler.key(att)
+    stored = Map.get(attrs, mod) || []
+
+    new =
+      case replace_key(stored, f, n, att) do
+        {:ok, l} -> l
+        :none -> insert_sorted(top_items(stored), {f, n}, att, declared!(mod))
+      end
+
+    PrologEx.Store.put_attrs(s, id, Map.put(attrs, mod, new))
+  end
+
   # Ein neues Attribut (Schlüssel k kommt in items nicht vor) einsortieren:
   # items stehen schon in Deklarationsreihenfolge, also vor das erste, das
   # in der Deklaration nach k steht – ein Durchlauf statt Schlüssel

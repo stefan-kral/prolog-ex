@@ -1486,23 +1486,45 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp trigger(p, q, s) do
     case ws(p, s) do
       {tag, "propagator", [c, state]} when tag in [:struct, :gstruct] ->
-        st = PrologEx.Store.walk(state, s)
-
-        cond do
-          st == {:atom, "dead"} ->
+        case PrologEx.Store.walk(state, s) do
+          {:atom, "dead"} ->
             s
 
-          match?({:var, _}, st) and queued?(st, s) ->
-            s
+          # die Zustandsvariable einmal aufgelöst, ihre Attribute einmal
+          # gelesen: daraus Prüfung (queued?) und Merker clpz_aux(queued)
+          # in einem Schreibzugriff (vorher je ein walk und Lesen mehr)
+          {:var, {:attv, id}} = st ->
+            attrs = PrologEx.Store.attrs(s, id)
 
-          current?(st, s) ->
-            s
+            cond do
+              queued_in?(Map.get(attrs, "clpz", []), s) ->
+                s
 
-          match?({:var, _}, st) ->
-            s = put_att(s, st, mk("clpz_aux", [a("queued")]))
-            insert(p, if(global?(c, s), do: 3, else: 2), q, s)
+              current?(st, s) ->
+                s
 
-          true ->
+              true ->
+                s =
+                  PrologEx.Builtins.Atts.put_one_attv(
+                    s,
+                    id,
+                    attrs,
+                    "clpz",
+                    mk("clpz_aux", [a("queued")])
+                  )
+
+                insert(p, if(global?(c, s), do: 3, else: 2), q, s)
+            end
+
+          {:var, _} = st ->
+            if current?(st, s) do
+              s
+            else
+              s = put_att(s, st, mk("clpz_aux", [a("queued")]))
+              insert(p, if(global?(c, s), do: 3, else: 2), q, s)
+            end
+
+          _ ->
             throw(:fallback)
         end
 
@@ -1511,16 +1533,18 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp queued?(st, s) do
-    case PrologEx.get_attrs(st, s) |> Map.get("clpz", []) |> att_find(s, "clpz_aux", 1) do
+  # clpz_aux(queued) in der Attributliste l von clpz
+  defp queued_in?(l, s) do
+    case att_find(l, s, "clpz_aux", 1) do
       [v] -> ws(v, s) == {:atom, "queued"}
       nil -> false
     end
   end
 
+  # st: aufgelöste Variable; gleich (==) nur derselben Variablen
   defp current?(st, s) do
     case PrologEx.Builtins.Blackboard.b_value("clpz", "$clpz_current_propagator", s) do
-      {:ok, c} -> PrologEx.Order.equal?(c, st, s)
+      {:ok, c} -> PrologEx.Store.walk(c, s) == st
       _ -> false
     end
   end
