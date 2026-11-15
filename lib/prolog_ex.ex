@@ -1331,13 +1331,25 @@ defmodule PrologEx do
   """
   def locate(db, mod, name, arity) do
     with :none <- visible(db, mod, name, arity) do
-      # Prädikate mit Heimat-Bibliothek (iso_ext, swi, ...): nur nach dem
-      # Import, in den Modulen des Systems oder mit swi_compat
-      if PrologEx.Builtins.home(name, arity) == nil or home_visible?(mod),
+      if system_visible?(mod, name, arity),
         do: local(db, "system", name, arity),
         else: :none
     end
   end
+
+  # Prädikate mit Heimat-Bibliothek (iso_ext, swi, ...): nur nach dem
+  # Import, in den Modulen des Systems oder mit swi_compat; Hilfs-Builtins
+  # einer Bibliothek ($clpz_..., PrologEx.Builtins.scope/2) nur in deren
+  # Modul (nachgesehen nur bei $-Namen: sonst kein Zugriff mehr)
+  defp system_visible?(mod, "$" <> _ = name, arity) do
+    case PrologEx.Builtins.scope(name, arity) do
+      nil -> PrologEx.Builtins.home(name, arity) == nil or home_visible?(mod)
+      m -> mod == m or mod == "system"
+    end
+  end
+
+  defp system_visible?(mod, name, arity),
+    do: PrologEx.Builtins.home(name, arity) == nil or home_visible?(mod)
 
   @doc """
   Alle Exporte des Bibliotheksmoduls `lib` in Modul `into` importieren
@@ -3540,6 +3552,9 @@ defmodule PrologEx do
           case PrologEx.Builtins.fast_entry(name, arity) do
             {:protected, entry} -> {:builtin, "system", entry}
             {:homed, entry} -> homed_located(entry, db, mod, name, arity)
+            {:scoped, ^mod, entry} -> {:builtin, "system", entry}
+            {:scoped, _, entry} when mod == "system" -> {:builtin, "system", entry}
+            {:scoped, _, _} -> locate(db, mod, name, arity)
             nil -> locate(db, mod, name, arity)
           end
 

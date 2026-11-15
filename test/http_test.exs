@@ -426,10 +426,10 @@ defmodule PrologEx.HttpTest do
         PrologEx.put_db(db)
 
         q =
-          ~s|'$http_listen'("127.0.0.1:#{port}", L, "", "", 100), | <>
-            ~s|'$http_accept'(L, M, P, Hs, Q, In, H), get_n_chars(In, _, B), | <>
-            ~s|'$http_answer'(H, 202, ['x-a'("1")], text, S), write(S, ok), close(S), | <>
-            ~s|catch('$http_answer'(H, 200, [], _), error(E, _), true), '$http_listen_stop'(L)|
+          ~s|http_server:'$http_listen'("127.0.0.1:#{port}", L, "", "", 100), | <>
+            ~s|http_server:'$http_accept'(L, M, P, Hs, Q, In, H), get_n_chars(In, _, B), | <>
+            ~s|http_server:'$http_answer'(H, 202, ['x-a'("1")], text, S), write(S, ok), close(S), | <>
+            ~s|catch(http_server:'$http_answer'(H, 200, [], _), error(E, _), true), http_server:'$http_listen_stop'(L)|
 
         [{:term, g, _}] = Reader.read_terms(c.reader, q <> ".")
         [ans] = PrologEx.query(db, g) |> Enum.take(1)

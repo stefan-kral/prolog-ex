@@ -184,7 +184,8 @@ defmodule PrologEx.Builtins.Modules do
               mk("number_of_clauses", [0])
             ]
 
-          PrologEx.Builtins.system?({n, ar}) ->
+          # (Hilfs-Builtins einer Bibliothek nur in deren Modul)
+          PrologEx.Builtins.system?({n, ar}) and PrologEx.Builtins.scope(n, ar) in [nil, m] ->
             built_in.()
 
           # Steuerkonstrukte der Maschine (, ; -> ...)

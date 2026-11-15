@@ -24,7 +24,7 @@ defmodule PrologEx.ClpzQueueTest do
   % verify_attributes/3 in Elixir; sein Weckziel '$clpz_do_queue'(Q) ist
   % phrase(do_queue, [Q], _) des Originals (ohne den Umweg über phrase/3)
   va(X, O, G) :- clpz:verify_attributes(X, O, G0), maplist(dq, G0, G).
-  dq(G0, G) :- ( G0 = '$clpz_do_queue'(Q) -> G = phrase(do_queue, [Q], _) ; G = G0 ).
+  dq(G0, G) :- ( G0 = clpz:'$clpz_do_queue'(Q) -> G = phrase(do_queue, [Q], _) ; G = G0 ).
   % Einträge e(N) in die Warteschlangen einiger Variablen (Teil K)
   fill([], _).
   fill([V-K|Rest], N) :-
@@ -785,7 +785,7 @@ defmodule PrologEx.ClpzQueueTest do
         end
 
       scenario(
-        "same(clpz:clpz_neq_fast_ref(#{k}, #{a}, #{b}), '$clpz_neq_fast'(#{k}, #{a}, #{b}), Vs)"
+        "same(clpz:clpz_neq_fast_ref(#{k}, #{a}, #{b}), clpz:'$clpz_neq_fast'(#{k}, #{a}, #{b}), Vs)"
       )
     end)
   end
@@ -807,11 +807,11 @@ defmodule PrologEx.ClpzQueueTest do
       l = "[#{Enum.join(items, ",")}]"
 
       if :rand.uniform(2) == 1 do
-        scenario("same(clpz:all_distinct_post_ref(#{l}), '$clpz_all_distinct_post'(#{l}), Vs)")
+        scenario("same(clpz:all_distinct_post_ref(#{l}), clpz:'$clpz_all_distinct_post'(#{l}), Vs)")
       else
         scenario(
           "O = original_goal(_, all_different(#{l})), " <>
-            "same(clpz:all_different_post_ref(#{l}, O), '$clpz_all_different_post'(#{l}, O), Vs-O)"
+            "same(clpz:all_different_post_ref(#{l}, O), clpz:'$clpz_all_different_post'(#{l}, O), Vs-O)"
         )
       end
     end)
@@ -858,11 +858,11 @@ defmodule PrologEx.ClpzQueueTest do
               ~w(1..3 0..5 -2..2 4 0..sup inf..1 inf..sup 3..1 1..a sup..1 1..2\\/5..6 D)
             )
 
-          scenario("same(clpz:ins_ref(#{l}, #{d}), '$clpz_ins'(#{l}, #{d}), Vs)")
+          scenario("same(clpz:ins_ref(#{l}, #{d}), clpz:'$clpz_ins'(#{l}, #{d}), Vs)")
 
         2 ->
           scenario(
-            "same(clpz:sum_ref(#{l}, #{op}, #{value}), '$clpz_sum'(#{l}, #{op}, #{value}), Vs-V)"
+            "same(clpz:sum_ref(#{l}, #{op}, #{value}), clpz:'$clpz_sum'(#{l}, #{op}, #{value}), Vs-V)"
           )
 
         3 ->
@@ -875,7 +875,7 @@ defmodule PrologEx.ClpzQueueTest do
 
           scenario(
             "same(clpz:scalar_product_ref(#{cs}, #{l}, #{op}, #{value}), " <>
-              "'$clpz_scalar_product'(#{cs}, #{l}, #{op}, #{value}), Vs-V)"
+              "clpz:'$clpz_scalar_product'(#{cs}, #{l}, #{op}, #{value}), Vs-V)"
           )
       end
     end)

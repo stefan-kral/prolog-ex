@@ -3743,6 +3743,16 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
   * Rümpfe laufen im Modul, in dem das Prädikat definiert ist;
     Meta-Argumente (`0..9`, `^`, `//`, `:`) werden beim Aufruf mit dem
     Kontextmodul qualifiziert. Prädikate von `system` sind geschützt.
+  * Hilfs-Builtins mit `$`-Namen, die genau eine Bibliothek benutzt
+    (`'$clpz_do_queue'/1` für `clpz`, `'$rb_...'` für `rbtrees` usw.;
+    beim Übersetzen aus den Quellen in `priv/library` ermittelt, rund 230
+    Stück), sind nur in deren Modul sichtbar und von außen nur als
+    `clpz:'$clpz_do_queue'(Q)`; in `user` gibt es sie nicht, und
+    `predicate_property/2` meldet sie nur dort als `built_in`. Ein Import
+    bringt wie immer nur die Exporte nach `user` (`$`-Prädikate werden nie
+    exportiert). In Prolog geschriebene Hilfsprädikate von `system` wie
+    `'$nse_call'/2` bleiben überall sichtbar. Kosten zur Laufzeit: keine
+    (die Sichtbarkeit steht in derselben Tabelle wie die Heimat).
   * Dateien werden schrittweise gelesen: Operatoren aus der Exportliste
     eines mit `use_module` geladenen Moduls gelten schon für den Rest der
     ladenden Datei. Operatoren sind global (nicht modul-lokal). Lädt nur

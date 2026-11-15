@@ -272,6 +272,36 @@ defmodule PrologEx.Builtins do
               acc -> Map.update(acc, m, MapSet.new([{n, a}]), &MapSet.put(&1, {n, a}))
             end)
 
+  # Hilfs-Builtins einer Bibliothek ($clpz_..., $rb_..., $tbl_...): ein
+  # $-Builtin in system, das genau eine Bibliothek in Prolog-Quelltext
+  # aufruft (priv/library, als '$name'), ist nur in deren Modul sichtbar
+  # (und mit M:'$name'); importiert wird es nie ($-Prädikate werden nicht
+  # exportiert). Ermittelt beim Übersetzen aus den Quelltexten.
+  @scope_files Path.wildcard(Path.join([__DIR__, "..", "..", "priv", "library", "**", "*.pl"]))
+  for f <- @scope_files, do: @external_resource(f)
+
+  @scopes (fn ->
+             texts =
+               for f <- @scope_files,
+                   text = File.read!(f),
+                   [_, m] <- [Regex.run(~r/^:-\s*module\(\s*([a-z][a-zA-Z0-9_]*)/m, text)],
+                   do: {m, text}
+
+             # (ohne die in Prolog geschriebenen Prädikate von system wie
+             # '$nse_call'/1: die ruft Elixir überall auf)
+             for {{"system", "$" <> _ = n, ar}, e} <- @all,
+                 not match?({:prolog, _, _}, e),
+                 [m] <- [for({m, t} <- texts, String.contains?(t, "'" <> n <> "'"), uniq: true, do: m)],
+                 into: %{},
+                 do: {{n, ar}, m}
+           end).()
+
+  @doc "Modul, in dem allein ein Hilfs-Builtin einer Bibliothek sichtbar ist (oder nil)"
+  def scope(name, arity), do: Map.get(@scopes, {name, arity})
+
+  @doc false
+  def scopes, do: @scopes
+
   # system-Builtins direkt nach {name, arity} (Schnellweg, ein Zugriff):
   # geschützte – kein Modul kann sie überdecken, die Auflösung ist immer
   # dieselbe – als {:protected, e}; die mit Heimat-Bibliothek (sichtbar
@@ -281,9 +311,13 @@ defmodule PrologEx.Builtins do
                     into: %{},
                     do:
                       {{n, ar},
-                       if(is_map_key(@homes, {n, ar}), do: {:homed, e}, else: {:protected, e})}
+                       cond do
+                         is_map_key(@scopes, {n, ar}) -> {:scoped, @scopes[{n, ar}], e}
+                         is_map_key(@homes, {n, ar}) -> {:homed, e}
+                         true -> {:protected, e}
+                       end}
 
-  @doc "`{:protected, eintrag}`, `{:homed, eintrag}` oder nil (siehe @fast_entries)"
+  @doc "`{:protected, e}`, `{:homed, e}`, `{:scoped, modul, e}` oder nil (siehe @fast_entries)"
   def fast_entry(name, arity), do: Map.get(@fast_entries, {name, arity})
 
   @doc """

@@ -2031,7 +2031,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # das Ziel, das die Propagatoren der Queue q laufen lässt: statt
   # phrase(do_queue, [Q], _) (phrase/3, do_queue/2, '$clpz_queue_run'/2,
   # do_queue_/3 – vier Schritte je Bindung) gleich die Schleife
-  defp do_queue_goal(q), do: mk("$clpz_do_queue", [q])
+  # (qualifiziert: die Hilfs-Builtins sind nur in clpz sichtbar, das Ziel
+  # läuft im Modul des Aufrufers)
+  defp do_queue_goal(q), do: mk(":", [a("clpz"), mk("$clpz_do_queue", [q])])
 
   # '$clpz_do_queue'(Q): phrase(do_queue, [Q], _) – die Schleife in Elixir,
   # braucht sie Prolog, geht es mit do_queue_/3 weiter
