@@ -159,8 +159,9 @@ defmodule PrologEx.Terminal do
   defp code(role), do: code(role, palette())
 
   # 8 Farben: die Grundfarben (wie sie aussehen, bestimmt das Farbschema des
-  # Terminals); 256: Rot und Grün etwas heller, für die Eingabe ein sattes
-  # Blau (27, #005fff); Truecolor: dieselben Töne genau
+  # Terminals); 256: Rot etwas heller, für Kommentare ein sattes Grün (34,
+  # #00af00), für die Eingabe ein sattes Blau (27, #005fff); Truecolor:
+  # dieselben Töne genau
   defp palette do
     c = capabilities()
 
@@ -175,10 +176,10 @@ defmodule PrologEx.Terminal do
   defp code(:comment, :c8), do: IO.ANSI.green()
   defp code(:input, :c8), do: IO.ANSI.blue()
   defp code(:error, :c256), do: IO.ANSI.color(203)
-  defp code(:comment, :c256), do: IO.ANSI.color(114)
+  defp code(:comment, :c256), do: IO.ANSI.color(34)
   defp code(:input, :c256), do: IO.ANSI.color(27)
   defp code(:error, :truecolor), do: rgb(255, 95, 95)
-  defp code(:comment, :truecolor), do: rgb(135, 215, 135)
+  defp code(:comment, :truecolor), do: rgb(0, 175, 0)
   defp code(:input, :truecolor), do: rgb(0, 95, 255)
   defp code(:normal, :c8), do: IO.ANSI.light_white()
   defp code(:normal, :c256), do: IO.ANSI.color(231)
@@ -250,6 +251,31 @@ defmodule PrologEx.Terminal do
     IO.puts(
       IO.ANSI.blue() <>
         "?- X #= 3 + 4, Y in 1..X." <> IO.ANSI.reset() <> "   Grundfarbe Blau (8 Farben)"
+    )
+
+    # Grüntöne zur Auswahl (256 Farben)
+    IO.puts("── Grüntöne (256 Farben) " <> String.duplicate("─", 38))
+
+    for {n, hex} <- [
+          {22, "#005f00"},
+          {28, "#008700"},
+          {34, "#00af00"},
+          {40, "#00d700"},
+          {64, "#5f8700"},
+          {70, "#5faf00"},
+          {71, "#5faf5f"},
+          {76, "#5fd700"},
+          {77, "#5fd75f"},
+          {114, "#87d787"}
+        ] do
+      IO.puts(
+        IO.ANSI.color(n) <> "% lade library(clpz) ..." <> IO.ANSI.reset() <> "   #{n} #{hex}"
+      )
+    end
+
+    IO.puts(
+      IO.ANSI.green() <>
+        "% lade library(clpz) ..." <> IO.ANSI.reset() <> "   Grundfarbe Grün (8 Farben)"
     )
 
     :ok

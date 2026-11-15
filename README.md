@@ -398,17 +398,18 @@ früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 
 **Farben** (Flag `color_term`, wie SWI; Vorgabe `true`): am Terminal
 erscheinen Fehler und Warnungen rot, Kommentare (`% …`: Meldungen beim
-Laden, Hinweise) grün und die Eingabe in sattem Blau (256 Farben: 27,
+Laden, Hinweise) in sattem Grün (256 Farben: 34, `#00af00`) und die
+Eingabe in sattem Blau (256 Farben: 27,
 `#005fff`) – auch `;` und der Punkt, mit dem man die Antworten
 beendet –, alles Übrige, was der Rechner zeigt (Prompt `?-`, Antworten,
 Ausgaben des Programms), weiß; gedacht für dunklen Hintergrund. Weiß ist
 die Grundfarbe der Sitzung, am Ende kommt die Farbe des Terminals zurück. Ohne
 Terminal (Pipe, Datei), mit `NO_COLOR` (no-color.org) oder bei
 `TERM=dumb` keine Farben. Kann das Terminal 256 Farben oder Truecolor
-(`COLORTERM`), sind Rot und Grün etwas heller; mit 8 Farben bestimmt das
+(`COLORTERM`), ist Rot etwas heller; mit 8 Farben bestimmt das
 Farbschema des Terminals die Töne. Was das Terminal kann und wie die
-Varianten aussehen (8 Farben, hell, 256, Truecolor, dazu zehn Blautöne zur
-Auswahl):
+Varianten aussehen (8 Farben, hell, 256, Truecolor, dazu je zehn Blau-
+und Grüntöne zur Auswahl):
 `mix run -e "PrologEx.Terminal.demo()"`.
 
 **Zyklische Terme (rationale Bäume):** Ohne Occurs-Check (Flag
