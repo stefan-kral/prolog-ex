@@ -29,6 +29,15 @@ defmodule PrologEx.ToplevelTest do
       refute out =~ "X = 7"
     end
 
+    # die erste Anfrage der Sitzung legt Zeitgrenzen-Map und
+    # Inferenzzähler erst an – das ist kein Seiteneffekt
+    test "schon die erste Anfrage der Sitzung: vorausgerechnet" do
+      Process.put(:prolog_ex_force_chunk, true)
+      PrologEx.Flags.set("answer_chunk", 3)
+      out = capture_io("(X = 1 ; X = 2 ; X = 3).\n", fn -> PrologEx.Toplevel.main(["-q"]) end)
+      assert out =~ "X = 1 ;\nX = 2 ;\nX = 3."
+    end
+
     test "keine weitere Antwort: gleich mit Punkt" do
       assert top("member(X, [1, 2]).\n") =~ "X = 1 ;\nX = 2."
       assert top("member(X, [1, 2, 3]), X > 1.\n") =~ "X = 2 ;\nX = 3."

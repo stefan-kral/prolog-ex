@@ -378,7 +378,21 @@ defmodule PrologEx.Toplevel do
     {r, not same_state?(before, state_snapshot())}
   end
 
-  defp same_state?(a, b), do: length(a) == length(b) and Enum.all?(a, &(&1 in b))
+  # Buchführung, kein Seiteneffekt: die Map der Zeit- und Speichergrenzen
+  # der Anfrage, der Inferenzzähler und die Ladetiefe – beide werden bei
+  # der ersten Anfrage der Sitzung erst angelegt; sonst galt schon deren
+  # erste Antwort als Seiteneffekt, und es kam kein Vorausrechnen
+  @bookkeeping [:prolog_ex_timers, :prolog_ex_inferences, :prolog_ex_load_depth]
+
+  defp same_state?(a, b) do
+    a = without_bookkeeping(a)
+    b = without_bookkeeping(b)
+    length(a) == length(b) and Enum.all?(a, &(&1 in b))
+  end
+
+  defp without_bookkeeping([{k, _} | rest]) when k in @bookkeeping, do: without_bookkeeping(rest)
+  defp without_bookkeeping([e | rest]), do: [e | without_bookkeeping(rest)]
+  defp without_bookkeeping([]), do: []
 
   @lookahead_ms 500
 
