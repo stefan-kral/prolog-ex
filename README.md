@@ -399,8 +399,10 @@ früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 **Farben** (Flag `color_term`, wie SWI; Vorgabe `true`): am Terminal
 erscheinen Fehler und Warnungen rot, Kommentare (`% …`: Meldungen beim
 Laden, Hinweise) grün und die Eingabe in sattem Blau (256 Farben: 27,
-`#005fff`), Antworten in der
-Vordergrundfarbe des Terminals – gedacht für dunklen Hintergrund. Ohne
+`#005fff`) – auch `;` und der Punkt, mit dem man die Antworten
+beendet –, alles Übrige, was der Rechner zeigt (Prompt `?-`, Antworten,
+Ausgaben des Programms), weiß; gedacht für dunklen Hintergrund. Weiß ist
+die Grundfarbe der Sitzung, am Ende kommt die Farbe des Terminals zurück. Ohne
 Terminal (Pipe, Datei), mit `NO_COLOR` (no-color.org) oder bei
 `TERM=dumb` keine Farben. Kann das Terminal 256 Farben oder Truecolor
 (`COLORTERM`), sind Rot und Grün etwas heller; mit 8 Farben bestimmt das

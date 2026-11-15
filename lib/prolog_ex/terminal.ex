@@ -8,8 +8,10 @@ defmodule PrologEx.Terminal do
 
   Vier Rollen (gedacht für dunklen Hintergrund):
 
-    * `:normal`  – was der Rechner gewöhnlich ausgibt (Antworten):
-      Vordergrundfarbe des Terminals
+    * `:normal`  – was der Rechner gewöhnlich ausgibt (Prompt, Antworten,
+      Ausgaben des Programms): weiß. Das ist die Grundfarbe der Sitzung:
+      nach jedem farbigen Stück geht es zu Weiß zurück, am Ende zur Farbe
+      des Terminals (`restore/0`)
     * `:error`   – Fehler und Warnungen: rot
     * `:comment` – Kommentare (`% ...`: Laden, Hinweise): grün
     * `:input`   – was man eintippt: blau (die Farbe wird nach dem Prompt
@@ -134,18 +136,25 @@ defmodule PrologEx.Terminal do
       System.get_env("NO_COLOR", "") == "" and terminal?() and capabilities().colors > 0
   end
 
-  @doc "Text in der Farbe der Rolle (ohne Farben unverändert)"
+  @doc "Text in der Farbe der Rolle, danach wieder weiß (ohne Farben unverändert)"
   def paint(role, text) do
     if role != :normal and color?(),
-      do: [code(role), text, IO.ANSI.reset()] |> IO.iodata_to_binary(),
+      do: [code(role), text, code(:normal)] |> IO.iodata_to_binary(),
       else: text
   end
 
-  @doc "Prompt, nach dem die Eingabe in der Farbe von :input erscheint"
-  def input_prompt(prompt), do: if(color?(), do: prompt <> code(:input), else: prompt)
+  @doc "Prompt in Weiß, danach erscheint die Eingabe in der Farbe von :input"
+  def input_prompt(prompt),
+    do: if(color?(), do: code(:normal) <> prompt <> code(:input), else: prompt)
 
-  @doc "Nach der Eingabe: Farbe zurück (ohne Farben nichts)"
-  def end_input, do: if(color?(), do: IO.write(IO.ANSI.reset()))
+  @doc "Nach der Eingabe: wieder weiß (ohne Farben nichts)"
+  def end_input, do: if(color?(), do: IO.write(code(:normal)))
+
+  @doc "Sitzung beginnt: weiß (ohne Farben nichts)"
+  def start, do: if(color?(), do: IO.write(code(:normal)))
+
+  @doc "Sitzung endet: die Farbe des Terminals zurück (ohne Farben nichts)"
+  def restore, do: if(color?(), do: IO.write(IO.ANSI.reset()))
 
   defp code(role), do: code(role, palette())
 
@@ -171,7 +180,9 @@ defmodule PrologEx.Terminal do
   defp code(:error, :truecolor), do: rgb(255, 95, 95)
   defp code(:comment, :truecolor), do: rgb(135, 215, 135)
   defp code(:input, :truecolor), do: rgb(0, 95, 255)
-  defp code(:normal, _), do: IO.ANSI.default_color()
+  defp code(:normal, :c8), do: IO.ANSI.light_white()
+  defp code(:normal, :c256), do: IO.ANSI.color(231)
+  defp code(:normal, :truecolor), do: rgb(255, 255, 255)
 
   defp rgb(r, g, b), do: "\e[38;2;#{r};#{g};#{b}m"
 

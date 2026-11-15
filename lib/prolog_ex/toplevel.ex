@@ -70,6 +70,8 @@ defmodule PrologEx.Toplevel do
       end
     catch
       {:prolog_halt, code} -> code
+    after
+      Terminal.restore()
     end
   end
 
@@ -117,6 +119,8 @@ defmodule PrologEx.Toplevel do
       :ok
     catch
       {:prolog_halt, _code} -> :ok
+    after
+      Terminal.restore()
     end
   end
 
@@ -214,6 +218,8 @@ defmodule PrologEx.Toplevel do
   # ---------------------------------------------------------------------
 
   defp interactive(st, quiet) do
+    Terminal.start()
+
     unless quiet,
       do: IO.puts("PrologEx – Hilfe: siehe `mix help prolog`, Ende mit halt. oder Ctrl-D\n")
 
@@ -359,7 +365,8 @@ defmodule PrologEx.Toplevel do
 
     case line do
       ";" <> _ -> show_next(computed(fn -> cont.({:cont, nil}) end), order, page, 0)
-      _ -> IO.puts(".")
+      # Ende nach Enter: der Punkt steht für die Taste des Benutzers
+      _ -> IO.puts(Terminal.paint(:input, "."))
     end
   end
 
