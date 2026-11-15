@@ -46,6 +46,7 @@ defmodule PrologEx.Toplevel do
   den Abbruch nicht.
   """
 
+  alias PrologEx.Terminal
   alias PrologEx.{Consult, Reader}
 
   def main(args) do
@@ -201,7 +202,7 @@ defmodule PrologEx.Toplevel do
     items = Reader.read_terms(st.reader, text, lines: true)
     {db, msgs} = Consult.load(st.db, items)
     PrologEx.put_db(db)
-    Enum.each(msgs, &IO.puts(:stderr, "#{name}: #{&1}"))
+    Enum.each(msgs, &IO.puts(:stderr, Terminal.paint(:error, "#{name}: #{&1}")))
     %{st | db: db}
   end
 
@@ -235,7 +236,10 @@ defmodule PrologEx.Toplevel do
 
   # Zeilen sammeln, bis eine mit "." endet
   defp read_query(prompt, acc) do
-    case IO.gets(prompt) do
+    line = IO.gets(Terminal.input_prompt(prompt))
+    Terminal.end_input()
+
+    case line do
       :eof when acc == [] ->
         :eof
 
@@ -282,8 +286,8 @@ defmodule PrologEx.Toplevel do
       show(answers, mode, PrologEx.query_var_names(goal))
     rescue
       e in [RuntimeError, PrologEx.Error] ->
-        IO.puts("Fehler: #{Exception.message(e)}")
-        if hint = home_hint(e) || memory_hint(e), do: IO.puts(hint)
+        IO.puts(Terminal.paint(:error, "Fehler: #{Exception.message(e)}"))
+        if hint = home_hint(e) || memory_hint(e), do: IO.puts(Terminal.paint(:comment, hint))
     end
 
     if mode != :goal, do: IO.puts("")
@@ -293,7 +297,8 @@ defmodule PrologEx.Toplevel do
 
   # -g Ziele: still ausführen, nur Fehlschlag melden
   defp show(answers, :goal, _order) do
-    if Enum.take(answers, 1) == [], do: IO.puts(:stderr, "Warnung: Ziel gescheitert")
+    if Enum.take(answers, 1) == [],
+      do: IO.puts(:stderr, Terminal.paint(:error, "Warnung: Ziel gescheitert"))
   end
 
   defp show(answers, _mode, order) do
@@ -349,7 +354,10 @@ defmodule PrologEx.Toplevel do
   end
 
   defp ask(text, cont, order, page) do
-    case IO.gets(text <> " ") do
+    line = IO.gets(Terminal.input_prompt(text <> " "))
+    Terminal.end_input()
+
+    case line do
       ";" <> _ -> show_next(computed(fn -> cont.({:cont, nil}) end), order, page, 0)
       _ -> IO.puts(".")
     end
@@ -537,7 +545,7 @@ defmodule PrologEx.Toplevel do
   defp strip_pi(pi), do: pi
 
   defp err(msg, st) do
-    IO.puts(:stderr, msg)
+    IO.puts(:stderr, Terminal.paint(:error, msg))
     st
   end
 end

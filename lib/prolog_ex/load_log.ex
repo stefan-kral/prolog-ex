@@ -135,7 +135,7 @@ defmodule PrologEx.LoadLog do
 
   defp say(text) do
     pad = String.duplicate("  ", Process.get(@depth, 0))
-    IO.puts(:stderr, "% " <> pad <> text)
+    IO.puts(:stderr, PrologEx.Terminal.paint(:comment, "% " <> pad <> text))
   end
 
   # (Operatoren aus Dateien: Atome als Terme)

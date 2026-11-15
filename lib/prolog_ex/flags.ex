@@ -49,8 +49,11 @@ defmodule PrologEx.Flags do
     "last_call_optimisation" => {true, :read_only},
     "dialect" => {:prolog_ex, :read_only},
     # Toplevel: Antworten ohne Rückfrage zeigen, solange keine Seiteneffekte
-    # passieren – auto: eine Bildschirmseite, N: höchstens N, 1: einzeln
+    # passieren – auto: die halbe Höhe des Terminals, N: höchstens N, 1: einzeln
     "answer_chunk" => {:auto, [:auto, :positive_integer]},
+    # wie SWI: Farben im Toplevel (Fehler rot, Kommentare grün, Eingabe
+    # blau; PrologEx.Terminal) – nur am Terminal und ohne NO_COLOR
+    "color_term" => {true, [false, true]},
     # wie SWI (dort Vorgabe silent): Meldungen beim Laden (PrologEx.LoadLog) – silent: keine,
     # normal: geladene Dateien und je Import die Zahl der Prädikate, full:
     # dazu die importierten Prädikate und Operatoren einzeln

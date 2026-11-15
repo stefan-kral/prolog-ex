@@ -1,6 +1,27 @@
 defmodule PrologEx.Terminal do
   @moduledoc """
-  Eingabe für `[user]` mit Ctrl-D als Ende, ohne dass stdin danach "tot" ist.
+  Das Terminal: was es kann (`capabilities/0`), Farben im Toplevel
+  (`paint/2`, Flag `color_term`), und Eingabe für `[user]` mit Ctrl-D als
+  Ende, ohne dass stdin danach "tot" ist.
+
+  ## Farben
+
+  Vier Rollen (gedacht für dunklen Hintergrund):
+
+    * `:normal`  – was der Rechner gewöhnlich ausgibt (Antworten):
+      Vordergrundfarbe des Terminals
+    * `:error`   – Fehler und Warnungen: rot
+    * `:comment` – Kommentare (`% ...`: Laden, Hinweise): grün
+    * `:input`   – was man eintippt: blau (die Farbe wird nach dem Prompt
+      gesetzt und nach der Zeile zurückgesetzt)
+
+  Farbig nur, wenn das Flag `color_term` true ist (Vorgabe, wie SWI),
+  `NO_COLOR` nicht gesetzt ist (no-color.org), die Ausgabe ein Terminal ist
+  und das Terminal Farben kann (`TERM` nicht `dumb`). Mit 256 Farben oder
+  Truecolor (`COLORTERM`) etwas hellere Töne, die auf Schwarz besser zu
+  lesen sind; `demo/0` zeigt alle Varianten nebeneinander.
+
+  ## Eingabe für `[user]`
 
   Problem: Liefert stdin in Erlang einmal Dateiende, antwortet die
   Ein-/Ausgabe danach auf jede Leseanfrage mit `:eof` – der Toplevel könnte
@@ -64,6 +85,137 @@ defmodule PrologEx.Terminal do
   end
 
   def terminal?, do: Keyword.get(:io.getopts(), :terminal, false) == true
+
+  # ---------------------------------------------------------------------
+  # Fähigkeiten und Farben
+  # ---------------------------------------------------------------------
+
+  @doc "Was das Terminal kann (aus TERM, COLORTERM und IO.ANSI)"
+  def capabilities do
+    term = System.get_env("TERM", "")
+    color_term = System.get_env("COLORTERM", "")
+
+    %{
+      ansi: IO.ANSI.enabled?(),
+      colors: color_count(term, color_term),
+      truecolor: truecolor?(color_term),
+      unicode: true,
+      terminal: term
+    }
+  end
+
+  defp color_count(term, color_term) do
+    cond do
+      String.contains?(color_term, "truecolor") or String.contains?(color_term, "24bit") ->
+        16_777_216
+
+      String.contains?(color_term, "256color") ->
+        256
+
+      String.contains?(term, "256color") ->
+        256
+
+      term == "dumb" ->
+        0
+
+      IO.ANSI.enabled?() ->
+        8
+
+      true ->
+        0
+    end
+  end
+
+  defp truecolor?(color_term), do: color_term in ["truecolor", "24bit"]
+
+  @doc "Farbig ausgeben? (Flag color_term, NO_COLOR, Terminal, Farben)"
+  def color? do
+    PrologEx.Flags.get("color_term") == {:atom, "true"} and
+      System.get_env("NO_COLOR", "") == "" and terminal?() and capabilities().colors > 0
+  end
+
+  @doc "Text in der Farbe der Rolle (ohne Farben unverändert)"
+  def paint(role, text) do
+    if role != :normal and color?(),
+      do: [code(role), text, IO.ANSI.reset()] |> IO.iodata_to_binary(),
+      else: text
+  end
+
+  @doc "Prompt, nach dem die Eingabe in der Farbe von :input erscheint"
+  def input_prompt(prompt), do: if(color?(), do: prompt <> code(:input), else: prompt)
+
+  @doc "Nach der Eingabe: Farbe zurück (ohne Farben nichts)"
+  def end_input, do: if(color?(), do: IO.write(IO.ANSI.reset()))
+
+  defp code(role), do: code(role, palette())
+
+  # 8 Farben: die Grundfarben; 256: helle Töne aus der Palette; Truecolor:
+  # dieselben Töne genau
+  defp palette do
+    c = capabilities()
+
+    cond do
+      c.truecolor -> :truecolor
+      c.colors >= 256 -> :c256
+      true -> :c8
+    end
+  end
+
+  defp code(:error, :c8), do: IO.ANSI.red()
+  defp code(:comment, :c8), do: IO.ANSI.green()
+  defp code(:input, :c8), do: IO.ANSI.blue()
+  defp code(:error, :c256), do: IO.ANSI.color(203)
+  defp code(:comment, :c256), do: IO.ANSI.color(114)
+  defp code(:input, :c256), do: IO.ANSI.color(75)
+  defp code(:error, :truecolor), do: rgb(255, 95, 95)
+  defp code(:comment, :truecolor), do: rgb(135, 215, 135)
+  defp code(:input, :truecolor), do: rgb(95, 175, 255)
+  defp code(:normal, _), do: IO.ANSI.default_color()
+
+  defp rgb(r, g, b), do: "\e[38;2;#{r};#{g};#{b}m"
+
+  @doc """
+  Zeigt die Fähigkeiten des Terminals und eine kleine Sitzung in allen
+  Farbvarianten (8, 256, Truecolor; dazu hell statt normal), unabhängig
+  vom Flag – zum Vergleichen in verschiedenen Terminals:
+
+      mix run -e "PrologEx.Terminal.demo()"
+  """
+  def demo do
+    IO.puts("Terminal: #{inspect(capabilities())}")
+
+    IO.puts(
+      "Farben im Toplevel: #{if color?(), do: "ja", else: "nein"} (Flag color_term, NO_COLOR, Terminal)\n"
+    )
+
+    variants = [
+      {"8 Farben", :c8},
+      {"8 Farben, hell", :bright},
+      {"256 Farben", :c256},
+      {"Truecolor", :truecolor}
+    ]
+
+    for {name, v} <- variants do
+      IO.puts("── #{name} " <> String.duplicate("─", 50 - String.length(name)))
+      c = fn role -> if v == :bright, do: bright(role), else: code(role, v) end
+      r = IO.ANSI.reset()
+      IO.puts(c.(:comment) <> "% lade library(clpz) ..." <> r)
+      IO.puts("?- " <> c.(:input) <> "X #= 3 + 4, Y in 1..X." <> r)
+      IO.puts("X = 7,")
+      IO.puts("clpz:(Y in 1..7).")
+      IO.puts("")
+      IO.puts("?- " <> c.(:input) <> "atom_length(X, 3)." <> r)
+      IO.puts(c.(:error) <> "Fehler: instantiation_error" <> r)
+      IO.puts(c.(:comment) <> "% between/3 liegt in library(between)" <> r)
+      IO.puts("")
+    end
+
+    :ok
+  end
+
+  defp bright(:error), do: IO.ANSI.light_red()
+  defp bright(:comment), do: IO.ANSI.light_green()
+  defp bright(:input), do: IO.ANSI.light_blue()
 
   # ---------------------------------------------------------------------
 

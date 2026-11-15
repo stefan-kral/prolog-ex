@@ -396,6 +396,16 @@ Antwort mit Seiteneffekt wird nie vorausgerechnet. Flag `answer_chunk`:
 `auto` (Standard: halbe Terminalhöhe), `N` (höchstens N Antworten), `1` (einzeln wie
 früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 
+**Farben** (Flag `color_term`, wie SWI; Vorgabe `true`): am Terminal
+erscheinen Fehler und Warnungen rot, Kommentare (`% …`: Meldungen beim
+Laden, Hinweise) grün und die Eingabe blau, Antworten in der
+Vordergrundfarbe des Terminals – gedacht für dunklen Hintergrund. Ohne
+Terminal (Pipe, Datei), mit `NO_COLOR` (no-color.org) oder bei
+`TERM=dumb` keine Farben. Kann das Terminal 256 Farben oder Truecolor
+(`COLORTERM`), sind die Töne etwas heller. Was das Terminal kann und wie
+die Varianten aussehen (8 Farben, hell, 256, Truecolor nebeneinander):
+`mix run -e "PrologEx.Terminal.demo()"`.
+
 **Zyklische Terme (rationale Bäume):** Ohne Occurs-Check (Flag
 `occurs_check` = `false`, Standard) macht `X = f(X)` einen zyklischen Term.
 Der Toplevel zeigt ihn wie SWI, statt endlos aufzulösen:
