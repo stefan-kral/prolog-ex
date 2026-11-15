@@ -108,7 +108,14 @@ defmodule PrologEx.Csv do
   defp trim_ws(<<c, r::binary>>) when c in [?\s, ?\t], do: trim_ws(r)
   defp trim_ws(t), do: t
 
-  defp trim_trailing_ws(s), do: String.replace(s, ~r/[ \t]+\z/, "")
+  # (ohne Regex: ein ~r kostet unter OTP 28 je Feld rund 2 µs)
+  defp trim_trailing_ws(s), do: binary_part(s, 0, ws_end(s, byte_size(s)))
+
+  defp ws_end(s, n) when n > 0 do
+    if :binary.at(s, n - 1) in [?\s, ?\t], do: ws_end(s, n - 1), else: n
+  end
+
+  defp ws_end(_s, 0), do: 0
 
   defp quoted(text, acc) do
     case :binary.match(text, "\"") do
@@ -236,18 +243,37 @@ defmodule PrologEx.Csv do
 
       _ ->
         # wie SWI auch 1e10 (ohne Nachkommastellen) als Float
-        case Regex.run(~r/\A(-?\d+)([eE][+-]?\d+)\z/, t) do
-          [_, m, e] ->
+        case int_exp(t, 0) do
+          nil ->
+            nil
+
+          i ->
+            <<m::binary-size(^i), e::binary>> = t
+
             case PrologEx.Builtins.Atoms.parse_number(m <> ".0" <> e) do
               {:ok, n} -> n
               _ -> nil
             end
-
-          nil ->
-            nil
         end
     end
   end
+
+  # -?\d+[eE][+-]?\d+ ganz: Länge der Mantisse (bis vor e/E), sonst nil
+  defp int_exp(<<?-, r::binary>>, 0), do: int_exp_digits(r, 1, 0)
+  defp int_exp(r, 0), do: int_exp_digits(r, 0, 0)
+
+  defp int_exp_digits(<<c, r::binary>>, i, n) when c in ?0..?9,
+    do: int_exp_digits(r, i + 1, n + 1)
+
+  defp int_exp_digits(<<e, r::binary>>, i, n) when e in [?e, ?E] and n > 0, do: exp_part(r, i)
+  defp int_exp_digits(_, _, _), do: nil
+
+  defp exp_part(<<c, r::binary>>, i) when c in [?+, ?-], do: exp_digits(r, i, 0)
+  defp exp_part(r, i), do: exp_digits(r, i, 0)
+
+  defp exp_digits(<<c, r::binary>>, i, n) when c in ?0..?9, do: exp_digits(r, i, n + 1)
+  defp exp_digits(<<>>, i, n) when n > 0, do: i
+  defp exp_digits(_, _, _), do: nil
 
   @doc """
   Einen Datensatz vom Stream lesen wie SWIs csv_read_row/3: Zeilen (ohne

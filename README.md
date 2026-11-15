@@ -4430,7 +4430,12 @@ und Co. dem ersten Aufrufer aus PrologEx:
     `atom_length/2` sonst ganz – `atom_length/2` prüfte damit, ob ein
     Name nur ASCII enthält (15 % von `atom_codes/2`, `atom_length/2`,
     `atom_chars/2` zusammen; jetzt ein Durchlauf über die Bytes, mit dem
-    rekursiven `atom_codes/2` −30 % Zeit).
+    rekursiven `atom_codes/2` −30 % Zeit). Ebenso bei jeder Ausgabe (die
+    Spaltenzählung eines Streams: `write/1` in eine Datei oder einen
+    String −54 %), bei `char_type/2` und `code_type/2` (für ASCII jetzt
+    ohne Regex: −56 %), je Zahl beim Lesen von JSON (−30 %), je Feld in
+    CSV und je Textknoten in XML. Regex bleiben, wo sie selten laufen
+    (Laden, Nicht-ASCII im Leser und Schreiber).
 Strings als Muster in Funktionsköpfen sind billig – der Compiler baut
 daraus einen Entscheidungsbaum über die Bytes (`select_val`) –, `x in
 @liste` in einem Guard dagegen ist eine Kette von Vergleichen, einer

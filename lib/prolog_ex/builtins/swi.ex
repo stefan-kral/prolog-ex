@@ -321,7 +321,11 @@ defmodule PrologEx.Builtins.Swi do
   defp graph?(c),
     do:
       not Charsio.type?(c, "whitespace") and not Charsio.type?(c, "control") and
-        Regex.match?(~r/^[^\p{Cn}\p{Cs}\p{Co}]$/u, <<c::utf8>>)
+        assigned?(c)
+
+  # zugewiesen, kein Surrogat, nicht privat (in ASCII alles)
+  defp assigned?(c) when c < 128, do: true
+  defp assigned?(c), do: Regex.match?(~r/^[^\p{Cn}\p{Cs}\p{Co}]$/u, <<c::utf8>>)
 
   defp ctype?(c, n) do
     case n do

@@ -735,7 +735,9 @@ defmodule PrologEx.Stream do
     if ascii?(text), do: byte_size(text), else: length(String.to_charlist(text))
   end
 
-  defp ascii?(text), do: not String.match?(text, ~r/[^\x00-\x7f]/)
+  defp ascii?(<<c, rest::binary>>) when c < 128, do: ascii?(rest)
+  defp ascii?(<<>>), do: true
+  defp ascii?(_), do: false
 
   # --- Eigenschaften und Position -------------------------------------------
 

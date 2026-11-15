@@ -282,26 +282,52 @@ defmodule PrologEx.Json do
     text = number_chars(id, [c0]) |> List.to_string()
     t = if String.ends_with?(text, "."), do: String.slice(text, 0..-2//1), else: text
 
-    case Regex.run(~r/^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/, t) do
-      [_] ->
+    # (ohne Regex: ein ~r kostet unter OTP 28 je Zahl rund 2 µs)
+    case num_shape(t) do
+      :int ->
         String.to_integer(t)
 
-      [_ | _] ->
-        try do
-          t =
-            if String.contains?(t, "."),
-              do: t,
-              else: String.replace(t, ~r/[eE]/, ".0e", global: false)
+      :bad ->
+        syntax_number!(id, st)
 
+      shape ->
+        try do
+          t = if shape == :frac, do: t, else: String.replace(t, ["e", "E"], ".0e", global: false)
           String.to_float(t)
         rescue
           ArgumentError -> syntax_number!(id, st)
         end
-
-      nil ->
-        syntax_number!(id, st)
     end
   end
+
+  # Form einer JSON-Zahl -?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?: :int, :frac
+  # (mit Nachkommastellen), :exp (Exponent ohne Punkt) oder :bad
+  defp num_shape(<<?-, r::binary>>), do: int_part(r)
+  defp num_shape(r), do: int_part(r)
+
+  defp int_part(<<c, r::binary>>) when c in ?0..?9, do: int_more(r)
+  defp int_part(_), do: :bad
+
+  defp int_more(<<c, r::binary>>) when c in ?0..?9, do: int_more(r)
+  defp int_more(<<>>), do: :int
+  defp int_more(<<?., c, r::binary>>) when c in ?0..?9, do: frac_more(r)
+  defp int_more(<<e, r::binary>>) when e in [?e, ?E], do: exp_sign(r, :exp)
+  defp int_more(_), do: :bad
+
+  defp frac_more(<<c, r::binary>>) when c in ?0..?9, do: frac_more(r)
+  defp frac_more(<<>>), do: :frac
+  defp frac_more(<<e, r::binary>>) when e in [?e, ?E], do: exp_sign(r, :frac)
+  defp frac_more(_), do: :bad
+
+  defp exp_sign(<<c, r::binary>>, k) when c in [?+, ?-], do: exp_digits(r, k)
+  defp exp_sign(r, k), do: exp_digits(r, k)
+
+  defp exp_digits(<<c, r::binary>>, k) when c in ?0..?9, do: exp_more(r, k)
+  defp exp_digits(_, _), do: :bad
+
+  defp exp_more(<<c, r::binary>>, k) when c in ?0..?9, do: exp_more(r, k)
+  defp exp_more(<<>>, k), do: k
+  defp exp_more(_, _), do: :bad
 
   defp number_chars(id, acc) do
     c = peek(id)

@@ -131,7 +131,18 @@ defmodule PrologEx.Sgml do
     end
   end
 
-  defp collapse(t), do: String.replace(t, ~r/[ \t\n\r]+/, " ")
+  # Folgen von Leerraum zu einem Leerzeichen (ohne Regex: ein ~r kostet
+  # unter OTP 28 je Aufruf rund 2 µs)
+  defp collapse(t), do: collapse(t, <<>>)
+
+  defp collapse(<<c, r::binary>>, acc) when c in [?\s, ?\t, ?\n, ?\r],
+    do: collapse(skip_ws(r), <<acc::binary, ?\s>>)
+
+  defp collapse(<<c, r::binary>>, acc), do: collapse(r, <<acc::binary, c>>)
+  defp collapse(<<>>, acc), do: acc
+
+  defp skip_ws(<<c, r::binary>>) when c in [?\s, ?\t, ?\n, ?\r], do: skip_ws(r)
+  defp skip_ws(r), do: r
 
   # --- Schreiben (SWIs sgml_write) --------------------------------------------------
 

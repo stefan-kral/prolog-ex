@@ -31,10 +31,16 @@ defmodule PrologEx.Builtins.Charsio do
 
   defp cat?(c, re), do: Regex.match?(re, <<c::utf8>>)
 
+  # ASCII ohne Regex (ein ~r kostet unter OTP 28 je Aufruf rund 2 µs)
+  defp alphabetic?(c) when c < 128, do: c in ?a..?z or c in ?A..?Z
   defp alphabetic?(c), do: cat?(c, ~r/^[\p{L}\p{Nl}]$/u)
+  defp numeric?(c) when c < 128, do: c in ?0..?9
   defp numeric?(c), do: cat?(c, ~r/^\p{N}$/u)
+  defp lower?(c) when c < 128, do: c in ?a..?z
   defp lower?(c), do: cat?(c, ~r/^\p{Ll}$/u)
+  defp upper?(c) when c < 128, do: c in ?A..?Z
   defp upper?(c), do: cat?(c, ~r/^\p{Lu}$/u)
+  defp control?(c) when c < 128, do: c < 32 or c == 127
   defp control?(c), do: cat?(c, ~r/^\p{Cc}$/u)
   defp whitespace?(c), do: c in @whitespace
 
