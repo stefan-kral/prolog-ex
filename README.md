@@ -4405,6 +4405,32 @@ keine unnötigen Zwischenstrukturen: Prolog-Listen gleich durchlaufen,
 statt sie erst in eine Elixir-Liste zu kopieren. `PrologEx.Builtins.ClpzPrims`
 und `ClpzDom` folgen dem schon (Reduktionen der Damen und des Sudoku
 −7 bis −10 %); der übrige Code nach und nach.
+
+Wie weit sich das lohnt, zeigt ein Profil der echten Zeit (nicht der
+Reduktionen: die überschätzen es – `atom_codes/2` und Co. mit `Enum`
+−29 % Reduktionen, aber nur rund −3 % Zeit). Gemessen mit `perf` über
+der BEAM mit `+JPperf true` (JIT-Symbole und Rahmenzeiger), jede
+Stichprobe der nächsten Elixir-Funktion zugeordnet, Arbeit in `Enum`
+und Co. dem ersten Aufrufer aus PrologEx:
+
+  * Die Maschine selbst ist durch: bei nrev, loop, between, member,
+    facts, queens, tak, deriv höchstens 1 % in `Enum` und Co. (die
+    periodischen Prüfungen von Zeit-, Inferenz- und Speichergrenzen, jetzt
+    auch rekursiv), kaum Closures.
+  * clpz: 2–3 % (Kompaktieren der Attribute, `PrologEx.Share`,
+    Sortierschlüssel), jetzt rekursiv.
+  * Eingebaute mit Listen über Elixir: `msort/2` 22 % (Schlüssel bilden
+    und abstreifen, dazu ein `:atomics`-Zähler auch für atomare Elemente)
+    → −38 % Zeit; `assertz/1` 10 % (`declare/2` baute bei jedem Aufruf ein
+    leeres Prädikat und eine Menge vorab, Umbenennen, `retractall/1` über
+    `MapSet`) → −22 % Reduktionen; `findall/3`, `copy_term/2` 4–5 % (der
+    Test von `Share`, ob ein Term innere Knoten hat).
+  * Größer als jedes `Enum`: ein `~r`-Literal kostet unter OTP 28 bei
+    jedem Aufruf rund 2 µs (das Muster wird ausgepackt), so viel wie
+    `atom_length/2` sonst ganz – `atom_length/2` prüfte damit, ob ein
+    Name nur ASCII enthält (15 % von `atom_codes/2`, `atom_length/2`,
+    `atom_chars/2` zusammen; jetzt ein Durchlauf über die Bytes, mit dem
+    rekursiven `atom_codes/2` −30 % Zeit).
 Strings als Muster in Funktionsköpfen sind billig – der Compiler baut
 daraus einen Entscheidungsbaum über die Bytes (`select_val`) –, `x in
 @liste` in einem Guard dagegen ist eine Kette von Vergleichen, einer

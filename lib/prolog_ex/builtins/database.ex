@@ -79,20 +79,30 @@ defmodule PrologEx.Builtins.Database do
 
         # Kandidaten wie beim Aufruf; nur diese werden geprüft
         gone =
-          for {ref, {ch, _}, _} <- PrologEx.candidate_entries(pred, Compiler.args_of(head), s),
-              matches?(h, ch, s),
-              into: MapSet.new(),
-              do: ref
+          PrologEx.candidate_entries(pred, Compiler.args_of(head), s)
+          |> matching_refs(h, s, %{})
 
         # nichts gefunden: das Prädikat bleibt, wie es ist (samt Index)
-        if MapSet.size(gone) > 0 do
-          keep = Enum.reject(PrologEx.pred_entries(pred), fn {ref, _, _} -> ref in gone end)
+        if map_size(gone) > 0 do
+          keep = keep_entries(PrologEx.pred_entries(pred), gone)
           PrologEx.put_db(Map.put(db, key, {:stale, keep, []}))
         end
     end
 
     :ok
   end
+
+  # Kennungen der Klauseln, deren Kopf zu h passt (als Map ref => true)
+  defp matching_refs([{ref, {ch, _}, _} | es], h, s, gone),
+    do: matching_refs(es, h, s, if(matches?(h, ch, s), do: Map.put(gone, ref, true), else: gone))
+
+  defp matching_refs([], _h, _s, gone), do: gone
+
+  defp keep_entries([{ref, _, _} = e | es], gone) do
+    if Map.has_key?(gone, ref), do: keep_entries(es, gone), else: [e | keep_entries(es, gone)]
+  end
+
+  defp keep_entries([], _gone), do: []
 
   # abolish(Name/Arity), auch M:Name/Arity (ISO 8.9.4): entfernt ein
   # dynamisches Prädikat ganz – Klauseln und Eigenschaften (danach ist es
@@ -428,7 +438,7 @@ defmodule PrologEx.Builtins.Database do
   end
 
   defp rename({tag, f, args}, m) when tag in [:struct, :gstruct] do
-    {args, m} = Enum.map_reduce(args, m, &rename/2)
+    {args, m} = rename_args(args, m)
     {mk(f, args), m}
   end
 
@@ -439,6 +449,14 @@ defmodule PrologEx.Builtins.Database do
   end
 
   defp rename(t, m), do: {t, m}
+
+  defp rename_args([a | as], m) do
+    {a, m} = rename(a, m)
+    {as, m} = rename_args(as, m)
+    {[a | as], m}
+  end
+
+  defp rename_args([], m), do: {[], m}
 
   defp var_name(i) when i < 26, do: <<?A + i>>
   defp var_name(i), do: <<?A + rem(i, 26)>> <> Integer.to_string(div(i, 26))

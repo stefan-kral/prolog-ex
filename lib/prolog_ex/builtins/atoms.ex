@@ -143,7 +143,11 @@ defmodule PrologEx.Builtins.Atoms do
     if ascii?(name), do: byte_size(name), else: length(String.to_charlist(name))
   end
 
-  defp ascii?(name), do: not String.match?(name, ~r/[^\x00-\x7f]/)
+  # ohne Regex: ein ~r-Literal kostet unter OTP 28 bei jedem Aufruf das
+  # Auspacken des Musters (gut das Doppelte von atom_length/2 selbst)
+  defp ascii?(<<c, rest::binary>>) when c < 128, do: ascii?(rest)
+  defp ascii?(<<>>), do: true
+  defp ascii?(_), do: false
 
   # ---------------------------------------------------------------------
   # atomic_list_concat/2,3 (wie SWI)
@@ -550,12 +554,10 @@ defmodule PrologEx.Builtins.Atoms do
   defp text(l, s, kind) do
     case Lists.skip_list(l, s) do
       {_, []} ->
-        elems = Enum.map(Lists.items(l, s), &PrologEx.Store.walk(&1, s))
-        Enum.each(elems, &check_elem(&1, kind))
-
-        if Enum.any?(elems, &match?({:var, _}, &1)),
-          do: :partial,
-          else: {:ok, elems |> Enum.map(&elem_char(&1, kind)) |> Enum.join()}
+        case text_items(l, s, kind, "") do
+          :partial -> :partial
+          str -> {:ok, str}
+        end
 
       {_, {:var, _}} ->
         # offene Liste: Elemente trotzdem prüfen (ISO: type_error zuerst)
@@ -568,13 +570,36 @@ defmodule PrologEx.Builtins.Atoms do
     end
   end
 
+  # ein Durchgang über die echte Liste: jedes Element prüfen (in
+  # Reihenfolge, auch nach einer Variablen – der Typfehler geht vor) und
+  # den Text anhängen; eine Variable macht daraus :partial
+  defp text_items(t, s, kind, acc) do
+    case PrologEx.Store.walk(t, s) do
+      [h | tl] -> text_items(tl, s, kind, text_item(PrologEx.Store.walk(h, s), kind, acc))
+      {:glist, l} -> text_raw(l, kind, acc)
+      [] -> acc
+    end
+  end
+
+  # glist: rohe Zellen ohne Variablen
+  defp text_raw([h | t], kind, acc), do: text_raw(t, kind, text_item(h, kind, acc))
+  defp text_raw([], _kind, acc), do: acc
+
+  defp text_item({:var, _}, _kind, _acc), do: :partial
+
+  defp text_item(e, kind, acc) do
+    check_elem(e, kind)
+    if acc == :partial, do: :partial, else: append_char(acc, e, kind)
+  end
+
+  defp append_char(acc, {:atom, c}, :chars), do: <<acc::binary, c::binary>>
+  defp append_char(acc, c, :codes), do: <<acc::binary, c::utf8>>
+
   defp check_elem({:var, _}, _), do: :ok
 
-  defp check_elem({:atom, c} = a, :chars) do
-    if String.length(c) == 1 and length(String.to_charlist(c)) == 1,
-      do: :ok,
-      else: Error.type!("character", a)
-  end
+  # genau ein Zeichen (ein Codepoint)
+  defp check_elem({:atom, <<_::utf8>>}, :chars), do: :ok
+  defp check_elem({:atom, _} = a, :chars), do: Error.type!("character", a)
 
   defp check_elem(c, :codes) when is_integer(c) do
     if c >= 0 and c <= 0x10FFFF and (c < 0xD800 or c > 0xDFFF),
@@ -585,11 +610,14 @@ defmodule PrologEx.Builtins.Atoms do
   defp check_elem(other, :chars), do: Error.type!("character", other)
   defp check_elem(other, :codes), do: Error.type!("integer", other)
 
-  defp elem_char({:atom, c}, :chars), do: c
-  defp elem_char(c, :codes), do: <<c::utf8>>
+  # Liste der Zeichen bzw. Codes; Zahlen und Ein-Zeichen-Atome sind ground,
+  # die Liste also wie bei list/1 eine glist
+  defp encode("", _), do: []
+  defp encode(str, :chars), do: {:glist, chars(str)}
+  defp encode(str, :codes), do: {:glist, String.to_charlist(str)}
 
-  defp encode(str, :chars), do: str |> String.codepoints() |> Enum.map(&a/1) |> list()
-  defp encode(str, :codes), do: str |> String.to_charlist() |> list()
+  defp chars(<<c::utf8, rest::binary>>), do: [{:atom, <<c::utf8>>} | chars(rest)]
+  defp chars(<<>>), do: []
 
   @doc "Textform einer Zahl (wie write/1)"
   def number_string(n) when is_integer(n), do: Integer.to_string(n)

@@ -49,12 +49,23 @@ defmodule PrologEx.Share do
           :error
 
         bucket ->
-          case Enum.find(bucket, fn {orig, _} -> :erts_debug.same(orig, t) end) do
-            {_, v} -> {:ok, v}
-            nil -> :error
-          end
+          find_same(bucket, t)
       end
     end
+
+    defp find_same([{orig, v} | rest], t) do
+      if :erts_debug.same(orig, t), do: {:ok, v}, else: find_same(rest, t)
+    end
+
+    defp find_same([], _t), do: :error
+
+    defp find_same2([{a0, b0, v} | rest], a, b) do
+      if :erts_debug.same(a0, a) and :erts_debug.same(b0, b),
+        do: {:ok, v},
+        else: find_same2(rest, a, b)
+    end
+
+    defp find_same2([], _a, _b), do: :error
 
     @doc "Ergebnis v für den Term t merken"
     def put(memo, t, v) do
@@ -71,7 +82,7 @@ defmodule PrologEx.Share do
     defp store(memo, t, v) do
       k = key(t)
       n = if elem(k, 3) == nil, do: @bucket_nokey, else: @bucket
-      Map.put(memo, k, Enum.take([{t, v} | Map.get(memo, k, [])], n))
+      Map.put(memo, k, [{t, v} | take(Map.get(memo, k, []), n - 1)])
     end
 
     @doc "Wie get/2, für ein Paar von Termen (Vergleichen, Unifizieren)"
@@ -84,12 +95,7 @@ defmodule PrologEx.Share do
             :error
 
           bucket ->
-            case Enum.find(bucket, fn {a0, b0, _} ->
-                   :erts_debug.same(a0, a) and :erts_debug.same(b0, b)
-                 end) do
-              {_, _, v} -> {:ok, v}
-              nil -> :error
-            end
+            find_same2(bucket, a, b)
         end
       end
     end
@@ -104,7 +110,7 @@ defmodule PrologEx.Share do
           _ ->
             k = pkey(a)
             n = if elem(k, 3) == nil, do: @bucket_nokey, else: @bucket
-            Map.put(memo, k, Enum.take([{a, b, v} | Map.get(memo, k, [])], n))
+            Map.put(memo, k, [{a, b, v} | take(Map.get(memo, k, []), n - 1)])
         end
       else
         memo
@@ -126,10 +132,17 @@ defmodule PrologEx.Share do
   # bei jedem Besuch nur ihre Stelligkeit und kann nichts aufblähen – so
   # zahlen etwa Paare X-Y oder Datensätze nichts. Listenzellen: der Kopf
   # zusammengesetzt (die Aufrufer merken sich nur solche).
-  defp inner?({tag, _f, args}) when tag in [:struct, :gstruct], do: Enum.any?(args, &compound?/1)
+  defp inner?({tag, _f, args}) when tag in [:struct, :gstruct], do: any_compound?(args)
   defp inner?({:glist, _}), do: true
   defp inner?([_ | _]), do: true
   defp inner?(_), do: false
+
+  defp any_compound?([a | as]), do: compound?(a) or any_compound?(as)
+  defp any_compound?([]), do: false
+
+  # die ersten n eines Eimers
+  defp take([x | xs], n) when n > 0, do: [x | take(xs, n - 1)]
+  defp take(_, _), do: []
 
   defp compound?({:atom, _}), do: false
   defp compound?({:var, _}), do: false

@@ -92,7 +92,9 @@ defmodule PrologEx do
   def cons(h, t), do: [h | t]
 
   # [x1, ..., xn | tail]
-  def list(items, tail \\ []), do: List.foldr(items, tail, &cons/2)
+  def list(items, tail \\ [])
+  def list([], tail), do: tail
+  def list([x | xs], tail), do: cons(x, list(xs, tail))
 
   # Einheitlicher Listenzugriff
   def uncons([h | t]), do: {:cons, h, t}
@@ -1232,34 +1234,39 @@ defmodule PrologEx do
   defp unjit_callers(db, keys) do
     case db do
       %{:jit_callers => calls} ->
-        case for k <- keys, c <- Map.get(calls, k, []), do: c do
+        case callers_of(keys, calls) do
           [] ->
             db
 
           hit ->
             db = Map.put(db, :jit_callers, Map.drop(calls, keys))
-
-            db =
-              Enum.reduce(hit, db, fn {m, n, a} = k, db ->
-                db = Map.delete(db, {:jit_info, m, n, a})
-
-                case db do
-                  %{^k => {:pred, cls, by_key, {t, _, _, _, vo, _}, entries}}
-                  when t in [:jit, :jit_nd] ->
-                    Map.put(db, k, {:pred, cls, by_key, vo, entries})
-
-                  _ ->
-                    db
-                end
-              end)
-
-            unjit_callers(db, hit)
+            unjit_callers(unjit_each(hit, db), hit)
         end
 
       _ ->
         db
     end
   end
+
+  defp callers_of([k | ks], calls), do: Map.get(calls, k, []) ++ callers_of(ks, calls)
+  defp callers_of([], _calls), do: []
+
+  defp unjit_each([{m, n, a} = k | ks], db) do
+    db = Map.delete(db, {:jit_info, m, n, a})
+
+    db =
+      case db do
+        %{^k => {:pred, cls, by_key, {t, _, _, _, vo, _}, entries}} when t in [:jit, :jit_nd] ->
+          Map.put(db, k, {:pred, cls, by_key, vo, entries})
+
+        _ ->
+          db
+      end
+
+    unjit_each(ks, db)
+  end
+
+  defp unjit_each([], db), do: db
 
   @doc "Klauseln zu Prädikaten: %{{name, arity} => prädikat}"
   def build_preds(clauses) do
@@ -1275,10 +1282,14 @@ defmodule PrologEx do
   def declare(db, key) do
     key = pkey(key)
 
-    db
-    |> unjit_callers([key])
-    |> Map.put_new(key, build_pred([]))
-    |> Map.update(:dynamic, MapSet.new([key]), &MapSet.put(&1, key))
+    db = unjit_callers(db, [key])
+    # (bei jedem assert: nichts vorab bauen, was es schon gibt)
+    db = if Map.has_key?(db, key), do: db, else: Map.put(db, key, build_pred([]))
+
+    case db do
+      %{dynamic: d} -> Map.put(db, :dynamic, MapSet.put(d, key))
+      _ -> Map.put(db, :dynamic, MapSet.new([key]))
+    end
   end
 
   @doc false
@@ -3924,26 +3935,28 @@ defmodule PrologEx do
   # Grenze – darunter ist keine überschritten)
   defp jit_over?(_n, %{ilimit: nil}), do: false
   defp jit_over?(n, %{ilimit: l}) when n <= l, do: false
-  defp jit_over?(n, st), do: Enum.any?(st.ilimits, fn {_, l} -> n > l end)
+  defp jit_over?(n, st), do: over_ilimit?(st.ilimits, n)
+
+  # eine der Inferenzgrenzen [{id, Grenze}] überschritten?
+  defp over_ilimit?([{_, l} | ls], n), do: n > l or over_ilimit?(ls, n)
+  defp over_ilimit?([], _n), do: false
 
   defp jit_check(consumed, st) do
     :atomics.add(st.icount, 1, consumed)
     n = :atomics.get(st.icount, 1) + 1
     # wirft der Prüfpunkt, ist die nächste Inferenz schon gezählt (wie in
     # run_step: erst zählen, dann limit_hit)
-    counted = fn -> :atomics.add(st.icount, 1, 1) end
-
     cond do
-      Enum.any?(st.ilimits, fn {_, l} -> n > l end) ->
-        counted.()
+      over_ilimit?(st.ilimits, n) ->
+        :atomics.add(st.icount, 1, 1)
         PrologEx.Error.throw!({:atom, "inference_limit_exceeded"})
 
       timer_expired(st) != nil ->
-        counted.()
+        :atomics.add(st.icount, 1, 1)
         PrologEx.Error.throw!(@time_ball)
 
       (info = mem_check(0)) != nil ->
-        counted.()
+        :atomics.add(st.icount, 1, 1)
         PrologEx.Error.throw!(mem_ball(info, st))
 
       true ->
@@ -4040,11 +4053,15 @@ defmodule PrologEx do
 
   # Attributmodule mit verify_attributes/3, in Deklarationsreihenfolge
   @doc false
-  def verify_modules(db) do
-    for m <- Map.get(db, :attr_modules, []),
-        Map.has_key?(db, {m, "verify_attributes", 3}),
-        do: m
+  def verify_modules(db), do: verify_mods(Map.get(db, :attr_modules, []), db)
+
+  defp verify_mods([m | ms], db) do
+    if Map.has_key?(db, {m, "verify_attributes", 3}),
+      do: [m | verify_mods(ms, db)],
+      else: verify_mods(ms, db)
   end
+
+  defp verify_mods([], _db), do: []
 
   # Eingebaute Suspensionen (freeze, dif, when, Ausschlussmengen) der eben
   # gebundenen attributierten Variablen attvs (in Bindereihenfolge)
@@ -4670,7 +4687,10 @@ defmodule PrologEx do
   defp remove_ilimit(st, id), do: rearm(%{st | ilimits: List.keydelete(st.ilimits, id, 0)})
 
   defp min_ilimit([]), do: nil
-  defp min_ilimit(ls), do: ls |> Enum.map(&elem(&1, 1)) |> Enum.min()
+  defp min_ilimit([{_, l} | ls]), do: min_ilimit(ls, l)
+
+  defp min_ilimit([{_, l} | ls], m), do: min_ilimit(ls, min(l, m))
+  defp min_ilimit([], m), do: m
 
   # ---------------------------------------------------------------------
   # Zeitgrenzen (library(time): call_with_timeout/2,3, set_timer/1)
@@ -4716,7 +4736,7 @@ defmodule PrologEx do
   defp limit_hit(goal, cutb, mod, rest, st) do
     n = :atomics.get(st.icount, 1)
 
-    if Enum.any?(st.ilimits, fn {_, l} -> n > l end) do
+    if over_ilimit?(st.ilimits, n) do
       throw_ball({:atom, "inference_limit_exceeded"}, st)
     else
       case timer_expired(st) do
@@ -4747,7 +4767,7 @@ defmodule PrologEx do
     cond do
       # der Prüfpunkt ist schon gerissen (st.ilimit < Zählerstand) und
       # bleibt es, bis der Rahmen die Grenze entfernt
-      Enum.any?(st.tlimits, fn {_, d} -> d <= now end) ->
+      tlimit_due?(st.tlimits, now) ->
         st
 
       (d = Map.get(timers(), st.qref)) != nil and d <= now ->
@@ -4758,6 +4778,9 @@ defmodule PrologEx do
         nil
     end
   end
+
+  defp tlimit_due?([{_, d} | ls], now), do: d <= now or tlimit_due?(ls, now)
+  defp tlimit_due?([], _now), do: false
 
   # Speichergrenzen in der Timer-Map: :mem – Stapel [{id, Grenze in Wörtern
   # (absolut), Bytes}] von call_with_memory_limit/2; :qmem – {Grenze, Bytes}
@@ -4783,25 +4806,30 @@ defmodule PrologEx do
   defp mem_check(extra) do
     m = timers()
 
-    limits =
-      for({_, l, b} <- Map.get(m, :mem, []), do: {l, {:call_with_memory_limit, b}}) ++
-        case Map.get(m, :qmem) do
-          nil -> []
-          {l, b} -> [{l, {:stack_limit, b}}]
-        end
-
-    case limits do
-      [] ->
+    case tightest(Map.get(m, :mem, []), Map.get(m, :qmem)) do
+      nil ->
         nil
 
-      _ ->
-        {lim, info} = Enum.min_by(limits, &elem(&1, 0))
-
+      {lim, info} ->
         if heap_words() + extra > lim and
              (:erlang.garbage_collect() and heap_words() + extra > lim),
            do: info
     end
   end
+
+  # engste Grenze {Wörter, Quelle}: die Grenzen von call_with_memory_limit/2
+  # der Reihe nach, dann stack_limit; bei Gleichstand die erste
+  defp tightest([{_, l, b} | ls], q), do: tightest(ls, q, {l, {:call_with_memory_limit, b}})
+  defp tightest([], nil), do: nil
+  defp tightest([], {l, b}), do: {l, {:stack_limit, b}}
+
+  defp tightest([{_, l, b} | ls], q, {lim, _} = best),
+    do: tightest(ls, q, if(l < lim, do: {l, {:call_with_memory_limit, b}}, else: best))
+
+  defp tightest([], nil, best), do: best
+
+  defp tightest([], {l, b}, {lim, _} = best),
+    do: if(l < lim, do: {l, {:stack_limit, b}}, else: best)
 
   # error(resource_error(memory), context(Quelle, memory(Bytes, Tiefe,
   # ChoicePoints, Rekursion))): Quelle call_with_memory_limit/2 oder
@@ -5820,12 +5848,7 @@ defmodule PrologEx do
         {memo, size, _} = acc
 
         {attrs, {memo, size, new}} =
-          Enum.reduce(old, {%{}, {memo, size, []}}, fn {m, t}, {as, acc} ->
-            # tote Suspensionen (Done gebunden) fallen weg
-            t = if m == "$susp", do: live_susps(t, subst), else: t
-            {t, acc} = compact(t, subst, acc)
-            {Map.put(as, m, t), acc}
-          end)
+          compact_attr_map(:maps.next(:maps.iterator(old)), %{}, {memo, size, []}, subst)
 
         # attributierte Variablen in den (kompaktierten) Attributen selbst
         compact_attrs(new ++ ids, Store.put_attrs(out, id, attrs), {memo, size, []}, subst)
@@ -5834,6 +5857,15 @@ defmodule PrologEx do
         compact_attrs(ids, out, acc, subst)
     end
   end
+
+  defp compact_attr_map({m, t, it}, as, acc, subst) do
+    # tote Suspensionen (Done gebunden) fallen weg
+    t = if m == "$susp", do: live_susps(t, subst), else: t
+    {t, acc} = compact(t, subst, acc)
+    compact_attr_map(:maps.next(it), Map.put(as, m, t), acc, subst)
+  end
+
+  defp compact_attr_map(:none, as, acc, _subst), do: {as, acc}
 
   # erreichte Zyklusvariablen (unter :"$cyc" im Memo, siehe compact_all/1):
   # sie bleiben gebunden, ihre Bindungen werden mitkompaktiert (und können
@@ -5976,11 +6008,7 @@ defmodule PrologEx do
   defp compact3(t, _subst, acc, _d), do: {t, acc, false, true}
 
   defp compact_struct(t, f, args, subst, acc, d) do
-    {args2, {acc, changed, ground}} =
-      Enum.map_reduce(args, {acc, false, true}, fn arg, {acc, ch, gr} ->
-        {a2, acc, c, g} = compact3(arg, subst, acc, d)
-        {a2, {acc, ch or c, gr and g}}
-      end)
+    {args2, acc, changed, ground} = compact_args(args, subst, acc, d)
 
     {memo, size, attvs} = acc
 
@@ -5990,6 +6018,15 @@ defmodule PrologEx do
       true -> {t, {memo, size + 1, attvs}, false, false}
     end
   end
+
+  # Argumente von links nach rechts: {neue, acc, geändert?, ground?}
+  defp compact_args([a | as], subst, acc, d) do
+    {a2, acc, c, g} = compact3(a, subst, acc, d)
+    {as2, acc, cs, gs} = compact_args(as, subst, acc, d)
+    {[a2 | as2], acc, c or cs, g and gs}
+  end
+
+  defp compact_args([], _subst, acc, _d), do: {[], acc, false, true}
 
   # Köpfe der Reihe nach kompaktieren; Einträge {:cell, zelle, h2, ch, gh}
   # oder {:link, var} (gebundene Rest-Variable, wird beim Aufbau memoisiert)

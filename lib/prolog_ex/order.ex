@@ -447,31 +447,43 @@ defmodule PrologEx.Order do
 
   @doc "Sortiert Paare `{schlüsselterm, element}` stabil nach dem Schlüsselterm."
   def keysort(pairs, subst) do
-    walked = Enum.map(pairs, fn {k, item} -> {walk(k, subst), item} end)
+    walked = walk_keys(pairs, subst)
 
-    case kind(Enum.map(walked, &elem(&1, 0)), :none) do
+    case key_kind(walked, :none) do
       # Schlüssel direkt vergleichbar (List.keysort ist stabil)
       k when k in [:integers, :atoms] ->
-        walked |> List.keysort(0) |> Enum.map(&elem(&1, 1))
+        walked |> List.keysort(0) |> unkey()
 
       _ ->
         try do
-          walked
-          |> Enum.map(fn {k, item} -> {sort_key(k, subst), item} end)
-          |> List.keysort(0)
-          |> Enum.map(&elem(&1, 1))
+          walked |> sort_keys(subst) |> List.keysort(0) |> unkey()
         catch
           # geteilte Teilterme: über compare/3 (stabil), siehe do_sort/3
           :shared ->
             walked
             |> Enum.sort(fn {a, _}, {b, _} -> compare(a, b, subst) != :gt end)
-            |> Enum.map(&elem(&1, 1))
+            |> unkey()
         end
     end
   end
 
+  defp walk_keys([{k, item} | ps], subst), do: [{walk(k, subst), item} | walk_keys(ps, subst)]
+  defp walk_keys([], _subst), do: []
+
+  defp sort_keys([{k, item} | ps], subst), do: [{sort_key(k, subst), item} | sort_keys(ps, subst)]
+  defp sort_keys([], _subst), do: []
+
+  # wie kind/2, über die Schlüssel der Paare
+  defp key_kind([], k), do: if(k == :none, do: :integers, else: k)
+
+  defp key_kind([{x, _} | xs], k) when is_integer(x) and k in [:none, :integers],
+    do: key_kind(xs, :integers)
+
+  defp key_kind([{{:atom, _}, _} | xs], k) when k in [:none, :atoms], do: key_kind(xs, :atoms)
+  defp key_kind(_, _), do: :mixed
+
   defp do_sort(list, subst, unique) do
-    values = Enum.map(list, &walk(&1, subst))
+    values = walk_all(list, subst)
 
     case kind(values, :none) do
       :integers ->
@@ -487,7 +499,7 @@ defmodule PrologEx.Order do
       :mixed ->
         keyed =
           try do
-            Enum.map(values, &{sort_key(&1, subst), &1})
+            keyed(values, subst)
           catch
             :shared -> :shared
           end
@@ -500,11 +512,19 @@ defmodule PrologEx.Order do
           if unique, do: dedup_compare(sorted, subst), else: sorted
         else
           sorted = List.keysort(keyed, 0)
-          sorted = if unique, do: dedup_keyed(sorted), else: sorted
-          Enum.map(sorted, &elem(&1, 1))
+          if unique, do: dedup_keyed(sorted), else: unkey(sorted)
         end
     end
   end
+
+  defp walk_all([x | xs], subst), do: [walk(x, subst) | walk_all(xs, subst)]
+  defp walk_all([], _subst), do: []
+
+  defp keyed([x | xs], subst), do: [{sort_key(x, subst), x} | keyed(xs, subst)]
+  defp keyed([], _subst), do: []
+
+  defp unkey([{_, x} | xs]), do: [x | unkey(xs)]
+  defp unkey([]), do: []
 
   defp shared?(m), do: Map.has_key?(m, :"$shared")
 
@@ -517,15 +537,28 @@ defmodule PrologEx.Order do
   defp sort_key(t, subst) do
     case walk(t, subst) do
       # lauter atomare Argumente (etwa X-Y): nichts aufzublähen
-      {tag, f, args} when tag in [:struct, :gstruct] ->
-        if Enum.any?(args, &compound_arg?/1),
-          do: budget_key(t, subst),
-          else: {3, length(args), f, args |> Enum.map(&key_leaf_or(&1, subst)) |> List.to_tuple()}
+      {tag, f, args} = c when tag in [:struct, :gstruct] ->
+        if any_compound_arg?(args),
+          do: budget_key(c, subst),
+          else: {3, length(args), f, List.to_tuple(leaf_keys(args, subst))}
 
-      _ ->
-        budget_key(t, subst)
+      [_ | _] = l ->
+        budget_key(l, subst)
+
+      {:glist, _} = l ->
+        budget_key(l, subst)
+
+      # atomar: ohne Zähler
+      other ->
+        key_leaf(other)
     end
   end
+
+  defp any_compound_arg?([a | as]), do: compound_arg?(a) or any_compound_arg?(as)
+  defp any_compound_arg?([]), do: false
+
+  defp leaf_keys([a | as], subst), do: [key_leaf_or(a, subst) | leaf_keys(as, subst)]
+  defp leaf_keys([], _subst), do: []
 
   defp compound_arg?({:atom, _}), do: false
   defp compound_arg?({:var, _}), do: false
@@ -573,7 +606,7 @@ defmodule PrologEx.Order do
     case walk(t, subst) do
       {tag, f, args} when tag in [:struct, :gstruct] ->
         if :atomics.sub_get(ref, 1, 1) < 0, do: throw(:big)
-        {3, length(args), f, args |> Enum.map(&key_b(&1, subst, ref)) |> List.to_tuple()}
+        {3, length(args), f, List.to_tuple(key_b_args(args, subst, ref))}
 
       l when is_list(l) and l != [] ->
         key_b_list(l, subst, ref)
@@ -585,6 +618,9 @@ defmodule PrologEx.Order do
         key_leaf(other)
     end
   end
+
+  defp key_b_args([a | as], subst, ref), do: [key_b(a, subst, ref) | key_b_args(as, subst, ref)]
+  defp key_b_args([], _subst, _ref), do: []
 
   defp key_b_list(l, subst, ref) do
     if :atomics.sub_get(ref, 1, 1) < 0, do: throw(:big)
@@ -621,9 +657,10 @@ defmodule PrologEx.Order do
   defp dedup_numbers([x | rest]), do: [x | dedup_numbers(rest)]
   defp dedup_numbers([]), do: []
 
-  # == auf den Schlüsseln entspricht compare/3 == :eq (auch 0.0 / -0.0)
+  # == auf den Schlüsseln entspricht compare/3 == :eq (auch 0.0 / -0.0);
+  # gibt gleich die Elemente ohne Schlüssel
   defp dedup_keyed([{k1, _} = x, {k2, _} | rest]) when k1 == k2, do: dedup_keyed([x | rest])
-  defp dedup_keyed([x | rest]), do: [x | dedup_keyed(rest)]
+  defp dedup_keyed([{_, v} | rest]), do: [v | dedup_keyed(rest)]
   defp dedup_keyed([]), do: []
 
   @doc "Sortierschlüssel eines Terms (siehe oben)."
