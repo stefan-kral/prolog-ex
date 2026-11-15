@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# cmp.py scryer.out prologex.out cases.pl – vergleicht zwei Läufe von head.pl
-# Zeilen "Id post|lab|postc|labc|crash …"; hinter " NORM " steht der
-# Zustand ohne Reihenfolge und Modulqualifikation der Restziele
+# cmp.py scryer.out prologex.out cases.pl [swi.out] – vergleicht die Läufe
+# von head.pl (und head_swi.pl): Zeilen "Id post|lab|postc|labc|crash …";
+# hinter " NORM " steht der Zustand ohne Reihenfolge und
+# Modulqualifikation der Restziele, hinter " DOMS " die Domänen
 import sys, re
 
 KINDS = ('post', 'lab', 'postc', 'labc', 'crash')
@@ -106,13 +107,78 @@ differ = [k for k in keys if norm(a.get(k)) != norm(b.get(k)) and counts(k) and 
 known = {k[0] for k in differ if scryer_known(k[0], k[1], a, b)}
 ids = sorted({k[0] for k in differ if not scryer_known(k[0], k[1], a, b)}, key=int)
 known -= set(ids)
+
+# --- SWI-Prolog (library(clpfd)) als dritte Stimme ------------------------
+# Verglichen werden Domänen nach dem Aufstellen (SWI schreibt die
+# Restziele anders), die Lösungen in Reihenfolge und über call/1 sortiert.
+# Mehrheit: weicht PrologEx allein ab (Scryer und SWI gleich), ist das ein
+# starkes Zeichen; weicht Scryer allein ab, eher Scryer (oder clpz gegen
+# clpfd); SWI allein: clpfd gegen clpz, nur gezählt.
+# nvalue/2 gibt es in SWI nicht.
+w = load(sys.argv[4]) if len(sys.argv) > 4 else None
+NOSWI = re.compile(r'nvalue\(')
+
+def view(v, t, i):
+    dev = any(DEVIATE.search(l) for l in src.get(i, []))
+    if t == 'post':
+        if dev: return None
+        return doms(v) if v and ' DOMS ' in v else v
+    if t == 'postc':
+        return None if dev else v
+    if t in ('lab', 'labc'):
+        return sols(v) if dev else v
+    return v
+
+classes = {}
+if w is not None:
+    for i in sorted({k[0] for k in keys}, key=int):
+        if any(NOSWI.search(l) for l in src.get(i, [])):
+            continue
+        cl = None
+        for t in ('post', 'lab', 'postc', 'labc'):
+            vs, vp, vw = (view(x.get((i, t)), t, i) for x in (a, b, w))
+            if vs == vp == vw:
+                continue
+            # über call/1: wie oben nur verschiedene Lösungen
+            if t in ('postc', 'labc') and not all(x is not None and str(x).startswith("'-'(") for x in (vs, vp, vw)):
+                continue
+            c = ('PrologEx allein' if vs == vw else 'Scryer allein' if vp == vw
+                 else 'SWI allein' if vs == vp else 'alle verschieden')
+            rank = ['SWI allein', 'Scryer allein', 'alle verschieden', 'PrologEx allein']
+            if cl is None or rank.index(c) > rank.index(cl):
+                cl = c
+        if cl:
+            classes[i] = cl
+    # gegen Scryer verschieden, aber SWI wie PrologEx: eher Scryer
+    ids = [i for i in ids if classes.get(i) not in ('Scryer allein', 'SWI allein')]
+    ids = sorted(set(ids) | {i for i, c in classes.items() if c in ('PrologEx allein', 'alle verschieden')}, key=int)
+
+swi = ''
+if w is not None:
+    cc = {c: sum(1 for x in classes.values() if x == c) for c in ('PrologEx allein', 'Scryer allein', 'SWI allein', 'alle verschieden')}
+    swi = 'SWI: PrologEx allein %d, Scryer allein %d, SWI allein %d, alle verschieden %d  ' % tuple(cc.values())
 print('Fälle %d  Scryer %d  PrologEx %d  nur Reihenfolge der Restziele %d  '
-      'bekannte Scryer-Fehler %d  verschieden %d'
-      % (len({k[0] for k in keys}), len(a), len(b), len(order), len(known), len(ids)))
-for i in ids:
+      'bekannte Scryer-Fehler %d  %sverschieden %d'
+      % (len({k[0] for k in keys}), len(a), len(b), len(order), len(known), swi, len(ids)))
+
+def show(i, with_w):
     print('\n'.join(l for l in src.get(i, []) if not l.startswith('g(')))
     for t in KINDS:
-        if a.get((i, t)) != b.get((i, t)):
+        vals = [a.get((i, t)), b.get((i, t))] + ([w.get((i, t))] if with_w else [])
+        if len(set(vals)) > 1:
             print('  S %s: %s' % (t, (a.get((i, t)) or '-')[:600]))
             print('  P %s: %s' % (t, (b.get((i, t)) or '-')[:600]))
+            if with_w: print('  W %s: %s' % (t, (w.get((i, t)) or '-')[:600]))
     print()
+
+for i in ids:
+    if w is not None and i in classes: print('[%s]' % classes[i])
+    show(i, w is not None)
+
+# Beispiele für die übrigen Klassen (höchstens je 3)
+if w is not None:
+    for c in ('Scryer allein', 'SWI allein'):
+        ex = [i for i, x in sorted(classes.items(), key=lambda kv: int(kv[0])) if x == c][:3]
+        if ex:
+            print('--- Beispiele %s' % c)
+            for i in ex: show(i, True)

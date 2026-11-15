@@ -2287,6 +2287,18 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     SCRYER=… MIX_ENV=prod conformance/clpz_fuzz/night.sh 1000 1999   # 500 000 Fälle, gut 5 h
     ```
 
+    Ist `swipl` da (oder `SWIPL=…`), läuft jeder Fall auch in SWI-Prolog
+    mit `library(clpfd)` (`head_swi.pl`; `chain/2` dort mit vertauschten
+    Argumenten, `nvalue/2` gibt es nicht). Verglichen werden die Domänen
+    nach dem Aufstellen (SWI schreibt die Restziele anders) und die
+    Lösungen; die Zusammenfassung zählt nach Mehrheit: „PrologEx allein“
+    (Scryer und SWI einig – das wichtigste Zeichen für einen Fehler bei
+    uns), „Scryer allein“ (meist der bekannte Fehler Scryers), „SWI allein“
+    (clpfd gegen clpz: andere Stärke bei `mod`/`rem`, andere Reihenfolge
+    unter `ff`/`ffc`; nur gezählt, je Seed drei Beispiele in `d<Seed>.txt`),
+    „alle verschieden“. Weicht PrologEx von Scryer ab, aber SWI rechnet wie
+    PrologEx, zählt das nicht als Unterschied.
+
     Ein Seed (500 Fälle, beide Fassungen) braucht etwa 20 s.
     Ausgaben unter `tmp/clpz_fuzz/` (`summary.txt`, Seeds mit
     Unterschieden in `found.txt`, Einzelheiten in `d<Seed>.txt`).
