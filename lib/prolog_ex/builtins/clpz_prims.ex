@@ -6848,56 +6848,94 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # Knoten als Zahlen (Tarjan und Erreichbarkeit rechnen in Maps mit den
+  # Knoten als Schlüsseln; mit {:v, i} und {:n, Wert} ging ein Zehntel des
+  # Sudoku in Hashen und Vergleichen der Schlüssel): Variable i → i, die
+  # vorkommenden Werte → n, n + 1, …
   defp removable(left, mv, adj) do
     n = length(left)
-    matched = Map.new(mv, fn {_i, val} -> {val, true} end)
+    vals = Map.keys(adj)
+    vnode = number_vals(vals, n, %{})
+    matched = matched_vals(Map.values(mv), %{})
 
     # gerichteter Graph: gepaart Variable → Wert, sonst Wert → Variable
-    succ = fn
-      {:v, i} -> [{:n, :erlang.map_get(i, mv)}]
-      {:n, val} -> for j <- Map.get(adj, val, []), Map.get(mv, j) != val, do: {:v, j}
-    end
+    succ = List.to_tuple(var_succ(0, n, mv, vnode, val_succ(vals, adj, mv)))
 
     # (Reihenfolge gleichgültig: reach liefert eine Menge)
-    free = for {val, _} <- adj, not is_map_key(matched, val), do: {:n, val}
-    reach = reach(free, succ, Map.new(free, &{&1, true}))
-    comp = tarjan(var_nodes(0, n), succ)
-    removable_edges(left, 0, mv, reach, comp)
+    free = free_nodes(vals, matched, vnode)
+    reach = reach(free, succ, set_of(free, %{}))
+    comp = tarjan(int_nodes(0, n - 1), &elem(succ, &1))
+    removable_edges(left, 0, mv, vnode, reach, comp)
   end
 
-  defp var_nodes(i, n) when i >= n, do: []
-  defp var_nodes(i, n), do: [{:v, i} | var_nodes(i + 1, n)]
+  defp number_vals([v | vs], k, acc), do: number_vals(vs, k + 1, Map.put(acc, v, k))
+  defp number_vals([], _k, acc), do: acc
+
+  defp matched_vals([v | vs], acc), do: matched_vals(vs, Map.put(acc, v, true))
+  defp matched_vals([], acc), do: acc
+
+  defp set_of([x | xs], acc), do: set_of(xs, Map.put(acc, x, true))
+  defp set_of([], acc), do: acc
+
+  # Nachfolger der Variablenknoten 0..n-1, davor gehängt an rest
+  defp var_succ(i, n, _mv, _vnode, rest) when i >= n, do: rest
+
+  defp var_succ(i, n, mv, vnode, rest),
+    do: [[:erlang.map_get(:erlang.map_get(i, mv), vnode)] | var_succ(i + 1, n, mv, vnode, rest)]
+
+  # Nachfolger der Wertknoten (in der Reihenfolge von vals): die
+  # Variablen, mit denen der Wert nicht gepaart ist
+  defp val_succ([val | vals], adj, mv),
+    do: [unpaired(:erlang.map_get(val, adj), val, mv) | val_succ(vals, adj, mv)]
+
+  defp val_succ([], _adj, _mv), do: []
+
+  defp unpaired([j | js], val, mv) do
+    if Map.get(mv, j) != val, do: [j | unpaired(js, val, mv)], else: unpaired(js, val, mv)
+  end
+
+  defp unpaired([], _val, _mv), do: []
+
+  defp free_nodes([val | vals], matched, vnode) do
+    if is_map_key(matched, val),
+      do: free_nodes(vals, matched, vnode),
+      else: [:erlang.map_get(val, vnode) | free_nodes(vals, matched, vnode)]
+  end
+
+  defp free_nodes([], _matched, _vnode), do: []
 
   # je Variable i die Werte (absteigend), deren Kante weg kann
-  defp removable_edges([], _i, _mv, _reach, _comp), do: []
+  defp removable_edges([], _i, _mv, _vnode, _reach, _comp), do: []
 
-  defp removable_edges([{v, ns} | left], i, mv, reach, comp) do
+  defp removable_edges([{v, ns} | left], i, mv, vnode, reach, comp) do
     removable_vals(
       :lists.reverse(ns),
       v,
       Map.get(mv, i),
-      Map.get(comp, {:v, i}),
+      Map.get(comp, i),
+      vnode,
       reach,
       comp,
-      removable_edges(left, i + 1, mv, reach, comp)
+      removable_edges(left, i + 1, mv, vnode, reach, comp)
     )
   end
 
-  defp removable_vals([], _v, _mi, _ci, _reach, _comp, rest), do: rest
+  defp removable_vals([], _v, _mi, _ci, _vnode, _reach, _comp, rest), do: rest
 
-  defp removable_vals([val | vals], v, mi, ci, reach, comp, rest) do
-    vals = removable_vals(vals, v, mi, ci, reach, comp, rest)
+  defp removable_vals([val | vals], v, mi, ci, vnode, reach, comp, rest) do
+    vals = removable_vals(vals, v, mi, ci, vnode, reach, comp, rest)
+    k = :erlang.map_get(val, vnode)
 
-    if mi != val and not is_map_key(reach, {:n, val}) and ci != Map.get(comp, {:n, val}),
+    if mi != val and not is_map_key(reach, k) and ci != Map.get(comp, k),
       do: [{v, val} | vals],
       else: vals
   end
 
-  # erreichbare Knoten (Map als Menge)
+  # erreichbare Knoten (Map als Menge); succ: Tupel der Nachfolger
   defp reach([], _succ, seen), do: seen
 
   defp reach([x | xs], succ, seen) do
-    {new, seen} = unseen(succ.(x), seen, [])
+    {new, seen} = unseen(elem(succ, x), seen, [])
     reach(new ++ xs, succ, seen)
   end
 

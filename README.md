@@ -4419,6 +4419,12 @@ und Co. dem ersten Aufrufer aus PrologEx (`bench/prof/`, siehe unten):
     auch rekursiv), kaum Closures.
   * clpz: 2–3 % (Kompaktieren der Attribute, `PrologEx.Share`,
     Sortierschlüssel), jetzt rekursiv.
+    Dazu, nicht `Enum`: der Tarjan-Algorithmus in `all_distinct/1` (und
+    `circuit/1`) führte seine Tabellen als Maps mit Knoten `{:v, i}` und
+    `{:n, Wert}` als Schlüssel – Hashen und Vergleichen dieser Schlüssel
+    kosteten im Sudoku gut ein Zehntel. Jetzt mit Zahlen als Knoten
+    (Variable i → i, Werte → n, n + 1, …): Anteil von Tarjan am Sudoku
+    21 % → 10 %.
   * Eingebaute mit Listen über Elixir: `msort/2` 22 % (Schlüssel bilden
     und abstreifen, dazu ein `:atomics`-Zähler auch für atomare Elemente)
     → −38 % Zeit; `assertz/1` 10 % (`declare/2` baute bei jedem Aufruf ein
