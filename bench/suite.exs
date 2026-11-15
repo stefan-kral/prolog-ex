@@ -105,6 +105,11 @@ defmodule Suite do
     {"clpz_sudoku", "sudoku_problem(Rows), sudoku(Rows)"}
   ]
 
+  # für bench/prof/: Fälle und Programm ohne Messlauf
+  def prelude, do: @prelude
+  def program, do: @program
+  def cases, do: @cases
+
   def main(args) do
     {opts, _, _} =
       OptionParser.parse(args,
@@ -165,4 +170,4 @@ defmodule Suite do
   end
 end
 
-Suite.main(System.argv())
+unless System.get_env("SUITE_NO_MAIN"), do: Suite.main(System.argv())

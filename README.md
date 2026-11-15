@@ -4411,7 +4411,7 @@ Reduktionen: die überschätzen es – `atom_codes/2` und Co. mit `Enum`
 −29 % Reduktionen, aber nur rund −3 % Zeit). Gemessen mit `perf` über
 der BEAM mit `+JPperf true` (JIT-Symbole und Rahmenzeiger), jede
 Stichprobe der nächsten Elixir-Funktion zugeordnet, Arbeit in `Enum`
-und Co. dem ersten Aufrufer aus PrologEx:
+und Co. dem ersten Aufrufer aus PrologEx (`bench/prof/`, siehe unten):
 
   * Die Maschine selbst ist durch: bei nrev, loop, between, member,
     facts, queens, tak, deriv höchstens 1 % in `Enum` und Co. (die
@@ -4436,6 +4436,19 @@ und Co. dem ersten Aufrufer aus PrologEx:
     ohne Regex: −56 %), je Zahl beim Lesen von JSON (−30 %), je Feld in
     CSV und je Textknoten in XML. Regex bleiben, wo sie selten laufen
     (Laden, Nicht-ASCII im Leser und Schreiber).
+
+Die Werkzeuge dazu liegen in `bench/prof/` (Fälle aus `bench/suite.exs`,
+weitere über `EXTRA='name=Ziel@@…'`, Bibliotheken über `PRELUDE`):
+
+```
+bench/prof/perf.sh queens clpz_sudoku        # Profil der echten Zeit (Linux, perf)
+bench/prof/who.py tmp/prof/perf.queens.data 'Enum|lists'   # wer ruft das?
+MIX_ENV=prod mix run bench/prof/red.exs --save /tmp/vorher.txt
+MIX_ENV=prod mix run bench/prof/red.exs --compare /tmp/vorher.txt
+```
+
+`red.exs` misst Reduktionen (deterministisch) und die beste Zeit; die
+schwankt um ±10 %, also mehrmals abwechselnd messen.
 Strings als Muster in Funktionsköpfen sind billig – der Compiler baut
 daraus einen Entscheidungsbaum über die Bytes (`select_val`) –, `x in
 @liste` in einem Guard dagegen ist eine Kette von Vergleichen, einer
