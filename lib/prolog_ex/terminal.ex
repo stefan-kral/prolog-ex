@@ -149,8 +149,9 @@ defmodule PrologEx.Terminal do
 
   defp code(role), do: code(role, palette())
 
-  # 8 Farben: die Grundfarben; 256: helle Töne aus der Palette; Truecolor:
-  # dieselben Töne genau
+  # 8 Farben: die Grundfarben (wie sie aussehen, bestimmt das Farbschema des
+  # Terminals); 256: Rot und Grün etwas heller, für die Eingabe ein sattes
+  # Blau (27, #005fff); Truecolor: dieselben Töne genau
   defp palette do
     c = capabilities()
 
@@ -166,10 +167,10 @@ defmodule PrologEx.Terminal do
   defp code(:input, :c8), do: IO.ANSI.blue()
   defp code(:error, :c256), do: IO.ANSI.color(203)
   defp code(:comment, :c256), do: IO.ANSI.color(114)
-  defp code(:input, :c256), do: IO.ANSI.color(75)
+  defp code(:input, :c256), do: IO.ANSI.color(27)
   defp code(:error, :truecolor), do: rgb(255, 95, 95)
   defp code(:comment, :truecolor), do: rgb(135, 215, 135)
-  defp code(:input, :truecolor), do: rgb(95, 175, 255)
+  defp code(:input, :truecolor), do: rgb(0, 95, 255)
   defp code(:normal, _), do: IO.ANSI.default_color()
 
   defp rgb(r, g, b), do: "\e[38;2;#{r};#{g};#{b}m"
@@ -197,7 +198,11 @@ defmodule PrologEx.Terminal do
 
     for {name, v} <- variants do
       IO.puts("── #{name} " <> String.duplicate("─", 50 - String.length(name)))
-      c = fn role -> if v == :bright, do: bright(role), else: code(role, v) end
+
+      c = fn role ->
+        if v == :bright, do: bright(role), else: code(role, v)
+      end
+
       r = IO.ANSI.reset()
       IO.puts(c.(:comment) <> "% lade library(clpz) ..." <> r)
       IO.puts("?- " <> c.(:input) <> "X #= 3 + 4, Y in 1..X." <> r)
@@ -209,6 +214,32 @@ defmodule PrologEx.Terminal do
       IO.puts(c.(:comment) <> "% between/3 liegt in library(between)" <> r)
       IO.puts("")
     end
+
+    # Blautöne zur Auswahl (256 Farben; Nummer und Truecolor-Wert)
+    IO.puts("── Blautöne (256 Farben) " <> String.duplicate("─", 38))
+
+    for {n, hex} <- [
+          {19, "#0000af"},
+          {20, "#0000d7"},
+          {21, "#0000ff"},
+          {26, "#005fd7"},
+          {27, "#005fff"},
+          {32, "#0087d7"},
+          {33, "#0087ff"},
+          {63, "#5f5fff"},
+          {69, "#5f87ff"},
+          {75, "#5fafff"}
+        ] do
+      IO.puts(
+        IO.ANSI.color(n) <>
+          "?- X #= 3 + 4, Y in 1..X." <> IO.ANSI.reset() <> "   #{n} #{hex}"
+      )
+    end
+
+    IO.puts(
+      IO.ANSI.blue() <>
+        "?- X #= 3 + 4, Y in 1..X." <> IO.ANSI.reset() <> "   Grundfarbe Blau (8 Farben)"
+    )
 
     :ok
   end
