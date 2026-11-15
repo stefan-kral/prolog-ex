@@ -10,10 +10,14 @@ defmodule PrologEx.LoadLog do
       Operatoren) einzeln
 
   Auf stderr, als Kommentare (`% ...`), eingerückt nach Ladetiefe: was eine
-  Bibliothek beim Laden selbst importiert, steht unter ihr.
+  Bibliothek beim Laden selbst importiert, steht unter ihr. Dieselbe Liste
+  (gleiches Modul, gleiche Prädikate und Operatoren) steht während eines
+  Ladevorgangs nur einmal, danach `… : 11 Prädikate (wie oben)`.
   """
 
   @depth :prolog_ex_load_depth
+  # schon einzeln gezeigte Importlisten des laufenden Ladevorgangs
+  @listed :prolog_ex_load_listed
 
   @doc "`:silent`, `:normal` oder `:full`"
   # (nicht gesetzt: die Vorgabe des Flags, full – außer die Anwendung sagt
@@ -47,6 +51,7 @@ defmodule PrologEx.LoadLog do
         say("lade #{label} ...")
         d = Process.get(@depth, 0)
         Process.put(@depth, d + 1)
+        if d == 0, do: Process.put(@listed, %{})
         t0 = System.monotonic_time(:microsecond)
 
         r =
@@ -54,6 +59,7 @@ defmodule PrologEx.LoadLog do
             f.()
           after
             Process.put(@depth, d)
+            if d == 0, do: Process.delete(@listed)
           end
 
         us = System.monotonic_time(:microsecond) - t0
@@ -92,9 +98,18 @@ defmodule PrologEx.LoadLog do
             k -> what <> ", #{k} Operatoren"
           end
 
-        say("#{into} ← #{from}: #{what}")
+        listed = Process.get(@listed)
+        key = {from, Enum.sort(keys), ops}
+        again = lvl == :full and is_map(listed) and is_map_key(listed, key)
 
-        if lvl == :full do
+        if again do
+          say("#{into} ← #{from}: #{what} (wie oben)")
+        else
+          say("#{into} ← #{from}: #{what}")
+          if lvl == :full and is_map(listed), do: Process.put(@listed, Map.put(listed, key, true))
+        end
+
+        if lvl == :full and not again do
           items =
             Enum.map(Enum.sort(keys), fn {name, ar} -> "#{quote_atom(name)}/#{ar}" end) ++
               Enum.map(ops, fn {p, type, name} ->

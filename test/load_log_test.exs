@@ -54,6 +54,15 @@ defmodule PrologEx.LoadLogTest do
     assert out =~ "op(700, xfx, #=)"
   end
 
+  # dieselbe Liste während eines Ladevorgangs nur einmal (format und
+  # charsio importieren beide dcgs und error)
+  test "full: eine schon gezeigte Importliste nur einmal", c do
+    out = run(c, "set_prolog_flag(verbose_load, full), use_module(library(format))")
+    assert out =~ ~r/format ← error: 11 Prädikate\n%\s+call_with_error_context\/2/
+    assert out =~ ~r/charsio ← error: 11 Prädikate \(wie oben\)\n/
+    assert length(String.split(out, "call_with_error_context/2")) == 2
+  end
+
   test "ungültiger Wert", c do
     assert run(
              c,
