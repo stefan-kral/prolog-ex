@@ -3722,7 +3722,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
     | Bibliothek | Prädikate |
     |---|---|
-    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); `call_with_memory_limit/2` (siehe Ressourcen begrenzen), `cached_is(X, E)` (rechnet wie `X is E`, wertet aber einen geteilten Teilausdruck nur einmal aus – ein Term wie `X+X` über 60 Stufen kostet 60 Schritte statt 2^60; Fehler wie bei `is/2`; Teile mit `random`, `random_float`, `cputime`, `realtime` werden nicht gemerkt und liefern je Vorkommen einen neuen Wert); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); `call_with_memory_limit/2` (siehe Ressourcen begrenzen), `clausex/2` (wie `clause/2`, scheitert aber statt `permission_error(access, private_procedure, …)`; für Meta-Interpreter, Messung unter „Laufzeit“), `cached_is(X, E)` (rechnet wie `X is E`, wertet aber einen geteilten Teilausdruck nur einmal aus – ein Term wie `X+X` über 60 Stufen kostet 60 Schritte statt 2^60; Fehler wie bei `is/2`; Teile mit `random`, `random_float`, `cputime`, `realtime` werden nicht gemerkt und liefern je Vorkommen einen neuen Wert); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1` – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])` |
@@ -4257,6 +4257,19 @@ genau eine, ist die Lösung deterministisch (kein Choice Point). Ein
 Vanilla-Meta-Interpreter (`solve/1` über `clause/2`) läuft dadurch etwa
 doppelt so schnell, der Zugriff auf eine Faktentabelle mit 1000 Fakten
 rund 25-mal; `=../2` wurde 25–30 % schneller.
+
+`clausex/2` (aus `library(iso_ext)`) ist `clause/2` für Meta-Interpreter:
+gleich, scheitert aber, wo `clause/2` `permission_error(access,
+private_procedure, …)` gibt – bei Builtins, Steuerkonstrukten und den in
+Elixir geschriebenen Bibliotheksprädikaten wie `lists:append/3`, die keine
+Klauseln haben. `solve(G) :- if(clausex(G, B), solve(B), call(G)).` führt
+solche Ziele direkt aus, ohne `catch/3`. Gemessen (`nrev` von 30 Elementen,
+`append/3` nativ, 3000-mal): `catch(clause(G, B), …)` 1,53 s,
+`predicate_property(G, number_of_clauses(_))` als Test 2,56 s, `clausex/2`
+1,13–1,34 s, direkt `call/1` 0,085 s. Andere Systeme: SWI liefert die
+Klauseln auch von `lists:append/3` (Prolog-Code; Flag
+`protect_static_code`), Scryer und SICStus nur von dynamischen
+Prädikaten, GNU nur von `public`.
 
 `once/1` und `ignore/1` waren Klauseln (`once(G) :- call(G), !.`), also
 ein voller Prädikataufruf vor dem `call/1`; jetzt `call(G)` mit einem

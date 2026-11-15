@@ -11,6 +11,18 @@ defmodule PrologEx.Builtins.System do
   # $-Hilfsprädikate ergeben permission_error. Die Klauseln werden mit
   # frischen Variablen kopiert; die Liste ist ein Schnappschuss beim Aufruf.
   defbuiltin "clause", [h, b], nondet: true do
+    clause_of(h, b, ctx, :raise)
+  end
+
+  # clausex(H, B) wie clause/2, scheitert aber, wo clause/2
+  # permission_error(access, private_procedure, …) gibt (Builtins, in
+  # Elixir geschriebene Bibliotheksprädikate, Steuerkonstrukte): für
+  # Meta-Interpreter, if(clausex(G, B), solve(B), call(G)), ohne catch/3
+  defbuiltin "clausex", [h, b], nondet: true do
+    clause_of(h, b, ctx, :fail)
+  end
+
+  defp clause_of(h, b, ctx, private) do
     {m, head} = Modules.strip(h, context_module(), subst())
 
     head =
@@ -26,7 +38,7 @@ defmodule PrologEx.Builtins.System do
       bb -> Compiler.key(bb)
     end
 
-    clause_results(source(m, name, arity, head, db(), subst()), head, b)
+    clause_results(source(m, name, arity, head, db(), subst(), private), head, b)
   end
 
   # current_predicate(PI), PI = Name/Arity oder M:Name/Arity: in M (sonst
@@ -112,11 +124,15 @@ defmodule PrologEx.Builtins.System do
 
   # Kandidaten wie beim Aufruf (Index aufs erste Argument): eine einzige
   # passende Klausel gibt eine deterministische Lösung
-  defp source(m, name, arity, head, db, s) do
-    private = fn mod ->
-      pi = PrologEx.Error.indicator(name, arity)
-      pi = if mod in ["user", "system"], do: pi, else: mk(":", [a(mod), pi])
-      PrologEx.Error.permission!("access", "private_procedure", pi)
+  defp source(m, name, arity, head, db, s, mode) do
+    private = fn
+      _mod when mode == :fail ->
+        []
+
+      mod ->
+        pi = PrologEx.Error.indicator(name, arity)
+        pi = if mod in ["user", "system"], do: pi, else: mk(":", [a(mod), pi])
+        PrologEx.Error.permission!("access", "private_procedure", pi)
     end
 
     case PrologEx.locate(db, m, name, arity) do
