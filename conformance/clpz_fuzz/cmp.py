@@ -14,8 +14,37 @@ def load(f):
             d[(m.group(1), m.group(2))] = m.group(3)
     return d
 
+# ohne Reihenfolge und Qualifikation der Restziele, mit den Domänen
 def norm(v):
     return v.split(' NORM ')[1] if v and ' NORM ' in v else v
+
+def doms(v):
+    return v.split(' DOMS ')[1] if v and ' DOMS ' in v else v
+
+# gewollte Abweichung von PrologEx: cumulative/1,2 mit fester Dauer legt
+# je Zeitscheibe ein reifiziertes in/2 an statt zweier Vergleiche (siehe
+# clpz.pl task_running_d/4, README) – domänenkonsistent, also stärker:
+# andere Restziele, kleinere Domänen, Aufstellen kann schon scheitern, ff
+# und ffc beschriften in anderer Reihenfolge. Gleich bleiben müssen die
+# Lösungen (als Menge)
+DEVIATE = re.compile(r'cumulative\(')
+
+def split_top(t):
+    # Elemente der obersten Ebene einer Liste "[a,b(c,d),[e]]"
+    out, d, cur = [], 0, ''
+    for ch in t[1:-1]:
+        if ch in '([': d += 1
+        if ch in ')]': d -= 1
+        if ch == ',' and d == 0: out.append(cur); cur = ''
+        else: cur += ch
+    if cur: out.append(cur)
+    return out
+
+def sols(v):
+    m = re.match(r"^'-'\((\d+),(\[.*\])\)$", v or '')
+    if not m: return v
+    n, l = int(m.group(1)), m.group(2)
+    return (n, sorted(split_top(l)) if n <= 40 else None)
 
 # Fehler von Scryer: in übersetzten Klauseln liest ein Vergleich wie
 # 0 >= X gleich nach dem Binden einer attributierten Variablen X falsch –
@@ -62,7 +91,18 @@ def counts(k):
         return all(v is not None and v.startswith("'-'(") for v in (a.get(k), b.get(k)))
     return True
 
-differ = [k for k in keys if norm(a.get(k)) != norm(b.get(k)) and counts(k)]
+def deviation(k):
+    i = k[0]
+    if not any(DEVIATE.search(l) for l in src.get(i, [])):
+        return False
+    if k[1] in ('post', 'postc'):
+        # Aufstellen darf sich unterscheiden, solange die Lösungen gleich sind
+        return sols(a.get((i, 'lab'))) == sols(b.get((i, 'lab')))
+    if k[1] in ('lab', 'labc'):
+        return sols(a.get(k)) == sols(b.get(k))
+    return False
+
+differ = [k for k in keys if norm(a.get(k)) != norm(b.get(k)) and counts(k) and not deviation(k)]
 known = {k[0] for k in differ if scryer_known(k[0], k[1], a, b)}
 ids = sorted({k[0] for k in differ if not scryer_known(k[0], k[1], a, b)}, key=int)
 known -= set(ids)

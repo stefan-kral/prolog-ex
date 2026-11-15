@@ -2246,9 +2246,13 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     (Arithmetik mit allen Operatoren, lineare Summen, `sum/3`,
     `scalar_product/4`, Reifikation, `all_different/1`,
     `global_cardinality/2`, `element/3`, `tuples_in/2`, `lex_chain/1`,
-    `chain/2`, `zcompare/3`, `in`/`ins`), `head.pl` gibt nach dem Posten
+    `chain/2`, `zcompare/3`, `in`/`ins`, die globalen `circuit/1`,
+    `cumulative/1,2`, `disjoint2/1`, `automaton/3`, `nvalue/2`,
+    `serialized/2` – in 30 % der Fälle eine davon mit passenden Domänen,
+    damit es auch Lösungen gibt), `head.pl` gibt nach dem Posten
     Domänen und Restziele (Flag `clpz_residuals` auf `scryer`) und dann
-    alle Lösungen von `labeling/2` mit zufälligen Optionen aus, einmal
+    alle Lösungen von `labeling/2` mit zufälligen Optionen (auch
+    `min(E)`/`max(E)`) aus, einmal
     für die übersetzte Klausel (mit Goal-Expansion), einmal für dieselben
     Bedingungen mit `call/1`, `cmp.py` vergleicht. Über `call/1` zählen
     nur verschiedene Lösungen: ohne Expansion propagiert clpz manches
@@ -2257,7 +2261,10 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     dort nicht immer. Nicht gezählt werden die Reihenfolge und
     Modulqualifikation der Restziele, `put_atts/2`-Ziele Scryers (für die
     Relationsvariablen von `tuples_in/2`, die kein `attribute_goals//1`
-    beschreibt) und `freeze/2`-Konjunktionen. Gefunden hat das bisher
+    beschreibt) und `freeze/2`-Konjunktionen. Bei `cumulative/1,2` zählen
+    nur die Lösungen als Menge: PrologEx propagiert dort mit fester Dauer
+    gewollt stärker (siehe unten), Domänen, Restziele und die Reihenfolge
+    unter `ff`/`ffc` weichen ab. Gefunden hat das bisher
     einen Fehler im portierten `prem` (bei gebundenem Z ein `interval/5`
     statt `{interval/3}`; seither prüft `test/clpz_listing_test.exs`, dass
     jedes Ziel in clpz definiert ist), und einen Fehler in Scryer: in einer

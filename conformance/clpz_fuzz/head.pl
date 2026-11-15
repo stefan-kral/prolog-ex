@@ -5,14 +5,15 @@
 :- use_module(library(terms)).
 
 % je Fall: p(Id, Vs) stellt die Bedingungen (übersetzt, mit Goal-Expansion),
-% g(Id, Vs, G) enthält dieselben als Term für call/1, o(Id, Optionen) für
-% labeling/2; Zeilen post/lab für p, postc/labc für call(G). Scryer
+% g(Id, Vs, G) enthält dieselben als Term für call/1, o(Id, Vs, Optionen)
+% für labeling/2 (Vs: die Variablen, auf die sich min(E)/max(E) beziehen); Zeilen post/lab für p, postc/labc für call(G). Scryer
 % expandiert call/1 teils zur Laufzeit, PrologEx nicht: postc zeigt nur
 % die Domänen
-go :- forall(o(Id, _), (catch(run(Id), E, (write(Id), write(' crash '), pp(E), nl)))).
+go :- forall(o(Id, _, _), (catch(run(Id), E, (write(Id), write(' crash '), pp(E), nl)))).
 
 run(Id) :-
-    o(Id, Opts),
+    o(Id, OVs, Opts0),
+    Opts = OVs^Opts0,
     run(Id, Opts, post, lab, state, =, Vs^p(Id, Vs)),
     run(Id, Opts, postc, labc, doms, msort_, Vs^(g(Id, Vs, G), call(G))).
 
@@ -29,7 +30,7 @@ run(Id, Opts, TP, TL, Show, Sort, Post) :-
     ),
     nl,
     write(Id), write(' '), write(TL), write(' '),
-    catch(( findall(Vs2, (post(Post, Vs2), labeling(Opts, Vs2)), L0),
+    catch(( findall(Vs2, (post(Post, Vs2), copy_term(Opts, Vs2^Opts2), labeling(Opts2, Vs2)), L0),
             call(Sort, L0, L), length(L, N),
             first(L, 40, F), pp(N-F) ),
           error(E2, C2), (err(E2, C2, R2), pp(R2))),
@@ -62,7 +63,8 @@ state(Vs) :-
     no_atts(Gs2, Gs2a), maplist(unqual, Gs2a, Gs3),
     flat_freeze(Fs2, Fs3),
     msort_(Gs3, N1), msort_(Fs3, N2),
-    write(' NORM '), pp(N1-N2).
+    write(' NORM '), pp(N1-N2),
+    T = TVs-TDs-_-_, write(' DOMS '), pp(TVs-TDs).
 
 doms(Vs) :- maplist(dom, Vs, Ds), copy_term(Ds, T, _), numbervars(T, 0, _), pp(T).
 
