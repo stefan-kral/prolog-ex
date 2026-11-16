@@ -19,6 +19,10 @@ defmodule PrologEx.Builtins.SimplexPrims do
   exakt wie `is/2` (`PrologEx.Rational`). Damit sind die Tableaus Term
   für Term dieselben; ein Test vergleicht das mit `simplex_ref/2`.
 
+  `'$simplex_maximum_flow'(S, T)`: der maximale Fluss für Transport- und
+  Zuordnungsproblem (`maximum_flow/2`, Edmonds-Karp über attributierte
+  Variablen), siehe unten.
+
   Dazu `gauss_elimination/4`, `row_eliminate/4` und `find_row/3`
   außerhalb der Schleife (`'$simplex_gauss'/4`,
   `'$simplex_row_eliminate'/4`, `'$simplex_find_row'/3`).
@@ -29,6 +33,7 @@ defmodule PrologEx.Builtins.SimplexPrims do
   Termen; dann rechnet das Original (`linsum_row_ref/3`).
   """
   use PrologEx.Builtin
+  alias PrologEx.Builtins.Atts
   alias PrologEx.Rational
 
   defbuiltin "$simplex_simplex", [t0, r] do
@@ -110,6 +115,179 @@ defmodule PrologEx.Builtins.SimplexPrims do
         :error
     end
   end
+
+  # --- maximaler Fluss (Transport- und Zuordnungsproblem) ----------------
+
+  # maximum_flow/2 (Edmonds-Karp über attributierte Variablen des Moduls
+  # simplex: node/1, edges/1, flow/1, parent/1), Schritt für Schritt wie
+  # das Original: Breitensuche Ebene für Ebene (Knoten und Kanten in ihrer
+  # Reihenfolge, ein Knoten bekommt parent/1 beim ersten Erreichen), bis
+  # eine Ebene die Senke enthält; den Pfad über parent/1 zurück, sein
+  # Minimum (inf zählt nicht), den Fluss jeder Kante erhöhen bzw.
+  # senken, parent/1 aller besuchten Knoten löschen, von vorn. Ohne Pfad
+  # bleibt alles, wie es war (wie die gescheiterte Bedingung im Original).
+  # Scheitert bei Unerwartetem (Fluss keine Ganzzahl, ...); dann rechnet
+  # maximum_flow_ref/2.
+  @flow_mod "simplex"
+
+  defbuiltin "$simplex_maximum_flow", [src, sink] do
+    s = subst()
+
+    with {:var, _} = sv <- deref(src),
+         {:var, _} = tv <- deref(sink) do
+      try do
+        {:subst, max_flow(sv, tv, s)}
+      catch
+        :fallback -> :fail
+      end
+    else
+      _ -> :fail
+    end
+  end
+
+  defp max_flow(sv, tv, s) do
+    case bfs([[sv]], tv, s) do
+      {:found, levels, s} ->
+        [{_, first, _} | rest] = path = trace(tv, sv, s)
+        min = path_min(rest, first)
+        if min == :inf, do: throw(:fallback)
+        s = augment_all(path, min, s)
+        max_flow(sv, tv, clear_levels(levels, s))
+
+      :none ->
+        s
+    end
+  end
+
+  defp bfs([vs | _] = levels, t, s) do
+    case reach_level(vs, s, []) do
+      {[_ | _] = tos, s} ->
+        levels = [tos | levels]
+        if identical_member?(tos, t), do: {:found, levels, s}, else: bfs(levels, t, s)
+
+      _ ->
+        :none
+    end
+  end
+
+  defp identical_member?([], _t), do: false
+  defp identical_member?([v | vs], t), do: v === t or identical_member?(vs, t)
+
+  # reachables//1: je Knoten seine Kanten; ein Knoten ohne edges/1 lässt
+  # die Suche scheitern (wie get_atts/2 im Original)
+  defp reach_level([], s, acc), do: {:lists.reverse(acc), s}
+
+  defp reach_level([v | vs], s, acc) do
+    case Atts.get_one(v, @flow_mod, "edges", s) do
+      nil ->
+        :fail
+
+      es ->
+        {s, acc} = reach_edges(walk(es, s), v, s, acc)
+        reach_level(vs, s, acc)
+    end
+  end
+
+  defp reach_edges(es, p, s, acc) do
+    case PrologEx.uncons(es) do
+      {:cons, e, rest} ->
+        {s, acc} = reach(PrologEx.unmark_top(walk(e, s)), p, s, acc)
+        reach_edges(walk(rest, s), p, s, acc)
+
+      _ ->
+        {s, acc}
+    end
+  end
+
+  # reachable//2: Rückwärtskante mit Fluss > 0, Vorwärtskante mit Platz
+  defp reach({tag, "arc_from", [w, f, _]}, p, s, acc) when tag in [:struct, :gstruct] do
+    w = walk(w, s)
+
+    with nil <- Atts.get_one(w, @flow_mod, "parent", s),
+         flow when flow != nil <- Atts.get_one(f, @flow_mod, "flow", s),
+         flow = int!(walk(flow, s)),
+         true <- flow > 0 do
+      {set_parent(s, w, p, f, flow, "-"), [w | acc]}
+    else
+      _ -> {s, acc}
+    end
+  end
+
+  defp reach({tag, "arc_to", [w, f, c]}, p, s, acc) when tag in [:struct, :gstruct] do
+    w = walk(w, s)
+
+    with nil <- Atts.get_one(w, @flow_mod, "parent", s),
+         flow when flow != nil <- Atts.get_one(f, @flow_mod, "flow", s),
+         flow = int!(walk(flow, s)),
+         c = walk(c, s),
+         true <- c == {:atom, "inf"} or flow < int!(c) do
+      diff = if c == {:atom, "inf"}, do: c, else: c - flow
+      {set_parent(s, w, p, f, diff, "+"), [w | acc]}
+    else
+      _ -> {s, acc}
+    end
+  end
+
+  defp reach(_edge, _p, _s, _acc), do: throw(:fallback)
+
+  defp set_parent(s, w, p, f, amount, sign),
+    do:
+      Atts.put_one(
+        s,
+        w,
+        @flow_mod,
+        mk("parent", [mk("-", [p, mk("augment", [f, amount, a(sign)])])])
+      )
+
+  # augmenting_path//2: von der Senke über parent/1 zurück zur Quelle
+  defp trace(v, sv, _s) when v === sv, do: []
+
+  defp trace(v, sv, s) do
+    with {tag, "-", [v1, aug]} when tag in [:struct, :gstruct] <-
+           walk(Atts.get_one(v, @flow_mod, "parent", s) || throw(:fallback), s),
+         {tag2, "augment", [f, amount, sign]} when tag2 in [:struct, :gstruct] <- walk(aug, s) do
+      [{f, walk(amount, s), walk(sign, s)} | trace(walk(v1, s), sv, s)]
+    else
+      _ -> throw(:fallback)
+    end
+  end
+
+  # path_minimum/3: inf zählt nicht
+  defp path_min([], m), do: inf_atom(m)
+  defp path_min([{_, {:atom, "inf"}, _} | rest], m), do: path_min(rest, m)
+  defp path_min([{_, a, _} | rest], {:atom, "inf"}), do: path_min(rest, int!(a))
+  defp path_min([{_, a, _} | rest], m), do: path_min(rest, min(int!(m), int!(a)))
+
+  defp inf_atom({:atom, "inf"}), do: :inf
+  defp inf_atom(m), do: int!(m)
+
+  # augment/2 je Kante: flow/1 um min erhöhen (+) bzw. senken (-)
+  defp augment_all([], _min, s), do: s
+
+  defp augment_all([{f, _, sign} | rest], min, s) do
+    flow = int!(walk(Atts.get_one(f, @flow_mod, "flow", s) || throw(:fallback), s))
+
+    new =
+      case sign do
+        {:atom, "+"} -> flow + min
+        {:atom, "-"} -> flow - min
+        _ -> throw(:fallback)
+      end
+
+    augment_all(rest, min, Atts.put_one(s, f, @flow_mod, mk("flow", [new])))
+  end
+
+  # clear_parent/1 für alle besuchten Knoten
+  defp clear_levels([], s), do: s
+  defp clear_levels([vs | levels], s), do: clear_levels(levels, clear_level(vs, s))
+
+  defp clear_level([], s), do: s
+  defp clear_level([v | vs], s), do: clear_level(vs, Atts.del_one(s, v, @flow_mod, "parent"))
+
+  defp int!(x) when is_integer(x), do: x
+  defp int!(_), do: throw(:fallback)
+
+  defp walk(t, s), do: PrologEx.Store.walk(t, s)
 
   # --- linsum_row ---------------------------------------------------------
 

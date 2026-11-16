@@ -83,6 +83,58 @@ defmodule PrologEx.SimplexPrimsTest do
     assert inspect(elem(TableCase.run(c.reader, db, "solved(N)"), 1)) =~ ~r/N = (\d\d+)/
   end
 
+  # Transport (Angebot = Nachfrage) und Zuordnung: der maximale Fluss in
+  # Elixir gegen maximum_flow_ref/2 – derselbe Plan
+  defp transport_problem(i) do
+    m = Enum.random(1..6)
+    n = Enum.random(1..6)
+    sup = for _ <- 1..m, do: Enum.random(0..30)
+    total = Enum.sum(sup)
+    cuts = for(_ <- 1..(n - 1)//1, do: Enum.random(0..total)) |> Enum.sort()
+    dem = Enum.zip_with([0 | cuts], cuts ++ [total], fn a, b -> b - a end)
+    costs = for _ <- 1..m, do: for(_ <- 1..n, do: Enum.random(1..20))
+
+    "t(#{i}, P) :- transportation(#{inspect(sup, charlists: :as_lists)}, " <>
+      "#{inspect(dem, charlists: :as_lists)}, " <>
+      "#{inspect(costs, charlists: :as_lists)}, P)."
+  end
+
+  defp assignment_problem(i) do
+    n = Enum.random(1..7)
+    costs = for _ <- 1..n, do: for(_ <- 1..n, do: Enum.random(1..30))
+    "t(#{i}, P) :- assignment(#{inspect(costs, charlists: :as_lists)}, P)."
+  end
+
+  test "Transport und Zuordnung: Fluss in Elixir wie das Original", c do
+    :rand.seed(:exsss, {44, 55, 66})
+    Reader.put_current(c.reader)
+    n = 150
+
+    src =
+      [
+        ":- use_module(library(simplex)).",
+        "both(I, A, B) :- findall(R, t(I, R), A), assertz(simplex:ref_mode), " <>
+          "findall(R, t(I, R), B), retract(simplex:ref_mode).",
+        "diffs(Ds) :- findall(I-A-B, (between(0, #{n - 1}, I), both(I, A, B), A \\== B), Ds).",
+        "solved(N) :- findall(I, (between(0, #{n - 1}, I), t(I, _)), L), length(L, N)."
+        | for(
+            i <- 0..(n - 1),
+            do: if(rem(i, 2) == 0, do: transport_problem(i), else: assignment_problem(i))
+          )
+      ]
+      |> Enum.join("\n")
+
+    {db, msgs} =
+      PrologEx.Consult.load(
+        PrologEx.use_library(%{}, "between", "user"),
+        Reader.read_terms(c.reader, src)
+      )
+
+    assert msgs == []
+    assert inspect(elem(TableCase.run(c.reader, db, "diffs(Ds)"), 1)) =~ "Ds = []"
+    assert inspect(elem(TableCase.run(c.reader, db, "solved(N)"), 1)) =~ "N = #{n}"
+  end
+
   test "Floats im Tableau: das Original rechnet weiter (fallback)", c do
     Reader.put_current(c.reader)
 

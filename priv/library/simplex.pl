@@ -9,8 +9,9 @@
     Angepasst für PrologEx: floor_/2 statt floor/1 für Werte, die schon
     ganzzahlig sein können (floor/1 einer Ganzzahl ist dort ein
     type_error(float, _), wie in ISO). Die Pivot-Schleife simplex/2 und
-    linsum_row/3 rechnen in Elixir (PrologEx.Builtins.SimplexPrims); die
-    Originale bleiben als simplex_ref/2 und linsum_row_ref/3 (ref_mode).
+    linsum_row/3 rechnen in Elixir (PrologEx.Builtins.SimplexPrims), ebenso
+    gauss_elimination/4, row_eliminate/4, find_row/3 und maximum_flow/2; die
+    Originale bleiben als ..._ref (ref_mode).
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions
@@ -1051,7 +1052,15 @@ arcs_assoc([arc(From,To,F,C)|Rest], Hs0, Hs) :-
    the value graph, then find an augmenting path in reverse.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+% PrologEx: in Elixir ('$simplex_maximum_flow'/2), Schritt für Schritt wie
+% das Original (maximum_flow_ref/2; das rechnet bei Unerwartetem und mit
+% ref_mode)
 maximum_flow(S, T) :-
+        (   \+ ref_mode, '$simplex_maximum_flow'(S, T) -> true
+        ;   maximum_flow_ref(S, T)
+        ).
+
+maximum_flow_ref(S, T) :-
         (   augmenting_path([[S]], Levels, T) ->
             phrase(augmenting_path(S, T), Path),
             Path = [augment(_,First,_)|Rest],
@@ -1059,7 +1068,7 @@ maximum_flow(S, T) :-
             % format("augmenting path: ~w\n", [Min]),
             maplist(augment(Min), Path),
             maplist(maplist(clear_parent), Levels),
-            maximum_flow(S, T)
+            maximum_flow_ref(S, T)
         ;   true
         ).
 

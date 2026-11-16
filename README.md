@@ -2278,25 +2278,34 @@ X1 = 1, X2 = 1r2.
     gegen Scryer und SWI ohne Abweichung.
   * Vergleich (`bench/simplex/run.sh`: dieselben Probleme in allen drei
     Systemen, Prüfsummen gleich; ms, beste von 3, ohne Start; gemessen,
-    während nebenher der clpz-Fuzzer lief):
+    während nebenher der clpz-Fuzzer lief, also auf ±15 %):
 
-    | Fall | SWI 9.0.4 | Scryer | PrologEx |
-    |---|---|---|---|
-    | 50 LPs 5×4 | 30 | 83 | 101 |
-    | 20 LPs 12×8 | 51 | 180 | 127 |
-    | 5 LPs 25×15 | 54 | 228 | 107 |
-    | 20 ganzzahlige 6×4 | 217 | 1067 | 891 |
-    | 5 ganzzahlige 10×5 | 134 | 604 | 624 |
-    | 10 Transport 6×6 | 24 | 109 | 567 |
-    | 3 Transport 12×12 | 25 | 205 | 662 |
-    | 10 Zuordnung 6×6 | 14 | 116 | 249 |
-    | 3 Zuordnung 12×12 | 15 | 141 | 330 |
+    | Fall | SWI 9.0.4 | Scryer | PrologEx | PrologEx vor `maximum_flow/2` in Elixir |
+    |---|---|---|---|---|
+    | 50 LPs 5×4 | 33 | 72 | 118 | 101 |
+    | 20 LPs 12×8 | 42 | 167 | 141 | 127 |
+    | 5 LPs 25×15 | 52 | 217 | 124 | 107 |
+    | 20 ganzzahlige 6×4 | 214 | 860 | 983 | 891 |
+    | 5 ganzzahlige 10×5 | 135 | 591 | 455 | 624 |
+    | 10 Transport 6×6 | 26 | 107 | 223 | 567 |
+    | 3 Transport 12×12 | 25 | 132 | 183 | 662 |
+    | 10 Zuordnung 6×6 | 14 | 69 | 143 | 249 |
+    | 3 Zuordnung 12×12 | 16 | 129 | 150 | 330 |
 
     Transport und Zuordnung (eine Zuordnung ist ein Transportproblem mit
     Angeboten 1) rechnen nicht mit dem Tableau, sondern primal-dual mit
-    einem maximalen Fluss über attributierte Variablen (`put_atts/2`,
-    `get_atts/2` je Kante und Knoten) – dort ist PrologEx noch langsamer
-    als Scryer.
+    einem maximalen Fluss über attributierte Variablen. Das Aufrufprofil
+    zeigte drei Viertel aller Aufrufe in dessen Breitensuche
+    (`reachables//1`, `reachable//2`) und in `get_atts/2`/`put_atts/2`.
+    `maximum_flow/2` rechnet deshalb in Elixir (`'$simplex_maximum_flow'/2`
+    über `Atts.get_one/4`, `put_one/4`, `del_one/4`), Schritt für Schritt
+    wie das Original: Breitensuche Ebene für Ebene in derselben
+    Reihenfolge, Pfad über `parent/1` zurück, Minimum, Fluss ändern,
+    `parent/1` löschen; ohne Pfad bleibt alles unverändert. Transport 12×12
+    662 → 183 ms, Zuordnung 12×12 330 → 150 ms. Ein Test vergleicht 150
+    zufällige Transport- und Zuordnungsprobleme mit `maximum_flow_ref/2`:
+    derselbe Plan. Was bleibt, ist flach (den Graphen mit `library(assoc)`
+    aufbauen, Kanten zählen).
 
 ## Bedingungen über ganzen Zahlen: `library(clpz)`
 
