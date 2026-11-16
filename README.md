@@ -4708,7 +4708,15 @@ bench/prof/perf.sh queens clpz_sudoku        # Profil der echten Zeit (Linux, pe
 bench/prof/who.py tmp/prof/perf.queens.data 'Enum|lists'   # wer ruft das?
 MIX_ENV=prod mix run bench/prof/red.exs --save /tmp/vorher.txt
 MIX_ENV=prod mix run bench/prof/red.exs --compare /tmp/vorher.txt
+PRELUDE=':- set_prolog_flag(jit, false).' EXTRA='x=go' \
+  MIX_ENV=prod mix run bench/prof/calls.exs x  # Aufrufe je Prolog-Prädikat
 ```
+
+`calls.exs` zählt per Tracing auf `call_pred/4` (nur Name und Modul, mit
+`:arity`, sonst trügen die Nachrichten die ganzen Maschinenzustände), wie
+oft welches Prolog-Prädikat gerufen wird – wo die echte Zeit (perf) nur
+„die Maschine“ zeigt, sagt das, welcher Prolog-Code sie verbraucht. Ohne
+JIT zählen, weil übersetzte Prädikate einander direkt aufrufen.
 
 `red.exs` misst Reduktionen (deterministisch) und die beste Zeit; die
 schwankt um ±10 %, also mehrmals abwechselnd messen.
