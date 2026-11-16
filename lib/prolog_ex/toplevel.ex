@@ -399,7 +399,7 @@ defmodule PrologEx.Toplevel do
   end
 
   defp ask(text, cont, order, page) do
-    line = PrologEx.Shell.gets(Terminal.input_prompt(ask_prompt(text)))
+    line = PrologEx.Shell.gets(Terminal.input_prompt(ask_prompt(text)), true)
     Terminal.end_input()
 
     case line do

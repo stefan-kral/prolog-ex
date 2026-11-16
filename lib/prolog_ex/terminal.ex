@@ -59,7 +59,13 @@ defmodule PrologEx.Terminal do
          {:ok, text} <- read_via_shell(dev, prompt) do
       text
     else
-      _ -> read_lines(prompt, [])
+      :interrupted ->
+        PrologEx.Shell.clear_interrupt()
+        IO.puts(paint(:comment, "\n% Eingabe abgebrochen"))
+        ""
+
+      _ ->
+        read_lines(prompt, [])
     end
   after
     end_input()
@@ -83,15 +89,48 @@ defmodule PrologEx.Terminal do
   done
   """
 
+  # (als Port, damit Ctrl-C als SIGTERM – :prolog_interrupt, siehe
+  # PrologEx.Shell.trap_sigterm/0 – das Lesen abbrechen kann)
   defp read_via_shell(dev, prompt) do
     script = "exec < #{dev} 2> #{dev}\n" <> @reader_sh
+    PrologEx.Shell.flush_interrupts()
 
-    case System.cmd("sh", ["-c", script, "sh", prompt]) do
-      {text, 0} -> {:ok, text}
-      _ -> :error
-    end
+    port =
+      Port.open({:spawn_executable, System.find_executable("sh")}, [
+        :binary,
+        :exit_status,
+        args: ["-c", script, "sh", prompt]
+      ])
+
+    collect(port, [])
   rescue
     _ -> :error
+  end
+
+  defp collect(port, acc) do
+    receive do
+      {^port, {:data, d}} ->
+        collect(port, [acc | d])
+
+      {^port, {:exit_status, 0}} ->
+        {:ok, IO.iodata_to_binary(acc)}
+
+      {^port, {:exit_status, _}} ->
+        :error
+
+      :prolog_interrupt ->
+        with {:os_pid, pid} <- Port.info(port, :os_pid),
+             do: System.cmd("kill", [to_string(pid)], stderr_to_stdout: true)
+
+        catch_close(port)
+        :interrupted
+    end
+  end
+
+  defp catch_close(port) do
+    Port.close(port)
+  rescue
+    _ -> :ok
   end
 
   def terminal?, do: Keyword.get(:io.getopts(), :terminal, false) == true
@@ -299,7 +338,7 @@ defmodule PrologEx.Terminal do
   # ---------------------------------------------------------------------
 
   defp read_lines(prompt, acc) do
-    case PrologEx.Shell.gets(prompt) do
+    case PrologEx.Shell.gets(prompt, true) do
       line when is_binary(line) ->
         if String.trim(line) == "end_of_file.",
           do: acc |> Enum.reverse() |> Enum.join(),

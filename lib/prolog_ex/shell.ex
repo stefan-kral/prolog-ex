@@ -127,8 +127,62 @@ defmodule PrologEx.Shell do
   `IO.gets/1`. Ergebnis wie `IO.gets/1`, dazu `{:error, :interrupted}` für
   Ctrl-C
   """
-  def gets(prompt) do
-    if active?(), do: PrologEx.Shell.Edit.read(prompt), else: IO.gets(prompt)
+  def gets(prompt, interruptible \\ false) do
+    cond do
+      active?() -> PrologEx.Shell.Edit.read(prompt)
+      sigterm?() -> term_gets(prompt, interruptible)
+      true -> IO.gets(prompt)
+    end
+  end
+
+  @doc "Bricht SIGTERM ab (--no-edit, trap_sigterm/0)?"
+  def sigterm?, do: Process.get(@sigterm_key) == true
+
+  # Mit SIGTERM als Ctrl-C (rlwrap -I): ein Hilfsprozess liest, der
+  # Toplevel wartet auf die Zeile oder :prolog_interrupt. Abgebrochen
+  # (interruptible: Lesen für eine Anfrage) bleibt der Hilfsprozess stehen –
+  # ihn abzuschießen ließe die nächste getippte Zeile im Ein-/Ausgabe-Server
+  # verschwinden; seine Zeile bekommt das nächste Lesen, das dann nur den
+  # Prompt selbst zeigt. Ctrl-C, während niemand liest, zählt hier nicht
+  @pending :prolog_pending_read
+
+  defp term_gets(prompt, interruptible) do
+    flush_interrupts()
+
+    case Process.get(@pending) do
+      nil ->
+        me = self()
+        Process.put(@pending, spawn(fn -> send(me, {:prolog_line, IO.gets(prompt)}) end))
+
+      _ ->
+        IO.write(prompt)
+    end
+
+    wait_line(interruptible)
+  end
+
+  defp wait_line(interruptible) do
+    receive do
+      {:prolog_line, data} ->
+        Process.delete(@pending)
+        data
+
+      :prolog_interrupt when interruptible ->
+        IO.write("\n")
+        {:error, :interrupted}
+
+      :prolog_interrupt ->
+        wait_line(false)
+    end
+  end
+
+  @doc false
+  def flush_interrupts do
+    receive do
+      :prolog_interrupt -> flush_interrupts()
+    after
+      0 -> :ok
+    end
   end
 
   @doc "Ctrl-C-Flag zurücksetzen (vor jeder Anfrage und jeder Eingabe)"
@@ -156,7 +210,7 @@ defmodule PrologEx.Shell do
       :gen_event.swap_handler(
         :erl_signal_server,
         {:erl_signal_handler, []},
-        {PrologEx.Shell.Sigterm, ref}
+        {PrologEx.Shell.Sigterm, {ref, self()}}
       )
 
     :os.set_signal(:sigterm, :handle)

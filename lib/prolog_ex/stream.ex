@@ -458,10 +458,11 @@ defmodule PrologEx.Stream do
       if PrologEx.Terminal.terminal?(), do: PrologEx.Terminal.input_prompt("|: "), else: ""
 
     # mit dem eigenen Editor (PrologEx.Shell): Ctrl-D auf leerer Zeile ist
-    # Dateiende nur dieses Lesens, Ctrl-C bricht die Anfrage ab
+    # Dateiende nur dieses Lesens; dort und mit SIGTERM als Ctrl-C
+    # (--no-edit, rlwrap -I) bricht Ctrl-C die Anfrage ab
     data =
-      if PrologEx.Shell.active?(),
-        do: PrologEx.Shell.gets(prompt),
+      if PrologEx.Shell.active?() or PrologEx.Shell.sigterm?(),
+        do: PrologEx.Shell.gets(prompt, true),
         else: IO.gets(:stdio, prompt)
 
     if prompt != "", do: PrologEx.Terminal.end_input()

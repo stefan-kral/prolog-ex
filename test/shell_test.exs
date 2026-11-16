@@ -129,4 +129,58 @@ defmodule PrologEx.ShellTest do
 
     refute PrologEx.Shell.interruptible?()
   end
+
+  # Ein-/Ausgabe-Server, der Schreiben bestätigt, Lesen aber erst auf
+  # {:answer, Zeile} beantwortet (ein Terminal, an dem niemand tippt)
+  defp slow_io do
+    spawn(fn -> slow_io([]) end)
+  end
+
+  defp slow_io(waiting) do
+    receive do
+      {:io_request, from, ref, {:put_chars, _, _}} ->
+        send(from, {:io_reply, ref, :ok})
+        slow_io(waiting)
+
+      {:io_request, from, ref, {:put_chars, _, _, _, _}} ->
+        send(from, {:io_reply, ref, :ok})
+        slow_io(waiting)
+
+      {:io_request, from, ref, _get} ->
+        slow_io(waiting ++ [{from, ref}])
+
+      {:answer, line} ->
+        [{from, ref} | rest] = waiting
+        send(from, {:io_reply, ref, line})
+        slow_io(rest)
+    end
+  end
+
+  test "--no-edit: Ctrl-C (SIGTERM) bricht ein wartendes Lesen ab, keine Zeile geht verloren" do
+    old = Process.group_leader()
+    io = slow_io()
+    Process.group_leader(self(), io)
+    Process.put(:prolog_sigterm, true)
+    me = self()
+
+    try do
+      # Lesen für eine Anfrage: Ctrl-C bricht ab
+      spawn(fn -> Process.sleep(100) && send(me, :prolog_interrupt) end)
+      assert PrologEx.Shell.gets("|: ", true) == {:error, :interrupted}
+
+      # das nächste Lesen bekommt die Zeile des stehengebliebenen Lesers
+      spawn(fn -> Process.sleep(100) && send(io, {:answer, "foo.\n"}) end)
+      assert PrologEx.Shell.gets("?- ") == "foo.\n"
+
+      # am Prompt zählt Ctrl-C nicht; ein Ctrl-C von vorher auch nicht
+      send(me, :prolog_interrupt)
+      spawn(fn -> Process.sleep(50) && send(me, :prolog_interrupt) end)
+      spawn(fn -> Process.sleep(150) && send(io, {:answer, "bar.\n"}) end)
+      assert PrologEx.Shell.gets("?- ") == "bar.\n"
+    after
+      Process.group_leader(self(), old)
+      Process.delete(:prolog_sigterm)
+      Process.delete(:prolog_pending_read)
+    end
+  end
 end

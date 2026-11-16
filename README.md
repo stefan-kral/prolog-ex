@@ -373,8 +373,14 @@ rlwrap`); alle Argumente gehen an `mix prolog`:
     zu ihrem BREAK-Menü). Mit `--no-edit` am Terminal setzt SIGTERM das
     Abbruch-Flag, das die Maschine an ihren Prüfpunkten liest
     (`% Ausführung abgebrochen`, wie beim eigenen Editor unten); läuft
-    keine Anfrage, passiert nichts. Eine angefangene Zeile behält rlwrap
-    dabei (Ctrl-U löscht sie). Beenden also mit `halt.` oder Ctrl-D, nicht
+    keine Anfrage, passiert nichts. Auch ein Lesen von der Tastatur bricht
+    Ctrl-C ab: `read/1` (die Anfrage), `[user]` und `consult(user)` (die
+    Eingabe wird verworfen), bei der Frage nach `;` wirkt es wie `.`. Dazu
+    liest ein Hilfsprozess, und der Toplevel wartet auf die Zeile oder auf
+    die Nachricht des SIGTERM-Handlers; der Hilfsprozess bleibt dabei
+    stehen (ihn abzuschießen ließe die nächste getippte Zeile verschwinden),
+    seine Zeile bekommt das nächste Lesen. Eine angefangene Zeile behält
+    rlwrap (Ctrl-U löscht sie). Beenden also mit `halt.` oder Ctrl-D, nicht
     mit `kill` (das wirkt dann wie Ctrl-C; `kill -KILL` beendet).
 
 Ohne rlwrap:
