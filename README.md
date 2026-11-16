@@ -3810,9 +3810,10 @@ attribute_goal(Var, domain(Var, Dom)) :- get_atts(Var, dom(Dom)).
 Angabe: alle Attribute), jeweils im Kontextmodul. Beim Binden
 attributierter Variablen: Bindungen zurücknehmen →
 `M:verify_attributes(Var, Wert, Goals)` für jede gebundene Variable (in
-Bindereihenfolge) und jedes Modul, in dem sie Attribute hat (in
-Deklarationsreihenfolge; wie Scryer – SICStus erlaubt das, „might have
-attributes“), alle sehen alle beteiligten Variablen ungebunden →
+Bindereihenfolge) und jedes Modul, in dem sie Attribute hat
+(alphabetisch; wie Scryer – SICStus erlaubt das, „might have
+attributes“, die Reihenfolge ist offen), alle sehen alle beteiligten
+Variablen ungebunden →
 Bindungen wiederherstellen → alle Goals (im Modul M) → Weckziele von
 freeze/dif/when. Scheitern, Alternativen und Ausnahmen der Hooks wirken
 normal; ein Hook mit Alternativen liefert wie in SICStus mehrere
@@ -3821,7 +3822,13 @@ Unifikation mehrere attributierte Variablen, durchläuft SICStus den
 Zyklus Hook → Bindung → Goals → Weckziele Variable für Variable; PrologEx
 ruft erst alle Hooks, dann alle Goals (Scryer: Hook und Bindung je
 Variable, dann alle Goals). Das ändert nur die Reihenfolge der Goals und
-was ein Hook von den anderen Variablen sieht. `attribute_goal/2` liefert
+was ein Hook von den anderen Variablen sieht. Die Reihenfolge der Module
+zählt, wenn die Goals eines Moduls einen Wert binden, den ein anderes
+nicht annimmt: hängen clpb und clpz an `V1` (`sat(V1 # V2)`,
+`V1 #= V2 + 1`), scheitert `V1 = 0` alphabetisch (clpb setzt `V2 = 1`,
+clpz lehnt ab), in der Gegenrichtung meldet clpb einen Fehler (clpz setzt
+`V2 = -1`). Scryer scheitert immer, SWI je nach Reihenfolge der
+Constraints an `V1`. `attribute_goal/2` liefert
 Restziele für Toplevel, `frozen/2` und `copy_term/3`. Ohne Attributmodule
 kostet das alles nichts; Module ohne Attribut an der gebundenen Variablen
 (etwa die eigenen bei Bindungen innerhalb von clpz) auch nicht.

@@ -4067,13 +4067,18 @@ defmodule PrologEx do
     end
   end
 
-  # Die Hooks: je gebundener Variable (in Bindereihenfolge) die Module
-  # (in Deklarationsreihenfolge), in denen sie Attribute hat – wie Scryer;
-  # SICStus erlaubt das („might have attributes“). Module ohne Attribut an
-  # der Variablen (etwa die eigenen bei einer Bindung in clpz) kosten so
-  # nichts, und ohne einen Hook bleibt es beim schnellen Weg.
+  # Die Hooks: je gebundener Variable (in Bindereihenfolge) die Module,
+  # in denen sie Attribute hat, alphabetisch – wie Scryer (SICStus erlaubt
+  # das: „might have attributes“, die Reihenfolge ist offen). Die
+  # Reihenfolge zählt, wenn die Goals eines Moduls eine Variable binden, die
+  # ein anderes nicht annimmt: clpb und clpz an einer Variablen, clpz setzt
+  # die clpb-Variable auf -1 (Fehler) oder clpb die clpz-Variable auf 1
+  # (Scheitern); clpz und clpb kommen aus Scryer und rechnen mit dessen
+  # Reihenfolge. Module ohne Attribut an der Variablen (etwa die eigenen bei
+  # einer Bindung in clpz) kosten nichts, und ohne einen Hook bleibt es beim
+  # schnellen Weg.
   defp hook_calls([{:var, {:attv, id}} = v | vs], mods, subst) do
-    case hook_mods(mods, Store.attrs(subst, id)) do
+    case hook_mods(:lists.sort(Map.keys(Store.attrs(subst, id))), mods) do
       [] ->
         hook_calls(vs, mods, subst)
 
@@ -4085,11 +4090,13 @@ defmodule PrologEx do
 
   defp hook_calls([], _mods, _subst), do: []
 
-  defp hook_mods([m | ms], attrs) do
-    if is_map_key(attrs, m), do: [m | hook_mods(ms, attrs)], else: hook_mods(ms, attrs)
+  # die Attributmodule der Variablen (sortiert), die verify_attributes/3
+  # haben
+  defp hook_mods([m | ms], mods) do
+    if :lists.member(m, mods), do: [m | hook_mods(ms, mods)], else: hook_mods(ms, mods)
   end
 
-  defp hook_mods([], _attrs), do: []
+  defp hook_mods([], _mods), do: []
 
   defp hook_goals([m | ms], v, val, more) do
     g = {:var, PrologEx.Vars.next()}
