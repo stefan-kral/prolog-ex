@@ -34,7 +34,6 @@ defmodule PrologEx.Toplevel do
 
   ## In iex: Ctrl-C bricht ab und führt zu iex
 
-      bin/iprolog                         # oder:
       iex --erl "+Bc" -S mix
       iex> PrologEx.Toplevel.repl()
 
@@ -230,7 +229,7 @@ defmodule PrologEx.Toplevel do
         cond do
           not shell? -> ""
           PrologEx.Shell.ctrl_c?() -> ", Ctrl-C bricht ab"
-          true -> " (Ctrl-C bricht nur mit bin/prolog ab)"
+          true -> " (Ctrl-C bricht nur mit +Bc ab)"
         end
 
       IO.puts(@banner <> hint <> "\n")

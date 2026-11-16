@@ -5,7 +5,7 @@ defmodule PrologEx.Shell do
   (`:shell.start_interactive({:noshell, :raw})`, ab OTP 26).
 
   Warum ein eigener Editor: Im Rohmodus kommen Ctrl-D und (mit dem
-  Emulator-Flag `+Bc`, das `bin/prolog` setzt) Ctrl-C als gewöhnliche
+  Emulator-Flag `+Bc`: `elixir --erl "+Bc" -S mix prolog`) Ctrl-C als gewöhnliche
   Zeichen an. So beendet Ctrl-D auf leerer Zeile die Eingabe (`[user]`,
   `consult(user)`, am Prompt `?-` die Sitzung) und Ctrl-C bricht eine
   laufende Anfrage ab. Der Zeileneditor der BEAM (edlin) kennt kein

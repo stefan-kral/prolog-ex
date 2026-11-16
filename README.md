@@ -357,13 +357,16 @@ mix prolog --no-jit prog.pl          # ohne JIT (alles interpretiert)
 
 `mix rebuild` baut alles neu (wie `make clean && make all`).
 
-**Ctrl-C bricht die Anfrage ab**, wenn man mit `bin/prolog` startet
-(dieselben Argumente wie `mix prolog`; das Skript startet die BEAM mit
-`+Bc` und lässt Dateinamen relativ zum Aufrufer gelten):
+**`./start_ex`** (im Wurzelverzeichnis) startet `mix prolog --no-edit`
+unter [rlwrap](https://github.com/hanslub42/rlwrap) mit einer
+Completion-Liste für TAB (`brew install rlwrap`); alle Argumente gehen an
+`mix prolog`:
 
 ```sh
-bin/prolog examples/demo.pl
+./start_ex examples/demo.pl
 ```
+
+Ohne rlwrap:
 
 Am Terminal liest ein eigener Zeileneditor (`PrologEx.Shell.Edit`) auf
 dem Terminal im Rohmodus (`:shell.start_interactive({:noshell, :raw})`):
@@ -389,10 +392,10 @@ dem Terminal im Rohmodus (`:shell.start_interactive({:noshell, :raw})`):
     wieder. Ctrl-C an der Eingabe verwirft die Zeile, bei der Frage nach
     `;` wirkt es wie `.`, bei `read/1` bricht es ab. Was man während einer
     Rechnung tippt, geht nicht verloren. Ctrl-C kommt nur mit `+Bc` als
-    Zeichen an (`bin/prolog`); mit nacktem `mix prolog` öffnet es weiter
-    das BREAK-Menü der BEAM (die Begrüßung sagt dann, dass Ctrl-C nur mit
-    `bin/prolog` abbricht). Kosten: außerhalb des Toplevels keine; die
-    Reduktionen der Suite sind unverändert.
+    Zeichen an (`elixir --erl "+Bc" -S mix prolog`); mit nacktem
+    `mix prolog` öffnet es weiter das BREAK-Menü der BEAM (die Begrüßung
+    sagt dann, dass Ctrl-C nur mit `+Bc` abbricht). Kosten: außerhalb des
+    Toplevels keine; die Reduktionen der Suite sind unverändert.
   * Der Rohmodus schaltet auch die Ausgabe um; `stty opost onlcr` stellt
     das zurück, am Ende kommen die Einstellungen des Terminals von vorher
     wieder (`stty -g`).
@@ -516,13 +519,13 @@ langer, über Bindungen gebauter Listen +4 bis +7 %. Ein vorgeschaltetes
 nicht; `library(concurrent)` nimmt keine Zyklen
 (`representation_error(cyclic_term)`).
 
-**Ctrl-C führt zu iex:** `bin/iprolog` startet iex mit `+Bc` – Ctrl-C
-unterbricht dann nur die laufende Anfrage (statt des BREAK-Menüs der BEAM),
-und man ist in iex. `repl` startet bzw. setzt den Toplevel fort, mit
-derselben Sitzung (Datenbank, Flags, Operatoren, … – Stand nach der letzten
-fertigen Anfrage); `halt.` führt auch zurück zu iex, `reset_session` beginnt
-neu. Von Hand: `iex --erl "+Bc" -S mix`, dann `PrologEx.Toplevel.repl()`.
-Offene Datei-Streams überstehen den Abbruch nicht.
+**In iex:** `iex --erl "+Bc" -S mix`, dann `PrologEx.Toplevel.repl()` –
+Ctrl-C unterbricht dann nur die laufende Anfrage (statt des BREAK-Menüs der
+BEAM), und man ist in iex. `PrologEx.Toplevel.repl()` setzt den Toplevel
+fort, mit derselben Sitzung (Datenbank, Flags, Operatoren, … – Stand nach
+der letzten fertigen Anfrage); `halt.` führt auch zurück zu iex,
+`PrologEx.Toplevel.reset_session()` beginnt neu. Offene Datei-Streams
+überstehen den Abbruch nicht.
 
 Unterstützt (was weder ISO noch SICStus eingebaut haben, erst nach Import
 seiner Heimat-Bibliothek, siehe Module): Klauseln, DCG (`-->`, `phrase/2,3`, `M:Rumpf` wie SWI), Direktiven (`op/3`,

@@ -16,10 +16,9 @@ defmodule Mix.Tasks.Prolog do
   Am Terminal liest ein eigener Zeileneditor (Pfeiltasten, Verlauf,
   TAB-Completion von Prädikaten, Bibliotheken und Dateinamen; Ctrl-D auf
   leerer Zeile beendet `[user]` bzw. die Sitzung). Ctrl-C bricht die
-  laufende Anfrage ab, wenn die BEAM mit `+Bc` läuft: `bin/prolog` (wie
-  `mix prolog`, mit `+Bc`). `--no-edit` liest wie früher zeilenweise von
-  stdin, etwa für `rlwrap mix prolog --no-edit`; dann bricht Ctrl-C nichts
-  ab.
+  laufende Anfrage ab, wenn die BEAM mit `+Bc` läuft:
+  `elixir --erl "+Bc" -S mix prolog`. `--no-edit` liest wie früher
+  zeilenweise von stdin, etwa unter rlwrap (`./start_ex`).
   """
 
   use Mix.Task
@@ -27,12 +26,6 @@ defmodule Mix.Tasks.Prolog do
   @impl true
   def run(args) do
     Mix.Task.run("compile")
-
-    # bin/prolog wechselt ins Projekt; Dateien gelten relativ zum Aufrufer
-    case System.get_env("PROLOG_EX_CWD") do
-      nil -> :ok
-      dir -> File.cd!(dir)
-    end
 
     code = PrologEx.Toplevel.main(args)
     if code != 0, do: exit({:shutdown, code})
