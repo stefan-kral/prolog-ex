@@ -2276,6 +2276,27 @@ X1 = 1, X2 = 1r2.
     gelöste Tableau und alle Variablenwerte Term für Term gleich. 300
     Zufallsprogramme: 1559 → 518 ms (Scryer 0,7 s, SWI 0,3 s); 1500 weitere
     gegen Scryer und SWI ohne Abweichung.
+  * Vergleich (`bench/simplex/run.sh`: dieselben Probleme in allen drei
+    Systemen, Prüfsummen gleich; ms, beste von 3, ohne Start; gemessen,
+    während nebenher der clpz-Fuzzer lief):
+
+    | Fall | SWI 9.0.4 | Scryer | PrologEx |
+    |---|---|---|---|
+    | 50 LPs 5×4 | 30 | 83 | 101 |
+    | 20 LPs 12×8 | 51 | 180 | 127 |
+    | 5 LPs 25×15 | 54 | 228 | 107 |
+    | 20 ganzzahlige 6×4 | 217 | 1067 | 891 |
+    | 5 ganzzahlige 10×5 | 134 | 604 | 624 |
+    | 10 Transport 6×6 | 24 | 109 | 567 |
+    | 3 Transport 12×12 | 25 | 205 | 662 |
+    | 10 Zuordnung 6×6 | 14 | 116 | 249 |
+    | 3 Zuordnung 12×12 | 15 | 141 | 330 |
+
+    Transport und Zuordnung (eine Zuordnung ist ein Transportproblem mit
+    Angeboten 1) rechnen nicht mit dem Tableau, sondern primal-dual mit
+    einem maximalen Fluss über attributierte Variablen (`put_atts/2`,
+    `get_atts/2` je Kante und Knoten) – dort ist PrologEx noch langsamer
+    als Scryer.
 
 ## Bedingungen über ganzen Zahlen: `library(clpz)`
 
