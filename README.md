@@ -3891,10 +3891,13 @@ steht eingerückt darunter:
 ?- set_prolog_flag(verbose_load, full), use_module(library(pairs)).
 % lade library(pairs) ...
 % library(pairs) geladen (Modul pairs, 0 ms)
-% user ← pairs: 6 Prädikate
-%     group_pairs_by_key/2, map_list_to_pairs/3, pairs_keys/2,
-%     pairs_keys_values/3, pairs_values/2, transpose_pairs/2
+% user ← pairs: 6 Prädikate (group_pairs_by_key/2, map_list_to_pairs/3,
+%     pairs_keys/2, pairs_keys_values/3, pairs_values/2, transpose_pairs/2)
 ```
+
+Bei `full` folgt die Liste gleich in Klammern; Folgezeilen sind
+eingerückt, die Zeilen so lang wie das Terminal breit ist (ohne Terminal
+78 Zeichen).
 
 Bibliotheken in Elixir (`lists`, `assoc`, ...) werden nicht geladen, nur
 importiert. Ist alles schon da: `user ← lists: nichts Neues` (nur bei

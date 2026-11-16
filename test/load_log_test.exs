@@ -39,11 +39,11 @@ defmodule PrologEx.LoadLogTest do
 
   test "full: die Prädikate einzeln, auch bei Bibliotheken in Elixir", c do
     out = run(c, "set_prolog_flag(verbose_load, full), use_module(library(pairs))")
-    assert out =~ "% user ← pairs: 6 Prädikate\n"
+    assert out =~ "% user ← pairs: 6 Prädikate ("
     assert out =~ "pairs_keys/2"
 
     out = run(c, "use_module(library(lists), [append/3])")
-    assert out == "% user ← lists: 1 Prädikat\n%     append/3\n"
+    assert out == "% user ← lists: 1 Prädikat (append/3)\n"
 
     assert run(c, "use_module(library(lists), [append/3])") == "% user ← lists: nichts Neues\n"
   end
@@ -58,7 +58,7 @@ defmodule PrologEx.LoadLogTest do
   # charsio importieren beide dcgs und error)
   test "full: eine schon gezeigte Importliste nur einmal", c do
     out = run(c, "set_prolog_flag(verbose_load, full), use_module(library(format))")
-    assert out =~ ~r/format ← error: 11 Prädikate\n%\s+call_with_error_context\/2/
+    assert out =~ ~r/format ← error: 11 Prädikate \(call_with_error_context\/2/
     assert out =~ ~r/charsio ← error: 11 Prädikate \(wie oben\)\n/
     assert length(String.split(out, "call_with_error_context/2")) == 2
   end

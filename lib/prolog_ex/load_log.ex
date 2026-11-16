@@ -102,36 +102,43 @@ defmodule PrologEx.LoadLog do
         key = {from, Enum.sort(keys), ops}
         again = lvl == :full and is_map(listed) and is_map_key(listed, key)
 
-        if again do
-          say("#{into} ← #{from}: #{what} (wie oben)")
-        else
-          say("#{into} ← #{from}: #{what}")
-          if lvl == :full and is_map(listed), do: Process.put(@listed, Map.put(listed, key, true))
-        end
+        cond do
+          again ->
+            say("#{into} ← #{from}: #{what} (wie oben)")
 
-        if lvl == :full and not again do
-          items =
-            Enum.map(Enum.sort(keys), fn {name, ar} -> "#{quote_atom(name)}/#{ar}" end) ++
-              Enum.map(ops, fn {p, type, name} ->
-                "op(#{p}, #{plain(type)}, #{quote_atom(plain(name))})"
-              end)
+          lvl == :full and (keys != [] or ops != []) ->
+            if is_map(listed), do: Process.put(@listed, Map.put(listed, key, true))
 
-          for line <- wrap(items, width()), do: say("    " <> line)
+            items =
+              Enum.map(Enum.sort(keys), fn {name, ar} -> "#{quote_atom(name)}/#{ar}" end) ++
+                Enum.map(ops, fn {p, type, name} ->
+                  "op(#{p}, #{plain(type)}, #{quote_atom(plain(name))})"
+                end)
+
+            # die Liste gleich hinter der Zeile, in Klammern, weiter
+            # eingerückt umbrochen
+            for line <- wrap("#{into} ← #{from}: #{what} (", items, width()), do: say(line)
+
+          true ->
+            say("#{into} ← #{from}: #{what}")
         end
 
         :ok
     end
   end
 
-  # Zeilenlänge der Listen: die Breite des Terminals (beim Ausgeben gemessen,
-  # also auch nach Ändern der Fenstergröße) abzüglich "% ", Einrückung und
-  # "    " und dem Komma am Zeilenende (sonst bricht das Terminal eine
-  # genau volle Zeile vor dem Komma um); ohne Terminal (umgeleitet) 72
+  # Zeilenlänge: die Breite des Terminals (beim Ausgeben gemessen, also auch
+  # nach Ändern der Fenstergröße) abzüglich "% ", Einrückung und dem Komma
+  # bzw. der Klammer am Zeilenende (sonst bricht das Terminal eine genau
+  # volle Zeile davor um); ohne Terminal (umgeleitet) 78 Spalten
   defp width do
-    case :io.columns() do
-      {:ok, cols} -> max(cols - 7 - 2 * Process.get(@depth, 0), 40)
-      _ -> 72
-    end
+    cols =
+      case :io.columns() do
+        {:ok, c} -> c
+        _ -> 78
+      end
+
+    max(cols - 3 - 2 * Process.get(@depth, 0), 40)
   end
 
   defp say(text) do
@@ -149,17 +156,30 @@ defmodule PrologEx.LoadLog do
   defp format_time(us) when us < 1_000_000, do: "#{div(us, 1000)} ms"
   defp format_time(us), do: :io_lib.format("~.2f s", [us / 1_000_000]) |> to_string()
 
-  # Einträge mit ", " zu Zeilen von höchstens width Zeichen
-  defp wrap(items, width) do
-    {lines, cur} =
-      Enum.reduce(items, {[], ""}, fn it, {lines, cur} ->
+  # head (endet mit "(") und die Einträge mit ", " zu Zeilen von höchstens
+  # width Zeichen (ohne das Komma am Ende); Folgezeilen mit "    "
+  # eingerückt, am Ende ")". Passt schon der erste Eintrag nicht mehr hinter
+  # head, beginnt die Liste in der nächsten Zeile
+  defp wrap(head, items, width) do
+    {lines, cur, _} =
+      Enum.reduce(items, {[], head, false}, fn it, {lines, cur, has?} ->
+        sep = if has?, do: ", ", else: ""
+
         cond do
-          cur == "" -> {lines, it}
-          String.length(cur) + 2 + String.length(it) > width -> {[cur <> "," | lines], it}
-          true -> {lines, cur <> ", " <> it}
+          String.length(cur) + String.length(sep) + String.length(it) <= width ->
+            {lines, cur <> sep <> it, true}
+
+          has? ->
+            {[cur <> "," | lines], "    " <> it, true}
+
+          cur == head ->
+            {[cur | lines], "    " <> it, true}
+
+          true ->
+            {lines, cur <> it, true}
         end
       end)
 
-    Enum.reverse(if cur == "", do: lines, else: [cur | lines])
+    Enum.reverse([cur <> ")" | lines])
   end
 end
