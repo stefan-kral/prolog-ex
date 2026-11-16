@@ -18,7 +18,9 @@ defmodule Mix.Tasks.Prolog do
   leerer Zeile beendet `[user]` bzw. die Sitzung). Ctrl-C bricht die
   laufende Anfrage ab, wenn die BEAM mit `+Bc` läuft:
   `elixir --erl "+Bc" -S mix prolog`. `--no-edit` liest wie früher
-  zeilenweise von stdin, etwa unter rlwrap (`./start_ex`).
+  zeilenweise von stdin, etwa unter rlwrap (`./start_ex`); am Terminal
+  bricht dann SIGTERM die laufende Anfrage ab (`rlwrap -I` schickt es bei
+  Ctrl-C).
   """
 
   use Mix.Task

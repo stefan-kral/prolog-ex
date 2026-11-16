@@ -36,6 +36,10 @@ defmodule PrologEx.Shell do
   """
 
   @key :prolog_shell
+  # Ctrl-C-Flag (:atomics), auch ohne eigenen Editor (SIGTERM, siehe
+  # trap_sigterm/0)
+  @ref_key :prolog_interrupt_ref
+  @sigterm_key :prolog_sigterm
 
   @doc "Am Terminal in den Rohmodus mit eigenem Editor; true, wenn das geklappt hat"
   def start do
@@ -49,6 +53,7 @@ defmodule PrologEx.Shell do
       owner = self()
       reader = spawn_link(fn -> read_keys(owner, ref, waiting) end)
       PrologEx.arm_interrupt(ref)
+      Process.put(@ref_key, ref)
       PrologEx.Shell.Complete.init()
 
       Process.put(@key, %{
@@ -68,6 +73,8 @@ defmodule PrologEx.Shell do
 
   @doc "Terminal wie vorher (am Ende der Sitzung)"
   def stop do
+    untrap_sigterm()
+
     case Process.delete(@key) do
       %{dev: dev, saved: saved, reader: reader} ->
         Process.unlink(reader)
@@ -126,11 +133,55 @@ defmodule PrologEx.Shell do
 
   @doc "Ctrl-C-Flag zurücksetzen (vor jeder Anfrage und jeder Eingabe)"
   def clear_interrupt do
-    case Process.get(@key) do
-      %{ref: ref} -> :atomics.put(ref, 1, 0)
-      _ -> :ok
+    case Process.get(@ref_key) do
+      nil -> :ok
+      ref -> :atomics.put(ref, 1, 0)
     end
   end
+
+  @doc """
+  Ohne eigenen Editor (`--no-edit`, etwa unter `rlwrap -I` in `start_ex`):
+  SIGTERM setzt das Ctrl-C-Flag, statt die BEAM zu beenden. `rlwrap -I`
+  (`--pass-sigint-as-sigterm`) schickt bei Ctrl-C ein SIGTERM; SIGINT
+  selbst kann die BEAM nicht abfangen (es führt zum BREAK-Menü). Kommt
+  SIGTERM, während keine Anfrage läuft, passiert nichts. Beenden: `halt.`
+  oder Ctrl-D.
+  """
+  def trap_sigterm do
+    ref = :atomics.new(1, [])
+    PrologEx.arm_interrupt(ref)
+    Process.put(@ref_key, ref)
+
+    :ok =
+      :gen_event.swap_handler(
+        :erl_signal_server,
+        {:erl_signal_handler, []},
+        {PrologEx.Shell.Sigterm, ref}
+      )
+
+    :os.set_signal(:sigterm, :handle)
+    Process.put(@sigterm_key, true)
+    :ok
+  rescue
+    _ -> :error
+  end
+
+  @doc "SIGTERM wieder wie üblich (beendet die BEAM)"
+  def untrap_sigterm do
+    if Process.delete(@sigterm_key) do
+      :gen_event.swap_handler(
+        :erl_signal_server,
+        {PrologEx.Shell.Sigterm, []},
+        {:erl_signal_handler, []}
+      )
+    end
+
+    :ok
+  end
+
+  @doc "Bricht Ctrl-C eine laufende Anfrage ab (eigener Editor mit +Bc, oder SIGTERM)?"
+  def interruptible?,
+    do: (active?() and ctrl_c?()) or Process.get(@sigterm_key) == true
 
   @doc "Ball von Ctrl-C (wie abort/0 in SWI)"
   def abort_ball, do: {:atom, "$aborted"}
@@ -155,7 +206,7 @@ defmodule PrologEx.Shell do
     if PrologEx.Terminal.color?() and PrologEx.Stream.get(1).line_pos == 0 and
          Process.get(@spinner) == nil do
       owner = self()
-      hint = if active?() and ctrl_c?(), do: "  (Ctrl-C bricht ab)", else: ""
+      hint = if interruptible?(), do: "  (Ctrl-C bricht ab)", else: ""
       Process.put(@spinner, spawn(fn -> spin_wait(owner, hint) end))
 
       try do

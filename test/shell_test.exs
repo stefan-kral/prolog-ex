@@ -110,4 +110,23 @@ defmodule PrologEx.ShellTest do
     Complete.publish(PrologEx.use_library(%{}, "lists", "user"))
     assert edit(~w(m e m) ++ ["\t", "(", "X", "\r"]) == "member(X\n"
   end
+
+  test "--no-edit: SIGTERM bricht die laufende Anfrage ab (rlwrap -I)", c do
+    assert PrologEx.Shell.trap_sigterm() == :ok
+
+    try do
+      spawn(fn ->
+        Process.sleep(200)
+        :os.cmd(~c"kill -TERM #{System.pid()}")
+      end)
+
+      assert run(c, %{}, "repeat, fail") =~ "$aborted"
+      assert PrologEx.Shell.interruptible?()
+    after
+      PrologEx.Shell.untrap_sigterm()
+      Process.delete(:prolog_interrupt_ref)
+    end
+
+    refute PrologEx.Shell.interruptible?()
+  end
 end

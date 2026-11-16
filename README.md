@@ -358,13 +358,24 @@ mix prolog --no-jit prog.pl          # ohne JIT (alles interpretiert)
 `mix rebuild` baut alles neu (wie `make clean && make all`).
 
 **`./start_ex`** (im Wurzelverzeichnis) startet `mix prolog --no-edit`
-unter [rlwrap](https://github.com/hanslub42/rlwrap) mit einer
-Completion-Liste für TAB (`brew install rlwrap`); alle Argumente gehen an
-`mix prolog`:
+unter [rlwrap](https://github.com/hanslub42/rlwrap) (`brew install
+rlwrap`); alle Argumente gehen an `mix prolog`:
 
 ```sh
 ./start_ex examples/demo.pl
 ```
+
+  * Zeilenbearbeitung und Verlauf von rlwrap, TAB ergänzt die Wörter aus
+    `.rlwrap_completions` (eine Datei im Projekt, ein Wort je Zeile).
+  * Ctrl-D beendet `[user]` bzw. die Sitzung.
+  * **Ctrl-C bricht die laufende Anfrage ab**: `rlwrap -I` schickt dann
+    ein SIGTERM statt SIGINT (SIGINT kann die BEAM nicht abfangen, es führt
+    zu ihrem BREAK-Menü). Mit `--no-edit` am Terminal setzt SIGTERM das
+    Abbruch-Flag, das die Maschine an ihren Prüfpunkten liest
+    (`% Ausführung abgebrochen`, wie beim eigenen Editor unten); läuft
+    keine Anfrage, passiert nichts. Eine angefangene Zeile behält rlwrap
+    dabei (Ctrl-U löscht sie). Beenden also mit `halt.` oder Ctrl-D, nicht
+    mit `kill` (das wirkt dann wie Ctrl-C; `kill -KILL` beendet).
 
 Ohne rlwrap:
 
@@ -415,11 +426,11 @@ rlwrap`; mit dem eigenen Editor tritt rlwrap zur Seite, weil das Terminal
 im Rohmodus ist):
 
 ```sh
-rlwrap -A mix prolog --no-edit
+rlwrap -A -I mix prolog --no-edit
 ```
 
-(`-A`: rlwrap rechnet die Farbcodes im Prompt nicht als Zeichen.) Ctrl-C
-bricht dann nichts ab (mit `+Bc` wird es ignoriert). rlwrap hält die
+(`-A`: rlwrap rechnet die Farbcodes im Prompt nicht als Zeichen; mit
+`-I` bricht Ctrl-C die Anfrage ab, siehe `start_ex`.) rlwrap hält die
 letzte, noch nicht beendete Ausgabezeile für den Prompt und zeichnet sie
 bei jeder Taste neu. Hinter einer Antwort, die breiter als das Terminal
 ist, beginnt die Eingabe für `;`/`.` deshalb in einer eigenen Zeile –

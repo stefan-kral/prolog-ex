@@ -222,6 +222,9 @@ defmodule PrologEx.Toplevel do
   defp interactive(st, quiet, edit) do
     # am Terminal: eigener Zeileneditor im Rohmodus (Ctrl-D, Ctrl-C, TAB)
     shell? = edit and Terminal.terminal?() and PrologEx.Shell.start()
+    # --no-edit am Terminal (start_ex: rlwrap -I schickt bei Ctrl-C ein
+    # SIGTERM): SIGTERM bricht die laufende Anfrage ab
+    if not edit and Terminal.terminal?(), do: PrologEx.Shell.trap_sigterm()
     Terminal.start()
 
     unless quiet do
