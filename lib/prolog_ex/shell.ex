@@ -1,81 +1,128 @@
 defmodule PrologEx.Shell do
   @moduledoc """
-  Der interaktive Toplevel als Shell der BEAM (`:shell.start_interactive/1`,
-  ab OTP 26): Zeilen liest der Zeileneditor der BEAM (Pfeiltasten,
-  Verlauf, TAB-Completion über `PrologEx.Shell.Complete`), und Ctrl-C
-  bricht die laufende Anfrage ab.
+  Der interaktive Toplevel am Terminal: eigener Zeileneditor
+  (`PrologEx.Shell.Edit`) auf dem Terminal im Rohmodus
+  (`:shell.start_interactive({:noshell, :raw})`, ab OTP 26).
 
-  ## Ctrl-C
+  Warum ein eigener Editor: Im Rohmodus kommen Ctrl-D und (mit dem
+  Emulator-Flag `+Bc`, das `bin/prolog` setzt) Ctrl-C als gewöhnliche
+  Zeichen an. So beendet Ctrl-D auf leerer Zeile die Eingabe (`[user]`,
+  `consult(user)`, am Prompt `?-` die Sitzung) und Ctrl-C bricht eine
+  laufende Anfrage ab. Der Zeileneditor der BEAM (edlin) kennt kein
+  Dateiende auf Ctrl-D – dort löscht es nur ein Zeichen.
 
-  Mit dem Emulator-Flag `+Bc` (`bin/prolog` setzt es) schickt die BEAM bei
-  Ctrl-C kein BREAK-Menü, sondern unterbricht die Shell: Wartet der
-  Toplevel gerade auf eine Zeile, liefert das Lesen `{:error, :interrupted}`
-  (die Zeile wird verworfen); rechnet er, bekommt der Wächterprozess – für
-  die BEAM ist er die Shell – ein Exit-Signal `:interrupt` und setzt ein
-  `:atomics`-Flag. Die Maschine liest es an ihren Prüfpunkten (alle 1000
-  Inferenzen, wo sie auch Zeit- und Speichergrenzen prüft) und wirft
-  `'$aborted'`; der Toplevel meldet „Ausführung abgebrochen“. Datenbank,
-  Flags und Operatoren bleiben. Ohne `+Bc` öffnet Ctrl-C weiter das
-  BREAK-Menü der BEAM.
+  ## Leser und Ctrl-C
+
+  Ein Leseprozess holt Zeichen für Zeichen von stdin und schickt sie dem
+  Toplevel. Wartet der Toplevel gerade nicht auf eine Zeile (er rechnet),
+  setzt Ctrl-C stattdessen ein `:atomics`-Flag; die Maschine liest es an
+  ihren Prüfpunkten (alle 1000 Inferenzen, wo sie auch Zeit- und
+  Speichergrenzen prüft) und wirft `'$aborted'`; der Toplevel meldet
+  „Ausführung abgebrochen“. Datenbank, Flags und Operatoren bleiben. Was
+  man während einer Rechnung tippt, geht nicht verloren (Vorauseingabe).
+  Ohne `+Bc` öffnet Ctrl-C weiter das BREAK-Menü der BEAM.
 
   Ein Builtin, das lange in Elixir rechnet, ohne Inferenzen zu zählen,
   bricht erst danach ab.
 
-  Ohne Terminal, mit `--no-edit` oder unter iex (`repl/1`) bleibt es beim
-  Lesen von stdin wie bisher (dann greift rlwrap mit seiner Zeilenbearbeitung).
+  ## Terminal
+
+  Der Rohmodus schaltet auch die Ausgabe um (`\\n` ohne Wagenrücklauf);
+  `stty opost onlcr` auf dem Terminalgerät stellt das zurück. Die
+  Einstellungen von vorher (`stty -g`) kommen am Ende wieder
+  (`stop/0`). Ohne Terminalgerät, mit `--no-edit` oder unter iex
+  (`repl/1`) liest der Toplevel wie bisher zeilenweise von stdin (dann
+  greift rlwrap).
   """
 
   @key :prolog_shell
 
-  @doc """
-  Toplevel als Shell der BEAM starten; true, wenn das geklappt hat.
-  `slogan`: die erste Zeile (statt der Versionszeile der BEAM)
-  """
-  def start(slogan) do
-    owner = self()
-    Application.put_env(:stdlib, :shell_slogan, slogan)
-
+  @doc "Am Terminal in den Rohmodus mit eigenem Editor; true, wenn das geklappt hat"
+  def start do
     with true <- Code.ensure_loaded?(:shell) and function_exported?(:shell, :start_interactive, 1),
-         :ok <- :shell.start_interactive({__MODULE__, :watcher, [owner]}) do
-      receive do
-        {@key, gl, watcher, ref} ->
-          Process.group_leader(self(), gl)
-          :io.setopts(binary: true, expand_fun: &PrologEx.Shell.Complete.expand/1)
-          PrologEx.arm_interrupt(ref)
-          PrologEx.Shell.Complete.init()
-          Process.put(@key, %{ref: ref, watcher: watcher})
-          true
-      after
-        5000 -> false
-      end
+         {:ok, dev} <- PrologEx.Terminal.device(),
+         {saved, 0} <- stty(dev, "-g"),
+         :ok <- :shell.start_interactive({:noshell, :raw}),
+         {_, 0} <- stty(dev, "opost onlcr") do
+      ref = :atomics.new(1, [])
+      waiting = :atomics.new(1, [])
+      owner = self()
+      reader = spawn_link(fn -> read_keys(owner, ref, waiting) end)
+      PrologEx.arm_interrupt(ref)
+      PrologEx.Shell.Complete.init()
+
+      Process.put(@key, %{
+        ref: ref,
+        waiting: waiting,
+        reader: reader,
+        dev: dev,
+        saved: String.trim(saved)
+      })
+
+      PrologEx.Shell.Edit.load_history()
+      true
     else
       _ -> false
     end
   end
 
-  @doc false
-  # von der BEAM als „Shell“ gestartet (läuft in der neuen Gruppe): nimmt
-  # das Exit-Signal :interrupt entgegen, das Ctrl-C (+Bc) der Shell schickt
-  def watcher(owner) do
-    spawn(fn ->
-      Process.flag(:trap_exit, true)
-      ref = :atomics.new(1, [])
-      send(owner, {@key, Process.group_leader(), self(), ref})
-      watch(ref)
-    end)
-  end
+  @doc "Terminal wie vorher (am Ende der Sitzung)"
+  def stop do
+    case Process.delete(@key) do
+      %{dev: dev, saved: saved, reader: reader} ->
+        Process.unlink(reader)
+        Process.exit(reader, :kill)
+        stty(dev, saved)
+        :ok
 
-  defp watch(ref) do
-    receive do
-      {:EXIT, _, :interrupt} -> :atomics.put(ref, 1, 1)
-      _ -> :ok
+      _ ->
+        :ok
     end
-
-    watch(ref)
   end
 
-  @doc "Läuft der Toplevel als Shell der BEAM?"
+  defp stty(dev, args) do
+    System.cmd("sh", ["-c", "stty #{args} < #{dev}"], stderr_to_stdout: true)
+  rescue
+    _ -> {"", 1}
+  end
+
+  # Leseprozess: Zeichen für Zeichen; Ctrl-C, während niemand liest,
+  # setzt das Flag (statt als Zeichen anzukommen)
+  defp read_keys(owner, ref, waiting) do
+    case IO.getn("", 1) do
+      <<3>> ->
+        if :atomics.get(waiting, 1) == 1,
+          do: send(owner, {:prolog_key, <<3>>}),
+          else: :atomics.put(ref, 1, 1)
+
+        read_keys(owner, ref, waiting)
+
+      c when is_binary(c) ->
+        send(owner, {:prolog_key, c})
+        read_keys(owner, ref, waiting)
+
+      _eof_or_error ->
+        send(owner, {:prolog_key, :eof})
+    end
+  end
+
+  @doc "Läuft die BEAM mit +Bc (Ctrl-C kommt als Zeichen an, statt BREAK)?"
+  def ctrl_c?, do: ~c"-Bc" in :erlang.system_info(:emu_args)
+
+  @doc "Läuft der eigene Editor (Rohmodus)?"
   def active?, do: Process.get(@key) != nil
+
+  @doc false
+  def state, do: Process.get(@key)
+
+  @doc """
+  Eine Zeile lesen: mit dem eigenen Editor (Rohmodus) oder wie bisher mit
+  `IO.gets/1`. Ergebnis wie `IO.gets/1`, dazu `{:error, :interrupted}` für
+  Ctrl-C
+  """
+  def gets(prompt) do
+    if active?(), do: PrologEx.Shell.Edit.read(prompt), else: IO.gets(prompt)
+  end
 
   @doc "Ctrl-C-Flag zurücksetzen (vor jeder Anfrage und jeder Eingabe)"
   def clear_interrupt do
@@ -108,7 +155,7 @@ defmodule PrologEx.Shell do
     if PrologEx.Terminal.color?() and PrologEx.Stream.get(1).line_pos == 0 and
          Process.get(@spinner) == nil do
       owner = self()
-      hint = if active?(), do: "  (Ctrl-C bricht ab)", else: ""
+      hint = if active?() and ctrl_c?(), do: "  (Ctrl-C bricht ab)", else: ""
       Process.put(@spinner, spawn(fn -> spin_wait(owner, hint) end))
 
       try do

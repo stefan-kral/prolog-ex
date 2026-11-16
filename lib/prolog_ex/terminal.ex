@@ -51,8 +51,8 @@ defmodule PrologEx.Terminal do
   def read_until_eof(prompt) do
     prompt = input_prompt(prompt)
 
-    # als Shell der BEAM liest deren Zeileneditor (Ctrl-D: Dateiende nur
-    # dieses Lesens); die Shell darunter bekäme das Terminal im Rohmodus
+    # mit dem eigenen Editor (PrologEx.Shell) liest der (Ctrl-D: Dateiende
+    # nur dieses Lesens); die Shell darunter bekäme das Terminal im Rohmodus
     with false <- PrologEx.Shell.active?(),
          true <- terminal?(),
          {:ok, dev} <- device(),
@@ -299,16 +299,16 @@ defmodule PrologEx.Terminal do
   # ---------------------------------------------------------------------
 
   defp read_lines(prompt, acc) do
-    case IO.gets(prompt) do
+    case PrologEx.Shell.gets(prompt) do
       line when is_binary(line) ->
         if String.trim(line) == "end_of_file.",
           do: acc |> Enum.reverse() |> Enum.join(),
           else: read_lines(prompt, [line | acc])
 
-      # Ctrl-C (Shell der BEAM): Eingabe verwerfen
+      # Ctrl-C (eigener Editor): Eingabe verwerfen
       {:error, :interrupted} ->
         PrologEx.Shell.clear_interrupt()
-        IO.puts(paint(:comment, "\n% Eingabe abgebrochen"))
+        IO.puts(paint(:comment, "% Eingabe abgebrochen"))
         ""
 
       _eof_or_error ->
@@ -316,7 +316,8 @@ defmodule PrologEx.Terminal do
     end
   end
 
-  defp device do
+  @doc false
+  def device do
     case System.cmd("ps", ["-o", "tty=", "-p", System.pid()], stderr_to_stdout: true) do
       {name, 0} ->
         case String.trim(name) do

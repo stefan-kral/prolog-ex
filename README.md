@@ -365,36 +365,51 @@ mix prolog --no-jit prog.pl          # ohne JIT (alles interpretiert)
 bin/prolog examples/demo.pl
 ```
 
-Am Terminal läuft der Toplevel als Shell der BEAM (`PrologEx.Shell`,
-`:shell.start_interactive/1`):
+Am Terminal liest ein eigener Zeileneditor (`PrologEx.Shell.Edit`) auf
+dem Terminal im Rohmodus (`:shell.start_interactive({:noshell, :raw})`):
 
-  * Zeilen liest der Zeileneditor der BEAM: ↑/↓ und Ctrl-R für den
-    Verlauf, Ctrl-A/Ctrl-E, Ctrl-U, …
+  * Tasten wie bei readline: ←/→, Home/End, Ctrl-A/Ctrl-E, Alt-B/Alt-F,
+    Backspace, Entf, Ctrl-U/Ctrl-K/Ctrl-W, Ctrl-L; ↑/↓ (Ctrl-P/Ctrl-N)
+    für den Verlauf, auch über Sitzungen hinweg (`~/.prolog_ex_history`,
+    die letzten 1000 Zeilen).
+  * **Ctrl-D** auf leerer Zeile ist Dateiende: es beendet `[user]`,
+    `consult(user)` und `read/1` von der Tastatur (nur dieses Lesen,
+    danach liest man normal weiter) und am Prompt `?-` die Sitzung; in
+    einer Zeile löscht es das Zeichen unter dem Cursor.
   * **TAB** ergänzt die in `user` sichtbaren Prädikate (eindeutig mit `(`,
-    wenn es sie nur mit Argumenten gibt; zweimal TAB zeigt die Liste
-    `name/N`), nach `library(` die Bibliotheken, in einem gequoteten Atom
-    (`['…`) Dateinamen.
+    wenn es sie nur mit Argumenten gibt; mehrdeutig das gemeinsame Stück,
+    sonst die Liste `name/N`), nach `library(` die Bibliotheken, in einem
+    gequoteten Atom (`['…`) Dateinamen.
   * **Ctrl-C** während einer Rechnung bricht sie ab
     (`% Ausführung abgebrochen`); Datenbank, Flags und Operatoren bleiben.
-    Die Maschine prüft dazu an ihren Prüfpunkten (alle 1000 Inferenzen,
-    wo sie auch Zeit- und Speichergrenzen prüft) ein Flag; ein catch-all
+    Ein Leseprozess holt die Tasten; rechnet der Toplevel gerade, setzt
+    Ctrl-C ein Flag, das die Maschine an ihren Prüfpunkten liest (alle 1000
+    Inferenzen, wo sie auch Zeit- und Speichergrenzen prüft). Ein catch-all
     fängt den Abbruch (`'$aborted'`), am nächsten Prüfpunkt kommt er
-    wieder. Ctrl-C an der Eingabe verwirft die angefangene Zeile, bei der
-    Frage nach `;` wirkt es wie `.`. Ohne `+Bc` (nacktes `mix prolog`)
-    öffnet Ctrl-C weiter das BREAK-Menü der BEAM. Kosten: außerhalb des
-    Toplevels keine; die Reduktionen der Suite sind unverändert.
-  * Ctrl-D löscht in diesem Editor nur ein Zeichen: Eingaben enden mit
-    `end_of_file.`, die Sitzung mit `halt.`.
+    wieder. Ctrl-C an der Eingabe verwirft die Zeile, bei der Frage nach
+    `;` wirkt es wie `.`, bei `read/1` bricht es ab. Was man während einer
+    Rechnung tippt, geht nicht verloren. Ctrl-C kommt nur mit `+Bc` als
+    Zeichen an (`bin/prolog`); mit nacktem `mix prolog` öffnet es weiter
+    das BREAK-Menü der BEAM (die Begrüßung sagt dann, dass Ctrl-C nur mit
+    `bin/prolog` abbricht). Kosten: außerhalb des Toplevels keine; die
+    Reduktionen der Suite sind unverändert.
+  * Der Rohmodus schaltet auch die Ausgabe um; `stty opost onlcr` stellt
+    das zurück, am Ende kommen die Einstellungen des Terminals von vorher
+    wieder (`stty -g`).
   * Rechnet eine Anfrage länger als 0,5 s, dreht sich am Zeilenanfang ein
     Kreisel mit der Laufzeit (`⠹ 2,3 s  (Ctrl-C bricht ab)`, grün). Er
     verschwindet spurlos, sobald die Antwort kommt oder die Anfrage etwas
     ausgibt oder liest. Er läuft in einem eigenen Prozess, die Rechnung
     kostet das nichts; nur am Terminal mit Farben.
 
-`--no-edit` liest wie früher zeilenweise von stdin; dann beendet Ctrl-D
-die Eingabe, und man kann [rlwrap](https://github.com/hanslub42/rlwrap)
-davorsetzen (`brew install rlwrap`; mit der BEAM-Shell tritt rlwrap zur
-Seite, weil deren Editor das Terminal in den Rohmodus schaltet):
+Warum ein eigener Editor: Der der BEAM (edlin, als Shell über
+`:shell.start_interactive/1`) kennt kein Dateiende auf Ctrl-D – dort
+löscht Ctrl-D nur ein Zeichen und lässt sich auf nichts anderes legen.
+
+`--no-edit` liest wie früher zeilenweise von stdin, und man kann
+[rlwrap](https://github.com/hanslub42/rlwrap) davorsetzen (`brew install
+rlwrap`; mit dem eigenen Editor tritt rlwrap zur Seite, weil das Terminal
+im Rohmodus ist):
 
 ```sh
 rlwrap -A mix prolog --no-edit
@@ -411,7 +426,7 @@ hinterließe Lücken.
 Im Toplevel:
 
 ```
-?- [user].                 % Klauseln eintippen, Ende mit end_of_file. (--no-edit: auch Ctrl-D)
+?- [user].                 % Klauseln eintippen, Ende mit end_of_file. oder Ctrl-D
 |: app([], L, L).
 |: app([H|T], L, [H|R]) :- app(T, L, R).
 |: end_of_file.

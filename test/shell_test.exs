@@ -1,5 +1,5 @@
 defmodule PrologEx.ShellTest do
-  # Toplevel als Shell der BEAM (PrologEx.Shell): Ctrl-C-Flag an den
+  # Eigener Zeileneditor des Toplevels (PrologEx.Shell): Ctrl-C-Flag an den
   # Prüfpunkten der Maschine, TAB-Completion. Das Terminal selbst (Rohmodus,
   # +Bc, Kreisel) ist hier nicht prüfbar – von Hand im Pseudo-Terminal.
   use ExUnit.Case, async: false
@@ -63,5 +63,51 @@ defmodule PrologEx.ShellTest do
     assert expand("subtra") == {:no, ~c"", []}
     # nichts zu ergänzen
     assert expand("X = ") == {:no, ~c"", []}
+  end
+
+  # --- Zeileneditor (Tasten als Nachrichten wie vom Leseprozess) ---------
+
+  defp edit(keys, opts \\ []) do
+    hist = Path.join(System.tmp_dir!(), "prolog_ex_hist_#{System.unique_integer([:positive])}")
+    Application.put_env(:prolog_ex, :history_file, hist)
+    Process.put(:prolog_shell, %{waiting: :atomics.new(1, []), ref: :atomics.new(1, [])})
+    Process.put(:prolog_history, Keyword.get(opts, :history, []))
+    for k <- keys, do: send(self(), {:prolog_key, k})
+
+    try do
+      ExUnit.CaptureIO.with_io(fn -> PrologEx.Shell.Edit.read("?- ") end) |> elem(0)
+    after
+      Process.delete(:prolog_shell)
+      Application.delete_env(:prolog_ex, :history_file)
+      File.rm(hist)
+    end
+  end
+
+  test "Editor: Tippen, Cursor, Löschen, Enter" do
+    assert edit(~w(a b c) ++ ["\e", "[", "D", "X", "\r"]) == "abXc\n"
+    assert edit(~w(a b c) ++ [<<127>>, "\r"]) == "ab\n"
+    assert edit(~w(a b c) ++ [<<1>>, <<4>>, "\r"]) == "bc\n"
+    assert edit(~w(a b) ++ [" ", "c", "d", <<23>>, "\r"]) == "ab \n"
+    assert edit(~w(a b c) ++ [<<1>>, <<11>>, "z", "\r"]) == "z\n"
+    assert edit(["ä", "ö", <<2>>, "ü", "\r"]) == "äüö\n"
+  end
+
+  test "Editor: Ctrl-D auf leerer Zeile Dateiende, Ctrl-C verwirft" do
+    assert edit([<<4>>]) == :eof
+    assert edit(~w(a b) ++ [<<3>>]) == {:error, :interrupted}
+    assert edit([:eof]) == :eof
+  end
+
+  test "Editor: Verlauf mit ↑/↓" do
+    h = ["neueste", "ältere"]
+    assert edit(["\e", "[", "A", "\r"], history: h) == "neueste\n"
+    assert edit(["\e", "[", "A", "\e", "[", "A", "\r"], history: h) == "ältere\n"
+    assert edit(["x", "\e", "[", "A", "\e", "[", "B", "\r"], history: h) == "x\n"
+  end
+
+  test "Editor: TAB ergänzt" do
+    Complete.init()
+    Complete.publish(PrologEx.use_library(%{}, "lists", "user"))
+    assert edit(~w(m e m) ++ ["\t", "(", "X", "\r"]) == "member(X\n"
   end
 end

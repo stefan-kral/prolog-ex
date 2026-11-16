@@ -457,16 +457,20 @@ defmodule PrologEx.Stream do
     prompt =
       if PrologEx.Terminal.terminal?(), do: PrologEx.Terminal.input_prompt("|: "), else: ""
 
-    data = IO.gets(:stdio, prompt)
+    # mit dem eigenen Editor (PrologEx.Shell): Ctrl-D auf leerer Zeile ist
+    # Dateiende nur dieses Lesens, Ctrl-C bricht die Anfrage ab
+    data =
+      if PrologEx.Shell.active?(),
+        do: PrologEx.Shell.gets(prompt),
+        else: IO.gets(:stdio, prompt)
+
     if prompt != "", do: PrologEx.Terminal.end_input()
 
     case data do
       data when is_binary(data) ->
         %{s | buf: s.buf <> data}
 
-      # Ctrl-C beim Lesen (Shell der BEAM): die Anfrage abbrechen
       {:error, :interrupted} ->
-        IO.puts("")
         PrologEx.Error.throw!(PrologEx.Shell.abort_ball())
 
       _ ->

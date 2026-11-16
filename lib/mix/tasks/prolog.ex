@@ -13,12 +13,13 @@ defmodule Mix.Tasks.Prolog do
   Im Toplevel lädt `[user].` Klauseln von der Tastatur (Ende mit
   `end_of_file.` oder Ctrl-D), `[datei].` lädt eine Datei.
 
-  Am Terminal liest der Zeileneditor der BEAM (Pfeiltasten, Verlauf,
-  TAB-Completion von Prädikaten, Bibliotheken und Dateinamen). Ctrl-C
-  bricht die laufende Anfrage ab, wenn die BEAM mit `+Bc` läuft:
-  `bin/prolog` (wie `mix prolog`, mit `+Bc`). `--no-edit` liest wie früher
-  zeilenweise von stdin, etwa für `rlwrap mix prolog --no-edit`; dann
-  beendet Ctrl-D die Eingabe, Ctrl-C bricht aber nichts ab.
+  Am Terminal liest ein eigener Zeileneditor (Pfeiltasten, Verlauf,
+  TAB-Completion von Prädikaten, Bibliotheken und Dateinamen; Ctrl-D auf
+  leerer Zeile beendet `[user]` bzw. die Sitzung). Ctrl-C bricht die
+  laufende Anfrage ab, wenn die BEAM mit `+Bc` läuft: `bin/prolog` (wie
+  `mix prolog`, mit `+Bc`). `--no-edit` liest wie früher zeilenweise von
+  stdin, etwa für `rlwrap mix prolog --no-edit`; dann bricht Ctrl-C nichts
+  ab.
   """
 
   use Mix.Task

@@ -78,8 +78,6 @@ defmodule PrologEx.Toplevel do
 
   @session __MODULE__.Session
   @banner "PrologEx – Hilfe: siehe `mix help prolog`, Ende mit halt. oder Ctrl-D"
-  # mit dem Zeileneditor der BEAM löscht Ctrl-D nur ein Zeichen
-  @banner_edit "PrologEx – Hilfe: siehe `mix help prolog`, Ende mit halt., Ctrl-C bricht ab"
 
   @doc "Toplevel in iex mit Sitzung, die einen Abbruch (Ctrl-C mit +Bc) übersteht"
   def repl(args \\ []) do
@@ -223,28 +221,36 @@ defmodule PrologEx.Toplevel do
   # ---------------------------------------------------------------------
 
   defp interactive(st, quiet, edit) do
-    banner = if quiet, do: "", else: @banner_edit
-    # am Terminal: Shell der BEAM (Zeileneditor, Ctrl-C bricht ab); sie
-    # zeigt die erste Zeile selbst
-    shell? =
-      edit and Terminal.terminal?() and PrologEx.Shell.start(Terminal.normal(banner))
-
+    # am Terminal: eigener Zeileneditor im Rohmodus (Ctrl-D, Ctrl-C, TAB)
+    shell? = edit and Terminal.terminal?() and PrologEx.Shell.start()
     Terminal.start()
-    unless quiet or shell?, do: IO.puts(@banner <> "\n")
-    if shell? and not quiet, do: IO.puts("")
+
+    unless quiet do
+      hint =
+        cond do
+          not shell? -> ""
+          PrologEx.Shell.ctrl_c?() -> ", Ctrl-C bricht ab"
+          true -> " (Ctrl-C bricht nur mit bin/prolog ab)"
+        end
+
+      IO.puts(@banner <> hint <> "\n")
+    end
 
     loop(st, fn _ -> :ok end)
     0
+  after
+    PrologEx.Shell.stop()
   end
 
   # save: nach jeder Anfrage (Sitzung von repl/1)
   defp loop(st, save) do
-    # TAB-Completion (Shell der BEAM): die sichtbaren Prädikate
+    # TAB-Completion (eigener Editor): die sichtbaren Prädikate
     if PrologEx.Shell.active?(), do: PrologEx.Shell.Complete.publish(st.db)
 
     case read_query("?- ", []) do
+      # (der eigene Editor ist schon in der nächsten Zeile)
       :eof ->
-        IO.puts("")
+        unless PrologEx.Shell.active?(), do: IO.puts("")
 
       text ->
         st = run_text(text, st, :interactive)
@@ -255,7 +261,7 @@ defmodule PrologEx.Toplevel do
 
   # Zeilen sammeln, bis eine mit "." endet
   defp read_query(prompt, acc) do
-    line = IO.gets(Terminal.input_prompt(prompt))
+    line = PrologEx.Shell.gets(Terminal.input_prompt(prompt))
     Terminal.end_input()
 
     case line do
@@ -265,10 +271,9 @@ defmodule PrologEx.Toplevel do
       :eof ->
         acc |> Enum.reverse() |> Enum.join()
 
-      # Ctrl-C (Shell der BEAM): angefangene Eingabe verwerfen
+      # Ctrl-C (eigener Editor): angefangene Eingabe verwerfen
       {:error, :interrupted} ->
         PrologEx.Shell.clear_interrupt()
-        IO.puts("")
         read_query("?- ", [])
 
       {:error, _} ->
@@ -392,7 +397,7 @@ defmodule PrologEx.Toplevel do
   end
 
   defp ask(text, cont, order, page) do
-    line = IO.gets(Terminal.input_prompt(ask_prompt(text)))
+    line = PrologEx.Shell.gets(Terminal.input_prompt(ask_prompt(text)))
     Terminal.end_input()
 
     case line do

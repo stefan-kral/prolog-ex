@@ -1,6 +1,6 @@
 defmodule PrologEx.Shell.Complete do
   @moduledoc """
-  TAB-Completion für den Zeileneditor der BEAM (`PrologEx.Shell`):
+  TAB-Completion für den Zeileneditor des Toplevels (`PrologEx.Shell.Edit`):
 
     * ein Atom am Wortende: die in `user` sichtbaren Prädikate (eigene,
       importierte, eingebaute; ohne `$`-Hilfsprädikate). Eindeutig: der
@@ -10,9 +10,8 @@ defmodule PrologEx.Shell.Complete do
     * in einem gequoteten Atom (`['…`, `consult('…`): Dateinamen relativ
       zum aktuellen Verzeichnis, Verzeichnisse mit `/`, Dateien mit `'`
 
-  Die Funktion läuft im Prozess des Zeileneditors, nicht in dem der
-  Maschine; die Prädikate legt der Toplevel nach jeder Anfrage in eine
-  ETS-Tabelle (`publish/1`), nur wenn sich die Datenbank geändert hat.
+  Die Prädikate legt der Toplevel nach jeder Anfrage in eine ETS-Tabelle
+  (`publish/1`), nur wenn sich die Datenbank geändert hat.
   """
 
   @table :prolog_ex_complete
@@ -61,7 +60,8 @@ defmodule PrologEx.Shell.Complete do
   defp plain?(_), do: false
 
   @doc false
-  # expand_fun von :io.setopts/1: Text vor dem Cursor, umgekehrt
+  # Text vor dem Cursor, umgekehrt: {:yes, Einfügen, []} oder
+  # {:no, [], Treffer} (Rückgabe wie bei expand_fun der BEAM)
   def expand(before_rev) do
     before = before_rev |> Enum.reverse() |> List.to_string()
 
