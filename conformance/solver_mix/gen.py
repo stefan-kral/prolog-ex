@@ -5,7 +5,10 @@
 # attributierte Variablen auf einmal binden. Variablen vom Typ b (0..1) und
 # i (0..3); clpb nur an b-Variablen, Unifikationen nur innerhalb eines
 # Typs.
-import random, sys
+import os, random, sys
+
+# SOLVER_MIX_MORE=1: dazu Unifikationen mit drei Paaren (andere Fälle je Seed)
+MORE = os.environ.get('SOLVER_MIX_MORE') == '1'
 
 def lit(t):
     return str(random.randint(0, 1 if t == 'b' else 3))
@@ -109,9 +112,15 @@ class Case:
             # mehrere Bindungen in einer Unifikation
             a, b, t1 = self.same_type_pair(); c, d, t2 = self.same_type_pair()
             return 'f(%s, %s) = f(%s, %s)' % (a, c, b, d)
-        if r < 0.9:
+        if r < (0.85 if MORE else 0.9):
             a = self.v(); b = self.v()
             return '[%s, %s] = [%s, %s]' % (a, b, lit(self.typ(a)), lit(self.typ(b)))
+        if r < 0.9 and MORE:
+            # drei Paare auf einmal, auch vertauscht (f(A, B) = f(B, A))
+            ps = [self.same_type_pair() for _ in range(3)]
+            if random.random() < 0.4:
+                a, b, t = ps[0]; ps[1] = (b, a, t)
+            return 'f(%s) = f(%s)' % (', '.join(p[0] for p in ps), ', '.join(p[1] for p in ps))
         v = self.v(); t = self.typ(v)
         return random.choice(['%s \\= %s' % (v, lit(t)), '\\+ %s = %s' % (v, lit(t)),
                               'memberchk(%s, [%s, %s])' % (v, lit(t), lit(t))])

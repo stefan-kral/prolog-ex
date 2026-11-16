@@ -3848,6 +3848,21 @@ sucht weiter, wenn ein Hook ein Element ablehnt, und `delete/3` behält
 solche Elemente. Ohne attributierte Variablen bleibt es bei der schnellen
 Probe in Elixir.
 
+Geprüft wird das mit zwei Werkzeugen gegen Scryer und SWI-Prolog:
+`conformance/atts_probe/` (Sonden: Reihenfolge der Hooks, Var=Var,
+Scheitern, Alternativen, Ausnahmen, Builtins, die binden, Wecken in `->`,
+`\+`, `findall`, `catch`; `run.sh probe.pl`) und
+`conformance/solver_mix/` (Zufallsfälle mit 2–3 Solvern – clpz, clpb,
+dif, freeze, when, zwei eigene Attributmodule – an denselben Variablen,
+Unifikationen, die mehrere attributierte Variablen auf einmal binden;
+Lösungslisten gegen Scryer, SWI und, für monotone Fälle, Durchprobieren:
+erst belegen, dann stellen). `SCRYER=… conformance/solver_mix/night.sh
+100 1300` (je Seed 200 Fälle, einige Sekunden); `SOLVER_MIX_MORE=1` dazu
+Unifikationen mit drei Paaren. Verdächtig ist, was nur PrologEx anders
+macht oder dem Durchprobieren widerspricht; Scryers `domain_error` bei
+`when(?=(V, V), …)` und SWIs `uninstantiation_error` aus clpb sind
+bekannt.
+
 Wie Scryer und SWI gibt es auch die Hooks `attribute_goals//1` (Restziele
 als DCG; Ziele ohne Modul bekommen `M:` davor) und
 `project_attributes(QueryVars, AttrVars)`, den der Toplevel vor den
