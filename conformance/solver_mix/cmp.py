@@ -36,8 +36,10 @@ def bf_verdict(i, p):
     b = bf.get(i)
     if b is None: return None
     nb = norm(b)
-    if nb[0] != 'L': return None
     np = norm(p or '')
+    # Fehler hängen von der Reihenfolge ab (clpb an einer Variablen, die
+    # clpz auf -1 setzt): darüber urteilt das Durchprobieren nicht
+    if nb[0] != 'L' or np[0] != 'L': return None
     return np[0] == 'L' and sorted(set(map(str, np[1]))) == sorted(set(map(str, nb[1])))
 cls = {}; lines = []
 ids = sorted(set(scr) | set(swi) | set(px))
@@ -56,6 +58,13 @@ for i in ids:
         else:
             c = 'alle verschieden' if a != w else 'PrologEx allein'
     v = bf_verdict(i, p)
+    # nicht monoton (kein Durchprobieren), Scryer an when(?=(V, V)) mit
+    # domain_error gescheitert, PrologEx und SWI verschieden: die Reihenfolge
+    # der Weckziele an einer Variablen (PrologEx: Reihenfolge des Anhängens;
+    # SWI: Modul für Modul) entscheidet über \== und Co. – kein Urteil
+    if (c in ('alle verschieden', 'PrologEx allein') and bf and i not in bf and
+            a == 'ex(domain_error/2)'):
+        c = 'nicht monoton, Scryer ?=, SWI anders'
     if v is False: c = 'PrologEx ≠ Durchprobieren'
     elif v is True and c in ('PrologEx allein', 'alle verschieden'): c = 'PrologEx bestätigt (Durchprobieren)'
     if c != 'gleich':
