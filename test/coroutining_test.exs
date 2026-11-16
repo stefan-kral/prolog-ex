@@ -518,4 +518,25 @@ defmodule PrologEx.CoroutiningTest do
                ["X = 1, when((nonvar(1),nonvar(Y)),true)"]
     end
   end
+
+  describe "Proben mit Suspensionen (wie Scryer und SWI)" do
+    test "\\=/2 und subsumes_term/2 befragen freeze und dif", c do
+      assert ask(c, "freeze(X, fail), X \\= 1.") != []
+      assert ask(c, "dif(X, 1), X \\= 1.") != []
+      assert ask(c, "freeze(X, fail), f(X, Y) \\= f(1, Y).") != []
+      assert ask(c, "freeze(X, true), X \\= 1.") == []
+      assert ask(c, "freeze(X, fail), subsumes_term(X, 1).") == []
+      assert ask(c, "dif(X, 1), subsumes_term(X, 1).") == []
+      assert ask(c, "dif(X, 1), subsumes_term(X, 2).") != []
+      # ohne Suspensionen wie bisher
+      assert ask(c, "X \\= 1.") == []
+      assert ask(c, "subsumes_term(f(X, X), f(Y, Y)).") != []
+    end
+
+    test "memberchk/2 mit freeze und dif", c do
+      assert ask(c, "freeze(X, X \\== a), memberchk(X, [a, b]).") == ["X = b"]
+      assert ask(c, "dif(X, a), memberchk(X, [a, b]).") == ["X = b"]
+      assert ask(c, "dif(X, a), memberchk(X, L).") == ["L = [X|_A], dif(X,a)"]
+    end
+  end
 end

@@ -455,7 +455,10 @@ defmodule PrologEx.ClpzQueueTest do
     end
   end
 
-  test "do_queue//0: ein weiteres Modul mit verify_attributes/3 sieht jedes Wecken", c do
+  # Ein weiteres Hook-Modul sieht nur Variablen mit seinen Attributen (wie
+  # Scryer), nicht die internen von clpz; das Ergebnis bleibt das des
+  # Originals
+  test "do_queue//0 mit einem weiteren Modul mit verify_attributes/3", c do
     PrologEx.put_db(c.db)
 
     ExUnit.CaptureIO.capture_io(fn ->
@@ -472,7 +475,7 @@ defmodule PrologEx.ClpzQueueTest do
       [ref, new] = queue_outputs(c, db, setup)
       assert ref == new, setup
       assert {o, {:answers, [_]}} = new
-      assert o =~ "h", setup
+      refute o =~ "h", setup
     end
   end
 

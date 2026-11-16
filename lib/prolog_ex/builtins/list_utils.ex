@@ -27,7 +27,7 @@ defmodule PrologEx.Builtins.ListUtils do
 
   # memberchk(X, L): wie member(X, L), !. Ein offener Rest wird wie bei
   # member/2 zu [X|_] verlängert.
-  defbuiltin "memberchk", [x, l], protected: false do
+  defbuiltin "memberchk", [x, l], protected: false, helpers: [{"$memberchk", 2}] do
     chk(x, PrologEx.Store.walk(l, subst()), subst())
   end
 
@@ -82,8 +82,10 @@ defmodule PrologEx.Builtins.ListUtils do
 
     case proper(l, s) do
       {:ok, items} ->
-        keep = Enum.reject(items, &unifiable?(&1, del, s))
-        {:unify, [{r, PrologEx.list(keep, [])}]}
+        case keep_items(items, del, s, []) do
+          :hooks -> {:call, mk("$delete", [l, del, r])}
+          keep -> {:unify, [{r, PrologEx.list(keep, [])}]}
+        end
 
       :partial ->
         {:call, mk("$delete", [l, del, r])}
@@ -124,9 +126,13 @@ defmodule PrologEx.Builtins.ListUtils do
   defp chk(x, t, s) do
     case PrologEx.uncons(t) do
       {:cons, h, tl} ->
-        if unifiable?(x, h, s),
-          do: {:unify, [{x, h}]},
-          else: chk(x, PrologEx.Store.walk(tl, s), s)
+        case PrologEx.unify_status(x, h, s) do
+          :yes -> {:unify, [{x, h}]}
+          :no -> chk(x, PrologEx.Store.walk(tl, s), s)
+          # attributierte Variablen: die Hooks entscheiden, ob dieses
+          # Element passt – ab hier als Prolog (wie once(member(X, L)))
+          :hooks -> {:call, mk("$memberchk", [x, t])}
+        end
 
       :empty ->
         false
@@ -139,7 +145,18 @@ defmodule PrologEx.Builtins.ListUtils do
     end
   end
 
-  defp unifiable?(a, b, s), do: PrologEx.unifiable?(a, b, s)
+  # delete/3: die Elemente, die sich nicht mit del unifizieren lassen;
+  # :hooks, sobald die Probe attributierte Variablen bindet (dann
+  # entscheiden deren Hooks, siehe \=/2)
+  defp keep_items([], _del, _s, acc), do: Enum.reverse(acc)
+
+  defp keep_items([x | xs], del, s, acc) do
+    case PrologEx.unify_status(x, del, s) do
+      :no -> keep_items(xs, del, s, [x | acc])
+      :yes -> keep_items(xs, del, s, acc)
+      :hooks -> :hooks
+    end
+  end
 
   defp sum_list(l, sum, s) do
     with {:ok, items} <- proper(l, s),
@@ -270,6 +287,11 @@ defmodule PrologEx.Builtins.ListUtils do
       rule(s("$min_member", [[h | t], m0, m]), [
         ite.(s("@>=", [h, m0]), s("=", [m1, m0]), s("=", [m1, h])),
         s("$min_member", [t, m1, m])
+      ]),
+      # memberchk/2 ab dem ersten Element, dessen Probe attributierte
+      # Variablen bindet
+      rule(s("$memberchk", [x, [h | t]]), [
+        ite.(s("=", [x, h]), a("true"), s("$memberchk", [x, t]))
       ]),
       # delete/3
       fact(s("$delete", [[], w, []])),

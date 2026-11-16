@@ -106,21 +106,63 @@ defmodule PrologEx.Builtins.Order do
   # nur Variablen von G werden (lokal) gebunden, Variablen von S gelten als
   # Konstanten – so entstehen keine zyklischen Terme (g(X) vs. g(f(X)))
   # und es bleiben keine Bindungen zurück.
+  #
+  # Bindet das Matching attributierte Variablen von G, entscheiden deren
+  # Hooks und Suspensionen mit (wie in Scryer und SWI): dann nach der
+  # Definition als Ziel, mit Wecken.
   defbuiltin "subsumes_term", [general, specific] do
     s = subst()
     vs = variables(specific, s)
 
     try do
-      match(general, specific, s, MapSet.new(vs), %{}, 0) != :error
+      case match(general, specific, s, MapSet.new(vs), %{}, 0) do
+        :error ->
+          false
+
+        m ->
+          if attv_key?(:maps.next(:maps.iterator(m))),
+            do: by_definition(general, specific),
+            else: true
+      end
     catch
       # ein Zyklus (d in match/6): nach der Definition (ISO 8.2.4) mit der
       # zyklenfesten Unifikation – G = S, ohne eine Variable von S zu binden
       :"$cyclic" ->
         case PrologEx.unify(general, specific, s) do
-          {:ok, s2} -> variables(vs, s2) == vs
-          :error -> false
+          {:ok, s2} ->
+            cond do
+              variables(vs, s2) != vs -> false
+              PrologEx.Store.wake?(s2) -> by_definition(general, specific)
+              true -> true
+            end
+
+          :error ->
+            false
         end
     end
+  end
+
+  defp attv_key?(:none), do: false
+  defp attv_key?({{:var, {:attv, _}}, _, _}), do: true
+  defp attv_key?({_, _, it}), do: attv_key?(:maps.next(it))
+
+  # ISO 8.2.4.1: \+ \+ (term_variables(S, V1), G = S, term_variables(V1, V2), V1 == V2)
+  defp by_definition(g, sp) do
+    v1 = fresh_var()
+    v2 = fresh_var()
+
+    {:call,
+     mk("\\+", [
+       mk("\\+", [
+         mk(",", [
+           mk("term_variables", [sp, v1]),
+           mk(",", [
+             mk("=", [g, sp]),
+             mk(",", [mk("term_variables", [v1, v2]), mk("==", [v1, v2])])
+           ])
+         ])
+       ])
+     ])}
   end
 
   # ---------------------------------------------------------------------

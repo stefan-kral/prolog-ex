@@ -432,6 +432,8 @@ defmodule PrologEx.Builtins do
     "freeze" => %{{"freeze", 2} => "system"},
     # wie Scryers und SWIs library(dif) (dif/2 ist eingebaut)
     "dif" => %{{"dif", 2} => "system"},
+    # wie Scryers und SWIs library(when) (when/2 ist eingebaut)
+    "when" => %{{"when", 2} => "system"},
     # wie SICStus' library(between)
     "between" => %{
       {"between", 3} => "system",

@@ -81,10 +81,19 @@ defmodule PrologEx.Builtins.Core do
     end
   end
 
+  # X \= Y ist \+ X = Y (ISO 8.2.3): bindet die Probe-Unifikation
+  # attributierte Variablen, entscheiden deren Hooks und Suspensionen
+  # (freeze, dif, clpz, verify_attributes/3) mit – dann als Ziel, mit
+  # Wecken; sonst bleibt es bei der schnellen Probe
   defbuiltin "\\=", [x, y] do
     case PrologEx.unify(x, y, subst()) do
-      {:ok, _} -> :fail
-      :error -> :ok
+      {:ok, s} ->
+        if PrologEx.Store.wake?(s),
+          do: {:call, mk("\\+", [mk("=", [x, y])])},
+          else: :fail
+
+      :error ->
+        :ok
     end
   end
 

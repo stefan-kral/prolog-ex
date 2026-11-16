@@ -1541,7 +1541,8 @@ ist jeweils am Dateianfang vermerkt.
 * `library(debug)` (BSD-Lizenz, unverändert): `* G` (Ziel
   wegverallgemeinern), `$ G` und `$- G` (Aufruf und Ausnahmen mit
   `portray_clause/1` zeigen).
-* `library(freeze)` gibt wie in Scryer `freeze/2` weiter (eingebaut).
+* `library(freeze)` gibt wie in Scryer `freeze/2` weiter (eingebaut),
+  `library(when)` ebenso `when/2`.
 * `library(terms)`: wie in Scryer `numbervars/3`, dazu wie SWI
   - `term_hash(+T, -H)`: ist T ground, ein Hashwert in 0..2²⁷-1 (über
     Sitzungen und Rechner gleich, `:erlang.phash2/1` einer kanonischen
@@ -3026,22 +3027,21 @@ Bisher in Elixir:
     Planung 1,55–1,8 → 1,29–1,46 s, Springerweg 0,25–0,26 → 0,20–0,21 s,
     Sechseck 0,16–0,19 → 0,14–0,16 s, magische Quadrate 56–69 → 46–52 ms.
 
-**Weitere Hook-Module.** PrologEx ruft wie SICStus `verify_attributes/3`
-in *jedem* Modul mit Attributdeklarationen, auch für Variablen ohne
-Attribute dort (Scryer nur in den Modulen, in denen die Variable Attribute
-hat) – ein solches Modul sieht also auch die internen Variablen von clpz:
-den Zustand getöteter Propagatoren, die Variablen der Warteschlangen. Im
-Original werden sie mitten im Propagator geweckt, in Elixir gesammelt
-danach. Damit das Ergebnis von der Anwesenheit anderer Hooks nicht
-abhängt, rechnet in diesem Fall das Original: jeder Propagator, der eine
-attributierte Variable bindet oder scheitert, das Zusammenlegen von
+**Weitere Hook-Module.** PrologEx ruft `verify_attributes/3` (wie
+Scryer) nur in den Modulen, in denen die gebundene Variable Attribute hat
+– ein weiteres Hook-Modul sieht die internen Variablen von clpz (Zustand
+getöteter Propagatoren, Warteschlangen) also nicht mehr; bis November 2026
+rief PrologEx wie SICStus jedes Modul mit Attributdeklarationen. Aus
+dieser Zeit stammt eine vorsichtige Regel, die noch gilt: ist ein
+weiteres Hook-Modul geladen, rechnet das Original jeden Propagator, der
+eine attributierte Variable bindet oder scheitert, das Zusammenlegen von
 Warteschlangen und `verify_attributes/3` von zwei Variablen mit Domänen;
 ebenso, wenn an einem Zustand oder einer Queue-Variablen freeze, dif oder
-when hängt. Ohne weitere Hook-Module (freeze, dif, when sind eingebaut und
-zählen nicht) bleibt alles in Elixir. Geprüft mit einem Modul, das bei
-jedem Wecken etwas ausgibt: 300 Zufallsfälle gegen das Original, und 8
-Damen (alle 92 Lösungen) mit genau so vielen Hook-Aufrufen (9530) wie mit
-dem reinen Prolog-Code.
+when hängt (im Original laufen die Hooks mitten im Propagator, in Elixir
+gesammelt danach). Ohne weitere Hook-Module (freeze, dif, when sind
+eingebaut und zählen nicht) bleibt alles in Elixir. Geprüft mit einem
+Modul, dessen Hook bei jedem Aufruf etwas ausgibt: dasselbe Ergebnis und
+dieselbe Ausgabe wie das Original.
 
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen
@@ -3808,13 +3808,30 @@ attribute_goal(Var, domain(Var, Dom)) :- get_atts(Var, dom(Dom)).
 
 `put_atts/2` (`+A`, `-A`, Listen), `get_atts/2` (auch mit ungebundener
 Angabe: alle Attribute), jeweils im Kontextmodul. Beim Binden
-attributierter Variablen läuft es wie in SICStus: Bindungen zurücknehmen →
-`M:verify_attributes(Var, Wert, Goals)` für jede Variable und jedes Modul
-mit `:- attribute` (alle sehen alle beteiligten Variablen ungebunden) →
+attributierter Variablen: Bindungen zurücknehmen →
+`M:verify_attributes(Var, Wert, Goals)` für jede gebundene Variable (in
+Bindereihenfolge) und jedes Modul, in dem sie Attribute hat (in
+Deklarationsreihenfolge; wie Scryer – SICStus erlaubt das, „might have
+attributes“), alle sehen alle beteiligten Variablen ungebunden →
 Bindungen wiederherstellen → alle Goals (im Modul M) → Weckziele von
 freeze/dif/when. Scheitern, Alternativen und Ausnahmen der Hooks wirken
-normal. `attribute_goal/2` liefert Restziele für Toplevel, `frozen/2`
-und `copy_term/3`. Ohne Attributmodule kostet das alles nichts.
+normal; ein Hook mit Alternativen liefert wie in SICStus mehrere
+Lösungen der Unifikation (Scryer nimmt nur die erste). Bindet eine
+Unifikation mehrere attributierte Variablen, durchläuft SICStus den
+Zyklus Hook → Bindung → Goals → Weckziele Variable für Variable; PrologEx
+ruft erst alle Hooks, dann alle Goals (Scryer: Hook und Bindung je
+Variable, dann alle Goals). Das ändert nur die Reihenfolge der Goals und
+was ein Hook von den anderen Variablen sieht. `attribute_goal/2` liefert
+Restziele für Toplevel, `frozen/2` und `copy_term/3`. Ohne Attributmodule
+kostet das alles nichts; Module ohne Attribut an der gebundenen Variablen
+(etwa die eigenen bei Bindungen innerhalb von clpz) auch nicht.
+
+Proben, die nur prüfen, ob eine Unifikation gelänge, befragen dabei die
+Hooks und Suspensionen (wie Scryer und SWI): `\=/2` ist `\+ X = Y`,
+`subsumes_term/2` gilt nach seiner Definition mit `G = S`, `memberchk/2`
+sucht weiter, wenn ein Hook ein Element ablehnt, und `delete/3` behält
+solche Elemente. Ohne attributierte Variablen bleibt es bei der schnellen
+Probe in Elixir.
 
 Wie Scryer und SWI gibt es auch die Hooks `attribute_goals//1` (Restziele
 als DCG; Ziele ohne Modul bekommen `M:` davor) und

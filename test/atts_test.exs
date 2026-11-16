@@ -10,7 +10,7 @@ defmodule PrologEx.AttsTest do
     Reader.put_current(r)
     PrologEx.put_db(%{})
 
-    for f <- ~w(plain spy domain myfreeze tag),
+    for f <- ~w(plain spy domain myfreeze tag laut),
         do: {:ok, _} = Consult.load_file(Path.join(@dir, f <> ".pl"))
 
     PrologEx.update_db(&PrologEx.use_library(&1, "lists"))
@@ -210,6 +210,47 @@ defmodule PrologEx.AttsTest do
       [ans] = ask(c, "freeze(X, Y = 1), dif(Y, 2), term_attvars(f(X), L), length(L, N).")
       assert ans =~ "N = 2"
       assert ask(c, "term_attvars(f(X, a), L).") == ["L = []"]
+    end
+  end
+
+  describe "verify_attributes/3: nur Module mit Attribut an der Variablen" do
+    test "Hook eines Moduls ohne Attribut an der Variablen läuft nicht", c do
+      # wie Scryer; SICStus erlaubt es („might have attributes“)
+      refute out(c, "tag(X, a, _), X = 1.") =~ "laut"
+      refute out(c, "freeze(X, true), X = 1.") =~ "laut"
+      assert out(c, "laut(X), X = 1.") == "laut\n"
+      # zwei attributierte Variablen: gebunden wird die jüngere, nur ihre
+      # Hooks laufen
+      refute out(c, "laut(X), tag(Y, b, _), X = Y.") =~ "laut"
+      assert out(c, "tag(Y, b, _), laut(X), X = Y.") == "laut\n"
+    end
+  end
+
+  describe "Proben, die Hooks befragen (\\=, subsumes_term, memberchk, delete)" do
+    test "\\=/2 ist \\+ =/2, mit den Hooks", c do
+      assert ask(c, "domain(X, [a, b]), X \\= c.") != []
+      assert ask(c, "domain(X, [a, b]), X \\= a.") == []
+      assert ask(c, "domain(X, [a, b]), f(X, Y) \\= f(c, Y).") != []
+    end
+
+    test "subsumes_term/2 mit den Hooks", c do
+      assert ask(c, "domain(X, [a, b]), subsumes_term(X, c).") == []
+      assert ask(c, "domain(X, [a, b]), subsumes_term(X, b).") != []
+      assert ask(c, "domain(X, [a, b]), subsumes_term(f(X, X), f(b, b)).") != []
+      assert ask(c, "domain(X, [a, b]), subsumes_term(f(X, X), f(b, a)).") == []
+    end
+
+    test "memberchk/2 sucht weiter, wenn ein Hook ablehnt", c do
+      assert ask(c, "domain(X, [a, b]), memberchk(X, [c, b, a]).") == ["X = b"]
+      assert ask(c, "domain(X, [a, b]), memberchk(X, [c, d]).") == []
+
+      assert ask(c, "domain(X, [a, b]), memberchk(f(X, Y), [f(c, 1), f(a, 2)]).") ==
+               ["X = a, Y = 2"]
+    end
+
+    test "delete/3 behält Elemente, deren Unifikation ein Hook ablehnt", c do
+      assert ask(c, "domain(X, [a, b]), delete([X, c, a], c, R), R = [Y|_], Y == X.") != []
+      assert ask(c, "domain(X, [a, b]), delete([c, a], X, R), R == [c], var(X).") != []
     end
   end
 end

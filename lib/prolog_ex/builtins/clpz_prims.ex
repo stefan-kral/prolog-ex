@@ -2308,11 +2308,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # Ein Propagator in Elixir: {:ok, s}, :fail oder :fallback (das Original
   # rechnet; s unverändert). Hat ein weiteres Modul verify_attributes/3,
-  # ruft die Maschine es (wie SICStus) auch für Variablen ohne seine
-  # Attribute, etwa den Zustand eines getöteten Propagators; im Original
-  # läuft dieses Wecken mitten im Propagator, hier erst danach. Dann
-  # rechnet jeder Propagator, der eine attributierte Variable bindet, das
-  # Original
+  # rechnet (vorsichtig) jeder Propagator, der eine attributierte Variable
+  # bindet, das Original: dessen Hooks laufen dort mitten im Propagator,
+  # hier erst danach. (Die Maschine ruft den Hook nur für Variablen mit
+  # Attributen des Moduls; die internen Variablen von clpz sieht er nicht.)
   defp activate(prop, q, s, alone) do
     Process.put(:clpz_prims_subst, s)
     Process.put(:clpz_alone, alone)

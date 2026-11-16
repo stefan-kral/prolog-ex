@@ -533,6 +533,24 @@ defmodule PrologEx do
   end
 
   @doc """
+  Probe-Unifikation ohne Bindungen: `:no` (nicht unifizierbar), `:yes`
+  (unifizierbar, ohne attributierte Variablen zu binden) oder `:hooks`
+  (unifizierbar, bindet aber attributierte Variablen – ob die Unifikation
+  gelingt, entscheiden dann erst deren Hooks und Suspensionen).
+  """
+  def unify_status(x, y, subst) do
+    case unify(x, y, subst) do
+      {:ok, s} ->
+        r = if Store.wake?(s), do: :hooks, else: :yes
+        Store.fast_restore(subst)
+        r
+
+      :error ->
+        :no
+    end
+  end
+
+  @doc """
   Probe: sind x und y unifizierbar? Die Bindungen der Probe werden
   zurückgenommen – die Substitution bleibt, wie sie war.
   """
@@ -2716,23 +2734,10 @@ defmodule PrologEx do
         wake_and_run(attvs, st.subst, st, rest)
 
       mods ->
-        pairs = for v <- attvs, {:ok, val} = Store.binding(st.subst, v), do: {v, val}
-        subst = Enum.reduce(attvs, st.subst, &Store.unbind(&2, &1))
-
-        hooks =
-          for {v, val} <- pairs, m <- mods do
-            g = {:var, PrologEx.Vars.next()}
-            {mk(":", [a(m), mk("verify_attributes", [v, val, g])]), mk("$g", [a(m), g])}
-          end
-
-        redo =
-          mk("$attv_redo", [
-            list(for({v, val} <- pairs, do: mk("$p", [v, val]))),
-            list(Enum.map(hooks, &elem(&1, 1)))
-          ])
-
-        goals = for {h, _} <- hooks, do: {h, st.height, "system"}
-        run(%{st | subst: subst, goals: goals ++ [{redo, st.height, "system"} | rest]})
+        case hook_calls(attvs, mods, st.subst) do
+          [] -> wake_and_run(attvs, st.subst, st, rest)
+          hooks -> run_hooks(attvs, hooks, rest, st)
+        end
     end
   end
 
@@ -4060,6 +4065,51 @@ defmodule PrologEx do
       {ws, s} -> {s, [{{:"$wake", Enum.reverse(ws)}, 0, "system"} | goals]}
       :none -> {s, goals}
     end
+  end
+
+  # Die Hooks: je gebundener Variable (in Bindereihenfolge) die Module
+  # (in Deklarationsreihenfolge), in denen sie Attribute hat – wie Scryer;
+  # SICStus erlaubt das („might have attributes“). Module ohne Attribut an
+  # der Variablen (etwa die eigenen bei einer Bindung in clpz) kosten so
+  # nichts, und ohne einen Hook bleibt es beim schnellen Weg.
+  defp hook_calls([{:var, {:attv, id}} = v | vs], mods, subst) do
+    case hook_mods(mods, Store.attrs(subst, id)) do
+      [] ->
+        hook_calls(vs, mods, subst)
+
+      ms ->
+        {:ok, val} = Store.binding(subst, v)
+        hook_goals(ms, v, val, hook_calls(vs, mods, subst))
+    end
+  end
+
+  defp hook_calls([], _mods, _subst), do: []
+
+  defp hook_mods([m | ms], attrs) do
+    if is_map_key(attrs, m), do: [m | hook_mods(ms, attrs)], else: hook_mods(ms, attrs)
+  end
+
+  defp hook_mods([], _attrs), do: []
+
+  defp hook_goals([m | ms], v, val, more) do
+    g = {:var, PrologEx.Vars.next()}
+
+    [
+      {mk(":", [a(m), mk("verify_attributes", [v, val, g])]), mk("$g", [a(m), g])}
+      | hook_goals(ms, v, val, more)
+    ]
+  end
+
+  defp hook_goals([], _v, _val, more), do: more
+
+  # Bindungen aller gebundenen Variablen zurücknehmen, die Hooks aufrufen,
+  # dann $attv_redo (Bindungen, Goals, eingebaute Weckziele)
+  defp run_hooks(attvs, hooks, rest, st) do
+    pairs = for v <- attvs, {:ok, val} = Store.binding(st.subst, v), do: mk("$p", [v, val])
+    subst = Enum.reduce(attvs, st.subst, &Store.unbind(&2, &1))
+    redo = mk("$attv_redo", [list(pairs), list(Enum.map(hooks, &elem(&1, 1)))])
+    goals = for {h, _} <- hooks, do: {h, st.height, "system"}
+    run(%{st | subst: subst, goals: goals ++ [{redo, st.height, "system"} | rest]})
   end
 
   defp wake_and_run(attvs, s, st, rest) do
