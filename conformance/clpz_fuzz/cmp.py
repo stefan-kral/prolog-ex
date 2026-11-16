@@ -130,6 +130,7 @@ def view(v, t, i):
     return v
 
 classes = {}
+known_any = {k[0] for k in keys if scryer_known(k[0], k[1], a, b)}
 if w is not None:
     for i in sorted({k[0] for k in keys}, key=int):
         if any(NOSWI.search(l) for l in src.get(i, [])):
@@ -147,6 +148,13 @@ if w is not None:
             rank = ['SWI allein', 'Scryer allein', 'alle verschieden', 'PrologEx allein']
             if cl is None or rank.index(c) > rank.index(cl):
                 cl = c
+        # mit bekanntem Scryer-Fehler (übersetzt anders als mit call/1,
+        # PrologEx wie Scryer mit call/1) zählt Scryer nicht als eigene
+        # Stimme: weicht dann auch SWI ab, ist das SWI allein (etwa: PrologEx
+        # und Scryer mit call/1 scheitern schon vor einem Ziel, an dem SWI
+        # mit schwächerer Propagation einen Fehler wirft)
+        if cl == 'alle verschieden' and i in known_any:
+            cl = 'SWI allein'
         if cl:
             classes[i] = cl
     # gegen Scryer verschieden, aber SWI wie PrologEx: eher Scryer
