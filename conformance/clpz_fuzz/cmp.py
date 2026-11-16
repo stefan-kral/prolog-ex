@@ -136,6 +136,14 @@ if w is not None:
         if any(NOSWI.search(l) for l in src.get(i, [])):
             continue
         cl = None
+        # ohne Ausgabe von Scryer (Zeitgrenze von run.sh): nur PrologEx
+        # gegen SWI, und zwar die Lösungen (die Stärke der Propagation
+        # nach dem Aufstellen unterscheidet clpz und clpfd oft)
+        if not any((i, t) in a for t in KINDS):
+            if any(sols(b.get((i, t))) != sols(w.get((i, t))) for t in ('lab', 'labc')
+                   if b.get((i, t)) is not None and w.get((i, t)) is not None):
+                classes[i] = 'ohne Scryer verschieden'
+            continue
         for t in ('post', 'lab', 'postc', 'labc'):
             vs, vp, vw = (view(x.get((i, t)), t, i) for x in (a, b, w))
             if vs == vp == vw:
@@ -159,12 +167,17 @@ if w is not None:
             classes[i] = cl
     # gegen Scryer verschieden, aber SWI wie PrologEx: eher Scryer
     ids = [i for i in ids if classes.get(i) not in ('Scryer allein', 'SWI allein')]
-    ids = sorted(set(ids) | {i for i, c in classes.items() if c in ('PrologEx allein', 'alle verschieden')}, key=int)
+    ids = [i for i in ids if any((i, t) in a for t in KINDS)]
+    ids = sorted(set(ids) | {i for i, c in classes.items()
+                             if c in ('PrologEx allein', 'alle verschieden', 'ohne Scryer verschieden')}, key=int)
 
 swi = ''
 if w is not None:
     cc = {c: sum(1 for x in classes.values() if x == c) for c in ('PrologEx allein', 'Scryer allein', 'SWI allein', 'alle verschieden')}
     swi = 'SWI: PrologEx allein %d, Scryer allein %d, SWI allein %d, alle verschieden %d  ' % tuple(cc.values())
+    nos = sum(1 for i in {k[0] for k in keys} if not any((i, t) in a for t in KINDS))
+    if nos:
+        swi += 'ohne Scryer %d (davon verschieden %d)  ' % (nos, sum(1 for x in classes.values() if x == 'ohne Scryer verschieden'))
 print('Fälle %d  Scryer %d  PrologEx %d  nur Reihenfolge der Restziele %d  '
       'bekannte Scryer-Fehler %d  %sverschieden %d'
       % (len({k[0] for k in keys}), len(a), len(b), len(order), len(known), swi, len(ids)))
