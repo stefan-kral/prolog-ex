@@ -26,7 +26,9 @@ defmodule PrologEx.BuiltinScopeTest do
   test "aus user: nicht sichtbar, auch nicht nach use_module; qualifiziert schon", c do
     o = out(c, %{}, "catch('$clpz_neq_num'(_, _), error(E, _), true)")
     assert o =~ "existence_error(procedure,'$clpz_neq_num'/2)"
-    assert out(c, %{}, "predicate_property('$clpz_fd_get'(_, _, _), built_in)") == "{:answers, []}"
+
+    assert out(c, %{}, "predicate_property('$clpz_fd_get'(_, _, _), built_in)") ==
+             "{:answers, []}"
 
     {db, []} =
       PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, ":- use_module(library(clpz)).\n"))

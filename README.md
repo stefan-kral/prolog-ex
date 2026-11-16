@@ -3951,6 +3951,28 @@ die Elemente des Ergebnisses (`type_error(pair, E)`), `findall/4` den Rest;
 wiederholten Optionen die letzte; `set_stream_position/2` auch auf
 Schreibströmen; Flag `version_data` (`prolog_ex(0,1,0,[])`, wie SWI).
 
+## Programm-Batterie
+
+`test/programs/` sammelt Beispielprogramme mit überprüfbaren Ergebnissen
+(für den Teil ohne CLP wie für clpz/clpb). Je Programm zwei Dateien:
+
+  * `NAME.pl`: das Programm unverändert aus der Quelle; der Name nennt sie
+    (`taop__…` für „The Art of Prolog“),
+  * `NAME.checks.pl`: Erwartungen als Fakten – `expect(Ziel, Schablone,
+    Lösungen)` (alle, in Reihenfolge), `expect_count(Ziel, N)`,
+    `expect_first(Ziel, Schablone, T)`.
+
+Die Erwartungen kommen aus unabhängigen Quellen (etwa Anzahlen aus der
+OEIS) oder aus SWI-Prolog und Scryer. `test/programs/runner.pl` prüft sie
+portabel (nur ISO, `findall/3`, `length/2`); `test/program_battery_test.exs`
+läuft je Programm als eigener Test, `test/programs/cross.sh [NAME…]` prüft
+dieselben Erwartungen in SWI und Scryer gegen
+(`SCRYER=/pfad/scryer-prolog test/programs/cross.sh`).
+
+| Programm | Prüft |
+|---|---|
+| `taop__nqueens_fruewirth` | N-Damen nach Frühwirth (Diagonalen als Listen): Anzahlen für N = 1..8 (OEIS A000170), alle Lösungen für 4 und 5 in Reihenfolge, die erste für 8 |
+
 ## Reader
 
 `PrologEx.Parser` liest Prolog-Text: Tokenizer nach ISO 6.4,

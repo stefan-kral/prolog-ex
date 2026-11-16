@@ -291,7 +291,9 @@ defmodule PrologEx.Builtins do
              # '$nse_call'/1: die ruft Elixir überall auf)
              for {{"system", "$" <> _ = n, ar}, e} <- @all,
                  not match?({:prolog, _, _}, e),
-                 [m] <- [for({m, t} <- texts, String.contains?(t, "'" <> n <> "'"), uniq: true, do: m)],
+                 [m] <- [
+                   for({m, t} <- texts, String.contains?(t, "'" <> n <> "'"), uniq: true, do: m)
+                 ],
                  into: %{},
                  do: {{n, ar}, m}
            end).()

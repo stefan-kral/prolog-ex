@@ -807,7 +807,9 @@ defmodule PrologEx.ClpzQueueTest do
       l = "[#{Enum.join(items, ",")}]"
 
       if :rand.uniform(2) == 1 do
-        scenario("same(clpz:all_distinct_post_ref(#{l}), clpz:'$clpz_all_distinct_post'(#{l}), Vs)")
+        scenario(
+          "same(clpz:all_distinct_post_ref(#{l}), clpz:'$clpz_all_distinct_post'(#{l}), Vs)"
+        )
       else
         scenario(
           "O = original_goal(_, all_different(#{l})), " <>
