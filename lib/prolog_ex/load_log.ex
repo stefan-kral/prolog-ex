@@ -125,10 +125,11 @@ defmodule PrologEx.LoadLog do
 
   # Zeilenlänge der Listen: die Breite des Terminals (beim Ausgeben gemessen,
   # also auch nach Ändern der Fenstergröße) abzüglich "% ", Einrückung und
-  # "    "; ohne Terminal (umgeleitet) 72 wie bisher
+  # "    " und dem Komma am Zeilenende (sonst bricht das Terminal eine
+  # genau volle Zeile vor dem Komma um); ohne Terminal (umgeleitet) 72
   defp width do
     case :io.columns() do
-      {:ok, cols} -> max(cols - 6 - 2 * Process.get(@depth, 0), 40)
+      {:ok, cols} -> max(cols - 7 - 2 * Process.get(@depth, 0), 40)
       _ -> 72
     end
   end

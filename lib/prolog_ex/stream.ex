@@ -451,6 +451,8 @@ defmodule PrologEx.Stream do
   end
 
   defp fill(%{kind: :stdin} = s) do
+    PrologEx.Shell.quiet()
+
     # im Terminal: Prompt weiß, die Eingabe in der Farbe von :input
     prompt =
       if PrologEx.Terminal.terminal?(), do: PrologEx.Terminal.input_prompt("|: "), else: ""
@@ -459,8 +461,16 @@ defmodule PrologEx.Stream do
     if prompt != "", do: PrologEx.Terminal.end_input()
 
     case data do
-      data when is_binary(data) -> %{s | buf: s.buf <> data}
-      _ -> %{s | eof: true}
+      data when is_binary(data) ->
+        %{s | buf: s.buf <> data}
+
+      # Ctrl-C beim Lesen (Shell der BEAM): die Anfrage abbrechen
+      {:error, :interrupted} ->
+        IO.puts("")
+        PrologEx.Error.throw!(PrologEx.Shell.abort_ball())
+
+      _ ->
+        %{s | eof: true}
     end
   end
 
@@ -592,8 +602,8 @@ defmodule PrologEx.Stream do
 
     s =
       case s.kind do
-        :stdout -> tap(s, fn _ -> IO.write(text) end)
-        :stderr -> tap(s, fn _ -> IO.write(:stderr, text) end)
+        :stdout -> tap(s, fn _ -> quiet_write(fn -> IO.write(text) end) end)
+        :stderr -> tap(s, fn _ -> quiet_write(fn -> IO.write(:stderr, text) end) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, text) end)
         :socket -> tap(s, fn _ -> socket_send!(s, text) end)
         k when k in [:memory_out, :http_out] -> %{s | buf: [s.buf | text]}
@@ -601,6 +611,13 @@ defmodule PrologEx.Stream do
 
     update(out_position(s, text))
     :ok
+  end
+
+  # Ausgabe aufs Terminal: erst den Kreisel des Toplevels löschen
+  # (PrologEx.Shell.busy/1; ohne Kreisel nur ein Process.get)
+  defp quiet_write(f) do
+    PrologEx.Shell.quiet()
+    f.()
   end
 
   # Senden auf einem Socket; Gegenseite weg: error(socket_error(Grund), _)
@@ -670,8 +687,8 @@ defmodule PrologEx.Stream do
 
     s =
       case s.kind do
-        :stdout -> tap(s, fn _ -> IO.binwrite(<<b>>) end)
-        :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, <<b>>) end)
+        :stdout -> tap(s, fn _ -> quiet_write(fn -> IO.binwrite(<<b>>) end) end)
+        :stderr -> tap(s, fn _ -> quiet_write(fn -> IO.binwrite(:stderr, <<b>>) end) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, <<b>>) end)
         :socket -> tap(s, fn _ -> socket_send!(s, <<b>>) end)
         k when k in [:memory_out, :http_out] -> %{s | buf: [s.buf | <<b>>]}
@@ -687,8 +704,8 @@ defmodule PrologEx.Stream do
 
     s =
       case s.kind do
-        :stdout -> tap(s, fn _ -> IO.binwrite(bin) end)
-        :stderr -> tap(s, fn _ -> IO.binwrite(:stderr, bin) end)
+        :stdout -> tap(s, fn _ -> quiet_write(fn -> IO.binwrite(bin) end) end)
+        :stderr -> tap(s, fn _ -> quiet_write(fn -> IO.binwrite(:stderr, bin) end) end)
         :file -> tap(s, fn _ -> :file.write(s.dev, bin) end)
         :socket -> tap(s, fn _ -> socket_send!(s, bin) end)
         k when k in [:memory_out, :http_out] -> %{s | buf: [s.buf | bin]}

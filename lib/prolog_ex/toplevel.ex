@@ -52,6 +52,7 @@ defmodule PrologEx.Toplevel do
   def main(args) do
     Application.put_env(:prolog_ex, :argv, args)
     {files, goals, quiet, flags} = parse_args(args)
+    edit = "--no-edit" not in args
     quiet_load(quiet)
     set_flags(flags)
     {:ok, reader} = Reader.start_link()
@@ -66,7 +67,7 @@ defmodule PrologEx.Toplevel do
       cond do
         "-" in files -> 0
         goals != [] and quiet -> 0
-        true -> interactive(st, quiet)
+        true -> interactive(st, quiet, edit)
       end
     catch
       {:prolog_halt, code} -> code
@@ -76,6 +77,9 @@ defmodule PrologEx.Toplevel do
   end
 
   @session __MODULE__.Session
+  @banner "PrologEx – Hilfe: siehe `mix help prolog`, Ende mit halt. oder Ctrl-D"
+  # mit dem Zeileneditor der BEAM löscht Ctrl-D nur ein Zeichen
+  @banner_edit "PrologEx – Hilfe: siehe `mix help prolog`, Ende mit halt., Ctrl-C bricht ab"
 
   @doc "Toplevel in iex mit Sitzung, die einen Abbruch (Ctrl-C mit +Bc) übersteht"
   def repl(args \\ []) do
@@ -178,6 +182,7 @@ defmodule PrologEx.Toplevel do
   defp parse_args(["--" | _], f, gs, q, fl), do: {f, gs, q, fl}
   defp parse_args(["-g", g | rest], f, gs, q, fl), do: parse_args(rest, f, [g | gs], q, fl)
   defp parse_args(["-q" | rest], f, gs, _, fl), do: parse_args(rest, f, gs, true, fl)
+  defp parse_args(["--no-edit" | rest], f, gs, q, fl), do: parse_args(rest, f, gs, q, fl)
 
   defp parse_args([a | rest], f, gs, q, fl) when is_map_key(@flag_switches, a),
     do: parse_args(rest, f, gs, q, [@flag_switches[a] | fl])
@@ -217,11 +222,16 @@ defmodule PrologEx.Toplevel do
   # Interaktiv
   # ---------------------------------------------------------------------
 
-  defp interactive(st, quiet) do
-    Terminal.start()
+  defp interactive(st, quiet, edit) do
+    banner = if quiet, do: "", else: @banner_edit
+    # am Terminal: Shell der BEAM (Zeileneditor, Ctrl-C bricht ab); sie
+    # zeigt die erste Zeile selbst
+    shell? =
+      edit and Terminal.terminal?() and PrologEx.Shell.start(Terminal.normal(banner))
 
-    unless quiet,
-      do: IO.puts("PrologEx – Hilfe: siehe `mix help prolog`, Ende mit halt. oder Ctrl-D\n")
+    Terminal.start()
+    unless quiet or shell?, do: IO.puts(@banner <> "\n")
+    if shell? and not quiet, do: IO.puts("")
 
     loop(st, fn _ -> :ok end)
     0
@@ -229,6 +239,9 @@ defmodule PrologEx.Toplevel do
 
   # save: nach jeder Anfrage (Sitzung von repl/1)
   defp loop(st, save) do
+    # TAB-Completion (Shell der BEAM): die sichtbaren Prädikate
+    if PrologEx.Shell.active?(), do: PrologEx.Shell.Complete.publish(st.db)
+
     case read_query("?- ", []) do
       :eof ->
         IO.puts("")
@@ -251,6 +264,12 @@ defmodule PrologEx.Toplevel do
 
       :eof ->
         acc |> Enum.reverse() |> Enum.join()
+
+      # Ctrl-C (Shell der BEAM): angefangene Eingabe verwerfen
+      {:error, :interrupted} ->
+        PrologEx.Shell.clear_interrupt()
+        IO.puts("")
+        read_query("?- ", [])
 
       {:error, _} ->
         :eof
@@ -291,14 +310,27 @@ defmodule PrologEx.Toplevel do
     try do
       show(answers, mode, PrologEx.query_var_names(goal))
     rescue
-      e in [RuntimeError, PrologEx.Error] ->
-        IO.puts(Terminal.paint(:error, "Fehler: #{Exception.message(e)}"))
-        if hint = home_hint(e) || memory_hint(e), do: IO.puts(Terminal.paint(:comment, hint))
+      # Ctrl-C (PrologEx.Shell)
+      e in PrologEx.Error ->
+        if e.term == PrologEx.Shell.abort_ball() do
+          fresh_line()
+          IO.puts(Terminal.paint(:comment, "% Ausführung abgebrochen"))
+        else
+          error_message(e)
+        end
+
+      e in RuntimeError ->
+        error_message(e)
     end
 
     if mode != :goal, do: IO.puts("")
     # assert/retract während der Anfrage übernehmen
     %{st | db: PrologEx.current_db()}
+  end
+
+  defp error_message(e) do
+    IO.puts(Terminal.paint(:error, "Fehler: #{Exception.message(e)}"))
+    if hint = home_hint(e) || memory_hint(e), do: IO.puts(Terminal.paint(:comment, hint))
   end
 
   # -g Ziele: still ausführen, nur Fehlschlag melden
@@ -365,6 +397,8 @@ defmodule PrologEx.Toplevel do
 
     case line do
       ";" <> _ -> show_next(computed(fn -> cont.({:cont, nil}) end), order, page, 0)
+      # Ctrl-C: wie "." (keine weiteren Antworten)
+      {:error, :interrupted} -> IO.puts(Terminal.paint(:input, "."))
       # Ende nach Enter: der Punkt steht für die Taste des Benutzers
       _ -> IO.puts(Terminal.paint(:input, "."))
     end
@@ -399,8 +433,9 @@ defmodule PrologEx.Toplevel do
   # Ergebnis von f und ob dabei ein Seiteneffekt passiert ist (der Zustand
   # des Interpreters im Prozess hat sich geändert)
   defp computed(f) do
+    PrologEx.Shell.clear_interrupt()
     before = state_snapshot()
-    r = f.()
+    r = PrologEx.Shell.busy(f)
     {r, not same_state?(before, state_snapshot())}
   end
 

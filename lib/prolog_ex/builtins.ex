@@ -461,6 +461,9 @@ defmodule PrologEx.Builtins do
   @doc "Exporte eines Bibliotheksmoduls (MapSet von {name, arity}) oder nil"
   def exports(module), do: Map.get(@exports_all, module)
 
+  @doc "Namen der eingebauten Bibliotheken (Module mit Exportliste)"
+  def library_names, do: @exports_all |> Map.keys() |> Enum.sort()
+
   @doc """
   Modul, aus dem `name/arity` beim Import aus `module` tatsächlich kommt:
   das Quellmodul eines Re-Exports, sonst `module`.

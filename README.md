@@ -357,24 +357,61 @@ mix prolog --no-jit prog.pl          # ohne JIT (alles interpretiert)
 
 `mix rebuild` baut alles neu (wie `make clean && make all`).
 
-Zeilenbearbeitung und Verlauf (↑/↓, Ctrl-R, …) bekommt man mit
-[rlwrap](https://github.com/hanslub42/rlwrap) (`brew install rlwrap`):
+**Ctrl-C bricht die Anfrage ab**, wenn man mit `bin/prolog` startet
+(dieselben Argumente wie `mix prolog`; das Skript startet die BEAM mit
+`+Bc` und lässt Dateinamen relativ zum Aufrufer gelten):
 
 ```sh
-rlwrap -A mix prolog
+bin/prolog examples/demo.pl
 ```
 
-(`-A`: rlwrap rechnet die Farbcodes im Prompt nicht als Zeichen.) rlwrap
-hält die letzte, noch nicht beendete Ausgabezeile für den Prompt und
-zeichnet sie bei jeder Taste neu. Hinter einer Antwort, die breiter als
-das Terminal ist, beginnt die Eingabe für `;`/`.` deshalb in einer eigenen
-Zeile – sonst löschte rlwrap die ganze umbrochene Antwort Zeile für Zeile
-und hinterließe Lücken.
+Am Terminal läuft der Toplevel als Shell der BEAM (`PrologEx.Shell`,
+`:shell.start_interactive/1`):
+
+  * Zeilen liest der Zeileneditor der BEAM: ↑/↓ und Ctrl-R für den
+    Verlauf, Ctrl-A/Ctrl-E, Ctrl-U, …
+  * **TAB** ergänzt die in `user` sichtbaren Prädikate (eindeutig mit `(`,
+    wenn es sie nur mit Argumenten gibt; zweimal TAB zeigt die Liste
+    `name/N`), nach `library(` die Bibliotheken, in einem gequoteten Atom
+    (`['…`) Dateinamen.
+  * **Ctrl-C** während einer Rechnung bricht sie ab
+    (`% Ausführung abgebrochen`); Datenbank, Flags und Operatoren bleiben.
+    Die Maschine prüft dazu an ihren Prüfpunkten (alle 1000 Inferenzen,
+    wo sie auch Zeit- und Speichergrenzen prüft) ein Flag; ein catch-all
+    fängt den Abbruch (`'$aborted'`), am nächsten Prüfpunkt kommt er
+    wieder. Ctrl-C an der Eingabe verwirft die angefangene Zeile, bei der
+    Frage nach `;` wirkt es wie `.`. Ohne `+Bc` (nacktes `mix prolog`)
+    öffnet Ctrl-C weiter das BREAK-Menü der BEAM. Kosten: außerhalb des
+    Toplevels keine; die Reduktionen der Suite sind unverändert.
+  * Ctrl-D löscht in diesem Editor nur ein Zeichen: Eingaben enden mit
+    `end_of_file.`, die Sitzung mit `halt.`.
+  * Rechnet eine Anfrage länger als 0,5 s, dreht sich am Zeilenanfang ein
+    Kreisel mit der Laufzeit (`⠹ 2,3 s  (Ctrl-C bricht ab)`, grün). Er
+    verschwindet spurlos, sobald die Antwort kommt oder die Anfrage etwas
+    ausgibt oder liest. Er läuft in einem eigenen Prozess, die Rechnung
+    kostet das nichts; nur am Terminal mit Farben.
+
+`--no-edit` liest wie früher zeilenweise von stdin; dann beendet Ctrl-D
+die Eingabe, und man kann [rlwrap](https://github.com/hanslub42/rlwrap)
+davorsetzen (`brew install rlwrap`; mit der BEAM-Shell tritt rlwrap zur
+Seite, weil deren Editor das Terminal in den Rohmodus schaltet):
+
+```sh
+rlwrap -A mix prolog --no-edit
+```
+
+(`-A`: rlwrap rechnet die Farbcodes im Prompt nicht als Zeichen.) Ctrl-C
+bricht dann nichts ab (mit `+Bc` wird es ignoriert). rlwrap hält die
+letzte, noch nicht beendete Ausgabezeile für den Prompt und zeichnet sie
+bei jeder Taste neu. Hinter einer Antwort, die breiter als das Terminal
+ist, beginnt die Eingabe für `;`/`.` deshalb in einer eigenen Zeile –
+sonst löschte rlwrap die ganze umbrochene Antwort Zeile für Zeile und
+hinterließe Lücken.
 
 Im Toplevel:
 
 ```
-?- [user].                 % Klauseln eintippen, Ende mit end_of_file. / Ctrl-D
+?- [user].                 % Klauseln eintippen, Ende mit end_of_file. (--no-edit: auch Ctrl-D)
 |: app([], L, L).
 |: app([H|T], L, [H|R]) :- app(T, L, R).
 |: end_of_file.

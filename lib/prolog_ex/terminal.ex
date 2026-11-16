@@ -51,7 +51,10 @@ defmodule PrologEx.Terminal do
   def read_until_eof(prompt) do
     prompt = input_prompt(prompt)
 
-    with true <- terminal?(),
+    # als Shell der BEAM liest deren Zeileneditor (Ctrl-D: Dateiende nur
+    # dieses Lesens); die Shell darunter bekäme das Terminal im Rohmodus
+    with false <- PrologEx.Shell.active?(),
+         true <- terminal?(),
          {:ok, dev} <- device(),
          {:ok, text} <- read_via_shell(dev, prompt) do
       text
@@ -147,6 +150,9 @@ defmodule PrologEx.Terminal do
       do: [code(role), text, code(:normal)] |> IO.iodata_to_binary(),
       else: text
   end
+
+  @doc "Text in der Grundfarbe (weiß), auch am Anfang der Sitzung"
+  def normal(text), do: if(color?(), do: code(:normal) <> text, else: text)
 
   @doc "Prompt in Weiß, danach erscheint die Eingabe in der Farbe von :input"
   def input_prompt(prompt),
@@ -298,6 +304,12 @@ defmodule PrologEx.Terminal do
         if String.trim(line) == "end_of_file.",
           do: acc |> Enum.reverse() |> Enum.join(),
           else: read_lines(prompt, [line | acc])
+
+      # Ctrl-C (Shell der BEAM): Eingabe verwerfen
+      {:error, :interrupted} ->
+        PrologEx.Shell.clear_interrupt()
+        IO.puts(paint(:comment, "\n% Eingabe abgebrochen"))
+        ""
 
       _eof_or_error ->
         acc |> Enum.reverse() |> Enum.join()

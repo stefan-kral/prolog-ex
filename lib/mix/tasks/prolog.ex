@@ -13,8 +13,12 @@ defmodule Mix.Tasks.Prolog do
   Im Toplevel lädt `[user].` Klauseln von der Tastatur (Ende mit
   `end_of_file.` oder Ctrl-D), `[datei].` lädt eine Datei.
 
-  Zeilenbearbeitung und Verlauf: `rlwrap mix prolog` (rlwrap installieren,
-  z. B. `brew install rlwrap`).
+  Am Terminal liest der Zeileneditor der BEAM (Pfeiltasten, Verlauf,
+  TAB-Completion von Prädikaten, Bibliotheken und Dateinamen). Ctrl-C
+  bricht die laufende Anfrage ab, wenn die BEAM mit `+Bc` läuft:
+  `bin/prolog` (wie `mix prolog`, mit `+Bc`). `--no-edit` liest wie früher
+  zeilenweise von stdin, etwa für `rlwrap mix prolog --no-edit`; dann
+  beendet Ctrl-D die Eingabe, Ctrl-C bricht aber nichts ab.
   """
 
   use Mix.Task
@@ -22,6 +26,12 @@ defmodule Mix.Tasks.Prolog do
   @impl true
   def run(args) do
     Mix.Task.run("compile")
+
+    # bin/prolog wechselt ins Projekt; Dateien gelten relativ zum Aufrufer
+    case System.get_env("PROLOG_EX_CWD") do
+      nil -> :ok
+      dir -> File.cd!(dir)
+    end
 
     code = PrologEx.Toplevel.main(args)
     if code != 0, do: exit({:shutdown, code})

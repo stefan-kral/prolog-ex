@@ -2146,6 +2146,8 @@ defmodule PrologEx do
   @tcheck 1000
   @timers_key :prolog_ex_timers
   @time_ball {:atom, "time_limit_exceeded"}
+  # Ctrl-C im Toplevel (wie abort/0 in SWI)
+  @abort_ball {:atom, "$aborted"}
   @wordsize :erlang.system_info(:wordsize)
 
   # Speichergrenzen (call_with_memory_limit/2): Stapel [{id, Grenze in
@@ -3972,6 +3974,10 @@ defmodule PrologEx do
         :atomics.add(st.icount, 1, 1)
         PrologEx.Error.throw!({:atom, "inference_limit_exceeded"})
 
+      interrupted?() ->
+        :atomics.add(st.icount, 1, 1)
+        PrologEx.Error.throw!(@abort_ball)
+
       timer_expired(st) != nil ->
         :atomics.add(st.icount, 1, 1)
         PrologEx.Error.throw!(@time_ball)
@@ -3982,7 +3988,7 @@ defmodule PrologEx do
 
       true ->
         timed =
-          if st.tlimits != [] or timer_set?(st) or mem_active?(), do: n - 1 + @tcheck
+          if st.tlimits != [] or timer_set?(st) or watched?(), do: n - 1 + @tcheck
 
         case min_limit(min_ilimit(st.ilimits), timed) do
           nil -> @jit_chunk
@@ -4726,7 +4732,7 @@ defmodule PrologEx do
 
   defp rearm(st) do
     timed =
-      if st.tlimits != [] or timer_set?(st) or mem_active?(),
+      if st.tlimits != [] or timer_set?(st) or watched?(),
         do: :atomics.get(st.icount, 1) + @tcheck
 
     %{st | ilimit: min_limit(min_ilimit(st.ilimits), timed)}
@@ -4757,23 +4763,32 @@ defmodule PrologEx do
   defp limit_hit(goal, cutb, mod, rest, st) do
     n = :atomics.get(st.icount, 1)
 
-    if over_ilimit?(st.ilimits, n) do
-      throw_ball({:atom, "inference_limit_exceeded"}, st)
-    else
-      case timer_expired(st) do
-        nil ->
-          st = rearm(st)
+    cond do
+      over_ilimit?(st.ilimits, n) ->
+        throw_ball({:atom, "inference_limit_exceeded"}, st)
 
-          # Speichergrenze: wie Zeitgrenzen nicht verschluckbar – fängt G
-          # die Ausnahme selbst, kommt sie am nächsten Prüfpunkt wieder
-          case mem_check(0) do
-            nil -> step(goal, cutb, mod, rest, st)
-            info -> throw_ball(mem_ball(info, st), st)
-          end
+      interrupted?() ->
+        throw_ball(@abort_ball, st)
 
-        st ->
-          throw_ball(@time_ball, st)
-      end
+      true ->
+        limit_timers(goal, cutb, mod, rest, st)
+    end
+  end
+
+  defp limit_timers(goal, cutb, mod, rest, st) do
+    case timer_expired(st) do
+      nil ->
+        st = rearm(st)
+
+        # Speichergrenze: wie Zeitgrenzen nicht verschluckbar – fängt G
+        # die Ausnahme selbst, kommt sie am nächsten Prüfpunkt wieder
+        case mem_check(0) do
+          nil -> step(goal, cutb, mod, rest, st)
+          info -> throw_ball(mem_ball(info, st), st)
+        end
+
+      st ->
+        throw_ball(@time_ball, st)
     end
   end
 
@@ -4815,6 +4830,30 @@ defmodule PrologEx do
     m = timers()
     Map.has_key?(m, :mem) or Map.has_key?(m, :qmem)
   end
+
+  # Prüfpunkte nötig: Speichergrenze oder Ctrl-C-Flag des Toplevels
+  defp watched? do
+    m = timers()
+    Map.has_key?(m, :mem) or Map.has_key?(m, :qmem) or Map.has_key?(m, :intr)
+  end
+
+  # Ctrl-C im Toplevel (PrologEx.Shell): ein :atomics-Flag in der
+  # Timer-Map, gelesen an den Prüfpunkten (alle @tcheck Inferenzen; mit
+  # Flag gibt es sie immer). Gesetzt bleibt es bis zum Ende der Anfrage:
+  # wie Zeit- und Speichergrenzen nicht verschluckbar – fängt ein catch-all
+  # '$aborted', kommt es am nächsten Prüfpunkt wieder
+  defp interrupted? do
+    case timers() do
+      %{intr: ref} -> :atomics.get(ref, 1) != 0
+      _ -> false
+    end
+  end
+
+  @doc false
+  def arm_interrupt(ref), do: Process.put(@timers_key, Map.put(timers(), :intr, ref))
+
+  @doc false
+  def disarm_interrupt, do: Process.put(@timers_key, Map.delete(timers(), :intr))
 
   defp heap_words do
     {:total_heap_size, w} = Process.info(self(), :total_heap_size)
@@ -6159,7 +6198,7 @@ defmodule PrologEx do
         put_db(st.db)
 
         with_query_limit(q, fn ->
-          st = if q, do: rearm(st), else: st
+          st = if q != nil or watched?(), do: rearm(st), else: st
           st |> run() |> emit() |> query_done(qref)
         end)
 
