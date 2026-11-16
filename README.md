@@ -361,8 +361,15 @@ Zeilenbearbeitung und Verlauf (↑/↓, Ctrl-R, …) bekommt man mit
 [rlwrap](https://github.com/hanslub42/rlwrap) (`brew install rlwrap`):
 
 ```sh
-rlwrap mix prolog
+rlwrap -A mix prolog
 ```
+
+(`-A`: rlwrap rechnet die Farbcodes im Prompt nicht als Zeichen.) rlwrap
+hält die letzte, noch nicht beendete Ausgabezeile für den Prompt und
+zeichnet sie bei jeder Taste neu. Hinter einer Antwort, die breiter als
+das Terminal ist, beginnt die Eingabe für `;`/`.` deshalb in einer eigenen
+Zeile – sonst löschte rlwrap die ganze umbrochene Antwort Zeile für Zeile
+und hinterließe Lücken.
 
 Im Toplevel:
 

@@ -360,13 +360,39 @@ defmodule PrologEx.Toplevel do
   end
 
   defp ask(text, cont, order, page) do
-    line = IO.gets(Terminal.input_prompt(text <> " "))
+    line = IO.gets(Terminal.input_prompt(ask_prompt(text)))
     Terminal.end_input()
 
     case line do
       ";" <> _ -> show_next(computed(fn -> cont.({:cont, nil}) end), order, page, 0)
       # Ende nach Enter: der Punkt steht für die Taste des Benutzers
       _ -> IO.puts(Terminal.paint(:input, "."))
+    end
+  end
+
+  # Gefragt wird hinter der Antwort (X = 1 ;). Ist ihre letzte Zeile
+  # breiter als das Terminal, endet sie mit einem Zeilenumbruch und die
+  # Eingabe steht in einer eigenen Zeile: ein Zeileneditor davor (rlwrap)
+  # hielte sonst die ganze umbrochene Antwort für den Prompt, löschte sie
+  # vor jedem Neuzeichnen Zeile für Zeile und hinterließe Lücken
+  defp ask_prompt(text) do
+    last =
+      case :string.split(text, "\n", :trailing) do
+        [_, l] -> l
+        [l] -> l
+      end
+
+    case :io.columns() do
+      {:ok, cols} when cols > 0 ->
+        if String.length(last) + 2 > cols do
+          IO.puts(text)
+          ""
+        else
+          text <> " "
+        end
+
+      _ ->
+        text <> " "
     end
   end
 
