@@ -110,6 +110,19 @@ defmodule PrologEx.Stream do
   @doc "Prolog-Term eines Streams"
   def term(id), do: PrologEx.mk("$stream", [id])
 
+  @doc """
+  Steht Stream id am Zeilenanfang? Ohne die Tabelle anzulegen (eine Abfrage
+  von außen, etwa der Kreisel des Toplevels, darf den Zustand nicht
+  ändern – sonst gälte das Vorausrechnen als Seiteneffekt): ein Stream,
+  den es noch nicht gibt, hat noch nichts geschrieben.
+  """
+  def line_start?(id) do
+    case Process.get({@key, id}) do
+      nil -> true
+      s -> s.line_pos == 0
+    end
+  end
+
   def get(id) do
     case Process.get({@key, id}) do
       nil ->

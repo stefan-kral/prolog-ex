@@ -257,7 +257,7 @@ defmodule PrologEx.Shell do
   Die Rechnung kostet das nichts (der Kreisel läuft im eigenen Prozess).
   """
   def busy(f) do
-    if PrologEx.Terminal.color?() and PrologEx.Stream.get(1).line_pos == 0 and
+    if PrologEx.Terminal.color?() and PrologEx.Stream.line_start?(1) and
          Process.get(@spinner) == nil do
       owner = self()
       hint = if interruptible?(), do: "  (Ctrl-C bricht ab)", else: ""

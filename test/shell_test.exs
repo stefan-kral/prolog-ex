@@ -183,4 +183,13 @@ defmodule PrologEx.ShellTest do
       Process.delete(:prolog_pending_read)
     end
   end
+
+  test "Kreisel-Prüfung legt die Stream-Tabelle nicht an (erste Anfrage zählt sonst als Seiteneffekt)" do
+    Task.async(fn ->
+      before = Process.get_keys()
+      assert PrologEx.Stream.line_start?(1)
+      assert Process.get_keys() == before
+    end)
+    |> Task.await()
+  end
 end
