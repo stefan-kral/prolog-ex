@@ -1,6 +1,6 @@
 #!/bin/sh
 # run.sh Seed [Anzahl] – Anzahl (200) zufällige Fälle in Scryer, PrologEx
-# und SWI-Prolog; Vergleich nach $OUT/d<Seed>.txt, erste Zeile auf stdout
+# und SWI-Prolog, dazu Durchprobieren (head_bf.pl); Vergleich nach $OUT/d<Seed>.txt, erste Zeile auf stdout
 #   SCRYER, SWIPL: Pfade; OUT: Verzeichnis (Vorgabe tmp/solver_mix)
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -17,6 +17,8 @@ cat "$HERE/head_swi.pl" "$OUT/c$S.pl" > "$OUT/s$S.pl"
 (cd "$OUT" && timeout 900 "$SWIPL" -q -g go -t halt "s$S.pl" > "o$S.swi" 2>&1 < /dev/null)
 (cd "$ROOT" && timeout 900 mix run -e 'System.halt(PrologEx.Toplevel.main(System.argv()))' \
    -- "$OUT/f$S.pl" -g go -g halt -q < /dev/null 2>&1 | grep -v '^Compiling\|^Generated' > "$OUT/o$S.px")
-python3 "$HERE/cmp.py" "$OUT/o$S.scr" "$OUT/o$S.swi" "$OUT/o$S.px" > "$OUT/d$S.txt"
-rm -f "$OUT/f$S.pl" "$OUT/s$S.pl"
+cat "$HERE/head_bf.pl" "$OUT/c$S.pl" > "$OUT/b$S.pl"
+(cd "$OUT" && timeout 900 "$SWIPL" -q -g go -t halt "b$S.pl" > "o$S.bf" 2>&1 < /dev/null)
+python3 "$HERE/cmp.py" "$OUT/o$S.scr" "$OUT/o$S.swi" "$OUT/o$S.px" "$OUT/o$S.bf" > "$OUT/d$S.txt"
+rm -f "$OUT/f$S.pl" "$OUT/s$S.pl" "$OUT/b$S.pl"
 head -1 "$OUT/d$S.txt"

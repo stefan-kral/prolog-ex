@@ -129,10 +129,18 @@ class Case:
 def main():
     seed, n = int(sys.argv[1]), int(sys.argv[2])
     random.seed(seed)
+    mono = []
     for i in range(n):
         c = Case()
         acts = c.build()
         print('c(%d, [%s], [%s], (%s)).' % (i, ', '.join(c.vs), ', '.join(c.ts),
                                             ',\n    '.join(acts + ['vars([%s])' % ', '.join(c.vs)])))
+        # monoton: die Lösungsmenge hängt nicht davon ab, ob vor oder nach
+        # dem Stellen belegt wird (ohne \=, \+, \==, memberchk)
+        text = ' '.join(acts)
+        if not any(op in text for op in ('\\=', '\\+', '\\==', 'memberchk')):
+            mono.append(i)
+    for i in mono:
+        print('m(%d).' % i)
 
 main()

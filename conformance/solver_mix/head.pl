@@ -13,6 +13,8 @@
 :- use_module(dom).
 :- use_module(par).
 
+:- dynamic(m/1).
+
 go :- forall(c(Id, _, _, _), run(Id)).
 
 run(Id) :-

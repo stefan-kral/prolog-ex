@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-# cmp.py o.scr o.swi o.px – je Fall die Lösungslisten vergleichen.
+# cmp.py o.scr o.swi o.px [o.bf] – je Fall die Lösungslisten vergleichen.
 # Klassen: gleich; nur Reihenfolge (gleiche Menge); SWI allein / Scryer
 # allein verschieden (die anderen beiden gleich); PrologEx allein
-# verschieden (verdächtig); alle verschieden. Erste Zeile: Zusammenfassung.
+# verschieden (verdächtig); alle verschieden. Mit o.bf (Durchprobieren,
+# nur monotone Fälle) entscheidet die Lösungsmenge von dort: PrologEx
+# bestätigt, oder PrologEx ≠ Durchprobieren (verdächtig, auch wenn die
+# anderen übereinstimmen). Erste Zeile: Zusammenfassung.
 import sys, ast
 
 def rd(f):
@@ -25,6 +28,17 @@ def same_set(a, b):
     return a[0] == b[0] == 'L' and sorted(map(str, a[1])) == sorted(map(str, b[1]))
 
 scr, e1 = rd(sys.argv[1]); swi, e2 = rd(sys.argv[2]); px, e3 = rd(sys.argv[3])
+bf = rd(sys.argv[4])[0] if len(sys.argv) > 4 else {}
+
+def bf_verdict(i, p):
+    # True: PrologEx hat die Lösungsmenge des Durchprobierens; False: nicht;
+    # None: kein Urteil (nicht monoton oder Durchprobieren mit Fehler)
+    b = bf.get(i)
+    if b is None: return None
+    nb = norm(b)
+    if nb[0] != 'L': return None
+    np = norm(p or '')
+    return np[0] == 'L' and sorted(set(map(str, np[1]))) == sorted(set(map(str, nb[1])))
 cls = {}; lines = []
 ids = sorted(set(scr) | set(swi) | set(px))
 for i in ids:
@@ -41,9 +55,14 @@ for i in ids:
             c = 'Scryer allein'
         else:
             c = 'alle verschieden' if a != w else 'PrologEx allein'
-        lines.append('%d %s\n  SCR %s\n  SWI %s\n  PX  %s' % (i, c, a, w, p))
+    v = bf_verdict(i, p)
+    if v is False: c = 'PrologEx ≠ Durchprobieren'
+    elif v is True and c in ('PrologEx allein', 'alle verschieden'): c = 'PrologEx bestätigt (Durchprobieren)'
+    if c != 'gleich':
+        lines.append('%d %s\n  SCR %s\n  SWI %s\n  PX  %s\n  BF  %s' % (i, c, a, w, p, bf.get(i)))
     cls[c] = cls.get(c, 0) + 1
-bad = cls.get('PrologEx allein', 0) + cls.get('alle verschieden', 0) + cls.get('fehlt', 0)
+bad = (cls.get('PrologEx allein', 0) + cls.get('alle verschieden', 0) + cls.get('fehlt', 0) +
+       cls.get('PrologEx ≠ Durchprobieren', 0))
 print('Fälle %d  ' % len(ids) + '  '.join('%s %d' % kv for kv in sorted(cls.items())) +
       '  verdächtig %d' % bad)
 for x in (e1, e2, e3):

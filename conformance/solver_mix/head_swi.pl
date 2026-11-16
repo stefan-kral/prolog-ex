@@ -7,6 +7,8 @@
 :- use_module(par_swi).
 :- style_check(-singleton).
 
+:- dynamic(m/1).
+
 go :- forall(c(Id, _, _, _), run(Id)).
 
 run(Id) :-

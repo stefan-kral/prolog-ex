@@ -11,7 +11,7 @@ S=$A
 while [ "$S" -le "$E" ]; do
   L=$("$HERE/run.sh" "$S" "$N" 2>&1 | tail -1)
   echo "$S $L" >> "$OUT/summary.txt"
-  case "$L" in *"verdächtig 0") rm -f "$OUT/c$S.pl" "$OUT/o$S.scr" "$OUT/o$S.swi" "$OUT/o$S.px" ;;
+  case "$L" in *"verdächtig 0") rm -f "$OUT/c$S.pl" "$OUT/o$S.scr" "$OUT/o$S.swi" "$OUT/o$S.px" "$OUT/o$S.bf" ;;
                *) echo "$S" >> "$OUT/found.txt" ;; esac
   S=$((S + 1))
 done
