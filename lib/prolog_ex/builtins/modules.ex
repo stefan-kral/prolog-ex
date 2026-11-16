@@ -88,13 +88,42 @@ defmodule PrologEx.Builtins.Modules do
     # kein Aufzählen (M:H mit ungebundenem H zählt dagegen die Prädikate
     # von M auf); eine unbekannte Eigenschaft ist ein domain_error
     if match?({:var, _}, PrologEx.Store.walk(head, s)), do: PrologEx.Error.instantiation!()
-    check_property!(PrologEx.Store.walk(prop, s), s)
+    pw = PrologEx.Store.walk(prop, s)
+    check_property!(pw, s)
+    want = wanted(pw)
 
-    for m <- mods,
-        {n, ar} <- candidate_keys(db, m, h),
-        p <- properties(db, m, n, ar),
-        do: {:unify, [{mod_t, a(m)}, {h, general(n, ar)}, {prop, p}]}
+    case {mod_t, h} do
+      # Kopf und Modul gegeben (der Meta-Interpreter fragt so): nur die
+      # Eigenschaft prüfen, ohne Kopf und Modul erneut zu unifizieren;
+      # mit gegebener Eigenschaft nur die mit ihrem Namen berechnen, eine
+      # atomare ist dann ein Test ohne Choice Point
+      {{:atom, m}, {tag, _, _}} when tag != :var ->
+        {n, ar} = hd(candidate_keys(db, m, h))
+        known(properties(db, m, n, ar, want), pw, prop)
+
+      {{:atom, m}, {:atom, _}} ->
+        {n, ar} = hd(candidate_keys(db, m, h))
+        known(properties(db, m, n, ar, want), pw, prop)
+
+      {{:atom, m}, []} ->
+        {n, ar} = hd(candidate_keys(db, m, h))
+        known(properties(db, m, n, ar, want), pw, prop)
+
+      _ ->
+        for m <- mods,
+            {n, ar} <- candidate_keys(db, m, h),
+            p <- properties(db, m, n, ar, want),
+            do: {:unify, [{mod_t, a(m)}, {h, general(n, ar)}, {prop, p}]}
+    end
   end
+
+  # Name der gefragten Eigenschaft (nil: ungebunden, alle)
+  defp wanted({:atom, p}), do: p
+  defp wanted({tag, p, [_]}) when tag in [:struct, :gstruct], do: p
+  defp wanted(_), do: nil
+
+  defp known(props, {:atom, _} = pw, _prop), do: if(pw in props, do: [:ok], else: [])
+  defp known(props, _pw, prop), do: for(p <- props, do: {:unify, [{prop, p}]})
 
   @props0 ~w(built_in dynamic static multifile discontiguous exported interpreted compiled
              defined visible)
@@ -130,18 +159,25 @@ defmodule PrologEx.Builtins.Modules do
   defp general(n, ar), do: mk(n, for(_ <- 1..ar, do: fresh_var()))
 
   @doc false
-  def properties(db, m, n, ar) do
+  # want: Name der gefragten Eigenschaft oder nil (alle); die teuren
+  # (number_of_clauses zählt die Klauseln, exported/imported_from,
+  # meta_predicate, multifile/discontiguous) nur, wenn gefragt. Die
+  # Liste kann dann weitere enthalten; der Aufrufer vergleicht
+  def properties(db, m, n, ar, want \\ nil) do
     origin = fn dm ->
       cond do
+        want not in [nil, "exported", "imported_from"] -> []
         dm != m -> [mk("imported_from", [a(dm)])]
         exported?(db, dm, n, ar) -> [a("exported")]
         true -> []
       end
     end
 
+    meta = fn specs -> if want in [nil, "meta_predicate"], do: meta_prop(specs, n), else: [] end
+
     built_in = fn ->
       [a("built_in"), a("static"), a("defined")] ++
-        meta_prop(PrologEx.Builtins.Expansion.builtin_meta(n, ar), n)
+        meta.(PrologEx.Builtins.Expansion.builtin_meta(n, ar))
     end
 
     case PrologEx.locate(db, m, n, ar) do
@@ -156,20 +192,24 @@ defmodule PrologEx.Builtins.Modules do
 
         decl =
           for kind <- [:multifile, :discontiguous],
+              want in [nil, Atom.to_string(kind)],
               PrologEx.has_property?(db, key, kind) or (kind == :multifile and hook?(key)),
               do: a(Atom.to_string(kind))
 
-        clauses = [mk("number_of_clauses", [length(PrologEx.pred_entries(pred))])]
+        clauses =
+          if want in [nil, "number_of_clauses"],
+            do: [mk("number_of_clauses", [length(PrologEx.pred_entries(pred))])],
+            else: []
 
         [a("defined") | impl] ++
-          decl ++ origin.(dm) ++ meta_prop(Map.get(db, {:meta, dm, n, ar}), n) ++ clauses
+          decl ++ origin.(dm) ++ meta.(Map.get(db, {:meta, dm, n, ar})) ++ clauses
 
       {:builtin, "system", _} ->
         built_in.()
 
       {:builtin, lib, _} ->
         [a("defined"), a("compiled"), a("static")] ++
-          origin.(lib) ++ meta_prop(PrologEx.Builtins.meta(lib, n, ar), n)
+          origin.(lib) ++ meta.(PrologEx.Builtins.meta(lib, n, ar))
 
       :none ->
         cond do

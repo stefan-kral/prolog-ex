@@ -4287,19 +4287,24 @@ Elementen bzw. ms je `queens(8)` mit allen Lösungen, statisch/dynamisch:
 |---|---|---|---|
 | `nrev` direkt | 13 / 13 | 49 / 65 | 22 / 77 |
 | `nrev` vanilla (alles über `clause/2`) | 212 / 213 | – / 629 | 2312 / 2285 |
-| `nrev` Builtins über `predicate_property(G, built_in)` | 462 / 449 | – / 1047 | 6284 / 6342 |
-| `nrev` nur `predicate_property(G, dynamic)` interpretiert | – / 386 | – / 1071 | – / 6171 |
+| `nrev` Builtins über `predicate_property(G, built_in)` | 462 / 449 | – / 1047 | 2990 / 2985 |
+| `nrev` nur `predicate_property(G, dynamic)` interpretiert | – / 386 | – / 1071 | – / 2862 |
 | `nrev` `catch(clause(…))` mit `*->` | 274 / 285 | – | 2672 / 2702 |
 | `nrev` `clausex/2` mit `*->` | – | – | 2379 / 2329 |
 | `queens(8)` direkt | 2,2 / 2,5 | 7,1 / 7,9 | 21 / 21 |
-| `queens(8)` `predicate_property(G, built_in)` | 73 / 72 | – / 133 | 727 / 743 |
-| `queens(8)` `predicate_property(G, dynamic)` | – / 68 | – / 137 | – / 792 |
+| `queens(8)` `predicate_property(G, built_in)` | 73 / 72 | – / 133 | 422 / 415 |
+| `queens(8)` `predicate_property(G, dynamic)` | – / 68 | – / 137 | – / 432 |
 | `queens(8)` `catch(clause(…))` mit `*->` | 104–108 | – | 584–606 |
 | `queens(8)` `clausex/2` mit `*->` | – | – | 393–402 |
 
-In PrologEx kostet `predicate_property/2` mit gebundener Eigenschaft rund
-8 µs je Aufruf (mehr als ein Schritt des Meta-Interpreters), und ein
-Schritt über `clause/2` rund 4,5 µs gegen 0,4 µs in SWI. Andere Systeme: SWI liefert die
+`predicate_property/2` mit gegebenem Kopf und Modul prüft nur die
+Eigenschaft (Kopf und Modul werden nicht erneut unifiziert) und rechnet
+bei gegebener Eigenschaft nur die mit ihrem Namen (`number_of_clauses/1`
+zählt sonst die Klauseln); eine atomare ist ein Test ohne Choice Point.
+Ein Aufruf kostet so 1–3 µs statt 6–16 µs, der klassische
+`built_in`-Meta-Interpreter wurde rund doppelt so schnell (Zahlen oben
+sind danach). Ein Schritt über `clause/2` kostet rund 4,5 µs gegen 0,4 µs
+in SWI. Andere Systeme: SWI liefert die
 Klauseln auch von `lists:append/3` (Prolog-Code; Flag
 `protect_static_code`), Scryer und SICStus nur von dynamischen
 Prädikaten, GNU nur von `public`.
