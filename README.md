@@ -2224,6 +2224,46 @@ verschiedenen Bedingungen, scheitert sie, etwa
 Variablen findet die Formel ihrer Wurzel nicht mehr, weil der erste sie
 zum Neuaufbau schon abgeräumt hat.
 
+## Lineare Optimierung: `library(simplex)`
+
+Markus Triskas Simplex-Verfahren aus Scryer (`priv/library/simplex.pl`,
+BSD-Lizenz), wie in SWI-Prolog: lineare Programme über rationalen Zahlen
+(exakt, keine Rundung), ganzzahlige Variablen mit Branch-and-Bound, dazu
+das Transport- und das Zuordnungsproblem.
+
+```prolog
+:- use_module(library(simplex)).
+
+knapsack(S) :-
+        gen_state(S0),
+        constraint([6*x(1), 4*x(2)] =< 8, S0, S1),
+        constraint([x(1)] =< 1, S1, S2),
+        constraint([x(2)] =< 2, S2, S3),
+        maximize([7*x(1), 4*x(2)], S3, S).
+
+?- knapsack(_S), variable_value(_S, x(1), X1), variable_value(_S, x(2), X2).
+X1 = 1, X2 = 1r2.
+```
+
+  * `gen_state/1`, `constraint/3` (`=<`, `>=`, `=`; `integral(V)`),
+    `constraint/4` (mit Namen), `constraint_add/4`, `maximize/3`,
+    `minimize/3`, `objective/2`, `variable_value/3`, `shadow_price/3`,
+    `transportation/4`, `assignment/2`.
+  * Brüche schreibt PrologEx wie SWI (`15r2`), Scryer `15 rdiv 2`; es sind
+    dieselben Zahlen.
+  * Angepasst: Wo das Original `floor/1` auf einen schon ganzzahligen Wert
+    anwenden kann, steht `floor_/2` – `floor/1` einer Ganzzahl ist in
+    PrologEx wie in ISO ein `type_error(float, _)` (Scryer und SWI nehmen
+    Ganzzahlen). `term_attributed_variables/2` (für das Transportproblem)
+    ist neu in `library(atts)`, wie bei Scryer.
+  * Geprüft: die Beispiele der Dokumentation in der Programm-Batterie
+    (`test/programs/triska__simplex_examples`, dieselben Erwartungen in
+    SWI und Scryer) und zufällige lineare Programme
+    (`conformance/simplex_fuzz/run.sh Seed N`: 2–4 Variablen, 1–4
+    Bedingungen, teils ganzzahlig; Zielwert gegen Scryer und SWI): 1100
+    Programme, keine Abweichung. Zeit für 300 solche Programme: PrologEx
+    rund 2 s, Scryer 0,7 s, SWI 0,3 s.
+
 ## Bedingungen über ganzen Zahlen: `library(clpz)`
 
 CLP(ℤ) von Markus Triska (BSD-Lizenz), aus Scryer Prolog (b7066b4),

@@ -18,6 +18,8 @@ defmodule PrologEx.Builtins.Atts do
       nicht vorhanden; ungebundenes Spec: Liste aller vorhandenen.
     * Beide wirken im Kontextmodul, Var muss ungebunden sein (sonst
       scheitert get_atts, put_atts meldet uninstantiation_error).
+    * `term_attributed_variables(T, Vs)` (wie Scryer): die attributierten
+      Variablen in T, auch die erst über Attribute erreichbaren.
     * Hooks: `Modul:verify_attributes(Var, Wert, Goals)` – siehe
       `PrologEx` (Wecken); `Modul:attribute_goal(Var, Goal)` – für
       Restziele, `frozen/2`, `copy_term/3`.
@@ -52,6 +54,13 @@ defmodule PrologEx.Builtins.Atts do
       other ->
         Error.uninstantiation!(PrologEx.resolve(other, s))
     end
+  end
+
+  # term_attributed_variables(T, Vs) wie Scryer: die attributierten
+  # Variablen in T, auch die erst über Attribute erreichbaren, in
+  # Reihenfolge des Auftretens (dasselbe wie term_attvars/2 aus SWI)
+  defbuiltin "term_attributed_variables", [t, vs] do
+    {:unify, [{vs, list(PrologEx.term_attvars(t, subst()))}]}
   end
 
   defbuiltin "get_atts", [var, spec] do
