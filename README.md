@@ -3808,30 +3808,38 @@ attribute_goal(Var, domain(Var, Dom)) :- get_atts(Var, dom(Dom)).
 
 `put_atts/2` (`+A`, `-A`, Listen), `get_atts/2` (auch mit ungebundener
 Angabe: alle Attribute), jeweils im Kontextmodul. Beim Binden
-attributierter Variablen: Bindungen zurücknehmen →
-`M:verify_attributes(Var, Wert, Goals)` für jede gebundene Variable (in
-Bindereihenfolge) und jedes Modul, in dem sie Attribute hat
-(alphabetisch; wie Scryer – SICStus erlaubt das, „might have
-attributes“, die Reihenfolge ist offen), alle sehen alle beteiligten
-Variablen ungebunden →
-Bindungen wiederherstellen → alle Goals (im Modul M) → Weckziele von
-freeze/dif/when. Scheitern, Alternativen und Ausnahmen der Hooks wirken
-normal; ein Hook mit Alternativen liefert wie in SICStus mehrere
-Lösungen der Unifikation (Scryer nimmt nur die erste). Bindet eine
-Unifikation mehrere attributierte Variablen, durchläuft SICStus den
-Zyklus Hook → Bindung → Goals → Weckziele Variable für Variable; PrologEx
-ruft erst alle Hooks, dann alle Goals (Scryer: Hook und Bindung je
-Variable, dann alle Goals). Das ändert nur die Reihenfolge der Goals und
-was ein Hook von den anderen Variablen sieht. Die Reihenfolge der Module
-zählt, wenn die Goals eines Moduls einen Wert binden, den ein anderes
-nicht annimmt: hängen clpb und clpz an `V1` (`sat(V1 # V2)`,
-`V1 #= V2 + 1`), scheitert `V1 = 0` alphabetisch (clpb setzt `V2 = 1`,
-clpz lehnt ab), in der Gegenrichtung meldet clpb einen Fehler (clpz setzt
-`V2 = -1`). Scryer scheitert immer, SWI je nach Reihenfolge der
-Constraints an `V1`. `attribute_goal/2` liefert
-Restziele für Toplevel, `frozen/2` und `copy_term/3`. Ohne Attributmodule
-kostet das alles nichts; Module ohne Attribut an der gebundenen Variablen
-(etwa die eigenen bei Bindungen innerhalb von clpz) auch nicht.
+attributierter Variablen wie in SICStus: erst alle Bindungen dieser
+Unifikation zurücknehmen, dann Variable für Variable (in
+Bindereihenfolge): `M:verify_attributes(Var, Wert, Goals)` für jedes
+Modul, in dem sie Attribute hat (alphabetisch, wie Scryer – SICStus
+erlaubt das, „might have attributes“, die Reihenfolge ist offen) →
+Bindung wiederherstellen → die Goals (im Modul M) → ihre Weckziele von
+freeze/dif/when. Die späteren Variablen sind währenddessen noch
+ungebunden; `f(C, B) = f(A, A)` wirkt also wie `C = A, B = A`. Darauf
+baut etwa clpb: `sat(A*B =:= C), f(C, B) = f(A, A)` scheiterte, solange
+PrologEx (wie Scryer, das daran ebenfalls scheitert) erst alle Hooks und
+dann alle Goals rief. Zurückgenommen werden nur Variablen mit Hooks;
+solche mit nur freeze/dif/when bleiben gebunden und werden an ihrer
+Stelle geweckt. Scheitern, Alternativen und Ausnahmen der Hooks wirken
+normal; ein Hook mit Alternativen liefert wie in SICStus (und SWI)
+mehrere Lösungen der Unifikation (Scryer nimmt nur die erste). Die
+Reihenfolge der Module zählt, wenn die Goals eines Moduls einen Wert
+binden, den ein anderes nicht annimmt: hängen clpb und clpz an `V1`
+(`sat(V1 # V2)`, `V1 #= V2 + 1`), scheitert `V1 = 0` alphabetisch (clpb
+setzt `V2 = 1`, clpz lehnt ab), in der Gegenrichtung meldet clpb einen
+Fehler (clpz setzt `V2 = -1`). Scryer scheitert immer, SWI je nach
+Reihenfolge der Constraints an `V1`. `attribute_goal/2` liefert
+Restziele für Toplevel, `frozen/2` und `copy_term/3`. Ohne
+Attributmodule kostet das alles nichts; Module ohne Attribut an der
+gebundenen Variablen (etwa die eigenen bei Bindungen innerhalb von clpz)
+auch nicht.
+
+Die eingebauten Suspensionen (freeze, when, dif) einer Variablen laufen
+in der Reihenfolge, in der sie gestellt wurden, auch gemischt und nach
+dem Zusammenlegen zweier Variablen. Scryer und SWI wecken Modul für Modul
+(alle freeze-Ziele vor den when-Zielen; bei when zuerst die Ziele der
+gebundenen Variablen). Das ändert nur die Reihenfolge; einen Unterschied
+im Ergebnis gibt es nur mit nicht monotonen Zielen (`\==`, `\+`, …).
 
 Proben, die nur prüfen, ob eine Unifikation gelänge, befragen dabei die
 Hooks und Suspensionen (wie Scryer und SWI): `\=/2` ist `\+ X = Y`,

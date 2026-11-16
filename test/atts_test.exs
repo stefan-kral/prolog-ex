@@ -112,9 +112,30 @@ defmodule PrologEx.AttsTest do
   end
 
   describe "verify_attributes/3 (SICStus-Ablauf)" do
-    test "alle Hooks sehen alle beteiligten Variablen ungebunden, Goals danach", c do
+    test "Variable für Variable: Hook, Bindung, Goals; die späteren noch ungebunden", c do
+      # SICStus: erst alle Bindungen zurück, dann je Variable der Zyklus –
+      # der Hook von y sieht x schon gebunden (und dessen Goals gelaufen)
       assert out(c, "tag(X, x, Y), tag(Y, y, X), f(X, Y) = f(1, 2).") ==
-               "hook(x,1,frei)\nhook(y,2,frei)\ngoal(x,1)\ngoal(y,2)\n"
+               "hook(x,1,frei)\ngoal(x,1)\nhook(y,2,gebunden)\ngoal(y,2)\n"
+
+      assert out(c, "tag(X, x, Y), tag(Y, y, X), f(Y, X) = f(2, 1).") ==
+               "hook(y,2,frei)\ngoal(y,2)\nhook(x,1,gebunden)\ngoal(x,1)\n"
+    end
+
+    test "f(C, B) = f(A, A) wie C = A, B = A (clpb)", c do
+      {db, []} =
+        Consult.load(
+          PrologEx.current_db(),
+          Reader.read_terms(c.reader, ":- use_module(library(clpb)).\n")
+        )
+
+      PrologEx.put_db(db)
+
+      for g <- ["f(C, B) = f(A, A)", "C = A, B = A", "f(B, C) = f(A, A)"] do
+        assert ask(c, "sat(A*B =:= C), #{g}, labeling([A, B, C]).") ==
+                 ["A = 0, B = 0, C = 0", "A = 1, B = 1, C = 1"],
+               g
+      end
     end
 
     test "auch im Klauselkopf und in Builtins", c do

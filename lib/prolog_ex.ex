@@ -2734,11 +2734,43 @@ defmodule PrologEx do
         wake_and_run(attvs, st.subst, st, rest)
 
       mods ->
-        case hook_calls(attvs, mods, st.subst) do
-          [] -> wake_and_run(attvs, st.subst, st, rest)
-          hooks -> run_hooks(attvs, hooks, rest, st)
-        end
+        if hooked_any?(attvs, mods, st.subst),
+          do: run_hooks(attvs, mods, rest, st),
+          else: wake_and_run(attvs, st.subst, st, rest)
     end
+  end
+
+  # Eine Variable mit Hooks im SICStus-Zyklus (siehe run_hooks/4): ist sie
+  # noch ungebunden, ihre Hooks, dann $attv_redo (Bindung, Goals,
+  # eingebaute Weckziele); haben die Goals einer früheren Variablen sie
+  # inzwischen gebunden, normal unifizieren (mit Wecken)
+  defp step({:struct, "$wake_one", [v, val]}, _cutb, _mod, rest, st) do
+    case Store.walk(v, st.subst) do
+      {:var, {:attv, id}} = av when av == v ->
+        mods = verify_modules(current_db())
+
+        hooks =
+          hook_goals(
+            hook_mods(:lists.sort(Map.keys(Store.attrs(st.subst, id))), mods),
+            v,
+            val,
+            []
+          )
+
+        redo = mk("$attv_redo", [[mk("$p", [v, val])], list(Enum.map(hooks, &elem(&1, 1)))])
+        goals = for {h, _} <- hooks, do: {h, st.height, "system"}
+        run(%{st | goals: goals ++ [{redo, st.height, "system"} | rest]})
+
+      _ ->
+        run(%{st | goals: [{mk("=", [v, val]), st.height, "system"} | rest]})
+    end
+  end
+
+  # eine gebundene Variable ohne Hooks (nur freeze, dif, when) an ihrer
+  # Stelle im SICStus-Zyklus wecken
+  defp step({:struct, "$wake_plain", [v]}, _cutb, _mod, rest, st) do
+    {_s, wake} = wake_builtin([v], st.subst, st, :deferred)
+    run(%{st | goals: wake ++ rest})
   end
 
   # geweckte freeze-Suspension, die hinter einem anderen Weckziel ansteht
@@ -4067,28 +4099,22 @@ defmodule PrologEx do
     end
   end
 
-  # Die Hooks: je gebundener Variable (in Bindereihenfolge) die Module,
-  # in denen sie Attribute hat, alphabetisch – wie Scryer (SICStus erlaubt
-  # das: „might have attributes“, die Reihenfolge ist offen). Die
-  # Reihenfolge zählt, wenn die Goals eines Moduls eine Variable binden, die
-  # ein anderes nicht annimmt: clpb und clpz an einer Variablen, clpz setzt
-  # die clpb-Variable auf -1 (Fehler) oder clpb die clpz-Variable auf 1
-  # (Scheitern); clpz und clpb kommen aus Scryer und rechnen mit dessen
-  # Reihenfolge. Module ohne Attribut an der Variablen (etwa die eigenen bei
-  # einer Bindung in clpz) kosten nichts, und ohne einen Hook bleibt es beim
-  # schnellen Weg.
-  defp hook_calls([{:var, {:attv, id}} = v | vs], mods, subst) do
-    case hook_mods(:lists.sort(Map.keys(Store.attrs(subst, id))), mods) do
-      [] ->
-        hook_calls(vs, mods, subst)
+  # Hooks einer gebundenen Variablen: die Module, in denen sie Attribute
+  # hat, alphabetisch – wie Scryer (SICStus erlaubt das: „might have
+  # attributes“, die Reihenfolge ist offen). Die Reihenfolge zählt, wenn die
+  # Goals eines Moduls eine Variable binden, die ein anderes nicht annimmt:
+  # clpb und clpz an einer Variablen, clpz setzt die clpb-Variable auf -1
+  # (Fehler) oder clpb die clpz-Variable auf 1 (Scheitern); clpz und clpb
+  # kommen aus Scryer und rechnen mit dessen Reihenfolge. Module ohne
+  # Attribut an der Variablen (etwa die eigenen bei einer Bindung in clpz)
+  # kosten nichts, und ohne einen Hook bleibt es beim schnellen Weg.
+  defp hooked?({:var, {:attv, id}}, mods, subst),
+    do: hook_mods(:lists.sort(Map.keys(Store.attrs(subst, id))), mods) != []
 
-      ms ->
-        {:ok, val} = Store.binding(subst, v)
-        hook_goals(ms, v, val, hook_calls(vs, mods, subst))
-    end
-  end
+  defp hooked_any?([v | vs], mods, subst),
+    do: hooked?(v, mods, subst) or hooked_any?(vs, mods, subst)
 
-  defp hook_calls([], _mods, _subst), do: []
+  defp hooked_any?([], _mods, _subst), do: false
 
   # die Attributmodule der Variablen (sortiert), die verify_attributes/3
   # haben
@@ -4109,15 +4135,32 @@ defmodule PrologEx do
 
   defp hook_goals([], _v, _val, more), do: more
 
-  # Bindungen aller gebundenen Variablen zurücknehmen, die Hooks aufrufen,
-  # dann $attv_redo (Bindungen, Goals, eingebaute Weckziele)
-  defp run_hooks(attvs, hooks, rest, st) do
-    pairs = for v <- attvs, {:ok, val} = Store.binding(st.subst, v), do: mk("$p", [v, val])
-    subst = Enum.reduce(attvs, st.subst, &Store.unbind(&2, &1))
-    redo = mk("$attv_redo", [list(pairs), list(Enum.map(hooks, &elem(&1, 1)))])
-    goals = for {h, _} <- hooks, do: {h, st.height, "system"}
-    run(%{st | subst: subst, goals: goals ++ [{redo, st.height, "system"} | rest]})
+  # SICStus (library(atts)): bindet eine Unifikation mehrere attributierte
+  # Variablen, werden zuerst alle Bindungen zurückgenommen, dann Variable
+  # für Variable (in Bindereihenfolge): ihre Hooks, ihre Bindung, die Goals
+  # der Hooks, ihre geweckten Ziele ($wake_one). So ist f(C, B) = f(A, A)
+  # dasselbe wie C = A, B = A – darauf baut etwa clpb (sat(A*B =:= C),
+  # f(C, B) = f(A, A) scheiterte, als erst alle Hooks liefen; ebenso in
+  # Scryer). Zurückgenommen werden nur die Variablen mit Hooks; die übrigen
+  # (nur freeze, dif, when) bleiben gebunden und werden an ihrer Stelle
+  # geweckt ($wake_plain), wie ohne Hooks.
+  defp run_hooks(attvs, mods, rest, st) do
+    {subst, goals} = sicstus_cycle(attvs, mods, st.subst, st.subst, st.height)
+    run(%{st | subst: subst, goals: goals ++ rest})
   end
+
+  defp sicstus_cycle([v | vs], mods, s0, s, h) do
+    {s, more} = sicstus_cycle(vs, mods, s0, s, h)
+
+    if hooked?(v, mods, s0) do
+      {:ok, val} = Store.binding(s0, v)
+      {Store.unbind(s, v), [{mk("$wake_one", [v, val]), h, "system"} | more]}
+    else
+      {s, [{mk("$wake_plain", [v]), h, "system"} | more]}
+    end
+  end
+
+  defp sicstus_cycle([], _mods, _s0, s, _h), do: {s, []}
 
   defp wake_and_run(attvs, s, st, rest) do
     case wake_builtin(attvs, s, st, :immediate) do

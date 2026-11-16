@@ -65,6 +65,13 @@ for i in ids:
     if (c in ('alle verschieden', 'PrologEx allein') and bf and i not in bf and
             a == 'ex(domain_error/2)'):
         c = 'nicht monoton, Scryer ?=, SWI anders'
+    # nicht monoton und nur PrologEx anders: meist die Reihenfolge der
+    # Weckziele an einer Variablen – PrologEx weckt freeze, when und dif in
+    # der Reihenfolge des Stellens, Scryer und SWI Modul für Modul (freeze
+    # vor when; bei when zuerst die Ziele der gebundenen Variablen). Eigene
+    # Klasse, nicht verdächtig, aber aufgelistet
+    elif c == 'PrologEx allein' and bf and i not in bf:
+        c = 'nicht monoton, PrologEx allein (Weckreihenfolge?)'
     if v is False: c = 'PrologEx ≠ Durchprobieren'
     elif v is True and c in ('PrologEx allein', 'alle verschieden'): c = 'PrologEx bestätigt (Durchprobieren)'
     if c != 'gleich':
