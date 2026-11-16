@@ -451,9 +451,14 @@ defmodule PrologEx.Stream do
   end
 
   defp fill(%{kind: :stdin} = s) do
-    prompt = if PrologEx.Terminal.terminal?(), do: "|: ", else: ""
+    # im Terminal: Prompt weiß, die Eingabe in der Farbe von :input
+    prompt =
+      if PrologEx.Terminal.terminal?(), do: PrologEx.Terminal.input_prompt("|: "), else: ""
 
-    case IO.gets(:stdio, prompt) do
+    data = IO.gets(:stdio, prompt)
+    if prompt != "", do: PrologEx.Terminal.end_input()
+
+    case data do
       data when is_binary(data) -> %{s | buf: s.buf <> data}
       _ -> %{s | eof: true}
     end

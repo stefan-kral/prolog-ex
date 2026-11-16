@@ -47,7 +47,10 @@ defmodule PrologEx.Terminal do
   Liest Programmtext bis `end_of_file.` (eigene Zeile), Ctrl-D oder
   Dateiende. Jede Zeile beginnt mit `prompt`.
   """
+  # (Prompt weiß, die Eingabe in der Farbe von :input, danach wieder weiß)
   def read_until_eof(prompt) do
+    prompt = input_prompt(prompt)
+
     with true <- terminal?(),
          {:ok, dev} <- device(),
          {:ok, text} <- read_via_shell(dev, prompt) do
@@ -55,6 +58,8 @@ defmodule PrologEx.Terminal do
     else
       _ -> read_lines(prompt, [])
     end
+  after
+    end_input()
   end
 
   # Eine Shell liest direkt vom Terminal; Ctrl-D ist dann deren Dateiende,
