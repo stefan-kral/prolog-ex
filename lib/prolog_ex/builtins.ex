@@ -78,6 +78,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Ugraphs,
     PrologEx.Builtins.Wgraphs,
     PrologEx.Builtins.Heaps,
+    PrologEx.Builtins.SimplexPrims,
     PrologEx.Builtins.RbtreePrims,
     PrologEx.Builtins.IntPrims,
     PrologEx.Builtins.JsonPrims,

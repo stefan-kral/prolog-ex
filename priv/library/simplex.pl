@@ -8,7 +8,9 @@
 
     Angepasst für PrologEx: floor_/2 statt floor/1 für Werte, die schon
     ganzzahlig sein können (floor/1 einer Ganzzahl ist dort ein
-    type_error(float, _), wie in ISO).
+    type_error(float, _), wie in ISO). Die Pivot-Schleife simplex/2 und
+    linsum_row/3 rechnen in Elixir (PrologEx.Builtins.SimplexPrims); die
+    Originale bleiben als simplex_ref/2 und linsum_row_ref/3 (ref_mode).
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions
@@ -262,10 +264,16 @@ An example query:
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 
-find_row(Variable, [Row|Rows], R) :-
+% PrologEx: in Elixir, das Original als find_row_ref/3 (ref_mode)
+find_row(Variable, Rows, R) :-
+        (   ref_mode -> find_row_ref(Variable, Rows, R)
+        ;   '$simplex_find_row'(Variable, Rows, R)
+        ).
+
+find_row_ref(Variable, [Row|Rows], R) :-
         Row = row(V, _, _),
         (   V == Variable -> R = Row
-        ;   find_row(Variable, Rows, R)
+        ;   find_row_ref(Variable, Rows, R)
         ).
 
 %% variable_value(+State, +Variable, -Value)
@@ -733,12 +741,19 @@ list_nths([_Coeff*A|As], Variables, [Nth|Nths]) :-
 
 linsum_negate(Coeff0*Var, Coeff*Var) :- Coeff is -Coeff0.
 
-linsum_row([], _, []).
-linsum_row([V|Vs], Ls, [C|Cs]) :-
+% PrologEx: in Elixir ('$simplex_linsum_row'/3, PrologEx.Builtins.SimplexPrims);
+% das Original als linsum_row_ref/3 (nicht ganz gebundene Terme, ref_mode)
+linsum_row(Vs, Ls, Cs) :-
+        (   \+ ref_mode, '$simplex_linsum_row'(Vs, Ls, Cs0) -> Cs = Cs0
+        ;   linsum_row_ref(Vs, Ls, Cs)
+        ).
+
+linsum_row_ref([], _, []).
+linsum_row_ref([V|Vs], Ls, [C|Cs]) :-
         (   member(Coeff*V, Ls) -> C = Coeff
         ;   C = 0
         ),
-        linsum_row(Vs, Ls, Cs).
+        linsum_row_ref(Vs, Ls, Cs).
 
 constraints_rows([], _, []).
 constraints_rows([C|Cs], Vars, [R|Rs]) :-
@@ -851,16 +866,28 @@ all_divide([R|Rs], Div, [DR|DRs]) :-
         DR is R rdiv Div,
         all_divide(Rs, Div, DRs).
 
-gauss_elimination([], _, _, []).
-gauss_elimination([Row0|Rows0], PivotRow, Col, [Row|Rows]) :-
+% PrologEx: in Elixir, die Originale als gauss_elimination_ref/4 und
+% row_eliminate_ref/4 (anderes als Ganzzahlen und Brüche, ref_mode)
+gauss_elimination(Rows0, PivotRow, Col, Rows) :-
+        (   \+ ref_mode, '$simplex_gauss'(Rows0, PivotRow, Col, Rows1) -> Rows = Rows1
+        ;   gauss_elimination_ref(Rows0, PivotRow, Col, Rows)
+        ).
+
+row_eliminate(Row0, PivotRow, Col, Row) :-
+        (   \+ ref_mode, '$simplex_row_eliminate'(Row0, PivotRow, Col, Row1) -> Row = Row1
+        ;   row_eliminate_ref(Row0, PivotRow, Col, Row)
+        ).
+
+gauss_elimination_ref([], _, _, []).
+gauss_elimination_ref([Row0|Rows0], PivotRow, Col, [Row|Rows]) :-
         PivotRow = row(PVar, _, _),
         Row0 = row(Var, _, _),
         (   PVar == Var -> Row = PivotRow
-        ;   row_eliminate(Row0, PivotRow, Col, Row)
+        ;   row_eliminate_ref(Row0, PivotRow, Col, Row)
         ),
-        gauss_elimination(Rows0, PivotRow, Col, Rows).
+        gauss_elimination_ref(Rows0, PivotRow, Col, Rows).
 
-row_eliminate(row(Var, Ls0, R0), row(_, PLs, PR), Col, row(Var, Ls, R)) :-
+row_eliminate_ref(row(Var, Ls0, R0), row(_, PLs, PR), Col, row(Var, Ls, R)) :-
         nth0(Col, Ls0, Coeff),
         (   Coeff =:= 0 -> Ls = Ls0, R = R0
         ;   MCoeff is -Coeff,
@@ -877,7 +904,22 @@ all_times([A|As], T, [AT|ATs]) :-
         AT is A * T,
         all_times(As, T, ATs).
 
+% PrologEx: die Pivot-Schleife in Elixir ('$simplex_simplex'/2,
+% PrologEx.Builtins.SimplexPrims), Schritt für Schritt wie das Original
+% (simplex_ref/2); das rechnet weiter, wenn im Tableau anderes als
+% Ganzzahlen und Brüche steht, und mit ref_mode (für die Vergleichstests)
+:- dynamic(ref_mode/0).
+
 simplex(Tableau0, Tableau) :-
+        (   ref_mode -> simplex_ref(Tableau0, Tableau)
+        ;   '$simplex_simplex'(Tableau0, R),
+            simplex_result(R, Tableau0, Tableau)
+        ).
+
+simplex_result(ok(Tableau), _, Tableau).
+simplex_result(fallback, Tableau0, Tableau) :- simplex_ref(Tableau0, Tableau).
+
+simplex_ref(Tableau0, Tableau) :-
         (   tableau_optimal(Tableau0) -> Tableau0 = Tableau
         ;   pivot_column(Tableau0, PCol),
             pivot_row(Tableau0, PCol, PRow),
@@ -886,10 +928,10 @@ simplex(Tableau0, Tableau) :-
             Row0 = row(Leaving, Left0, _Right0),
             nth0(PCol, Left0, PivotElement),
             row_divide(Row0, PivotElement, Row1),
-            gauss_elimination([Obj0|Matrix0], Row1, PCol, [Obj|Matrix1]),
+            gauss_elimination_ref([Obj0|Matrix0], Row1, PCol, [Obj|Matrix1]),
             nth0(PCol, Variables, Entering),
             swap_basic(Matrix1, Leaving, Entering, Matrix),
-            simplex(tableau(Obj,Variables,Inds,Matrix), Tableau)
+            simplex_ref(tableau(Obj,Variables,Inds,Matrix), Tableau)
         ).
 
 swap_basic([Row0|Rows0], Old, New, Matrix) :-

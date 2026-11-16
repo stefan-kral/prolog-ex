@@ -5,7 +5,11 @@
 #
 #   PRELUDE=':- set_prolog_flag(jit, false).' EXTRA='x=go' mix run bench/prof/calls.exs x
 #
-# PRELUDE/EXTRA wie in common.exs; TOP (40) Zeilen
+# PRELUDE/EXTRA wie in common.exs; TOP (40) Zeilen. Das Modul in der Ausgabe
+# ist das, aus dem gerufen wird (Kontextmodul), nicht das, in dem das
+# Prädikat liegt: simplex:nth0 ist nth0/3 aus library(lists) (in Elixir),
+# gerufen aus simplex. Gezählt wird jeder Aufruf über die Maschine, auch
+# der von Builtins in Elixir
 Code.require_file(Path.join(__DIR__, "common.exs"))
 
 [name | _] = System.argv()
@@ -51,7 +55,7 @@ receive do: (:ok -> :ok)
 
 rows = :ets.tab2list(counter) |> Enum.sort_by(fn {_, n} -> -n end)
 total = Enum.reduce(rows, 0, fn {_, n}, a -> a + n end)
-IO.puts("Aufrufe gesamt: #{total}")
+IO.puts("Aufrufe gesamt: #{total} (Modul: aus dem gerufen wird)")
 
 for {{f, m}, n} <- Enum.take(rows, String.to_integer(System.get_env("TOP", "40"))) do
   IO.puts(:io_lib.format("~10w ~5.1f %  ~ts:~ts", [n, 100 * n / total, m, f]))

@@ -2261,8 +2261,21 @@ X1 = 1, X2 = 1r2.
     SWI und Scryer) und zufällige lineare Programme
     (`conformance/simplex_fuzz/run.sh Seed N`: 2–4 Variablen, 1–4
     Bedingungen, teils ganzzahlig; Zielwert gegen Scryer und SWI): 1100
-    Programme, keine Abweichung. Zeit für 300 solche Programme: PrologEx
-    rund 2 s, Scryer 0,7 s, SWI 0,3 s.
+    Programme, keine Abweichung.
+  * In Elixir (`PrologEx.Builtins.SimplexPrims`): die Pivot-Schleife
+    `simplex/2` (Optimalitätstest, Pivotspalte und -zeile, Teilen,
+    Gauß-Elimination, Basistausch – Schritt für Schritt wie das Original,
+    mit denselben Regeln bei Gleichstand), `gauss_elimination/4`,
+    `row_eliminate/4`, `find_row/3` und `linsum_row/3` (über eine Map statt
+    `member/2` je Variable). Das Profil der Aufrufe (`bench/prof/calls.exs`)
+    zeigte dort gut drei Viertel aller Prädikataufrufe, ein Viertel allein
+    in `all_times_plus/4`. Steht im Tableau anderes als Ganzzahlen und
+    Brüche, rechnen Triskas Fassungen (`simplex_ref/2`, `…_ref`); mit
+    `simplex:ref_mode` immer (für die Tests). Ein Test vergleicht beide auf
+    200 Zufallsprogrammen (mit Brüchen und Floats als Koeffizienten): das
+    gelöste Tableau und alle Variablenwerte Term für Term gleich. 300
+    Zufallsprogramme: 1559 → 518 ms (Scryer 0,7 s, SWI 0,3 s); 1500 weitere
+    gegen Scryer und SWI ohne Abweichung.
 
 ## Bedingungen über ganzen Zahlen: `library(clpz)`
 
