@@ -4276,7 +4276,30 @@ Variable, keine Bindung), Strukturen werden gegen Strukturen zerlegt,
 Klauseln mit unpassendem Kopf fallen gleich weg; kopiert wird nur der
 Rumpf. Der Vanilla-Meta-Interpreter über `nrev` wurde dadurch 35 %
 schneller (10,5 s → 6,3 s), der mit `clausex/2` und nativem `append/3`
-rund 30 %. Andere Systeme: SWI liefert die
+rund 30 %.
+
+`bench/mi/run.sh` vergleicht dieselben Meta-Interpreter über dieselben
+Programme in SWI-Prolog 9.0.4, Scryer und PrologEx (beste von 3 Messungen;
+Scryer braucht dynamische Prädikate für `clause/2`). µs je `nrev` von 30
+Elementen bzw. ms je `queens(8)` mit allen Lösungen, statisch/dynamisch:
+
+| | SWI | Scryer | PrologEx |
+|---|---|---|---|
+| `nrev` direkt | 13 / 13 | 49 / 65 | 22 / 77 |
+| `nrev` vanilla (alles über `clause/2`) | 212 / 213 | – / 629 | 2312 / 2285 |
+| `nrev` Builtins über `predicate_property(G, built_in)` | 462 / 449 | – / 1047 | 6284 / 6342 |
+| `nrev` nur `predicate_property(G, dynamic)` interpretiert | – / 386 | – / 1071 | – / 6171 |
+| `nrev` `catch(clause(…))` mit `*->` | 274 / 285 | – | 2672 / 2702 |
+| `nrev` `clausex/2` mit `*->` | – | – | 2379 / 2329 |
+| `queens(8)` direkt | 2,2 / 2,5 | 7,1 / 7,9 | 21 / 21 |
+| `queens(8)` `predicate_property(G, built_in)` | 73 / 72 | – / 133 | 727 / 743 |
+| `queens(8)` `predicate_property(G, dynamic)` | – / 68 | – / 137 | – / 792 |
+| `queens(8)` `catch(clause(…))` mit `*->` | 104–108 | – | 584–606 |
+| `queens(8)` `clausex/2` mit `*->` | – | – | 393–402 |
+
+In PrologEx kostet `predicate_property/2` mit gebundener Eigenschaft rund
+8 µs je Aufruf (mehr als ein Schritt des Meta-Interpreters), und ein
+Schritt über `clause/2` rund 4,5 µs gegen 0,4 µs in SWI. Andere Systeme: SWI liefert die
 Klauseln auch von `lists:append/3` (Prolog-Code; Flag
 `protect_static_code`), Scryer und SICStus nur von dynamischen
 Prädikaten, GNU nur von `public`.
