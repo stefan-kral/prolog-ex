@@ -462,11 +462,15 @@ defmodule PrologEx.Builtins.IO do
   def open_option!({:struct, "encoding", [{:atom, e}]}) when e in ["utf8", "UTF-8"],
     do: {:encoding, :utf8}
 
+  # wie SWI: ein UTF-8-BOM am Anfang überspringen (beim Lesen Vorgabe)
+  def open_option!({:struct, "bom", [{:atom, b}]}) when b in ["true", "false"],
+    do: {:bom, b == "true"}
+
   def open_option!({:var, _}), do: Error.instantiation!()
 
   # bekannte Option mit ungebundenem Wert: instantiation_error (ISO 8.11.5.3)
   def open_option!({:struct, name, [{:var, _}]})
-      when name in ~w(type reposition alias eof_action encoding),
+      when name in ~w(type reposition alias eof_action encoding bom),
       do: Error.instantiation!()
 
   def open_option!(other), do: Error.domain!("stream_option", other)
@@ -796,7 +800,7 @@ defmodule PrologEx.Builtins.IO do
 
   # --- stream_property --------------------------------------------------------
 
-  @props ~w(file_name mode input output alias position end_of_stream eof_action reposition type)
+  @props ~w(file_name mode input output alias position end_of_stream eof_action reposition type bom)
 
   defp check_property!({:var, _}), do: :ok
   defp check_property!({:atom, p}) when p in ["input", "output"], do: :ok
@@ -833,7 +837,8 @@ defmodule PrologEx.Builtins.IO do
          if(S.input?(id), do: mk("end_of_stream", [a(Atom.to_string(S.end_of_stream(id)))])),
          if(S.input?(id), do: mk("eof_action", [a(Atom.to_string(s.eof_action))])),
          mk("reposition", [a(to_string(s.reposition and s.kind == :file))]),
-         mk("type", [a(Atom.to_string(s.type))])
+         mk("type", [a(Atom.to_string(s.type))]),
+         if(s.bom, do: mk("bom", [a("true")]))
        ])
     |> Enum.reject(&is_nil/1)
   end

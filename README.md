@@ -687,11 +687,16 @@ ISO 8.11–8.14 – Streams sind `'$stream'(N)`, dazu die Aliase `user_input`,
 `user_output`, `user_error` und eigene (`alias(A)`):
 
   * Streams: `open/3,4` (`type(text|binary)`, `alias/1`, `reposition/1`,
-    `eof_action(error|eof_code|reset)`, `encoding(utf8)`), `close/1,2`,
-    `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`,
-    `flush_output/0,1`, `stream_property/2`, `at_end_of_stream/0,1`,
-    `set_stream_position/2`; `line_count/2`, `line_position/2`,
-    `character_count/2`.
+    `eof_action(error|eof_code|reset)`, `encoding(utf8)`, `bom(Bool)`),
+    `close/1,2`, `current_input/1`, `current_output/1`, `set_input/1`,
+    `set_output/1`, `flush_output/0,1`, `stream_property/2`,
+    `at_end_of_stream/0,1`, `set_stream_position/2`; `line_count/2`,
+    `line_position/2`, `character_count/2`.
+  * Ein UTF-8-BOM (EF BB BF) am Anfang einer Textdatei überspringt
+    `open/3,4` wie SWI und Scryer; dann gilt `stream_property(S,
+    bom(true))`, gezählt wird ab dem Zeichen danach. Mit `bom(false)`
+    bleibt es als Zeichen U+FEFF stehen. Binäre Streams und Pipes
+    bleiben unberührt.
   * Zeichen und Bytes: `get_char`, `peek_char`, `put_char`, `get_code`,
     `peek_code`, `put_code`, `get_byte`, `peek_byte`, `put_byte` (je /1 und /2),
     `nl/0,1`. Textstreams sind UTF-8; ein ungültiges Byte ist kein
@@ -1166,6 +1171,29 @@ null])])`. Der Quelltext ist unverändert, nur das Modul heißt
 `serialization_json` statt `json`, damit beide Bibliotheken zusammen
 gehen. `library(dif)` gibt es jetzt auch; es exportiert das eingebaute
 `dif/2`, wie bei Scryer und SWI.
+
+**JSONTestSuite** (Nicolas Seriot, MIT; `test/fixtures/jsontestsuite`,
+Stand 1ef36fa): 318 Dateien, die ein Parser annehmen (`y_…`, 95) oder
+ablehnen (`n_…`, 188) muss; bei `i_…` (35) ist beides erlaubt.
+Angenommen heißt: genau ein Wert, danach nur Leerraum.
+`test/jsontestsuite_test.exs` prüft beide Bibliotheken an allen Dateien.
+
+  * `library(http/json)`: alle `y_` angenommen. Angenommen werden wie in
+    SWI auch 12 `n_`-Dateien: führende Nullen (`-01`), `2.`, `-1.0.`,
+    Komma vor `]` und `}`, Tab, Zeilenwechsel und
+    Steuerzeichen roh im String. Anders als SWI lehnt PrologEx
+    ungültiges UTF-8 ab (`representation_error`), SWI liest es mit
+    Warnung (10 Dateien, 9 davon `i_`).
+  * `library(serialization/json)`: genau wie Scryer, auch die Fehler:
+    Ersatzpaare (`\ud834\udd1e`) und die Nichtzeichen U+1FFFE und
+    U+10FFFE werden abgelehnt (6 `y_`-Dateien). Für 250 000 offene
+    Klammern (`n_structure_open_array_object`) braucht `json_chars//1`
+    hier wie in Scryer länger als 10 s.
+
+`conformance/jsontestsuite/run.sh` vergleicht alle vier (SWI, Scryer,
+PrologEx mit beiden Bibliotheken). Gefunden hat die Suite einen Fehler:
+ein BOM am Dateianfang wurde gelesen statt übersprungen (siehe oben,
+Streams).
 
 ## XML und HTML: `library(sgml)`, `library(xpath)`
 
@@ -4152,7 +4180,7 @@ Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
 Float). `max_arity` ist 255 wie in SICStus und Scryer: größere Stelligkeiten bei
 `functor/3`, `=../2`, `abolish/1`, `read_term/2,3` und beim Aufruf (`call/N`) sind
 `representation_error(max_arity)` (beim Laden einer Datei ein
-Syntaxfehler). Gesamt: 4 127 bestanden, 80 fehlgeschlagen,
+Syntaxfehler). Gesamt: 4 135 bestanden, 72 fehlgeschlagen,
 205 übersprungen.
 Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
 den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument

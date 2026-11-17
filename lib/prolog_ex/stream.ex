@@ -36,6 +36,8 @@ defmodule PrologEx.Stream do
     reposition: false,
     eof_action: :eof_code,
     buf: "",
+    # UTF-8-BOM am Anfang gelesen und übersprungen (open/4, bom(true))
+    bom: false,
     eof: false,
     past: false,
     chars: 0,
@@ -219,6 +221,7 @@ defmodule PrologEx.Stream do
           eof_action: Keyword.get(opts, :eof_action, :eof_code)
         }
 
+        s = if pipe?, do: s, else: skip_bom(s, Keyword.get(opts, :bom, true))
         aliases = if alias, do: Map.put(t.aliases, alias, id), else: t.aliases
         Process.put({@key, id}, s)
         put_table(%{t | next: id + 1, streams: MapSet.put(t.streams, id), aliases: aliases})
@@ -228,6 +231,20 @@ defmodule PrologEx.Stream do
         {:error, reason}
     end
   end
+
+  # Wie SWI (open/4, bom(Bool), beim Lesen Vorgabe true) und Scryer: ein
+  # UTF-8-BOM am Anfang einer Textdatei gehört nicht zum Text. Die
+  # Byte-Position zählt es mit (sie ist der Versatz in der Datei); was
+  # kein BOM ist, kommt in den Puffer.
+  defp skip_bom(%{mode: :read, type: :text} = s, true) do
+    case :file.read(s.dev, 3) do
+      {:ok, <<0xEF, 0xBB, 0xBF>>} -> %{s | bom: true, bytes: 3}
+      {:ok, data} -> %{s | buf: data}
+      _ -> s
+    end
+  end
+
+  defp skip_bom(s, _), do: s
 
   @doc """
   Lesendes Ende einer benannten Pipe (library(process)): ein Port liest sie

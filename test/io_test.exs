@@ -157,6 +157,35 @@ defmodule PrologEx.IOTest do
       assert File.read!("w.txt") == "x€\n"
     end
 
+    test "UTF-8-BOM am Anfang einer Textdatei wird übersprungen (wie SWI, Scryer)", c do
+      File.write!("bom.txt", <<0xEF, 0xBB, 0xBF, "{}">>)
+      File.write!("leer.txt", "")
+      File.write!("ab.txt", "ab")
+
+      assert ask(
+               c,
+               "open('bom.txt', read, S), character_count(S, N0), get_char(S, A), character_count(S, N), stream_property(S, bom(B)), close(S)."
+             ) == ["A = '{', B = true, N = 1, N0 = 0, S = '$stream'(3)"]
+
+      # bom(false): das BOM ist ein Zeichen (U+FEFF); binär: Bytes
+      assert ask(c, "open('bom.txt', read, S, [bom(false)]), get_code(S, X), close(S).") ==
+               ["S = '$stream'(4), X = 65279"]
+
+      assert ask(c, "open('bom.txt', read, S, [type(binary)]), get_byte(S, X), close(S).") ==
+               ["S = '$stream'(5), X = 239"]
+
+      # ohne BOM, kurze und leere Datei: nichts geht verloren
+      assert ask(
+               c,
+               "open('ab.txt', read, S), get_char(S, A), get_char(S, B), get_char(S, C), \\+ stream_property(S, bom(_)), close(S)."
+             ) == ["A = a, B = b, C = end_of_file, S = '$stream'(6)"]
+
+      assert ask(c, "open('leer.txt', read, S), get_char(S, A), close(S).") ==
+               ["A = end_of_file, S = '$stream'(7)"]
+
+      err(c, "open('ab.txt', read, S, [bom(_)]).")
+    end
+
     test "Dateiende: end_of_file / -1, dann eof_action", c do
       File.write!("e.txt", "")
 
