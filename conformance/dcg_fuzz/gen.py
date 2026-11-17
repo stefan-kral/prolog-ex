@@ -55,8 +55,12 @@ class Rule:
             # call//1 mit fertigem Ziel
             return 'call(%s(%s))' % (nt, self.arg())
         if r < 0.32:
-            # Variable als Rumpf, zur Laufzeit gebunden (call//1)
-            g = self.v()
+            # Variable als Rumpf, zur Laufzeit gebunden (call//1); eine
+            # eigene Variable: als Terminal gebunden wäre sie womöglich eine
+            # partielle Liste – SWI zählt deren Rest auf, Scryer und
+            # PrologEx melden instantiation_error
+            self.gv = getattr(self, 'gv', 0) + 1
+            g = 'G%d' % self.gv
             return '{%s = %s(%s)}, %s' % (g, nt, self.arg(), g)
         return '%s(%s)' % (nt, self.arg())
 
