@@ -4209,6 +4209,7 @@ dieselben Erwartungen in SWI und Scryer gegen
 | `oeis__a000372_dedekind` | clpb, `sat_count/2`: monotone Boolesche Funktionen, n = 0..5 (A000372; n = 6 braucht 23 s, SWI 87 s) |
 | `oeis__a006577_collatz` | Collatz/Hailstone: Schritte für 1..72 (A006577), Höchstwerte für 1..62 (A025586), Rekordhalter bis 10000 (A006877, A006878), die Folge ab 27 |
 
+| `peano__arith` | Peano-Arithmetik nach „The Art of Prolog“, Kap. 3 (umbenannt: `plus/3`, `=<` sind in SWI eingebaut): `add`, `mul`, `le`, `mod`, `gcd`, `minimum` gegen `is/2` für alle Paare aus 0..12 (samt Anzahl der Lösungen), Fakultät, Potenz, Ackermann; relational: Zerlegungen `add(X, Y, n)`, Teiler (A000005), Kompositionen (A011782); tiefe Terme (100 000 + 100 000) |
 | `logtalk__dcgs_translation` | DCG-Übersetzung: die 59 Fälle aus Logtalk (`tests/logtalk/dcgs`) gegen das eingebaute `expand_term/2`, dazu: ein Cut in `phrase/2,3` bleibt lokal |
 | `logtalk__dcgs_…` (14) | Grammatiken aus Logtalk (`examples/dcgs`): Rechner, MAC-Adresse, Morse, Enigma (T9), Sätze, Parsebaum, Stückliste, Shell, Tokenizer, Wanderer (Gleitkomma), XML in beide Richtungen, URL, IBAN (große Zahlen), Meta-Nichtterminal mit `call//N` |
 
@@ -4228,6 +4229,14 @@ gelten ab der Direktive); in Scryer lädt `cross.sh` die Bibliotheken des
 Programms (und `library(dcgs)`) vor dem `include/1` und setzt
 `double_quotes`, weil Scryer eine eingebundene Datei ganz liest, bevor
 ihre Direktiven laufen.
+
+`(\+)//1` in DCGs (im Entwurf freigestellt; wenn vorhanden:
+`phrase(\+ B, S0, S)` gilt genau dann, wenn `\+ phrase(B, S0, _)` und
+`S0 = S`): `test/dcg_not_test.exs` mit Vorausschau, Bindungen, lokalem
+Cut, Erzeugen, Pushback, `call//N` und Fehlern, wie SWI. Ein Prädikat
+`(\+)/3` gibt es wie in SWI und Scryer nicht (`call(\+, [a])` als Rumpf:
+`existence_error`). `p --> \+ 3` lädt (SWI lehnt es schon beim Laden ab),
+der Fehler kommt erst beim Aufruf.
 
 **Zufallsvergleich für DCGs** (`conformance/dcg_fuzz`): zufällige,
 garantiert endende Grammatiken – Terminale (auch mit Variablen), Strings,
