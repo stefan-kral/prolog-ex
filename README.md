@@ -1413,7 +1413,16 @@ ist jeweils am Dateianfang vermerkt.
     (`graphic`, `solo`, `layout`, `meta`, ...) sind genau, die
     Unicode-Klassen folgen den allgemeinen Kategorien (`alphabetic` = L
     und Nl, `lower` = Ll, `upper` = Lu, `numeric` = N). `upper(U)` und
-    `lower(L)` geben eine Zeichenliste (ß → `"SS"`).
+    `lower(L)` geben eine Zeichenliste (ß → `"SS"`). Alles nach Unicode
+    17.0 – dieselbe Version wie Elixirs `String.upcase/1`, mit dem
+    `upper(U)` rechnet. Die Klassen kommen aus einer Tabelle
+    (`priv/unicode/char_classes.txt`, erzeugt aus UnicodeData.txt), auch
+    für den Leser und den Schreiber (welche Buchstaben eine Variable oder
+    einen Namen beginnen und fortsetzen). Vorher nahmen sie reguläre
+    Ausdrücke, deren PCRE in OTP 28 Unicode 16 kennt: Die rund 4800
+    Zeichen aus Unicode 17 waren weder `alphabetic` noch in Namen
+    erlaubt (`x = ࢏` war ein Syntaxfehler), und U+0295 `ʕ` (in 17.0 von
+    Ll nach Lo) galt noch als `lower`.
   * `read_from_chars/2` und `read_term_from_chars/3`: Der Term braucht
     den Schlusspunkt, leerer Text gibt `end_of_file`.
   * `write_term_to_chars/3`: Freie Variablen heißen `A`, `B`, ... wie in
@@ -1421,6 +1430,25 @@ ist jeweils am Dateianfang vermerkt.
   * `chars_utf8bytes/2`, `chars_base64/3`, `get_line_to_chars/3`,
     `get_n_chars/3` und `get_single_char/1`. Letzteres ist bei uns
     zeilengepuffert.
+  * Anders als Scryer dekodiert `chars_utf8bytes(Cs, Bytes)` ungültiges
+    UTF-8 nach der Empfehlung des Unicode-Standards (Kap. 3.9): U+FFFD je
+    größtem ungültigem Teilstück, überlange Formen und Ersatzpaare sind
+    ungültig. Scryers Dekodierer machte aus `C0 AF` ein `/` (die
+    klassische Lücke in Pfadfiltern) und warf bei Ersatzpaaren
+    `representation_error(character_code)`; in Markus Kuhns
+    UTF-8-Stresstest wichen 37 von 272 Zeilen ab. Ein Element, das kein
+    Byte ist, gibt `type_error(byte, X)`.
+  * Geprüft an Testdaten mit unabhängigem Orakel
+    (`test/test_vectors_test.exs`, `test/fixtures/test_vectors`, Herkunft
+    in `SOURCES.md`; `conformance/small/run.sh` holt die Quellen und
+    erzeugt die Daten neu): RFC 4648 (Base64, Base16; `library(bytes)` und
+    `chars_base64/3`), Markus Kuhns UTF-8-Stresstest (272 Zeilen gegen
+    Python: streng mit `bytes_utf8/2` und beim Lesen mit `encoding(utf8)`,
+    mit Ersatzzeichen über `chars_utf8bytes/2` – alle gleich),
+    csv-spectrum (11 Dateien mit `csv_read_file/3`, alle wie erwartet) und
+    Unicode 17.0 (Groß- und Kleinschreibung aller 3037 betroffenen
+    Zeichen, die Klassen an jedem 331. Zeichen; `run.sh` prüft alle
+    1,1 Mio. Codepunkte).
 * `library(pairs)` (wie SWI): `pairs_keys_values/3`, `pairs_keys/2`,
   `pairs_values/2` (relational, in jede Richtung), `group_pairs_by_key/2`
   (benachbarte Paare mit `==`-gleichem Schlüssel), `map_list_to_pairs/3`

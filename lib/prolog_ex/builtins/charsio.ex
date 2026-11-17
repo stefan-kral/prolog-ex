@@ -6,7 +6,8 @@ defmodule PrologEx.Builtins.Charsio do
   Zeichenklassen wie Scryer (`'$char_type'/2`): die ISO-Klassen des Lesers
   (`graphic`, `solo`, `layout`, ...) genau; die Unicode-Klassen
   (`alphabetic`, `lower`, `upper`, `numeric`, `control`, `whitespace`) über
-  die allgemeinen Unicode-Kategorien:
+  die allgemeinen Unicode-Kategorien, Unicode 17.0 wie `String.upcase/1`
+  (PrologEx.UnicodeClasses):
 
     * `alphabetic`: Buchstaben (L) und Buchstabenzahlen (Nl)
     * `lower`/`upper`: Ll bzw. Lu
@@ -29,19 +30,19 @@ defmodule PrologEx.Builtins.Charsio do
   @whitespace [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0x85, 0xA0, 0x1680] ++
                 Enum.to_list(0x2000..0x200A) ++ [0x2028, 0x2029, 0x202F, 0x205F, 0x3000]
 
-  defp cat?(c, re), do: Regex.match?(re, <<c::utf8>>)
+  alias PrologEx.UnicodeClasses, as: UC
 
-  # ASCII ohne Regex (ein ~r kostet unter OTP 28 je Aufruf rund 2 µs)
+  # ASCII direkt, sonst die Tabelle (Unicode 17.0)
   defp alphabetic?(c) when c < 128, do: c in ?a..?z or c in ?A..?Z
-  defp alphabetic?(c), do: cat?(c, ~r/^[\p{L}\p{Nl}]$/u)
+  defp alphabetic?(c), do: UC.alphabetic?(c)
   defp numeric?(c) when c < 128, do: c in ?0..?9
-  defp numeric?(c), do: cat?(c, ~r/^\p{N}$/u)
+  defp numeric?(c), do: UC.numeric?(c)
   defp lower?(c) when c < 128, do: c in ?a..?z
-  defp lower?(c), do: cat?(c, ~r/^\p{Ll}$/u)
+  defp lower?(c), do: UC.lower?(c)
   defp upper?(c) when c < 128, do: c in ?A..?Z
-  defp upper?(c), do: cat?(c, ~r/^\p{Lu}$/u)
+  defp upper?(c), do: UC.upper?(c)
   defp control?(c) when c < 128, do: c < 32 or c == 127
-  defp control?(c), do: cat?(c, ~r/^\p{Cc}$/u)
+  defp control?(c), do: UC.control?(c)
   defp whitespace?(c), do: c in @whitespace
 
   defp graphic_token?(c), do: c in @graphic or c == ?\\
@@ -166,6 +167,26 @@ defmodule PrologEx.Builtins.Charsio do
       :eof -> []
       c -> [c | take(n - 1, next)]
     end
+  end
+
+  # '$utf8_chars'(Bs, Cs): Bytes (Liste, schon geprüft) als UTF-8 lesen; was
+  # ungültig ist, wird U+FFFD, eines je größtem ungültigem Teilstück (die
+  # Empfehlung des Unicode-Standards, Kap. 3.9; wie Python mit
+  # errors='replace'). Überlange Formen und Ersatzpaare sind ungültig.
+  defbuiltin "$utf8_chars", [bs, cs] do
+    s = subst()
+
+    bin =
+      for t <- PrologEx.Builtins.Lists.items(bs, s), into: <<>> do
+        case PrologEx.Store.walk(t, s) do
+          b when is_integer(b) and b in 0..255 -> <<b>>
+          {:var, _} -> Error.instantiation!()
+          other -> Error.type!("byte", other)
+        end
+      end
+
+    text = String.replace_invalid(bin, "\uFFFD")
+    {:unify, [{cs, chars(text)}]}
   end
 
   # '$chars_base64'(Cs, Bs, Padding, Charset): Cs offen → Bs dekodieren

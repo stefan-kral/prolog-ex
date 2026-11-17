@@ -23,6 +23,7 @@ defmodule PrologEx.Parser do
   Leerraum folgen), Unicode-Buchstaben in Namen und Variablen
   (Großbuchstabe am Anfang: Variable), Unicode-Symbole als Symbolzeichen.
   """
+  alias PrologEx.UnicodeClasses
 
   import PrologEx, only: [a: 1, mk: 2]
 
@@ -416,19 +417,20 @@ defmodule PrologEx.Parser do
     {{:name, name}, lay, pos, rest, pos + byte_size(name)}
   end
 
+  # Nicht-ASCII nach den Unicode-Kategorien (17.0, PrologEx.UnicodeClasses)
   defp token1(<<c::utf8, _::binary>> = r, pos, lay) do
     s = <<c::utf8>>
 
     cond do
-      String.match?(s, ~r/^[\p{Lu}\p{Lt}]$/u) ->
+      UnicodeClasses.var_start?(c) ->
         {name, rest} = alnum(r, 0)
         {{:var, name}, lay, pos, rest, pos + byte_size(name)}
 
-      String.match?(s, ~r/^\p{L}$/u) ->
+      UnicodeClasses.letter?(c) ->
         {name, rest} = alnum(r, 0)
         {{:name, name}, lay, pos, rest, pos + byte_size(name)}
 
-      String.match?(s, ~r/^[\p{Sm}\p{So}]$/u) ->
+      UnicodeClasses.symbol?(c) ->
         {name, rest} = graphic(r, 0)
         {{:name, name}, lay, pos, rest, pos + byte_size(name)}
 
@@ -448,7 +450,7 @@ defmodule PrologEx.Parser do
         alnum(r, i + 1)
 
       <<c::utf8, _::binary>> when c > 127 ->
-        if String.match?(<<c::utf8>>, ~r/^[\p{L}\p{N}\p{M}]$/u),
+        if UnicodeClasses.ident?(c),
           do: alnum(r, i + byte_size(<<c::utf8>>)),
           else: split(r, i)
 

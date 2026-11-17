@@ -163,6 +163,15 @@ defmodule PrologEx.ScryerCharsioTest do
   test "chars_utf8bytes/2, chars_base64/3", c do
     assert ask(c, ~s|chars_utf8bytes("aä€", Bs)|) == ["Bs = [97,195,164,226,130,172]"]
     assert ask(c, "chars_utf8bytes(Cs, [97, 195, 164, 226, 130, 172])") == [~s|Cs = "aä€"|]
+    # ungültig: U+FFFD je größtem ungültigem Teilstück (überlang, Ersatzpaar,
+    # abgebrochen); kein Byte: Fehler
+    assert ask(c, "chars_utf8bytes(Cs, [0xC0, 0xAF, 0x2F])") == [~s|Cs = "\uFFFD\uFFFD/"|]
+    assert ask(c, "chars_utf8bytes(Cs, [0xED, 0xA0, 0x80])") == [~s|Cs = "\uFFFD\uFFFD\uFFFD"|]
+    assert ask(c, "chars_utf8bytes(Cs, [0xE2, 0x82, 0x41])") == [~s|Cs = "\uFFFDA"|]
+
+    assert ask(c, "catch(chars_utf8bytes(Cs, [97, 256]), error(E, _), true)") ==
+             ["E = type_error(byte,256)"]
+
     assert ask(c, ~s|chars_base64("hello", B, [])|) == [~s|B = "aGVsbG8="|]
     assert ask(c, ~s|chars_base64("hello", B, [padding(false)])|) == [~s|B = "aGVsbG8"|]
     assert ask(c, ~s|chars_base64(C, "aGVsbG8=", [])|) == [~s|C = "hello"|]

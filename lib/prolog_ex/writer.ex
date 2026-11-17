@@ -466,13 +466,15 @@ defmodule PrologEx.Writer do
 
   # klein beginnend, dann Buchstaben, Ziffern, _ – genau wie der Leser
   # (PrologEx.Parser): Nicht-ASCII beginnt ein Atom mit einem Buchstaben,
-  # der kein Groß-/Titelbuchstabe ist (\p{L} ohne \p{Lu}, \p{Lt}), und
-  # setzt es mit \p{L}, \p{N}, \p{M} fort: writeq('αβγ') ergibt αβγ,
-  # writeq('Γβα') bleibt gequotet (wie SWI und Scryer)
+  # der kein Groß-/Titelbuchstabe ist (L ohne Lu, Lt), und setzt es mit
+  # L, N, M fort (Unicode 17.0, PrologEx.UnicodeClasses): writeq('αβγ')
+  # ergibt αβγ, writeq('Γβα') bleibt gequotet (wie SWI und Scryer)
   defp letter_atom?(<<c, rest::binary>>) when c in ?a..?z, do: alnum_bytes?(rest)
 
   defp letter_atom?(<<c::utf8, rest::binary>>) when c > 127,
-    do: String.match?(<<c::utf8>>, ~r/^[\p{Ll}\p{Lm}\p{Lo}]$/u) and alnum_bytes?(rest)
+    do:
+      PrologEx.UnicodeClasses.letter?(c) and not PrologEx.UnicodeClasses.var_start?(c) and
+        alnum_bytes?(rest)
 
   defp letter_atom?(_), do: false
 
@@ -486,7 +488,7 @@ defmodule PrologEx.Writer do
   defp alnum_bytes?(<<>>), do: true
   defp alnum_bytes?(_), do: false
 
-  defp ualnum?(c), do: String.match?(<<c::utf8>>, ~r/^[\p{L}\p{N}\p{M}]$/u)
+  defp ualnum?(c), do: PrologEx.UnicodeClasses.ident?(c)
 
   # nur Symbolzeichen; "." allein und Kommentaranfänge brauchen Hochkommas
   defp graphic_atom?(name),

@@ -11,6 +11,11 @@
      '$get_single_char'  ->  get_char/1 (zeilengepuffert)
      partial_string/3 (library(iso_ext))  ->  append/3
      '$first_non_octet'/2  ->  first_non_octet/2 am Ende
+   Dazu eine Abweichung im Verhalten: chars_utf8bytes/2 dekodiert in
+   Elixir ('$utf8_chars'/2) nach der Empfehlung des Unicode-Standards
+   (U+FFFD je größtem ungültigem Teilstück; überlange Formen und
+   Ersatzpaare ungültig). Scryers DCG nahm C0 AF als "/" an und warf bei
+   Ersatzpaaren einen Fehler (geprüft an Markus Kuhns UTF-8-Stresstest).
 */
 
 /** High-level predicates to work with chars and strings
@@ -299,29 +304,15 @@ encode(Code, Prefix, Nb) -->
 % ```
 chars_utf8bytes(Cs, Bs) :-
   var(Cs), must_be(list, Bs) ->
-    once(phrase(decode_utf8(Cs), Bs))
+    % PrologEx: in Elixir, nach der Empfehlung des Unicode-Standards: jedes
+    % größte ungültige Teilstück wird U+FFFD; überlange Formen (C0 AF ist
+    % nicht "/") und Ersatzpaare sind ungültig. Scryers DCG nahm überlange
+    % Formen an und warf bei Ersatzpaaren einen Fehler.
+    '$utf8_chars'(Bs, Cs)
   ; (must_be(list, Cs),
      maplist(must_be(atom), Cs),
      maplist(char_utf8bytes, Cs, Bss),
      append(Bss, Bs)).
-
-decode_utf8([]) --> [].
-decode_utf8(Chars) --> leading(Nb, Code), continuation(Code, Chars, Nb).
-
-leading(1, Byte) --> [Byte], {Byte /\ 0x80 =:= 0}.
-leading(2, Code) --> [Byte], {Byte /\ 0xE0 =:= 0xC0, Code is Byte - 0xC0}.
-leading(3, Code) --> [Byte], {Byte /\ 0xF0 =:= 0xE0, Code is Byte - 0xE0}.
-leading(4, Code) --> [Byte], {Byte /\ 0xF8 =:= 0xF0, Code is Byte - 0xF0}.
-leading(1, 0xFFFD) --> [_]. % invalid first byte
-
-continuation(Code, [H|T], 1) --> {char_code(H, Code)}, decode_utf8(T).
-continuation(Code, Chars, Nb) --> [Byte],
-  {Nb1 is Nb - 1, Byte /\ 0xC0 =:= 0x80, NextCode is (Code << 6) \/ (Byte - 0x80)},
-  continuation(NextCode, Chars, Nb1).
-
-% invalid continuation byte
-% each remaining continuation byte (if any) will raise 0xFFFD too
-continuation(_, ['\xFFFD\'|T], _) --> [_], decode_utf8(T).
 
 %% get_line_to_chars(+Stream, -Chars, +InitialChars).
 %
