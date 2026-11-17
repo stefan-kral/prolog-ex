@@ -3609,6 +3609,7 @@ defmodule PrologEx do
 
   defp call_located(found, goal, name, args, mod, rest, st) do
     arity = length(args)
+    args0 = args
 
     case found do
       {:db, m, pred} ->
@@ -3664,6 +3665,7 @@ defmodule PrologEx do
           {:ok, r} when kind == :det -> apply_result(r, call_mod, rest, st)
           {:ok, r} -> start_solutions(r, call_mod, rest, st)
           {:thrown, ball} -> throw_ball(ball, st)
+          :stop -> stopped(st, fn -> call_located(found, goal, name, args0, mod, rest, st) end)
         end
 
       :none ->
@@ -4067,7 +4069,38 @@ defmodule PrologEx do
     end
   end
 
-  defp ctx(st, mod), do: %{subst: st.subst, db: current_db(), module: mod}
+  # mit aktiver Grenze (ilimit gesetzt): Abbruchpunkte für lange Builtins
+  # scharf machen (PrologEx.Stop)
+  defp ctx(%{ilimit: nil} = st, mod), do: %{subst: st.subst, db: current_db(), module: mod}
+
+  defp ctx(st, mod) do
+    PrologEx.Stop.arm(earliest_deadline(st), intr_ref())
+    %{subst: st.subst, db: current_db(), module: mod}
+  end
+
+  defp intr_ref do
+    case timers() do
+      %{intr: ref} -> ref
+      _ -> nil
+    end
+  end
+
+  # ein Builtin hat an einem Abbruchpunkt aufgegeben: wie am Prüfpunkt
+  # der Maschine; ist doch nichts fällig (veraltet), noch einmal ohne
+  defp stopped(st, retry) do
+    PrologEx.Stop.disarm()
+
+    cond do
+      interrupted?() ->
+        throw_ball(@abort_ball, st)
+
+      (st2 = timer_expired(st)) != nil ->
+        throw_ball(@time_ball, st2)
+
+      true ->
+        retry.()
+    end
+  end
 
   # Nach einer erfolgreichen Unifikation weitermachen. Wurden dabei
   # attributierte Variablen gebunden (:wake), laufen deren Weckziele vor
@@ -4451,15 +4484,24 @@ defmodule PrologEx do
   #     Backtracking berechnet; das Builtin entscheidet selbst, wann [r]
   #     (letzte Lösung, kein Choice Point) kommt
   #   * sonstige Aufzählung (Stream, Range): lazy über :suspend
-  defp call_builtin(m, kind, fun, _goal, args, name, arity, mod, rest, st) do
+  defp call_builtin(m, kind, fun, goal, args, name, arity, mod, rest, st) do
+    args0 = args
     args = qualify(args, PrologEx.Builtins.meta(m, name, arity), m, mod, st.subst)
     # {:call, ziel} aus system läuft im Kontext des Aufrufers
     call_mod = if m == "system", do: mod, else: m
 
     case guarded(fn -> fun.(args, ctx(st, mod)) end) do
-      {:ok, r} when kind == :det -> apply_result(r, call_mod, rest, st)
-      {:ok, r} -> start_solutions(r, call_mod, rest, st)
-      {:thrown, ball} -> throw_ball(ball, st)
+      {:ok, r} when kind == :det ->
+        apply_result(r, call_mod, rest, st)
+
+      {:ok, r} ->
+        start_solutions(r, call_mod, rest, st)
+
+      {:thrown, ball} ->
+        throw_ball(ball, st)
+
+      :stop ->
+        stopped(st, fn -> call_builtin(m, kind, fun, goal, args0, name, arity, mod, rest, st) end)
     end
   end
 
@@ -5727,6 +5769,7 @@ defmodule PrologEx do
     {:ok, fun.()}
   rescue
     e in PrologEx.Error -> {:thrown, e.term}
+    PrologEx.Stop -> :stop
   end
 
   # Fehler aus einer Funktion, die immer wirft (z. B. Error.type!/2)

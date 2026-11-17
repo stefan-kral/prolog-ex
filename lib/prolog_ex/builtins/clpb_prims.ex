@@ -436,6 +436,9 @@ defmodule PrologEx.Builtins.ClpbPrims do
 
   # apply_//4: nach der Variablen mit dem kleineren Index aufteilen
   defp apply_split(f, na, nb, st) do
+    # lange Rechnungen: Zeitgrenzen und Ctrl-C (PrologEx.Stop)
+    PrologEx.Stop.tick!()
+
     case {na, nb} do
       {{:struct, "node", [_, va, la, ha, _]}, _} ->
         va = PrologEx.Store.walk(va, st.s)
@@ -603,6 +606,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
             {Map.fetch!(st.rmemo, id), st}
 
           true ->
+            PrologEx.Stop.tick!()
             {lres, st} = restrict(top(low, st.s), vi, value, st)
             {hres, st} = restrict(top(high, st.s), vi, value, st)
             {res, st} = make_node(v, lres, hres, st)
@@ -1474,6 +1478,7 @@ defmodule PrologEx.Builtins.ClpbPrims do
         {c, memo}
 
       _ ->
+        PrologEx.Stop.tick!()
         low = top(low, ctx.s)
         high = top(high, ctx.s)
         {lc, memo} = bdd_count(low, ctx, memo)

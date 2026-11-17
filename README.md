@@ -1516,6 +1516,12 @@ ist jeweils am Dateianfang vermerkt.
       100 ns je 1000 Inferenzen; die Frist hält auf wenige ms genau. Ein
       einzelnes lang laufendes eingebautes Prädikat (etwa `msort/2` auf
       einer Million Elementen) wird erst nach seiner Rückkehr unterbrochen.
+      Ausnahme sind die BDD-Rechnungen von `library(clpb)` (`sat/1`,
+      `taut/2`, `sat_count/2`, …): Sie haben eigene Abbruchpunkte
+      (`PrologEx.Stop`), Zeitgrenzen und Ctrl-C greifen auch mitten darin.
+      Vorher lief `call_with_time_limit(60, …)` um eine zu große Formel
+      gut 200 s. Ohne aktive Grenze kostet ein Abbruchpunkt ein
+      `Process.get`.
   * `time/1`, das wie Scryer `% CPU time: 0.000s, 1 inference` je Lösung
     und beim Scheitern ausgibt. Gemessen wird direkt um das Ziel herum,
     also zählt nur das Ziel (`time(true)` meldet 1 Inferenz).
@@ -2220,6 +2226,22 @@ Triskas eigenen Prüfprogrammen aus github.com/triska/clpb
 (gut eine Minute), `test_bdd_merging.pl` (65 536 Kombinationen) einmal von
 Hand, bestanden.
 
+Dazu Formeln aus SATLIB (www.cs.ubc.ca/~hoos/SATLIB) mit bekanntem
+Ergebnis (`test/satlib_test.exs`, Runner und Formeln in
+`test/fixtures/satlib`): zufällige 3-SAT-Formeln uf20-91 (erfüllbar; die
+gefundene Belegung wird ohne clpb nachgerechnet, `sat_count/2` mit den
+Modellzahlen verglichen, die Python durch Durchprobieren aller 2^20
+Belegungen zählt), aim-50 (erfüllbar oder nicht), dubois20/21 und die
+Schubfach-Formel hole7 (unerfüllbar). Alle 1000 uf20-Formeln: richtig,
+Modellzahlen alle gleich (rund 0,35 s je Formel; SWI 1,25 s, Scryer
+0,22 s). Zufällige Formeln mit 50 Variablen (uf50) sind für BDDs zu groß,
+in SWI wie hier; an ihnen prüft der Test, dass Zeitgrenze und Ctrl-C
+mitten in clpb greifen. `conformance/satlib/run.sh` holt die Formeln
+(uf20, aim, dubois, pret, hole7–9, je 5 aus uf50/uuf50; je 20 s) und
+vergleicht mit SWI und Scryer. PrologEx: 1106 Formeln, kein falsches
+Ergebnis; 20 brauchen länger als 20 s (dubois100, pret, hole9, uf50,
+uuf50).
+
 Ziel ist, clpb nach und nach ganz in Elixir zu rechnen
 (`PrologEx.Builtins.ClpbPrims`); `clpb.pl` geht dafür bewusst vom
 Snapshot weg (upstream ändert sich die Datei selten: seit 2020 ein paar
@@ -2495,6 +2517,15 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     Summen (`C+D` statt `D+C`: die Standardordnung der Variablen ist
     Sache des Systems) und dass Scryer zwei `freeze/2` auf derselben
     Variablen zu einem zusammenfasst.
+  * Rätsel mit unabhängig bekanntem Ergebnis (`test/clpz_puzzles_test.exs`,
+    `test/fixtures/clpz_puzzles`): Sudokus mit 17 Vorgaben aus Gordon
+    Royles Sammlung (49 151, jedes eindeutig lösbar; CC BY 2.5) – clpz
+    muss genau eine Lösung finden, die Prolog ohne clpz nachprüft (100
+    im Test, rund 19 ms je Sudoku; SWI rund 40 ms); Golomb-Lineale mit 1
+    bis 8 Marken, deren kürzeste Länge bekannt ist (OEIS A003022) –
+    `labeling([min(L)], …)` muss sie treffen (8 Marken: 3,9 s, SWI 9,1 s).
+    `conformance/clpz_puzzles/run.sh` prüft alle 49 151 Sudokus und mehr
+    Marken, auch in SWI und Scryer.
   * Differentielles Fuzzing gegen Scryer (`conformance/clpz_fuzz/`, für
     Läufe über Nacht): `gen.py` erzeugt kleine Probleme mit 1–4 Variablen
     (Arithmetik mit allen Operatoren, lineare Summen, `sum/3`,
