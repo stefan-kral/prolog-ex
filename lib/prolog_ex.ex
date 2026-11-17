@@ -6247,6 +6247,18 @@ defmodule PrologEx do
   @doc false
   # arithmetischer Vergleich zweier Werte (auch von PrologEx.Jit benutzt)
   def compare(op, x, y) when is_tuple(x) or is_tuple(y), do: PrologEx.Arith.compare_num(op, x, y)
+  # Ganzzahl ab 2^53 mit Float: über den nächsten Float (ISO, wie SWI und
+  # Scryer), nicht exakt wie Erlang
+  def compare(op, x, y)
+      when is_float(y) and is_integer(x) and
+             (x >= 9_007_199_254_740_992 or x <= -9_007_199_254_740_992),
+      do: PrologEx.Arith.compare_num(op, x, y)
+
+  def compare(op, x, y)
+      when is_float(x) and is_integer(y) and
+             (y >= 9_007_199_254_740_992 or y <= -9_007_199_254_740_992),
+      do: PrologEx.Arith.compare_num(op, x, y)
+
   def compare("<", x, y), do: x < y
   def compare(">", x, y), do: x > y
   def compare(">=", x, y), do: x >= y

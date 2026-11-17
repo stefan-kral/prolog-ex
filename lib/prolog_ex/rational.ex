@@ -102,50 +102,95 @@ defmodule PrologEx.Rational do
   # --- Float --------------------------------------------------------------
 
   @doc """
-  Nächster Float (korrekt für alle Größen: nicht n/d, das große Zähler und
-  Nenner einzeln umwandelte). Zu groß: float_overflow.
+  Nächster Float (korrekt gerundet, auch unterhalb von 2.2e-308: nicht n/d,
+  das große Zähler und Nenner einzeln umwandelte). Zu groß: float_overflow.
   """
-  def to_float({:rat, n, d}) when n < 0, do: -to_float({:rat, -n, d})
+  def to_float(x) do
+    case near(x) do
+      f when is_float(f) -> f
+      _ -> Error.evaluation!("float_overflow")
+    end
+  end
 
-  def to_float({:rat, n, d}) do
+  @doc """
+  Ganzzahl als nächster Float (zur geraden Mantisse bei Gleichstand). Erlangs
+  `n * 1.0` und `float(n)` runden ab 2^53 nicht immer zum nächsten Float
+  (float(10^39) ist 1.0000000000000001e39). Zu groß: float_overflow.
+  """
+  def int_to_float(n) when n < 1 <<< 53 and n > -(1 <<< 53), do: n * 1.0
+  def int_to_float(n), do: to_float(n)
+
+  @doc """
+  Wie to_float/1 (Ganzzahl oder Bruch), aber zu groß ist `:inf` bzw.
+  `:ninf` statt eines Fehlers – für Vergleiche mit Floats (wie SWI und
+  Scryer: 10^400 > 1.0e308 gelingt)
+  """
+  def near({:rat, n, d}) when n < 0, do: fneg(near({:rat, -n, d}))
+  def near(n) when is_integer(n) and n < 0, do: fneg(near(-n))
+  def near(n) when is_integer(n) and n < 1 <<< 53, do: n * 1.0
+
+  def near(n) when is_integer(n) do
+    sh = bitlen(n) - 53
+    m = n >>> sh
+    low = n &&& (1 <<< sh) - 1
+    half = 1 <<< (sh - 1)
+    m = if low > half or (low == half and (m &&& 1) == 1), do: m + 1, else: m
+    make_float(m, sh)
+  end
+
+  def near({:rat, n, d}) do
     # beide exakt als Float darstellbar: die Division rundet korrekt
     if n < 1 <<< 53 and d < 1 <<< 53 do
       n / d
     else
-      # Quotient mit mindestens 55 Bits und Haftbit (Rest != 0), dann selbst
-      # auf 53 Bits runden (auf das Runden beim Umwandeln großer Ganzzahlen
-      # ist kein Verlass) – die Mantisse ist danach exakt ein Float
-      k = bitlen(n) - bitlen(d) - 56
-      {q, r} = if k >= 0, do: divrem(n, d <<< k), else: divrem(n <<< -k, d)
-      sh = bitlen(q) - 53
-      mant = q >>> sh
-      low = q &&& (1 <<< sh) - 1
-      half = 1 <<< (sh - 1)
-
-      mant =
-        cond do
-          low > half -> mant + 1
-          low == half and (r != 0 or (mant &&& 1) == 1) -> mant + 1
-          true -> mant
-        end
-
-      scale(mant, k + sh)
+      # 2^(e-1) =< n/d < 2^e
+      e0 = bitlen(n) - bitlen(d)
+      e = if if(e0 >= 0, do: n >= d <<< e0, else: n <<< -e0 >= d), do: e0 + 1, else: e0
+      if e > 1024, do: :inf, else: near_rat(n, d, e)
     end
   end
 
-  def to_float(n), do: n * 1.0
+  # letzte Stelle 2^t: 53 Bits, aber nicht kleiner als 2^-1074 (subnormal);
+  # auf ein ganzes Vielfaches von 2^t runden
+  defp near_rat(n, d, e) do
+    t = max(e - 53, -1074)
+    {n, d} = if t >= 0, do: {n, d <<< t}, else: {n <<< -t, d}
+    {q, r} = divrem(n, d)
 
-  defp divrem(a, b), do: {div(a, b), rem(a, b)}
+    q =
+      cond do
+        2 * r > d -> q + 1
+        2 * r == d and (q &&& 1) == 1 -> q + 1
+        true -> q
+      end
 
-  # m * 2^k als Float (m hat höchstens 54 Bits: exakt)
-  defp scale(m, k) when k >= 0 do
-    m * :math.pow(2, k)
-  rescue
-    ArithmeticError -> Error.evaluation!("float_overflow")
+    make_float(q, t)
   end
 
-  defp scale(m, k) when k >= -1000, do: m / :math.pow(2, -k)
-  defp scale(m, k), do: scale(m, k + 1000) / :math.pow(2, 1000)
+  defp fneg(:inf), do: :ninf
+  defp fneg(f), do: -f
+
+  # m * 2^t als Float, wenn das exakt darstellbar ist (m =< 2^53; m < 2^52
+  # nur bei t = -1074): die Bits direkt; zu groß: :inf
+  defp make_float(m, t) when m == 1 <<< 53, do: make_float(1 <<< 52, t + 1)
+
+  defp make_float(m, t) when m >= 1 <<< 52 do
+    be = t + 1075
+
+    if be >= 2047 do
+      :inf
+    else
+      <<f::float>> = <<0::1, be::11, m - (1 <<< 52)::52>>
+      f
+    end
+  end
+
+  defp make_float(m, _t) do
+    <<f::float>> = <<0::1, 0::11, m::52>>
+    f
+  end
+
+  defp divrem(a, b), do: {div(a, b), rem(a, b)}
 
   # Anzahl der Bits (x > 0)
   defp bitlen(x) do
@@ -193,7 +238,7 @@ defmodule PrologEx.Rational do
       else: convergent(d, n - a * d, f, {h, k}, {h1, k1})
   end
 
-  defp r_float(n) when is_integer(n), do: n * 1.0
+  defp r_float(n) when is_integer(n), do: int_to_float(n)
   defp r_float(r), do: to_float(r)
 
   @doc """

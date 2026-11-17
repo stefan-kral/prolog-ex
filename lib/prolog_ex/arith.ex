@@ -66,6 +66,8 @@ defmodule PrologEx.Arith do
 
   @max_tagged 576_460_752_303_423_487
   @min_tagged -576_460_752_303_423_488
+  # ab hier sind nicht mehr alle Ganzzahlen exakt Floats
+  @exact 9_007_199_254_740_992
 
   @ops0 ~w(pi e epsilon max_tagged_integer min_tagged_integer random random_float
            cputime realtime)
@@ -378,7 +380,7 @@ defmodule PrologEx.Arith do
   defp eval1("log", x, _s), do: :math.log(x)
   defp eval1("log10", x, _s) when x <= 0, do: undefined()
   # kleine Ganzzahlen direkt (log10(1000) = 3.0), große über int_log
-  defp eval1("log10", x, _s) when is_integer(x) and x < 1.0e300, do: :math.log10(x)
+  defp eval1("log10", x, _s) when is_integer(x) and x < 1.0e300, do: :math.log10(float!(x))
   defp eval1("log10", x, _s) when is_integer(x), do: int_log(x) / :math.log(10)
   defp eval1("log10", x, _s), do: :math.log10(x)
 
@@ -448,7 +450,7 @@ defmodule PrologEx.Arith do
   defp rat1("round", x, _s), do: Rat.round_iso(x)
   defp rat1("floor", x, _s), do: Rat.floor(x)
   defp rat1("ceiling", x, _s), do: Rat.ceiling(x)
-  defp rat1("float_integer_part", x, _s), do: Rat.truncate(x) * 1.0
+  defp rat1("float_integer_part", x, _s), do: Rat.int_to_float(Rat.truncate(x))
   defp rat1("float_fractional_part", x, _s), do: Rat.sub(x, Rat.truncate(x))
   defp rat1(op, x, _s) when op in ~w(rational rationalize), do: x
   defp rat1("numerator", {:rat, n, _}, _s), do: n
@@ -483,6 +485,18 @@ defmodule PrologEx.Arith do
   defp eval2("//", x, y) when is_integer(x) and is_integer(y) and y != 0, do: div(x, y)
   # Brüche (PrologEx.Rational)
   defp eval2(op, x, y) when is_tuple(x) or is_tuple(y), do: rat2(op, x, y)
+  # große Ganzzahl mit Float: selbst umwandeln (Erlang rundet sie nicht
+  # immer zum nächsten Float)
+  defp eval2(op, x, y)
+       when is_float(y) and is_integer(x) and (x >= @exact or x <= -@exact) and
+              op in ~w(+ - * /),
+       do: eval2(op, Rat.int_to_float(x), y)
+
+  defp eval2(op, x, y)
+       when is_float(x) and is_integer(y) and (y >= @exact or y <= -@exact) and
+              op in ~w(+ - * /),
+       do: eval2(op, x, Rat.int_to_float(y))
+
   defp eval2("+", x, y), do: overflow(fn -> x + y end)
   defp eval2("-", x, y), do: overflow(fn -> x - y end)
   defp eval2("*", x, y), do: overflow(fn -> x * y end)
@@ -493,7 +507,8 @@ defmodule PrologEx.Arith do
     cond do
       rem(x, y) == 0 -> div(x, y)
       prefer_rationals?() -> Rat.make(x, y)
-      true -> overflow(fn -> x / y end)
+      # ISO: float(X) / float(Y), wie SWI und Scryer
+      true -> overflow(fn -> float!(x) / float!(y) end)
     end
   end
 
@@ -605,6 +620,9 @@ defmodule PrologEx.Arith do
   defp to_f({:rat, _, _} = r), do: Rat.to_float(r)
   defp to_f(x), do: x
 
+  defp near(x) when is_float(x), do: x
+  defp near(x), do: Rat.near(x)
+
   defp prefer_rationals?, do: PrologEx.Flags.get("prefer_rationals") == {:atom, "true"}
 
   @doc """
@@ -614,9 +632,13 @@ defmodule PrologEx.Arith do
   def compare_num(op, x, y) do
     c =
       if is_float(x) or is_float(y) do
-        {x, y} = {to_f(x), to_f(y)}
+        # die andere Zahl als nächster Float (wie SWI und Scryer: 2^53+1
+        # =:= 2.0^53), zu groß als ±unendlich
+        {x, y} = {near(x), near(y)}
 
         cond do
+          x == :ninf or y == :inf -> :lt
+          x == :inf or y == :ninf -> :gt
           x < y -> :lt
           x > y -> :gt
           true -> :eq
@@ -687,7 +709,9 @@ defmodule PrologEx.Arith do
 
   # Float, mit float_overflow für zu große Ganzzahlen
   defp float!(x) when is_float(x), do: x
-  defp float!(x), do: overflow(fn -> x * 1.0 end)
+  # korrekt gerundet (Erlangs x * 1.0 nicht, ab 2^53)
+  defp float!(x) when is_integer(x), do: Rat.int_to_float(x)
+  defp float!({:rat, _, _} = r), do: Rat.to_float(r)
 
   defp overflow(f) do
     f.()
@@ -706,11 +730,11 @@ defmodule PrologEx.Arith do
   defp negative?(y), do: y < 0
 
   # log einer (auch sehr großen) Ganzzahl > 0
-  defp int_log(x) when x < 1.0e300, do: :math.log(x)
+  defp int_log(x) when x < 1.0e300, do: :math.log(float!(x))
 
   defp int_log(x) do
     shift = msb(x) - 900
-    :math.log(Bitwise.bsr(x, shift)) + shift * :math.log(2)
+    :math.log(float!(Bitwise.bsr(x, shift))) + shift * :math.log(2)
   end
 
   defp pow(x, y) do

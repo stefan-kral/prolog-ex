@@ -636,6 +636,44 @@ Zahlen im Quelltext: Zifferntrenner wie von WG17 2025 angenommen
 oder ein Kommentar: `1_ /* … */ 000`; auch in `0b…`, `0o…`, `0x…` und
 in den Nachkommastellen, `1_000.000_1`; kein doppeltes `__`) und Ganzzahl-Literale beliebiger Größe.
 
+### Gleitkommazahlen
+
+  * **Lesen** (Leser, `number_codes/2`, `atom_number/2`, …): der nächste
+    Float, bei Gleichstand der mit gerader Mantisse; zu kleine Werte
+    werden subnormal oder 0.0, zu große sind ein Fehler.
+  * **Schreiben:** die kürzeste Ziffernfolge, die beim Lesen wieder
+    denselben Float ergibt, dezimal für 1.0e-4 =< |X| < 1.0e15 (`1500.0`,
+    `0.001`), sonst mit Exponent (`1.0e15`, `1.0e-5`).
+  * **Ganzzahl → Float** (`float/1`, gemischte Arithmetik wie `10^39 *
+    1.0`, `sqrt/1`, `**`, `format/2` mit `~e`): korrekt gerundet. Erlangs
+    eigene Umwandlung tut das ab 2^53 nicht immer: `float(10^39)` gab
+    `1.0000000000000001e39`, jetzt `1.0e39` wie in SWI und Scryer.
+    Ganzzahlen bis 2^53 laufen wie vorher direkt.
+  * **Vergleich** mit einem Float (`=:=`, `<`, …): die Ganzzahl oder der
+    Bruch als nächster Float, wie ISO, SWI und Scryer (`2^53+1 =:=
+    2.0^53` gelingt); zu Große zählen als unendlich (`10^400 > 1.0e308`).
+    Vorher wurde exakt verglichen (wie Erlang).
+  * `/` auf zwei Ganzzahlen, die nicht aufgehen: nach ISO `float(X) /
+    float(Y)`, wie SWI und Scryer – das kann zweimal runden
+    (`13918048288 / 10^149` ist `1.3918048287999999e-139`). Exakt:
+    `float(13918048288 rdiv 10^149)` gibt `1.3918048288e-139`.
+
+Geprüft an Nigel Taos `parse-number-fxx-test-data` (5,3 Mio. Zeilen
+„Text → IEEE-Bits“ aus double-conversion, Ryu, RapidJSON, fast_float,
+IBM fpgen und anderen): Jede Zeile wird bitgenau gelesen (Leser und
+`number_codes/2`), kürzest geschrieben (Orakel: Pythons `repr`) und als
+exakte Ganzzahl bzw. als exakter Bruch korrekt umgewandelt. Gefunden hat
+das die falsche Rundung großer Ganzzahlen (siehe oben) und bei Brüchen
+unterhalb von 2.2e-308 doppeltes Runden: `float(1 rdiv 2^1075 + 1 rdiv
+2^1200)` gab 0.0 statt `5.0e-324`, wie in SWI. Eine Stichprobe (6500
+Zeilen, alle subnormalen) steht in `test/fixtures/float_text`, dazu
+Zufallstests, die den nächsten Float exakt nachrechnen.
+`conformance/float_text/run.sh` holt die Daten und vergleicht alle Zeilen,
+auch mit SWI (fehlerfrei) und Scryer: Scryer liest 98 Zeilen falsch, lange
+Ziffernfolgen dicht an der Mitte zwischen zwei Floats
+(`2.16656806400000023841857910156251e9` wird `2166568064.0` statt
+`2166568064.0000005`).
+
 ### Rationale Zahlen
 
 Brüche wie in SWI: `1r3`, `-7r2` (gelesen auch mit Zifferntrennern im
@@ -650,7 +688,7 @@ und `rational/1` gelingen, `integer/1`, `float/1` und `compound/1` nicht;
     (`1r3 + 0.5`). `floor`, `ceiling`, `truncate`, `round` (wie für Floats
     `floor(X + 1/2)`) und `integer` (Hälften weg von 0) geben Ganzzahlen,
     `float/1` den nächsten Float (korrekt gerundet, auch bei riesigen
-    Zählern und Nennern). Neu: `rdiv/2` (Operator 400 `yfx` wie in SWI),
+    Zählern und Nennern und unterhalb von 2.2e-308). Neu: `rdiv/2` (Operator 400 `yfx` wie in SWI),
     `rational/1` (exakter Wert eines Floats: `rational(0.1)` ist
     `3602879701896397r36028797018963968`), `rationalize/1` (einfachster
     Bruch, der denselben Float ergibt: `1r10`), `numerator/1`,

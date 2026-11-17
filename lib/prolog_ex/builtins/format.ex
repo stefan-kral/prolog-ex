@@ -330,11 +330,7 @@ defmodule PrologEx.Builtins.Format do
         x
 
       n when is_integer(n) ->
-        try do
-          n * 1.0
-        rescue
-          ArithmeticError -> Error.evaluation!("float_overflow")
-        end
+        PrologEx.Rational.int_to_float(n)
 
       {:rat, _, _} = r ->
         PrologEx.Rational.to_float(r)
