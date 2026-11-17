@@ -4172,7 +4172,8 @@ Schreibströmen; Flag `version_data` (`prolog_ex(0,1,0,[])`, wie SWI).
 (für den Teil ohne CLP wie für clpz/clpb). Je Programm zwei Dateien:
 
   * `NAME.pl`: das Programm unverändert aus der Quelle; der Name nennt sie
-    (`taop__…` für „The Art of Prolog“),
+    (`taop__…` für „The Art of Prolog“, `triska__…` für Markus Triska,
+    `oeis__…` für eigens geschriebene Programme zu einer OEIS-Folge),
   * `NAME.checks.pl`: Erwartungen als Fakten – `expect(Ziel, Schablone,
     Lösungen)` (alle, in Reihenfolge), `expect_count(Ziel, N)`,
     `expect_first(Ziel, Schablone, T)`.
@@ -4187,6 +4188,23 @@ dieselben Erwartungen in SWI und Scryer gegen
 | Programm | Prüft |
 |---|---|
 | `taop__nqueens_fruewirth` | N-Damen nach Frühwirth (Diagonalen als Listen): Anzahlen für N = 1..8 (OEIS A000170), alle Lösungen für 4 und 5 in Reihenfolge, die erste für 8 |
+| `triska__simplex_examples` | library(simplex): Beispiele aus der Dokumentation, Transport- und Zuordnungsproblem |
+| `oeis__a000108_catalan` | DCG: ausgeglichene Klammerfolgen, Anzahlen für n = 0..10 (A000108) |
+| `oeis__a001006_motzkin` | DCG: Motzkin-Wege, n = 0..12 (A001006) |
+| `oeis__a000110_bell` | Mengenpartitionen, n = 0..9 (A000110) |
+| `oeis__a000166_derangements` | fixpunktfreie Permutationen, erzeugen und prüfen bzw. erst `dif/2`, n = 0..8 (A000166) |
+| `oeis__a002860_latin` | clpz: Lateinische Quadrate, n = 1..4 (A002860) |
+| `oeis__a014552_langford` | clpz: Langford-Folgen (Umkehrung einmal gezählt), n = 1..8 (A014552) |
+| `oeis__a006506_grid` | clpb, `sat_count/2`: unabhängige Mengen im n×n-Gitter, n = 0..6 (A006506) |
+| `oeis__a000372_dedekind` | clpb, `sat_count/2`: monotone Boolesche Funktionen, n = 0..5 (A000372; n = 6 braucht 23 s, SWI 87 s) |
+| `oeis__a006577_collatz` | Collatz/Hailstone: Schritte für 1..72 (A006577), Höchstwerte für 1..62 (A025586), Rekordhalter bis 10000 (A006877, A006878), die Folge ab 27 |
+
+Die `oeis__…`-Programme sind eigens geschrieben (keine feste Vorlage), die
+Erwartungen kommen aus den Daten der OEIS. Die Batterie lädt jedes
+Programm wie eine Datei (abschnittsweise: Operatoren wie `ins` aus clpz
+gelten ab der Direktive); in Scryer lädt `cross.sh` die Bibliotheken des
+Programms vor dem `include/1`, weil Scryer eine eingebundene Datei ganz
+liest, bevor ihre Direktiven laufen.
 
 ## Reader
 

@@ -23,6 +23,9 @@ defmodule PrologEx.ProgramBatteryTest do
   end
 
   for n <- @names do
+    # als Datei geladen (abschnittsweise wie consult/1): Operatoren aus
+    # Bibliotheken (clpz: ins, #=) gelten ab der Direktive
+    @tag :tmp_dir
     test n, c do
       Reader.put_current(c.reader)
 
@@ -37,9 +40,18 @@ defmodule PrologEx.ProgramBatteryTest do
           &File.read!/1
         )
 
-      {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+      file = Path.join(c.tmp_dir, unquote(n) <> ".pl")
+      File.write!(file, src)
+      PrologEx.put_db(%{})
+
+      msgs =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          {:ok, _} = PrologEx.Consult.load_file(file)
+        end)
+
+      assert msgs == "", "#{unquote(n)}: #{msgs}"
+      db = PrologEx.current_db()
       [{:term, g, _}] = Reader.read_terms(c.reader, "failures(Fs).")
-      PrologEx.put_db(db)
 
       [out] =
         PrologEx.query(db, g)

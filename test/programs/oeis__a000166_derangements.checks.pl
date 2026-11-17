@@ -1,0 +1,19 @@
+% Anzahlen: OEIS A000166 (Subfakultaet), n = 0..8, beide Fassungen.
+expect_count(derangement(0, _), 1).
+expect_count(derangement(1, _), 0).
+expect_count(derangement(2, _), 1).
+expect_count(derangement(3, _), 2).
+expect_count(derangement(4, _), 9).
+expect_count(derangement(5, _), 44).
+expect_count(derangement(6, _), 265).
+expect_count(derangement(7, _), 1854).
+expect_count(derangement(8, _), 14833).
+expect_count(derangement_dif(0, _), 1).
+expect_count(derangement_dif(1, _), 0).
+expect_count(derangement_dif(2, _), 1).
+expect_count(derangement_dif(3, _), 2).
+expect_count(derangement_dif(4, _), 9).
+expect_count(derangement_dif(5, _), 44).
+expect_count(derangement_dif(6, _), 265).
+expect_count(derangement_dif(7, _), 1854).
+expect_count(derangement_dif(8, _), 14833).
