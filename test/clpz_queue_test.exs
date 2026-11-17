@@ -547,6 +547,42 @@ defmodule PrologEx.ClpzQueueTest do
     assert diffs == [], inspect(Enum.take(diffs, 2), pretty: true)
   end
 
+  # Ein weiteres Hook-Modul mit Attributen an den clpz-Variablen selbst
+  # (Parität: lehnt Werte ab, überträgt sich bei Var = Var): der Weg in
+  # Elixir weckt dessen Hooks nach dem Propagator statt mittendrin – die
+  # Lösungen sind dieselben wie im Original
+  test "Hook-Modul an den clpz-Variablen: Lösungen wie das Original", c do
+    PrologEx.put_db(c.db)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      {:ok, _} = PrologEx.Consult.load_file("test/fixtures/atts/par.pl")
+    end)
+
+    db = PrologEx.current_db()
+
+    diffs =
+      for _ <- 1..300,
+          par =
+            Enum.map_join(1..Enum.random(1..3), ", ", fn _ ->
+              "par:parity(#{Enum.random(@vars)}, #{Enum.random(0..1)})"
+            end),
+          {early, late} = Enum.random([{par, "true"}, {"true", par}]),
+          alias = Enum.random(["true", "true", "X = Y", "f(X, Z) = f(Y, W)"]),
+          lab =
+            "Vs = [X,Y,Z,W], [X,Y,Z,W] ins 0..3, #{early}, #{setup_goal()}, #{late}, " <>
+              "#{alias}, labeling([], Vs)",
+          q =
+            "catch(findall(Vs, fast(off, (#{lab})), L1), E1, L1 = err(E1)), " <>
+              "catch(findall(Vs, fast(on, (#{lab})), L2), E2, L2 = err(E2)), " <>
+              "clpz:'$clpz_fast'(on), " <>
+              "( L1 == L2 -> true ; throw(verschieden(L1, L2)) )",
+          r = TableCase.run(c.reader, db, q),
+          not match?({_, {:answers, [_]}}, r),
+          do: {lab, r}
+
+    assert diffs == [], inspect(Enum.take(diffs, 2), pretty: true)
+  end
+
   test "variables_same_queue/1: drei eigene Queues mit Einträgen, abgeschaltete Queue", c do
     for {fill, extra, l} <- [
           # drei Queues mit Einträgen im selben Teil: die Kette des Originals

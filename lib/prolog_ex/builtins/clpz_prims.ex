@@ -528,13 +528,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # pit/4: make_propagator/2, new_queue/1, init_propagator_//2,
-  # variables_same_queue/1 (nur, wenn clpz das einzige Hook-Modul ist, wie
-  # '$clpz_variables_same_queue'/1)
+  # variables_same_queue/1
   defbuiltin "$clpz_pit", [vs, p0, prop, qout] do
     run("pit", [vs, p0, prop, qout], subst(), fn ->
       s = subst_now()
       if Process.get(:clpz_no_fast), do: throw(:fallback)
-      unless alone?(ctx.db), do: throw(:fallback)
       p = mk("propagator", [p0, fresh_var()])
       q = new_queue()
 
@@ -1766,9 +1764,6 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defbuiltin "$clpz_variables_same_queue", [vs0] do
     run("variables_same_queue", [vs0], subst(), fn ->
       s = subst_now()
-      # das Gleichsetzen bindet Queue-Variablen nacheinander, mit Wecken
-      # dazwischen: mit weiteren Hook-Modulen das Original
-      unless alone?(ctx.db), do: throw(:fallback)
 
       case same_queue(vs0, s) do
         :fail -> :fail
@@ -1956,7 +1951,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
           case PrologEx.Store.walk(other, s) do
             {:var, _} = o ->
-              verify_vars(v, attr, dom, ps, o, gs, ctx.db, s)
+              verify_vars(v, attr, dom, ps, o, gs, s)
 
             i when is_integer(i) ->
               if contains_t(dom, i) do
@@ -1984,11 +1979,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # zusammen, Queues zusammenlegen, fd_put//3 und trigger_props//1 mit
   # einer neuen Queue Q0, Gs = [phrase(do_queue, [Q0], _)]; Other ohne
   # Domäne bekommt das Attribut von Var. Das Zusammenlegen bindet
-  # Queue-Variablen (Wecken nach dem Hook statt mittendrin): nur wenn clpz
-  # das einzige Modul mit verify_attributes/3 ist, sonst das Original
-  defp verify_vars(v, attr, dom, ps, o, gs, db, s) do
-    unless alone?(db), do: throw(:fallback)
-
+  # Queue-Variablen; andere Hook-Module sehen sie nicht (die Maschine ruft
+  # Hooks nur für Variablen mit Attributen des Moduls)
+  defp verify_vars(v, attr, dom, ps, o, gs, s) do
     case att(o, s, "clpz", 1) do
       nil ->
         s |> put_att(o, mk("clpz", [attr])) |> then(&out_gs(gs, [], &1))
@@ -2040,11 +2033,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defbuiltin "$clpz_do_queue", [q0] do
     s = subst()
     Process.put(:clpz_prims_subst, s)
-    db = ctx.db
 
     try do
       q = PrologEx.Store.walk(q0, s)
-      queue_out(q, native(q, s, &loop_q(q, &1, db)))
+      queue_out(q, native(q, s, &loop_q(q, &1)))
     catch
       :fallback -> {:call, mk(":", [a("clpz"), mk("do_queue", [[q0], fresh_var()])])}
     end
@@ -2294,7 +2286,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
     run("activate_propagator", [prop, s0, s1], subst(), fn ->
       s = subst_now()
 
-      case activate(prop, state_q(s0, s), s, alone?(ctx.db)) do
+      case activate(prop, state_q(s0, s), s) do
         {:ok, s} -> finish(s1, s0, s)
         :fail -> :fail
         :fallback -> throw(:fallback)
@@ -2302,19 +2294,17 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
-  # clpz das einzige Modul mit verify_attributes/3? (freeze, dif, when sind
-  # eingebaut und zählen nicht)
-  defp alone?(db), do: PrologEx.verify_modules(db) -- ["clpz"] == []
-
   # Ein Propagator in Elixir: {:ok, s}, :fail oder :fallback (das Original
-  # rechnet; s unverändert). Hat ein weiteres Modul verify_attributes/3,
-  # rechnet (vorsichtig) jeder Propagator, der eine attributierte Variable
-  # bindet, das Original: dessen Hooks laufen dort mitten im Propagator,
-  # hier erst danach. (Die Maschine ruft den Hook nur für Variablen mit
-  # Attributen des Moduls; die internen Variablen von clpz sieht er nicht.)
-  defp activate(prop, q, s, alone) do
+  # rechnet; s unverändert). Bindet er Variablen, wecken die Maschine bzw.
+  # absorb_wake/3 erst danach, vor dem nächsten Propagator (im Original:
+  # mitten im Propagator). Das gilt für freeze, dif, when an
+  # Benutzervariablen ebenso wie für die Hooks anderer Module: die ruft die
+  # Maschine nur für Variablen mit Attributen des Moduls, die internen
+  # Variablen von clpz (Zustand, Queues) sehen sie nicht. Bis November 2026
+  # rechnete mit einem weiteren Hook-Modul das Original – drei- bis
+  # zwölfmal langsamer.
+  defp activate(prop, q, s) do
     Process.put(:clpz_prims_subst, s)
-    Process.put(:clpz_alone, alone)
     nq = Process.get(@nq)
 
     try do
@@ -2362,12 +2352,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
               propagate(name, args, st, q, s)
             end
 
-          # (auch ein Fehlschlag: das Original weckt vorher vielleicht noch)
-          cond do
-            not alone and (r == :fail or Store.wake?(r)) -> restore_nq(nq, :fallback)
-            r == :fail -> :fail
-            true -> {:ok, r}
-          end
+          if r == :fail, do: :fail, else: {:ok, r}
       end
     catch
       :fallback -> restore_nq(nq, :fallback)
@@ -2389,8 +2374,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Ziel: Prolog ruft es), ref(P) (P rechnet das Original) oder again (eine
   # Bindung: erst wecken, dann weiter). Bindungen, deren Wecken nichts tun
   # kann – der Zustand eines getöteten Propagators: nur clpz-interne
-  # Attribute, verify_attributes/3 von clpz gibt [] –, gelten als erledigt,
-  # wenn clpz das einzige Modul mit verify_attributes/3 ist.
+  # Attribute, verify_attributes/3 von clpz gibt [] –, gelten als erledigt.
 
   defbuiltin "$clpz_queue_run", [s0, next] do
     run("queue_run", [s0, next], subst(), fn ->
@@ -2403,9 +2387,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           _ -> throw(:fallback)
         end
 
-      only = alone?(ctx.db)
-
-      case native(q, s, &queue_loop(q, args, only, &1)) do
+      case native(q, s, &queue_loop(q, args, &1)) do
         :fail -> :fail
         {:next, t, s} -> out_next(next, t, s)
       end
@@ -2422,12 +2404,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
       s = subst_now()
       if Process.get(:clpz_no_fast), do: throw(:fallback)
       q = new_queue()
-      db = ctx.db
 
       native(q, s, fn s ->
         case put_terminating(x, dom, ps, q, s) do
           :fail -> :fail
-          s -> loop_q(q, s, db)
+          s -> loop_q(q, s)
         end
       end)
       |> then(&queue_out(q, &1))
@@ -2452,12 +2433,11 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
           d1 ->
             q = new_queue()
-            db = ctx.db
 
             native(q, s, fn s ->
               case fdput(v, d1, ps, q, s) do
                 :fail -> :fail
-                s -> loop_q(q, s, db)
+                s -> loop_q(q, s)
               end
             end)
             |> then(&queue_out(q, &1))
@@ -2493,26 +2473,25 @@ defmodule PrologEx.Builtins.ClpzPrims do
       s = subst_now()
       if Process.get(:clpz_no_fast), do: throw(:fallback)
       q = PrologEx.Store.walk(q0, s)
-      db = ctx.db
 
       native(q, s, fn s ->
         case trigger(p, q, s) do
           :fail -> :fail
-          s -> loop_q(q, s, db)
+          s -> loop_q(q, s)
         end
       end)
       |> then(&queue_out(q, &1))
     end)
   end
 
-  defp loop_q(q, s, db) do
+  defp loop_q(q, s) do
     args =
       case ws(q, s) do
         {tag, "queue", [_, _, _, _] = args} when tag in [:struct, :gstruct] -> args
         _ -> throw(:fallback)
       end
 
-    queue_loop(q, args, alone?(db), s)
+    queue_loop(q, args, s)
   end
 
   # Ergebnis der Schleife als Ergebnis des Builtins: leer – fertig; sonst
@@ -2539,21 +2518,19 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Domäne). Anderes: das Original.
 
   defbuiltin "$clpz_neq_fast", [k, a, b] do
-    db = ctx.db
-
     run("clpz_neq_fast", [k, a, b], subst(), fn ->
       s = subst_now()
-      if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
 
       case w(k) do
         {:atom, "num_a"} ->
-          neq_num_post(a, b, s, db)
+          neq_num_post(a, b, s)
 
         {:atom, "num_b"} ->
-          neq_num_post(b, a, s, db)
+          neq_num_post(b, a, s)
 
         {:atom, "pneq"} ->
-          pit_trigger([a, b], mk("pneq", [a, b]), s, db)
+          pit_trigger([a, b], mk("pneq", [a, b]), s)
 
         {:atom, "absdiff"} ->
           {g, h} =
@@ -2566,7 +2543,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
           i = parse_simple(g, s)
           j = parse_simple(h, s)
-          pit_trigger([i, j, b], mk("absdiff_neq", [i, j, b]), s, db)
+          pit_trigger([i, j, b], mk("absdiff_neq", [i, j, b]), s)
 
         _ ->
           throw(:fallback)
@@ -2651,7 +2628,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # neq_num/2: fd_get/3, domain_remove/3, fd_put/3; ohne Domäne X =\\= N
-  defp neq_num_post(x, n, s, db) do
+  defp neq_num_post(x, n, s) do
     n = PrologEx.Store.walk(n, s)
     unless is_integer(n), do: throw(:fallback)
 
@@ -2663,7 +2640,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         native(q, s, fn s ->
           case fdput(v, remove(d, n), ps, q, s) do
             :fail -> :fail
-            s -> loop_q(q, s, db)
+            s -> loop_q(q, s)
           end
         end)
         |> then(&queue_out(q, &1))
@@ -2677,7 +2654,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # pit/4 und trigger_once_/2 wie '$clpz_pit'/4 und '$clpz_trigger_once'/2
-  defp pit_trigger(vs, p0, s, db) do
+  defp pit_trigger(vs, p0, s) do
     p = mk("propagator", [p0, fresh_var()])
     q = new_queue()
 
@@ -2694,7 +2671,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         native(q, s, fn s ->
           case trigger(p, q, s) do
             :fail -> :fail
-            s -> loop_q(q, s, db)
+            s -> loop_q(q, s)
           end
         end)
         |> then(&queue_out(q, &1))
@@ -2711,8 +2688,6 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # domains/2 über den Rest. Anderes: das Original
 
   defbuiltin "$clpz_ins", [vs, d0] do
-    db = ctx.db
-
     run("ins", [vs, d0], subst(), fn ->
       s = subst_now()
       if Process.get(:clpz_no_fast), do: throw(:fallback)
@@ -2726,7 +2701,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           :error -> throw(:fallback)
         end
 
-      ins_items(vs, dom(dt), dt, s, db)
+      ins_items(vs, dom(dt), dt, s)
     end)
   end
 
@@ -2739,17 +2714,17 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp ins_items(l, dd, dt, s, db) do
+  defp ins_items(l, dd, dt, s) do
     case ws(l, s) do
       [] -> {:subst, s}
-      [x | rest] -> ins_item(x, rest, dd, dt, s, db)
+      [x | rest] -> ins_item(x, rest, dd, dt, s)
     end
   end
 
-  defp ins_item(x, rest, dd, dt, s, db) do
+  defp ins_item(x, rest, dd, dt, s) do
     case PrologEx.Store.walk(x, s) do
       i when is_integer(i) ->
-        if ClpzDom.contains?(dd, i), do: ins_items(rest, dd, dt, s, db), else: :fail
+        if ClpzDom.contains?(dd, i), do: ins_items(rest, dd, dt, s), else: :fail
 
       {:var, _} = v ->
         {d0, ps} = fdget(v, s)
@@ -2764,7 +2739,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
             native(q, s, fn s ->
               case fdput(v, d1, ps, q, s) do
                 :fail -> :fail
-                s -> loop_q(q, s, db)
+                s -> loop_q(q, s)
               end
             end)
             |> case do
@@ -2772,7 +2747,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
                 :fail
 
               {:next, {:atom, "none"}, s} ->
-                ins_items(rest, dd, dt, reinforce_one(v, s), db)
+                ins_items(rest, dd, dt, reinforce_one(v, s))
 
               {:next, t, s} ->
                 goal =
@@ -2799,23 +2774,19 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Domäne, andere Relationen, Fehler: das Original
 
   defbuiltin "$clpz_sum", [vs, op, value] do
-    db = ctx.db
-
-    run("sum", [vs, op, value], subst(), fn -> sp_post(:ones, vs, op, value, subst_now(), db) end)
+    run("sum", [vs, op, value], subst(), fn -> sp_post(:ones, vs, op, value, subst_now()) end)
   end
 
   defbuiltin "$clpz_scalar_product", [cs, vs, op, value] do
-    db = ctx.db
-
     run("scalar_product", [cs, vs, op, value], subst(), fn ->
       s = subst_now()
-      sp_post(ws(cs, s), vs, op, value, s, db)
+      sp_post(ws(cs, s), vs, op, value, s)
     end)
   end
 
   # cs: die Koeffizienten (walked) oder :ones (sum/3)
-  defp sp_post(cs, vs, op, value, s, db) do
-    if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
+  defp sp_post(cs, vs, op, value, s) do
+    if Process.get(:clpz_no_fast), do: throw(:fallback)
     unless ws(op, s) == a("#="), do: throw(:fallback)
 
     r =
@@ -2833,7 +2804,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         case lin_merge(terms, s) do
           [] -> throw(:fallback)
           _ when r == 0 -> throw(:fallback)
-          merged -> sp_eq(merged, r, s, db)
+          merged -> sp_eq(merged, r, s)
         end
     end
   end
@@ -2877,11 +2848,9 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # nicht leere Liste aus Zahlen ungleich 0, Vs eine gleich lange aus
   # Variablen und Zahlen, S0 eine Zahl ungleich 0; sonst das Original
   defbuiltin "$clpz_sp_eq", [cs, vs, s0] do
-    db = ctx.db
-
     run("sp_eq", [cs, vs, s0], subst(), fn ->
       s = subst_now()
-      if Process.get(:clpz_no_fast) || not alone?(db), do: throw(:fallback)
+      if Process.get(:clpz_no_fast), do: throw(:fallback)
 
       r =
         case PrologEx.Store.walk(s0, s) do
@@ -2891,7 +2860,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
       case sp_pairs(ws(cs, s), ws(vs, s), s) do
         [] -> throw(:fallback)
-        merged -> sp_eq(merged, r, s, db)
+        merged -> sp_eq(merged, r, s)
       end
     end)
   end
@@ -2960,12 +2929,12 @@ defmodule PrologEx.Builtins.ClpzPrims do
   defp ww(t, s), do: PrologEx.unmark_top(PrologEx.Store.walk(t, s))
 
   # scalar_product_(#=, Cs0, Vs, S0) mit S0 =/= 0
-  defp sp_eq([{_, c} | rest] = merged, s0, s, db) do
+  defp sp_eq([{_, c} | rest] = merged, s0, s) do
     g = gcd_terms(rest, c)
 
     if rem(s0, g) == 0 do
       vs = term_vars(merged)
-      pit_trigger(vs, mk("scalar_product_eq", [div_coeffs(merged, g), vs, div(s0, g)]), s, db)
+      pit_trigger(vs, mk("scalar_product_eq", [div_coeffs(merged, g), vs, div(s0, g)]), s)
     else
       :fail
     end
@@ -2990,12 +2959,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # (all_distinct_post_ref/1, all_different_post_ref/2).
 
   defbuiltin "$clpz_all_distinct_post", [ls] do
-    alone = alone?(ctx.db)
-
     run("all_distinct_post", [ls], subst(), fn ->
       prop = mk("propagator", [mk("pdistinct", [ls]), fresh_var()])
 
-      post_with_queue(subst_now(), alone, fn q, s ->
+      post_with_queue(subst_now(), fn q, s ->
         s
         |> distinct_attach(ls, prop, [], q)
         |> seq(&trigger(prop, q, &1))
@@ -3007,10 +2974,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   defbuiltin "$clpz_all_different_post", [ls, orig] do
-    alone = alone?(ctx.db)
-
     run("all_different_post", [ls, orig], subst(), fn ->
-      post_with_queue(subst_now(), alone, fn q, s ->
+      post_with_queue(subst_now(), fn q, s ->
         all_different_attach(s, ls, [], orig, q)
       end)
       |> post_out(fn s -> s end, [])
@@ -3019,14 +2984,14 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # frische Queue, f stellt auf, dann die Schleife: :fail, {:ok, s} oder
   # {:prolog, t, q, s} (do_queue_/3 mit t muss weitermachen)
-  defp post_with_queue(s, alone, f) do
+  defp post_with_queue(s, f) do
     q = new_queue()
     {_, _, qargs} = q
 
     native(q, s, fn s ->
       case f.(q, s) do
         :fail -> :fail
-        s -> queue_loop(q, qargs, alone, s)
+        s -> queue_loop(q, qargs, s)
       end
     end)
     |> case do
@@ -3527,10 +3492,10 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
-  defp queue_loop(q, args, only_clpz, s) do
+  defp queue_loop(q, args, s) do
     case next_entry(args, s) do
       {:prop, e, s} ->
-        case activate(e, q, s, only_clpz) do
+        case activate(e, q, s) do
           :fail ->
             :fail
 
@@ -3538,15 +3503,15 @@ defmodule PrologEx.Builtins.ClpzPrims do
             {:next, mk("ref", [e]), s}
 
           {:ok, s} ->
-            after_bind(q, args, only_clpz, s)
+            after_bind(q, args, s)
         end
 
       # ein Ziel X = N (put_terminating//3): selbst binden und weiter wie
       # nach einer Bindung im Propagator – so wie Prolog es mit call/1 und
-      # dem Wecken täte; ein anderes Ziel (oder weitere Hook-Module): Prolog
+      # dem Wecken täte; ein anderes Ziel: Prolog
       {:goal, e, s} ->
-        case only_clpz and bind_goal(e, s) do
-          {:ok, s} -> after_bind(q, args, only_clpz, s)
+        case bind_goal(e, s) do
+          {:ok, s} -> after_bind(q, args, s)
           :fail -> :fail
           _ -> {:next, mk("goal", [e]), s}
         end
@@ -3558,21 +3523,17 @@ defmodule PrologEx.Builtins.ClpzPrims do
 
   # nach einem Schritt: wurde gebunden, das Wecken gleich hier (absorb_wake/3)
   # oder zurück nach Prolog (again: die Maschine weckt, dann weiter)
-  defp after_bind(q, args, only_clpz, s) do
+  defp after_bind(q, args, s) do
     case Store.take_wake(s) do
       {ws, s0} ->
-        if only_clpz do
-          case absorb_wake(ws, q, s0) do
-            {:ok, s} -> queue_loop(q, args, only_clpz, s)
-            :fail -> :fail
-            :no -> {:next, a("again"), s}
-          end
-        else
-          {:next, a("again"), s}
+        case absorb_wake(ws, q, s0) do
+          {:ok, s} -> queue_loop(q, args, s)
+          :fail -> :fail
+          :no -> {:next, a("again"), s}
         end
 
       _ ->
-        queue_loop(q, args, only_clpz, s)
+        queue_loop(q, args, s)
     end
   end
 
@@ -3600,7 +3561,8 @@ defmodule PrologEx.Builtins.ClpzPrims do
   end
 
   # Das Wecken nach einer Bindung im Propagator gleich hier, wie es die
-  # Maschine täte (clpz ist das einzige Modul mit verify_attributes/3): die
+  # Maschine täte (für Variablen nur mit clpz-Attributen ruft sie nur den
+  # Hook von clpz): die
   # Bindungen zurücknehmen, für jede Variable der Hook (eine Zahl in der
   # Domäne: alle ihre Propagatoren in ihre Queue, Gs = [phrase(do_queue,
   # [Q], _)]; ohne Domäne Gs = []), die Bindungen wiederherstellen. Sind
@@ -3664,7 +3626,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
         _ -> throw(:fallback)
       end
 
-    case native(qv, s, &queue_loop(qv, qargs, true, &1)) do
+    case native(qv, s, &queue_loop(qv, qargs, &1)) do
       :fail -> :fail
       {:next, {:atom, "none"}, s} -> {:ok, s}
       {:next, _, _} -> :no
@@ -3812,7 +3774,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # reinforce(L) mit den Variablen von L. Braucht die Schleife Prolog (ein
   # Ziel, Wecken über eine andere Queue): das Original
   defp sp_simplify(st, pargs, left, s) do
-    if Process.get(:clpz_alone) != true or Process.get(:clpz_no_fast), do: throw(:fallback)
+    if Process.get(:clpz_no_fast), do: throw(:fallback)
 
     case kill(st, s) do
       :fail ->
@@ -3833,7 +3795,7 @@ defmodule PrologEx.Builtins.ClpzPrims do
           native(q, s, fn s ->
             case trigger(p, q, s) do
               :fail -> :fail
-              s -> queue_loop(q, qargs, true, s)
+              s -> queue_loop(q, qargs, s)
             end
           end)
           |> case do

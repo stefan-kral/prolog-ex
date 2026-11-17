@@ -3030,18 +3030,19 @@ Bisher in Elixir:
 **Weitere Hook-Module.** PrologEx ruft `verify_attributes/3` (wie
 Scryer) nur in den Modulen, in denen die gebundene Variable Attribute hat
 – ein weiteres Hook-Modul sieht die internen Variablen von clpz (Zustand
-getöteter Propagatoren, Warteschlangen) also nicht mehr; bis November 2026
-rief PrologEx wie SICStus jedes Modul mit Attributdeklarationen. Aus
-dieser Zeit stammt eine vorsichtige Regel, die noch gilt: ist ein
-weiteres Hook-Modul geladen, rechnet das Original jeden Propagator, der
-eine attributierte Variable bindet oder scheitert, das Zusammenlegen von
-Warteschlangen und `verify_attributes/3` von zwei Variablen mit Domänen;
-ebenso, wenn an einem Zustand oder einer Queue-Variablen freeze, dif oder
-when hängt (im Original laufen die Hooks mitten im Propagator, in Elixir
-gesammelt danach). Ohne weitere Hook-Module (freeze, dif, when sind
-eingebaut und zählen nicht) bleibt alles in Elixir. Geprüft mit einem
-Modul, dessen Hook bei jedem Aufruf etwas ausgibt: dasselbe Ergebnis und
-dieselbe Ausgabe wie das Original.
+getöteter Propagatoren, Warteschlangen) also nicht. Darum rechnet clpz
+auch mit weiteren Hook-Modulen in Elixir: Bindet ein Propagator eine
+Variable, an der ein anderes Modul hängt, laufen dessen Hooks wie die von
+freeze, dif und when nach diesem Propagator und vor dem nächsten (im
+Original mitten im Propagator) – dieselben Lösungen, nur Ausgaben aus
+Hooks können in anderer Reihenfolge kommen. Am Zustand oder an einer
+Queue-Variablen rechnet weiter das Original, sobald dort anderes als clpz
+hängt. Bis November 2026 rechnete mit jedem weiteren Hook-Modul das
+Original: mit `dom` aus `conformance/solver_mix` geladen war clpz drei-
+bis zwölfmal langsamer (100 Damen 5,0 statt 0,4 s); jetzt gleich schnell,
+auch wenn das Modul an jeder Dame hängt (60 Damen mit `dom` an allen:
+0,48 statt 4,2 s). `test/clpz_queue_test.exs` vergleicht mit dem
+Original, auch mit einem Paritätsmodul an den clpz-Variablen.
 
 clpz verlässt sich auf die Bindungsrichtung der WAM:
 `variables_same_queue/1` legt die Warteschlangen mehrerer Variablen
