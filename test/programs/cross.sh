@@ -12,10 +12,12 @@ for n in $names; do
     "'$HERE/runner.pl'" "'$HERE/$n.pl'" "'$HERE/$n.checks.pl'" > "$TMP/swi.pl"
   # Scryer liest eine eingebundene Datei ganz, bevor ihre Direktiven
   # laufen: die Bibliotheken des Programms (ihre Operatoren, etwa ins aus
-  # clpz) vorher laden
-  { printf ':- use_module(library(lists)).\n'
-    grep '^:- use_module(library(' "$HERE/$n.pl"
-    printf ':- include("%s").\n:- include("%s").\n:- include("%s").\n' \
+  # clpz) vorher laden, ebenso double_quotes setzen; phrase/2,3 liegen in
+  # Scryer in library(dcgs)
+  { printf ':- use_module(library(lists)).\n:- use_module(library(dcgs)).\n'
+    grep -E '^:- (use_module\(library\(|set_prolog_flag\(double_quotes)' "$HERE/$n.pl"
+    # Pfade als Atome: ein Programm kann double_quotes umstellen
+    printf ":- include('%s').\n:- include('%s').\n:- include('%s').\n" \
       "$HERE/runner.pl" "$HERE/$n.pl" "$HERE/$n.checks.pl"; } > "$TMP/scryer.pl"
   echo "$n: SWI $($SW -p library="$HERE/../../bench/swi" -q -g report -t halt "$TMP/swi.pl" 2>&1 | tail -1)," \
        "Scryer $($SC -g report -g halt "$TMP/scryer.pl" 2>&1 | tail -1)"

@@ -9,6 +9,7 @@ defmodule PrologEx.CompilerAliasTest do
   @program """
   :- use_module(library(lists)).
   :- use_module(library(dif)).
+  :- use_module(library(swi), [(*->)/2]).
   p1(X, R) :- Y = X, R = f(Y).
   p2(A, R) :- ( A > 0, Y = A ; true ), R = f(Y).
   p3(R) :- _ = V, R = V.
@@ -30,6 +31,13 @@ defmodule PrologEx.CompilerAliasTest do
   f4(L) :- L = [_|_], length(L, 2).
   f5(X, Y) :- f(Y) = X, Y > 0.
   f6(X) :- X = f(X).
+  % fällt S0 = S1 weg, bleibt (C -> T) als erstes Argument von ; – das darf
+  % kein If-Then-Else werden (gefunden mit conformance/dcg_fuzz)
+  d1(A, S0) :- ( S0 = S1, ( S1 = _ -> fail ) ; A = x ).
+  d2(A, S0) :- ( S0 = S1, ( S1 = _ *-> fail ) ; A = x ).
+  d3(A, S0) :- ( S0 = S1, S1 = S2, ( S2 = _ -> fail ) ; A = x ).
+  d4(A) --> ( [], ( [] -> {fail} ) ; [A] ).
+  d4(f(B, B)) --> [a], [B].
   """
 
   setup_all do
@@ -58,6 +66,10 @@ defmodule PrologEx.CompilerAliasTest do
         {"p12(b, R)", ["R = b"]},
         {"p13(R)", ["R = 7"]},
         {"p14(R)", ["R = 3"]},
+        {"d1(A, s)", ["A = x"]},
+        {"d2(A, s)", ["A = x"]},
+        {"d3(A, s)", ["A = x"]},
+        {"findall(A-R, phrase(d4(A), [a,a], R), L)", ["L = [a-[a],f(a,a)-[]]"]},
         # V = T am Anfang in den Kopf
         {"f1(f(1), Y)", ["Y = 1"]},
         {"f1(g, Y)", ["Y = none"]},

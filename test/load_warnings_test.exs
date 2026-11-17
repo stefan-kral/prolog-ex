@@ -143,4 +143,34 @@ defmodule PrologEx.LoadWarningsTest do
              "Fehler (Zeile 3): in Direktive auch_nicht: existence_error(procedure,auch_nicht/0)"
            ]
   end
+
+  # ISO 7.6.2: ein Rumpf, der sich nicht in ein Ziel umwandeln lässt –
+  # Fehler wie bei assertz/1, die Klausel entfällt (wie SWI und Scryer);
+  # \+ ist kein Steuerkonstrukt, \+ 3 scheitert erst beim Aufruf
+  test "Klauseln mit nicht aufrufbarem Rumpf: Fehler, Klausel entfällt", c do
+    assert [m1, m2, m3, m4, m5] =
+             load(c, """
+             p1 :- 3.
+             p2 :- (a, 3).
+             p3 :- (a ; 3).
+             p4 :- (3 -> a ; b).
+             p5 --> {3}.
+             p6 :- \\+ 3.
+             ok :- (a ; b), m:c.
+             """)
+
+    assert [m1, m2, m3, m4] == [
+             "Fehler (Zeile 1): type_error(callable,3)",
+             "Fehler (Zeile 2): type_error(callable,(a,3))",
+             "Fehler (Zeile 3): type_error(callable,(a;3))",
+             "Fehler (Zeile 4): type_error(callable,(3->a;b))"
+           ]
+
+    assert m5 =~ ~r/^Fehler \(Zeile 5\): type_error\(callable,\(3,_\d+=_\d+\)\)$/
+
+    db = PrologEx.current_db()
+    refute Map.has_key?(db, {"user", "p3", 0})
+    assert Map.has_key?(db, {"user", "p6", 0})
+    assert Map.has_key?(db, {"user", "ok", 0})
+  end
 end

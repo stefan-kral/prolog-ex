@@ -164,7 +164,7 @@ defmodule PrologEx.Compiler do
 
   defp simp({:struct, ",", [_, _]} = g, counts) do
     {gs, counts} = simp_list(conj_list(g), counts)
-    {list_conj(gs), counts}
+    {keep_conj(gs), counts}
   end
 
   defp simp({:struct, op, args}, counts) when op in @control do
@@ -218,6 +218,15 @@ defmodule PrologEx.Compiler do
 
   defp conj_list({:struct, ",", [a, b]}), do: conj_list(a) ++ conj_list(b)
   defp conj_list(g), do: [g]
+
+  # Bleibt von einer Konjunktion nur (C -> T) oder (C *-> T), bliebe es
+  # nicht dasselbe: als erstes Argument von ; würde aus der Disjunktion
+  # ((S0 = S1, (C -> T)) ; E) ein If-Then-Else ((C -> T) ; E) – E liefe
+  # nicht mehr, wenn C gelingt und T scheitert. Darum (true, (C -> T)).
+  defp keep_conj([{:struct, op, [_, _]} = g]) when op in ["->", "*->"],
+    do: {:struct, ",", [{:atom, "true"}, g]}
+
+  defp keep_conj(gs), do: list_conj(gs)
 
   defp list_conj([]), do: {:atom, "true"}
   defp list_conj([g]), do: g

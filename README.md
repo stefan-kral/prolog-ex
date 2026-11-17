@@ -34,7 +34,11 @@ Ein Prolog-Kern in Elixir:
   zweier Variablen, deren V nur noch in den folgenden Zielen derselben
   Konjunktion vorkommt, fallen dabei weg (V wird zu X) – etwa die Ketten
   `S0 = S1` aus DCG-Übersetzungen; `clause/2` und `listing/1` zeigen die
-  Quelle. Ein DCG-Zahlenparser −10 % Reduktionen, die clpz-Beispiele
+  Quelle. Bleibt von einer Konjunktion nur `(C -> T)` übrig, wird es
+  `(true, (C -> T))` – als erstes Argument von `;` wäre es sonst ein
+  If-Then-Else (bis November 2026 ein Fehler: in
+  `( S0 = S1, ( S1 = _ -> fail ) ; E )` lief E nie; gefunden mit dem
+  DCG-Zufallsvergleich). Ein DCG-Zahlenparser −10 % Reduktionen, die clpz-Beispiele
   −1 bis −4 %. Ebenso wandert eine Unifikation `V = T` am Anfang des
   Rumpfs in den Kopf, wenn V eine Kopfvariable ist und in T nicht vorkommt
   (sie geschähe ohnehin gleich nach dem Kopf): jede DCG-Regel, die mit
@@ -3995,6 +3999,12 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     Klammern braucht ISO, weil `discontiguous` ein Präfixoperator ist;
     `style_check(?(X))` fragt ab. Fehler in Direktiven nennen ebenfalls die
     Zeile.
+  * Eine Klausel, deren Rumpf sich nicht in ein Ziel umwandeln lässt (ISO
+    7.6.2: eine Zahl o. Ä. in `,` `;` `->` `*->`, etwa `p :- (a ; 3).`
+    oder `p --> {3}.`), ist ein Fehler wie bei `assertz/1`
+    (`type_error(callable, Rumpf)` mit Zeile); die Klausel entfällt, wie
+    in SWI und Scryer. `\+ 3` ist kein Steuerkonstrukt und scheitert erst
+    beim Aufruf.
   * `:- include(F)`: die Terme von F stehen an dieser Stelle (relativ zur
     einschließenden Datei, `.pl` darf fehlen).
   * `:- if(C)` … `:- elif(C)` … `:- else` … `:- endif` (verschachtelbar,
@@ -4199,12 +4209,40 @@ dieselben Erwartungen in SWI und Scryer gegen
 | `oeis__a000372_dedekind` | clpb, `sat_count/2`: monotone Boolesche Funktionen, n = 0..5 (A000372; n = 6 braucht 23 s, SWI 87 s) |
 | `oeis__a006577_collatz` | Collatz/Hailstone: Schritte für 1..72 (A006577), Höchstwerte für 1..62 (A025586), Rekordhalter bis 10000 (A006877, A006878), die Folge ab 27 |
 
+| `logtalk__dcgs_translation` | DCG-Übersetzung: die 59 Fälle aus Logtalk (`tests/logtalk/dcgs`) gegen das eingebaute `expand_term/2`, dazu: ein Cut in `phrase/2,3` bleibt lokal |
+| `logtalk__dcgs_…` (14) | Grammatiken aus Logtalk (`examples/dcgs`): Rechner, MAC-Adresse, Morse, Enigma (T9), Sätze, Parsebaum, Stückliste, Shell, Tokenizer, Wanderer (Gleitkomma), XML in beide Richtungen, URL, IBAN (große Zahlen), Meta-Nichtterminal mit `call//N` |
+
+Die `logtalk__…`-Programme stammen von Paulo Moura (Apache-2.0); angepasst
+ist nur, was Logtalk ausmacht (Objekt-Hülle, `::`), `double_quotes` steht
+wie in Logtalk auf `codes`. Bei der Übersetzung weicht PrologEx an einer
+Stelle von Logtalk ab, mit SWI und Scryer: `p --> {3}` übersetzt
+`expand_term/2` ohne Fehler (beim Laden ist es einer). SWI übersetzt auch
+Pushback, das keine Liste ist, Scryer zusätzlich `[abc|xyz]` und
+`p --> 3`; der Entwurf für DCGs verlangt dort Fehler, wie Logtalk und
+PrologEx.
+
 Die `oeis__…`-Programme sind eigens geschrieben (keine feste Vorlage), die
 Erwartungen kommen aus den Daten der OEIS. Die Batterie lädt jedes
 Programm wie eine Datei (abschnittsweise: Operatoren wie `ins` aus clpz
 gelten ab der Direktive); in Scryer lädt `cross.sh` die Bibliotheken des
-Programms vor dem `include/1`, weil Scryer eine eingebundene Datei ganz
-liest, bevor ihre Direktiven laufen.
+Programms (und `library(dcgs)`) vor dem `include/1` und setzt
+`double_quotes`, weil Scryer eine eingebundene Datei ganz liest, bevor
+ihre Direktiven laufen.
+
+**Zufallsvergleich für DCGs** (`conformance/dcg_fuzz`): zufällige,
+garantiert endende Grammatiken – Terminale (auch mit Variablen), Strings,
+`{}//1` (auch mit Cut), `!`, `;`, `|`, `( -> ; )`, `call//N`, `call//1`,
+`phrase//1`, Variablen als Rumpf, Pushback, Argumente – je Fall die
+Lösungen von `phrase/3` für 15 Eingaben und von `phrase/2` mit offenen
+Listen, gegen SWI und Scryer. `\+//1` und `( -> )` ohne Else sind im
+Entwurf implementierungsabhängig und Scryer lehnt sie ab: solche Fälle nur
+gegen SWI. Scryer stürzt bei manchen Fällen ab (Rust-`panic`,
+Speicherzugriffsfehler) und liefert mit Pushback mitunter falsche
+Ergebnisse; `run.sh` startet es nach einem Absturz ab dem nächsten Fall
+neu. `SCRYER=… conformance/dcg_fuzz/night.sh 100 1000` (je Seed 200
+Fälle). Gefunden hat er einen Fehler im Übersetzer (siehe oben, Ketten
+`X = V`: eine Disjunktion wurde zum If-Then-Else), sonst stimmt PrologEx
+mit SWI überein.
 
 ## Reader
 

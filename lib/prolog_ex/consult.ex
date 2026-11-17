@@ -520,7 +520,25 @@ defmodule PrologEx.Consult do
         {head, body, st}
       end
 
+    # ein Rumpf, der sich nicht in ein Ziel umwandeln lässt (ISO 7.6.2,
+    # etwa p :- (a ; 3) oder p --> {3}): Fehler wie assertz/1, die Klausel
+    # entfällt (wie SWI und Scryer)
+    unless body_ok?(body), do: PrologEx.check_body!(PrologEx.unmark(body), PrologEx.Store.new())
     store_clause({head, body}, st)
+  end
+
+  # ohne den Rumpf neu aufzubauen (to_body/3 in PrologEx tut das)
+  defp body_ok?(b) do
+    case PrologEx.unmark_top(b) do
+      {:struct, op, [x, y]} when op in [",", ";", "->", "*->"] -> body_ok?(x) and body_ok?(y)
+      {:struct, ":", [{:atom, _}, x]} -> body_ok?(x)
+      {:var, _} -> true
+      {:atom, _} -> true
+      {tag, _, _} when tag in [:struct, :gstruct] -> true
+      l when is_list(l) -> true
+      {:glist, _} -> true
+      _ -> false
+    end
   end
 
   defp store_clause({head, body}, st) do
