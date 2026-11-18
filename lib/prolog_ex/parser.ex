@@ -799,6 +799,20 @@ defmodule PrologEx.Parser do
       {:var, name} ->
         {Map.fetch!(Process.get(:prolog_ex_parser_vars), name), 0, rest}
 
+      # "abc"||T (Neumerkels Doppelstrich, wie Scryer; WG17 2025): die
+      # Liste der Zeichen bzw. Codes mit dem Rest T, einem Term der
+      # Priorität 0 (auch wieder "…"||…); nur nach einer Liste in
+      # doppelten Anführungszeichen, nicht bei double_quotes = atom
+      {:str, s} when ctx.dq != "atom" ->
+        case rest do
+          [{{:p, "|"}, _, _}, {{:p, "|"}, _, _} | rest] ->
+            {tail, _, rest} = primary(rest, 0, ctx)
+            {PrologEx.list(items(s, ctx.dq), tail), 0, rest}
+
+          _ ->
+            {text(s, ctx.dq), 0, rest}
+        end
+
       {:str, s} ->
         {text(s, ctx.dq), 0, rest}
 
@@ -931,6 +945,9 @@ defmodule PrologEx.Parser do
         syntax!(", | oder ] erwartet", at, tok)
     end
   end
+
+  defp items(s, "codes"), do: String.to_charlist(s)
+  defp items(s, "chars"), do: for(c <- String.codepoints(s), do: a(c))
 
   defp text(s, "codes"), do: PrologEx.list(String.to_charlist(s))
   defp text(s, "chars"), do: PrologEx.list(for(c <- String.codepoints(s), do: a(c)))

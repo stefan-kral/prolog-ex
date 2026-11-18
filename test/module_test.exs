@@ -166,9 +166,9 @@ defmodule PrologEx.ModuleTest do
     mods = ask(c, "findall(M, current_module(M), L).") |> hd()
     for m <- ~w(user system lists apply geo meta), do: assert(mods =~ m)
 
-    # strip_module/3: library(swi)
-    assert ask(c, "use_module(library(swi)), strip_module(a:b:foo(x), M, P).") ==
-             ["M = b, P = foo(x)"]
+    # strip_module/3: ohne Import, wie in Scryer und SWI
+    assert ask(c, "strip_module(a:b:foo(x), M, P).") == ["M = b, P = foo(x)"]
+    assert ask(c, "geo:strip_module(foo, M, P).") == ["M = geo, P = foo"]
 
     assert ask(c, "strip_module(foo, M, P).") == ["M = user, P = foo"]
   end

@@ -30,6 +30,33 @@ defmodule PrologEx.ParserTest do
     x
   end
 
+  # "abc"||T (Neumerkel, WG17 2025; Fälle aus Scryers
+  # src/tests/double_bar.pl und tests-pl/double_bar_*.pl)
+  test "Doppelstrich nach einer Liste in doppelten Anführungszeichen" do
+    ch = [double_quotes: "chars"]
+    assert r1(~S(X = "abc"||K), ch) == "=(_X,'.'(a,'.'(b,'.'(c,_K))))"
+    assert r1(~S(X = "a"||"b"||"c"), ch) == r1(~S(X = "abc"), ch)
+    assert r1(~S(X = ""||K), ch) == "=(_X,_K)"
+    assert r1(~S(X = ""||""||""||K), ch) == "=(_X,_K)"
+    assert r1(~S(X = "ab"||world), ch) == "=(_X,'.'(a,'.'(b,world)))"
+    assert r1(~S(X = "ab"||123), ch) == "=(_X,'.'(a,'.'(b,123)))"
+
+    assert r1(
+             ~S(X = "a" | /* c */ | % z
+ "b"),
+             ch
+           ) == r1(~S(X = "ab"), ch)
+
+    assert r1(~S("ab"||X = Y), ch) == "=('.'(a,'.'(b,_X)),_Y)"
+    assert r1(~S(X = "αβ"||t), ch) == "=(_X,'.'(α,'.'(β,t)))"
+    assert r1(~S(X = "ab"||K)) == "=(_X,'.'(97,'.'(98,_K)))"
+    # nur nach "…": sonst ein Syntaxfehler
+    for t <- ~w(foo||Y []||Y [a,b]||Y 123||Y X||Y),
+        do: assert(r("Z = #{t} .\n", ch) == [:error], t)
+
+    assert r(~S(X = "ab"||K .) <> "\n", double_quotes: "atom") == [:error]
+  end
+
   test "Zahlen" do
     assert r1("x(12, 0'a, 0''', 0'\\n, 0' , 0x1F, 0o17, 0b101)") ==
              "x(12,97,39,10,32,31,15,5)"

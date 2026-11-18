@@ -1340,9 +1340,13 @@ defmodule PrologEx.Builtins.ClpzPrims do
   # Merkzettel je Variable wie bei den Domänen (vdom/3): die zuletzt
   # gesehene Liste ihrer clpz-Attribute (physisch, Share.same?/2) und das
   # Ergebnis. Unverändert – dasselbe Ergebnis, ohne die Liste zu durchsuchen
-  # und clpz_attr/6 zu zerlegen.
+  # und clpz_attr/6 zu zerlegen. Höchstens @fdg_max Einträge, dann von
+  # vorn: ein Eintrag hält Attributliste und Propagatoren fest (oft 1000
+  # Wörter); mit 100 000 wuchs der Prozess über die 49 151 Sudokus von
+  # conformance/clpz_puzzles auf Gigabytes (Variablen erledigter Aufgaben
+  # kommen nie wieder). Die Reduktionen der clpz-Benchmarks: gleich.
   @fdg_key :clpz_fdget
-  @fdg_max 100_000
+  @fdg_max 4096
 
   defp fd_get(x, s) do
     case PrologEx.Store.walk(x, s) do

@@ -240,6 +240,33 @@ defmodule PrologEx.CoroutiningTest do
   end
 
   describe "dif/2" do
+    # rationale Bäume (aus Scryers src/tests/dif.pl und Neumerkels
+    # dif-Seite): ein zyklischer ground Wert kommt nicht in die
+    # Ausschlussmenge (die hält aufgelöste Terme), sondern bleibt eine
+    # Suspension – vorher representation_error, und der entkam sogar
+    # catch/3, weil er beim Wecken nach dem Binden fiel
+    test "zyklische Terme", c do
+      assert ask(c, "dif(X, Y), X = -X, Y = -Y.") == []
+      assert ask(c, "X = -X, Y = -Y, dif(X, Y).") == []
+      assert ask(c, "dif(X, Y), X = -X, Y = -(-Y).") == []
+      assert [_] = ask(c, "dif(X, Y), X = -X.")
+      assert [_] = ask(c, "dif(X, Y), X = f(X, a), Y = f(Y, b).")
+      assert ask(c, "A = [[]|A], dif(A, B), B = [[]|A].") == []
+      assert ask(c, "catch((dif(X, Y), X = -X, Y = -Y), _, true).") == []
+      assert [_] = ask(c, "C = [D|E], D = [C], A = [A], dif(A, [D]), \\+ E = [].")
+    end
+
+    # mit Occurs-Check kann X nie f(X) werden: dif gilt gleich, ohne
+    # Restziel (wie Scryer, tests/scryer/cli/issues/handle_residual_goal)
+    test "mit Occurs-Check", c do
+      on = "set_prolog_flag(occurs_check, true)"
+      off = "set_prolog_flag(occurs_check, false)"
+      assert ask(c, "#{on}, dif(-X, X), #{off}.") == ["true"]
+      assert ask(c, "#{on}, dif(f(X, Y), f(Y, g(X))), #{off}.") == ["true"]
+      assert ask(c, "set_prolog_flag(occurs_check, error), dif(-X, X), #{off}.") == ["true"]
+      assert ask(c, "dif(-X, X).") == ["dif(X,-X)"]
+    end
+
     test "sofort entschieden oder offen", c do
       assert ask(c, "dif(a, b).") == ["true"]
       assert ask(c, "dif(a, a).") == []

@@ -1539,7 +1539,36 @@ defmodule PrologEx.Jit do
 
   # --- Ausschließlichkeit -------------------------------------------------
 
+  # Je Paar geprüft – quadratisch. Große Tabellen von Fakten haben meist
+  # eine Stelle mit lauter verschiedenen Konstanten (Schlüssel): das reicht
+  # (dann unterscheiden sich je zwei dort); sonst ab @max_pairwise
+  # Klauseln nicht übersetzen (49 151 Sudoku-Fakten brauchten 20 Minuten)
+  @max_pairwise 300
   defp exclusive!(irs, num) do
+    cond do
+      key_column?(irs) -> :ok
+      length(irs) > @max_pairwise -> no!("mehr als #{@max_pairwise} Klauseln ohne Schlüssel")
+      true -> exclusive_pairs!(irs, num)
+    end
+  end
+
+  defp key_column?([_, _ | _] = irs) do
+    hins = Enum.map(irs, &eff_hin/1)
+    n = length(irs)
+
+    hins
+    |> Enum.zip()
+    |> Enum.any?(fn col ->
+      ps = Tuple.to_list(col)
+
+      Enum.all?(ps, &match?({_, {:const, _}}, &1)) and
+        map_size(Map.new(ps, fn {_, {:const, c}} -> {c, true} end)) == n
+    end)
+  end
+
+  defp key_column?(_), do: false
+
+  defp exclusive_pairs!(irs, num) do
     pairs =
       for {a, i} <- Enum.with_index(irs, 1),
           {b, j} <- Enum.with_index(irs, 1),

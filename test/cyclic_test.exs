@@ -72,6 +72,11 @@ defmodule PrologEx.CyclicTest do
     # Kopf mit zweimal derselben Variablen
     yes(c, "A = f(A), B = f(f(B)), same(A, B)")
     no(c, "unify_with_occurs_check(A, f(A))")
+    # Listen mit Ende [] im zyklenfesten Teil (aus Scryers dif-Tests, #2056)
+    yes(c, "X = [X], Y = [[Y]], X = Y")
+    yes(c, "X = [X, []], Y = [[Y, []], []], X = Y")
+    yes(c, "C = [D|E], D = [C], A = [A], E = [], A = [D]")
+    no(c, "X = [X], Y = [[Y], a], X = Y")
   end
 
   test "Vergleich und Sortieren", c do

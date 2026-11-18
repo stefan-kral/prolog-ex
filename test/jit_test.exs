@@ -914,6 +914,29 @@ defmodule PrologEx.JitTest do
     assert {_, {:answers, ["R = !"]}} = TableCase.run(c.reader, c.jit, q)
   end
 
+  # große Faktentabellen: der paarweise Ausschluss wäre quadratisch (49 151
+  # Fakten brauchten 20 Minuten und 6 GB); mit einer Schlüsselspalte
+  # (lauter verschiedene Konstanten) reicht die, sonst ab 300 Klauseln
+  # nicht als deterministisch übersetzt
+  test "große Faktentabellen laden schnell", c do
+    Reader.put_current(c.reader)
+
+    src =
+      Enum.map_join(1..20_000, "", &"tab(#{&1}, #{&1 * &1}).\n") <>
+        Enum.map_join(1..2_000, "", &"tb(f(#{&1}), g(#{&1})).\n")
+
+    {t, {db, _}} =
+      :timer.tc(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    assert t < 30_000_000
+    assert {_, {:answers, ["X = 399960001"]}} = TableCase.run(c.reader, db, "tab(19999, X)")
+    assert {_, {:answers, ["X = g(1999)"]}} = TableCase.run(c.reader, db, "tb(f(1999), X)")
+    {out, _} = TableCase.run(c.reader, db, "jit_listing")
+    assert out =~ ~r"% tab/2 .*tab\(\+any, -int\)"
+    # (ohne Schlüssel nicht als deterministisch übersetzt)
+    assert out =~ ~r"% tb/2 .*nichtdeterministisch"
+  end
+
   test "jit_listing", c do
     Reader.put_current(c.reader)
     {out, _} = TableCase.run(c.reader, c.jit, "fib(5, _), jit_listing")

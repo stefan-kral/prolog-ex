@@ -377,6 +377,10 @@ defmodule PrologEx do
   def bind_checked(var, t, subst), do: bind_checked(var, t, subst, occurs_mode())
 
   # Wert des Flags occurs_check: nil (false), true oder :error
+  @doc false
+  # für dif/2 (PrologEx.Builtins.Coroutining): nil, true oder :error
+  def occurs_check_mode, do: occurs_mode()
+
   @compile {:inline, occurs_mode: 0}
   defp occurs_mode do
     case :erlang.get(@occurs_key) do
@@ -778,6 +782,9 @@ defmodule PrologEx do
     do: u_cyc_args([x, xs], [y, ys], subst, mode, seen)
 
   defp u_cyc_struct({:bytes, b}, {:bytes, b}, subst, _mode, seen), do: {:ok, subst, seen}
+  # (das Listenende: in u/6 erledigt Share.same?/2 es, hier fehlte es –
+  # X = [X], Y = [[Y]], X = Y scheiterte)
+  defp u_cyc_struct([], [], subst, _mode, seen), do: {:ok, subst, seen}
   defp u_cyc_struct(_, _, _, _, _), do: :error
 
   defp u_cyc_args([], [], subst, _mode, seen), do: {:ok, subst, seen}
@@ -799,6 +806,14 @@ defmodule PrologEx do
     # ein Zyklus (d: Bindungen auf dem Pfad, PrologEx.Cyclic): ein
     # aufgelöster Term kann ihn nicht darstellen
     :"$cyclic" -> PrologEx.Cyclic.error!()
+  end
+
+  @doc "Wie resolve/2: `{:ok, Term}` oder `:cyclic`"
+  def resolve_finite(t, subst) do
+    {r, _memo} = resolve(t, subst, %{}, 0)
+    {:ok, r}
+  catch
+    :"$cyclic" -> :cyclic
   end
 
   # (gezählt wird nur an gebundenen Variablen)
@@ -4363,10 +4378,14 @@ defmodule PrologEx do
 
   defp sicstus_cycle([], _mods, _s0, s, _h), do: {s, []}
 
+  # (ein Fehler beim Prüfen – etwa ein Ausdruck in when/2 – ist eine
+  # Ausnahme des Ziels, das gebunden hat, für catch/3 wie jede andere)
   defp wake_and_run(attvs, s, st, rest) do
-    case wake_builtin(attvs, s, st, :immediate) do
-      :fail -> backtrack(st)
-      {s, goals} -> run(%{st | subst: s, goals: goals ++ rest})
+    case guarded(fn -> wake_builtin(attvs, s, st, :immediate) end) do
+      {:ok, :fail} -> backtrack(st)
+      {:ok, {s, goals}} -> run(%{st | subst: s, goals: goals ++ rest})
+      {:thrown, ball} -> throw_ball(ball, st)
+      :stop -> stopped(st, fn -> wake_and_run(attvs, s, st, rest) end)
     end
   end
 

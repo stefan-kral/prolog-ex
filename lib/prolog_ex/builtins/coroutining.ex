@@ -204,10 +204,14 @@ defmodule PrologEx.Builtins.Coroutining do
 
       {:maybe, [v], [{v, c}]} ->
         # Front aus einem Paar Variable = ground Term: in die
-        # Ausschlussmenge der Variablen (siehe exclude/3)
-        if Order.variables(c, s) == [],
-          do: {:ok, exclude(s, v, PrologEx.resolve(c, s))},
-          else: {:ok, suspend_dif(s, [v], [{v, c}])}
+        # Ausschlussmenge der Variablen (siehe exclude/3) – nicht, wenn er
+        # zyklisch ist (die Menge hält aufgelöste Terme)
+        with [] <- Order.variables(c, s),
+             {:ok, r} <- PrologEx.resolve_finite(c, s) do
+          {:ok, exclude(s, v, r)}
+        else
+          _ -> {:ok, suspend_dif(s, [v], [{v, c}])}
+        end
 
       {:maybe, vars, pairs} ->
         {:ok, suspend_dif(s, vars, pairs)}
@@ -587,6 +591,8 @@ defmodule PrologEx.Builtins.Coroutining do
     end
   end
 
+  # Mit Occurs-Check (Flag occurs_check true oder error) ist X = f(X)
+  # unmöglich: dif(X, f(X)) gilt dann gleich (wie Scryer), ohne Restziel
   defp uni_c(x, y, s) do
     uni(x, y, s, {%{}, []}, 0)
   catch
@@ -635,12 +641,53 @@ defmodule PrologEx.Builtins.Coroutining do
       not is_tuple(x) and not is_list(x) and x === y -> {:ok, acc}
       match?({:var, _}, x) and x === y -> {:ok, acc}
       match?({:atom, _}, x) and x === y -> {:ok, acc}
-      match?({:var, _}, x) -> {:ok, put_pair(acc, x, y)}
-      match?({:var, _}, y) -> {:ok, put_pair(acc, y, x)}
+      match?({:var, _}, x) -> bind_pair(acc, x, y, s)
+      match?({:var, _}, y) -> bind_pair(acc, y, x, s)
       PrologEx.Share.same?(x, y) -> {:ok, acc}
       true -> uni_memo(x, y, s, acc, d)
     end
   end
+
+  defp bind_pair(acc, v, t, s) do
+    if not match?({:var, _}, t) and PrologEx.occurs_check_mode() != nil and
+         occurs?(v, t, s, acc, 0),
+       do: :error,
+       else: {:ok, put_pair(acc, v, t)}
+  end
+
+  # kommt v in t vor (unter s und den Paaren)? Zyklen: wie in uni/5
+  defp occurs?(v, t0, s, {m, _} = acc, d) do
+    t = w(t0, s, acc)
+
+    d =
+      cond do
+        t === t0 -> d
+        d + 1 > 2 * (map_size(s) + map_size(m)) -> throw(:"$cyclic")
+        true -> d + 1
+      end
+
+    case t do
+      {:var, _} ->
+        t === v
+
+      {tag, _, args} when tag in [:struct, :gstruct] ->
+        tag == :struct and occurs_l?(v, args, s, acc, d)
+
+      [h | tl] ->
+        occurs?(v, h, s, acc, d) or occurs?(v, tl, s, acc, d)
+
+      {:glist, _} ->
+        false
+
+      _ ->
+        false
+    end
+  end
+
+  defp occurs_l?(_v, [], _s, _acc, _d), do: false
+
+  defp occurs_l?(v, [a | as], s, acc, d),
+    do: occurs?(v, a, s, acc, d) or occurs_l?(v, as, s, acc, d)
 
   defp uni_memo(x, y, s, {m, _} = acc, d) do
     case PrologEx.Share.get2(m, x, y) do

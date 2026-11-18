@@ -218,6 +218,11 @@ Ein Prolog-Kern in Elixir:
     8 → 25 von 72, reducer 6 → 14, flatten 4 → 11, unify 6 → 12):
     unify ×1,2–1,3, simple_analyzer ×1,15; was dort sonst bremst, ist
     meist Nichtdeterminismus (Disjunktionen, Klauseln ohne Ausschluss).
+  - Ob sich die Klauseln ausschließen, prüft der JIT je Paar. Große
+    Faktentabellen haben meist eine Stelle mit lauter verschiedenen
+    Konstanten (Schlüssel): die reicht; ohne eine solche gilt ab 300
+    Klauseln „mehr als 300 Klauseln ohne Schlüssel“. Vorher quadratisch –
+    49 151 Sudoku-Fakten zu laden brauchte 20 Minuten und 6 GB, jetzt 3 s.
   - `jit_listing/0,1` zeigt je Prädikat eines Moduls, ob es übersetzt ist
     (Modi und Typen, etwa `app(+list, +any, -)`) oder warum nicht
     („Klausel 2: Ziel is_list/1“, „Klauseln 1 und 2 schließen sich nicht
@@ -681,6 +686,20 @@ Zahlen im Quelltext: Zifferntrenner wie von WG17 2025 angenommen
 oder ein Kommentar: `1_ /* … */ 000`; auch in `0b…`, `0o…`, `0x…` und
 in den Nachkommastellen, `1_000.000_1`; kein doppeltes `__`) und Ganzzahl-Literale beliebiger Größe.
 
+Doppelstrich wie Scryer (Neumerkels Vorschlag, WG17 2025 angenommen):
+`"abc"||T` ist die Liste der Zeichen bzw. Codes mit dem Rest T, einem
+Term der Priorität 0 – auch wieder `"…"||…` (`"a"||"b"||"c"` ist
+`"abc"`, `""||T` ist T); zwischen den beiden Strichen darf Layout-Text
+stehen. Nur nach einer Liste in doppelten Anführungszeichen (`foo||T`,
+`[a]||T` und mit `double_quotes = atom` sind Syntaxfehler). Geprüft an
+Scryers `src/tests/double_bar.pl`, `double_bar_codes.pl` und
+`tests-pl/double_bar_*.pl`.
+
+Ganzzahlarithmetik (`+ - * // div mod rem >> << /\ \/ xor min max gcd ^
+abs sign - \ msb`) an Zufallszahlen – klein, an den Grenzen um 2^31 bis
+2^128 und bis 10^60 – gegen Python: `conformance/arith_fuzz/run.sh [Seed]
+[Anzahl]` (50 000 Fälle: gleich).
+
 ### Gleitkommazahlen
 
   * **Lesen** (Leser, `number_codes/2`, `atom_number/2`, …): der nächste
@@ -830,7 +849,10 @@ A b und 'A b'
     als Ziffern, `*` (nächstes Argument) oder `` `c ``.
   * `~e ~f ~g` wie C `printf`: gerundet wird der exakte Binärwert, bei
     Gleichstand zur geraden Ziffer (`~2f` von 2.675 gibt 2.67, `~0f` von
-    2.5 gibt 2) – mit 20 000 Zufallswerten gegen C geprüft.
+    2.5 gibt 2) – mit 20 000 Zufallswerten gegen C geprüft;
+    `conformance/format_fuzz/run.sh [Seed] [Anzahl]` vergleicht beliebig
+    viele mit Python (40 000: gleich) und Ganzzahlen bis 10^40 mit `~d
+    ~D ~r ~R ~e ~f ~g ~w` gegen SWI (10 000: gleich).
   * Spalten beginnen dort, wo der Stream gerade steht.
   * Die Ausgabe entsteht ganz im Speicher: ein Fehler unterwegs schreibt
     nichts. Formatfehler sind `domain_error(format, Grund)`.
@@ -4093,7 +4115,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     `library(lambda_pl)`, `library(si)`, `library(gensym)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1` (Bibliotheken in Elixir erst, wenn aus ihnen
-    importiert wurde, wie in SWI ohne Autoload), `strip_module/3`,
+    importiert wurde, wie in SWI ohne Autoload), `strip_module/3` (ohne
+    Import, wie in Scryer und SWI),
     `predicate_property/2` (wie
     SICStus: `built_in`, `static`, `dynamic`, `defined`, `compiled`,
     `interpreted`, `exported`, `imported_from/1`, `meta_predicate/1`,
@@ -4127,7 +4150,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |
     | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`) |
-    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])` |
+    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])` |
 
     `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
     und nach in Bibliotheken, zu denen sie inhaltlich passen. Eigene
@@ -4361,6 +4384,44 @@ die Elemente des Ergebnisses (`type_error(pair, E)`), `findall/4` den Rest;
 `atom_concat(A, A, Z)` ist deterministisch; bei `open/4` gilt von
 wiederholten Optionen die letzte; `set_stream_position/2` auch auf
 Schreibströmen; Flag `version_data` (`prolog_ex(0,1,0,[])`, wie SWI).
+
+## Scryers eigene Tests
+
+`conformance/scryer_tests/run.sh` führt Scryers Testdateien
+(`src/tests/*.pl`, Rahmen `test_framework.pl`) in PrologEx und in Scryer
+aus – je Test bzw. je Datei die Ausgabe – und nennt, was nur in PrologEx
+abweicht (`SCRYER_SRC=/pfad/scryer-prolog`). Gefunden und behoben:
+
+  * Unifikation rationaler Bäume mit dem Listenende `[]` scheiterte
+    (`X = [X], Y = [[Y]], X = Y`; der zyklenfeste Teil kannte `[]` nicht),
+  * `dif/2` mit einem zyklischen ground Wert (`dif(X, Y), X = -X`) warf
+    `representation_error(cyclic_term)` – und das beim Wecken nach einer
+    Bindung, wo es nicht einmal `catch/3` fing; jetzt bleibt es eine
+    Suspension, und Fehler beim Wecken sind Ausnahmen wie andere,
+  * `dif(-X, X)` mit Occurs-Check (`occurs_check` = `true` oder `error`)
+    gilt gleich, ohne Restziel (aus `tests/scryer/cli/issues`),
+  * `strip_module/3` brauchte `library(swi)`; jetzt ohne Import wie in
+    Scryer und SWI,
+  * der Doppelstrich `"abc"||T` (siehe Reader).
+
+Was bleibt, ist gewollt: Rundungsfunktionen und `\` nehmen nach ISO nur
+Floats bzw. Ganzzahlen (siehe Gleitkommazahlen), `**` und `^` rechnen auf
+Ganzzahlen und Brüchen exakt wie SWI (Scryer: `2 ** 3` ist `8.0`), `rdiv`
+nimmt keine Floats; `call_with_inference_limit/3` gibt wie SWI jeder
+Lösung ein frisches Kontingent (Scryer zählt über das Backtracking
+weiter); `arg(_, f, _)` ist wie in SWI `type_error(compound, f)` (Scryer
+und GNU: `instantiation_error`); `dif:attribute_goals//1` gibt es nicht
+(dif ist eingebaut); `loader:strip_module/3` nimmt das Modul der
+Qualifikation. `term_variables#2100` erwartet für einen zyklischen Term
+eine Reihenfolge, die von seiner Darstellung abhängt: PrologEx verschiebt
+`T = [T1|B]` am Anfang eines Rumpfs in den Kopf, der Term ist derselbe
+rationale Baum, wird aber anders abgelaufen. Stand: acyclic_term 55/55,
+dif 32/34, double_bar 29/29, ground 5/5, nth_partial_strings 16/17 (wie
+Scryer), term_variables 9/10, when 9/9, arithmetic 26/36; die Dateien mit
+Ausgabe statt test/2 gleich bis auf die drei genannten (`builtins`:
+`arg/3`, `call_with_inference_limit`, `module_resolution`). Sechs der
+Dateien liegen unverändert in `test/fixtures/scryer_tests` (BSD-3-Clause)
+und laufen in `test/scryer_tests_test.exs`.
 
 ## Programm-Batterie
 
