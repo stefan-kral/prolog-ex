@@ -2633,6 +2633,11 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     dieselben Bedingungen in jeder Reihenfolge geben dieselben Domänen.
     Bis N = 2: keine Abweichung (Scryers Tests verlassen sich auf
     `copy_term/2` mit Attributen; hier `copy_term/3` mit den Restzielen).
+    Ab N = 3 meldet die Reihenfolgenprüfung bei `mod` verschiedene
+    Schranken je Reihenfolge (`A #=< B, A #=< -3, A mod B #= A`: B bis -5
+    oder -6) – Scryer genauso: eine Eigenschaft der Bibliothek
+    (Schrankenkonsistenz, kein Fixpunkt über alle Reihenfolgen), keine
+    Abweichung von PrologEx; Lösungen sind davon nicht betroffen.
   * Differentielles Fuzzing gegen Scryer (`conformance/clpz_fuzz/`, für
     Läufe über Nacht): `gen.py` erzeugt kleine Probleme mit 1–4 Variablen
     (Arithmetik mit allen Operatoren, lineare Summen, `sum/3`,
