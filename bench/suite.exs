@@ -102,13 +102,19 @@ defmodule Suite do
     {"clpz_q40", "clpz_queens(40, _)"},
     {"clpz_q8all", "findall(Q, clpz_queens(8, Q), L), length(L, 92)"},
     {"clpz_send", "send(_)"},
-    {"clpz_sudoku", "sudoku_problem(Rows), sudoku(Rows)"}
+    {"clpz_sudoku", "sudoku_problem(Rows), sudoku(Rows)"},
+    # der Parser von Chat-80 (test/programs/chat80__parser.pl), 16 Fragen
+    {"chat_parser", "(between(1, 10, _), chat_parser, fail ; true)"}
   ]
+
+  # dazu geladen: Programme der Batterie (mit Singleton-Warnungen)
+  @extra ["test/programs/chat80__parser.pl"]
 
   # für bench/prof/: Fälle und Programm ohne Messlauf
   def prelude, do: @prelude
   def program, do: @program
   def cases, do: @cases
+  def extra, do: @extra
 
   def main(args) do
     {opts, _, _} =
@@ -123,6 +129,13 @@ defmodule Suite do
     {db, []} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(@prelude))
     PrologEx.put_db(db)
     {db, []} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(@program))
+
+    db =
+      Enum.reduce(@extra, db, fn f, db ->
+        {db, _warnings} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(File.read!(f)))
+        db
+      end)
+
     PrologEx.put_db(db)
 
     base = if f = opts[:compare], do: load(f), else: %{}

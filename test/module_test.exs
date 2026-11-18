@@ -191,6 +191,45 @@ defmodule PrologEx.ModuleTest do
     assert err(c, "consult(gibtsnicht).") =~ "existence_error(source_sink"
   end
 
+  test "Kreis: zwei Module laden einander mit use_module", c do
+    # (vorher endlos: kreis_a lud kreis_b, das lud kreis_a, ...)
+    load("kreis_a.pl")
+    assert ask(c, "a_ruft_b(X).") == ["X = 2"]
+    assert ask(c, "kreis_b:b_ruft_a(X).") == ["X = 1"]
+    assert ask(c, "predicate_property(kreis_b:a_wert(_), imported_from(M)).") == ["M = kreis_a"]
+  end
+
+  test "Re-Export: ein Modul gibt ein importiertes Prädikat weiter", c do
+    load("weiter.pl")
+    assert ask(c, "p(X).") == ["X = aus_quelle"]
+    assert ask(c, "q(X).") == ["X = aus_quelle"]
+    assert ask(c, "predicate_property(p(_), imported_from(M)).") == ["M = quelle"]
+  end
+
+  test "attribute ist ohne library(atts) kein Operator", c do
+    load("attribute_name.pl")
+    assert ask(c, "nach(X).") == ["X = [attribute/6,b]"]
+    assert ask(c, "attribute(A, _, _, _, _, _).") == ["A = a"]
+    assert ask(c, "current_op(P, T, attribute).") == []
+    # mit library(atts) wie in Scryer; aus einer Bibliothek des Systems
+    # (clpz.pl lädt atts) gilt er nur während deren Laden
+    assert ask(c, "use_module(library(clpz)), current_op(P, T, attribute).") == []
+
+    assert ask(c, "use_module(library(atts)), current_op(P, T, attribute).") ==
+             ["P = 1150, T = fx"]
+  end
+
+  test "library(quintus), library(edinburgh), public/1 wie SWI", c do
+    # ohne Import (und ohne swi_compat) nicht sichtbar
+    assert err(c, "mode(p(+)).") =~ "existence_error(procedure,mode/1)"
+    assert ask(c, "use_module(library(quintus)), mode(p(+, -)), otherwise.") == ["true"]
+
+    assert capture_io(fn -> ask(c, "use_module(library(edinburgh)), display(1+'B'), nl.") end) ==
+             "+(1,'B')\n"
+
+    assert ask(c, "set_prolog_flag(swi_compat, true), public(p/1), mode(p(+)).") == ["true"]
+  end
+
   describe "predicate_property/2" do
     defp props(c, head) do
       [ans] = ask(c, "findall(P, predicate_property(#{head}, P), L).")

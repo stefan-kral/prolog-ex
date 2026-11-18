@@ -49,6 +49,14 @@ defmodule PrologEx.ProgramBatteryTest do
           {:ok, _} = PrologEx.Consult.load_file(file)
         end)
 
+      # Singleton-Warnungen stören nicht: die Programme sind übernommen
+      # (chat_parser von 1989) und bleiben unverändert
+      msgs =
+        msgs
+        |> String.split("\n", trim: true)
+        |> Enum.reject(&(&1 =~ "Warnung (Zeile" and &1 =~ "Singleton-Variablen"))
+        |> Enum.join("\n")
+
       assert msgs == "", "#{unquote(n)}: #{msgs}"
       db = PrologEx.current_db()
       [{:term, g, _}] = Reader.read_terms(c.reader, "failures(Fs).")

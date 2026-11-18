@@ -25,7 +25,8 @@ defmodule PrologEx.Builtins do
       Prädikate außer `$...`-Hilfsprädikaten. Sichtbar nur nach `use_module(library(...))`
       (kein Autoload, wie SICStus). Eigene Definitionen im importierenden
       Modul gehen vor.
-    * Heimat-Bibliotheken (`@homes`: `iso_ext`, `between`, `terms`, `fastrw`, `swi`)
+    * Heimat-Bibliotheken (`@homes`: `iso_ext`, `between`, `terms`, `fastrw`, `swi`,
+      `quintus`, `edinburgh`)
       – Builtins in `system`, die weder ISO noch SICStus eingebaut haben:
       sie liegen in `system`, sichtbar aber nur nach Import der Heimat
       (die sie aus `system` weitergibt), in Bibliotheksmodulen des Systems
@@ -135,7 +136,10 @@ defmodule PrologEx.Builtins do
                     tab/2 with_output_to/2 select/4 selectchk/3 selectchk/4 flatten/2
                     predsort/3 sort/4 code_type/2 nb_setval/2 nb_getval/2 b_setval/2
                     b_getval/2 nb_current/2 term_variables/3 string/1 garbage_collect/0
-                    get_time/1 cyclic_term/1)}
+                    get_time/1 cyclic_term/1 public/1)},
+                # wie SWI: library(quintus), library(edinburgh) (Chat-80)
+                {"quintus", ~w(mode/1 otherwise/0)},
+                {"edinburgh", ~w(display/1 display/2)}
               ],
               k <- keys,
               into: %{} do
@@ -426,6 +430,9 @@ defmodule PrologEx.Builtins do
       ),
     # wie SICStus' library(fastrw) (die Prädikate sind eingebaut, wie in SWI)
     "fastrw" => @home_reexports["fastrw"],
+    # wie SWIs library(quintus) und library(edinburgh) (Auszug)
+    "quintus" => @home_reexports["quintus"],
+    "edinburgh" => @home_reexports["edinburgh"],
     # wie Scryers library(terms) (eingebaut), dazu term_hash/2,4 und
     # term_size/2 wie SWI
     "terms" => Map.put(@home_reexports["terms"], {"numbervars", 3}, "system"),

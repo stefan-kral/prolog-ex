@@ -2266,9 +2266,10 @@ Modellzahlen alle gleich (rund 0,35 s je Formel; SWI 1,25 s, Scryer
 in SWI wie hier; an ihnen prüft der Test, dass Zeitgrenze und Ctrl-C
 mitten in clpb greifen. `conformance/satlib/run.sh` holt die Formeln
 (uf20, aim, dubois, pret, hole7–9, je 5 aus uf50/uuf50; je 20 s) und
-vergleicht mit SWI und Scryer. PrologEx: 1106 Formeln, kein falsches
-Ergebnis; 20 brauchen länger als 20 s (dubois100, pret, hole9, uf50,
-uuf50).
+vergleicht mit SWI und Scryer. 1106 Formeln, in keinem der drei Systeme
+ein falsches Ergebnis; länger als 20 s brauchen in PrologEx 20 (dubois100,
+pret, hole9, uf50, uuf50), in SWI 23 (dazu dubois50, hole8, eine
+aim-100), in Scryer 24 (dazu hole7).
 
 Ziel ist, clpb nach und nach ganz in Elixir zu rechnen
 (`PrologEx.Builtins.ClpbPrims`); `clpb.pl` geht dafür bewusst vom
@@ -3936,6 +3937,12 @@ verify_attributes(Var, Wert, Goals) :- ...   % vor der Bindung
 attribute_goal(Var, domain(Var, Dom)) :- get_atts(Var, dom(Dom)).
 ```
 
+Den Operator `attribute` (1150, fx) bringt erst `use_module(library(atts))`
+mit, wie in Scryer (SWI kennt ihn nicht); global vordefiniert brach er
+Programme, die `attribute` als Namen benutzen (Chat-80). Lädt eine
+Bibliothek des Systems `library(atts)` (clpz, clpb, simplex), gilt er nur
+während deren Laden.
+
 `put_atts/2` (`+A`, `-A`, Listen), `get_atts/2` (auch mit ungebundener
 Angabe: alle Attribute), jeweils im Kontextmodul. Beim Binden
 attributierter Variablen wie in SICStus: erst alle Bindungen dieser
@@ -4049,6 +4056,13 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     `instantiation_error`, `M:H` zählt auf; unbekannte Eigenschaft:
     `domain_error(predicate_property, P)`); `clause/2`, `retract/1`,
     `dynamic/1`, `listing/1`, `current_predicate/1` mit `M:`.
+  * Laden im Kreis wie SWI: Laden zwei Module einander mit `use_module`
+    (Chat-80: `world0` und `aggreg`), importiert das innere `use_module`
+    nur die Exporte des Moduls, das gerade weiter außen lädt (vorher eine
+    endlose Rekursion).
+  * Ein Modul darf ein Prädikat exportieren, das es selbst nur importiert
+    hat (wie SWI und SICStus; Chat-80: `chat80` gibt `test_chat/0` aus
+    `chattop` weiter); ein Aufruf folgt der Kette der Importe.
   * Auflösung eines Aufrufs in Modul `m` wie SICStus: in `m` definiert →
     nach `m` importiert → `system`. Kein Rückgriff auf `user` (sonst
     `user:foo` schreiben) und kein Autoload:
@@ -4066,7 +4080,9 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); `call_with_memory_limit/2` (siehe Ressourcen begrenzen), `clausex/2` (wie `clause/2`, scheitert aber statt `permission_error(access, private_procedure, …)`; für Meta-Interpreter, Messung unter „Laufzeit“), `cached_is(X, E)` (rechnet wie `X is E`, wertet aber einen geteilten Teilausdruck nur einmal aus – ein Term wie `X+X` über 60 Stufen kostet 60 Schritte statt 2^60; Fehler wie bei `is/2`; Teile mit `random`, `random_float`, `cputime`, `realtime` werden nicht gemerkt und liefern je Vorkommen einen neuen Wert); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
-    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1` – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])` |
+    | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |
+    | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`) |
+    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `strip_module/3`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])` |
 
     `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
     und nach in Bibliotheken, zu denen sie inhaltlich passen. Eigene
@@ -4314,7 +4330,9 @@ Schreibströmen; Flag `version_data` (`prolog_ex(0,1,0,[])`, wie SWI).
     `expect_first(Ziel, Schablone, T)`.
 
 Die Erwartungen kommen aus unabhängigen Quellen (etwa Anzahlen aus der
-OEIS) oder aus SWI-Prolog und Scryer. `test/programs/runner.pl` prüft sie
+OEIS) oder aus SWI-Prolog und Scryer. Laden muss ohne Meldungen gehen;
+nur Singleton-Warnungen sind erlaubt (übernommene Programme bleiben
+unverändert). `test/programs/runner.pl` prüft sie
 portabel (nur ISO, `findall/3`, `length/2`); `test/program_battery_test.exs`
 läuft je Programm als eigener Test, `test/programs/cross.sh [NAME…]` prüft
 dieselben Erwartungen in SWI und Scryer gegen
@@ -4333,9 +4351,9 @@ dieselben Erwartungen in SWI und Scryer gegen
 | `oeis__a006506_grid` | clpb, `sat_count/2`: unabhängige Mengen im n×n-Gitter, n = 0..6 (A006506) |
 | `oeis__a000372_dedekind` | clpb, `sat_count/2`: monotone Boolesche Funktionen, n = 0..5 (A000372; n = 6 braucht 23 s, SWI 87 s) |
 | `oeis__a006577_collatz` | Collatz/Hailstone: Schritte für 1..72 (A006577), Höchstwerte für 1..62 (A025586), Rekordhalter bis 10000 (A006877, A006878), die Folge ab 27 |
-
 | `peano__arith` | Peano-Arithmetik nach „The Art of Prolog“, Kap. 3 (umbenannt: `plus/3`, `=<` sind in SWI eingebaut): `add`, `mul`, `le`, `mod`, `gcd`, `minimum` gegen `is/2` für alle Paare aus 0..12 (samt Anzahl der Lösungen), Fakultät, Potenz, Ackermann; relational: Zerlegungen `add(X, Y, n)`, Teiler (A000005), Kompositionen (A011782); tiefe Terme (100 000 + 100 000) |
 | `logtalk__dcgs_translation` | DCG-Übersetzung: die 59 Fälle aus Logtalk (`tests/logtalk/dcgs`) gegen das eingebaute `expand_term/2`, dazu: ein Cut in `phrase/2,3` bleibt lokal |
+| `chat80__parser` | der Parser von Chat-80 (Pereira/Warren, MIT; aus SWIs Benchmark-Sammlung, ursprünglich Van Roy): die 16 Fragen, je genau ein Parsebaum, gleich wie in SWI und Scryer; auch in `bench/suite.exs` |
 | `logtalk__dcgs_…` (14) | Grammatiken aus Logtalk (`examples/dcgs`): Rechner, MAC-Adresse, Morse, Enigma (T9), Sätze, Parsebaum, Stückliste, Shell, Tokenizer, Wanderer (Gleitkomma), XML in beide Richtungen, URL, IBAN (große Zahlen), Meta-Nichtterminal mit `call//N` |
 
 Die `logtalk__…`-Programme stammen von Paulo Moura (Apache-2.0); angepasst
@@ -4534,9 +4552,13 @@ Rechenzentrum, ±5 % Rauschen):
 | clpz_q8all (8 Damen, alle 92) | 84 ms | 0,46 |
 | clpz_send (SEND+MORE=MONEY) | 1,9 ms | 0,53 |
 | clpz_sudoku | 37 ms | 0,34 |
+| chat_parser (Chat-80, 16 Fragen, 10-mal) | 758 ms | 1,00 |
 
 nrev, loop und tak laufen ganz im JIT; bei clpz zählen die Inferenzen nur
 die Prolog-Ebene, die Arbeit steckt in Propagatoren und Attributen.
+chat_parser (Stand 18. November 2026) ist mit 1 MLIPS der langsamste der
+reinen Fälle: ein Durchlauf (16 Fragen) braucht hier 72 ms, in SWI
+5,5 ms, in Scryer 11,5 ms.
 
 ### Vergleich mit Scryer Prolog
 

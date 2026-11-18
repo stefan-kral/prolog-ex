@@ -123,6 +123,32 @@ defmodule PrologEx.Consult do
     {st.db, Enum.reverse(st.msgs), st.declared}
   end
 
+  # Dateien, die gerade laden: Pfad => Modul (oder nil), siehe loading/1
+  @loading_key :prolog_ex_loading
+  # Operator-Einträge, die nach dem Laden der Datei zurückkommen
+  # (restore_after_load/1)
+  @restore_key :prolog_ex_restore_ops
+
+  @doc false
+  # nach dem Laden der aktuellen Datei die Einträge prev (ops_prev/1,
+  # lib_ops_prev/1) wiederherstellen; außerhalb eines Ladevorgangs nichts
+  def restore_after_load(prev) do
+    case Process.get(@restore_key) do
+      nil -> :ok
+      l -> Process.put(@restore_key, [prev | l])
+    end
+  end
+
+  @doc false
+  # wie ops_prev/1, für die Operatoren einer Bibliothek in Elixir
+  # ([{prio, typ, name}] mit Zeichenketten)
+  def lib_ops_prev(ops) do
+    table = PrologEx.Ops.table()
+
+    for {_p, type, name} <- ops,
+        do: {name, type, PrologEx.Ops.lookup(table, name, PrologEx.Ops.class(type))}
+  end
+
   @doc """
   Datei laden (consult/1, use_module/1, [datei]): `path` ohne oder mit
   `.pl`. Arbeitet auf der Sitzungsdatenbank und gibt Meldungen auf stderr
@@ -141,6 +167,11 @@ defmodule PrologEx.Consult do
       :ok ->
         # relative Pfade in der Datei (use_module, consult) gelten ab ihrem Ordner
         outer = Process.put(:prolog_ex_load_dir, Path.dirname(full))
+        # die Datei lädt gerade (loading/1): ein use_module darauf im Kreis
+        # (A lädt B, B lädt A) importiert nur, statt sie wieder zu laden
+        outer_loading = Process.get(@loading_key, %{})
+        Process.put(@loading_key, Map.put(outer_loading, full, nil))
+        outer_restore = Process.put(@restore_key, [])
 
         {db, msgs, module} =
           try do
@@ -151,6 +182,8 @@ defmodule PrologEx.Consult do
             )
           after
             Process.put(:prolog_ex_load_dir, outer)
+            Process.put(@loading_key, outer_loading)
+            for prev <- Process.put(@restore_key, outer_restore) || [], do: restore_ops(prev)
           end
 
         PrologEx.put_db(Map.put(db, {:file, full}, module))
@@ -171,6 +204,17 @@ defmodule PrologEx.Consult do
   @doc "Ist die Datei schon geladen? Dann `{:ok, modul_oder_nil}`, sonst :error."
   def loaded(path) do
     Map.fetch(PrologEx.current_db(), {:file, Path.expand(resolve_path(path))})
+  end
+
+  @doc """
+  Lädt die Datei gerade (weiter außen im selben Ladevorgang)? Dann
+  `{:ok, modul_oder_nil}` – das Modul, sobald seine module/2-Direktive
+  gelesen ist –, sonst :error. Wie SWI: Importieren zwei Module einander
+  mit use_module, lädt das innere das äußere nicht noch einmal (vorher
+  eine endlose Rekursion), sondern importiert dessen Exporte.
+  """
+  def loading(path) do
+    Map.fetch(Process.get(@loading_key, %{}), Path.expand(resolve_path(path)))
   end
 
   defp resolve_path(path) do
@@ -714,6 +758,9 @@ defmodule PrologEx.Consult do
         ops: ops,
         ops_prev: prev
       })
+
+    loading = Process.get(@loading_key, %{})
+    if is_map_key(loading, st.file), do: Process.put(@loading_key, Map.put(loading, st.file, m))
 
     st = %{st | db: db, module: m, declared: m}
     import_into(st, m, keys, st.into)

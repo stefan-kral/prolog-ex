@@ -13,14 +13,13 @@ defmodule PrologEx.Ops do
 
   @key :prolog_ex_ops
 
-  # wie gprolog 1.4/1.5 samt den Deklarationsoperatoren (dynamic, ...,
-  # attribute), =@=, \\=@=, xor
+  # wie gprolog 1.4/1.5 samt den Deklarationsoperatoren (dynamic, ...),
+  # =@=, \\=@=, xor; attribute erst mit library(atts) (wie Scryer)
   @default_list [
     {1200, "xfx", "-->"},
     {1200, "fx", ":-"},
     {1200, "xfx", ":-"},
     {1200, "fx", "?-"},
-    {1150, "fx", "attribute"},
     {1150, "fx", "discontiguous"},
     {1150, "fx", "dynamic"},
     {1150, "fx", "initialization"},

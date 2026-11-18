@@ -1403,8 +1403,24 @@ defmodule PrologEx do
     case local(db, mod, name, arity) do
       :none ->
         case Map.fetch(db, {:import, mod, name, arity}) do
-          {:ok, src} -> local(db, src, name, arity)
+          {:ok, src} -> imported(db, src, name, arity, 8)
           :error -> :none
+        end
+
+      found ->
+        found
+    end
+  end
+
+  # im Quellmodul eines Imports; hat es das Prädikat selbst nur importiert
+  # und exportiert es weiter (wie SWI und SICStus: Modul a importiert p aus
+  # b und exportiert p), dort weiter – höchstens n Stufen (gegen Kreise)
+  defp imported(db, src, name, arity, n) do
+    case local(db, src, name, arity) do
+      :none when n > 0 ->
+        case Map.fetch(db, {:import, src, name, arity}) do
+          {:ok, next} when next != src -> imported(db, next, name, arity, n - 1)
+          _ -> :none
         end
 
       found ->

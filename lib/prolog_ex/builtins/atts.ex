@@ -26,8 +26,16 @@ defmodule PrologEx.Builtins.Atts do
 
   Ein Attribut ohne `+`/`-` gilt als `+`. Gespeichert sind die Attribute je
   Modul als Prolog-Liste in Deklarationsreihenfolge.
+
+  Den Operator `attribute` (1150, fx) bringt erst der Import mit, wie in
+  Scryer; SWI kennt ihn gar nicht. Global vordefiniert brach er Programme,
+  die `attribute` als Namen benutzen (Chat-80: `[..., attribute/6, ...]`
+  in einer Exportliste).
   """
   use PrologEx.Builtin, module: "atts"
+
+  @doc false
+  def ops, do: [{"atts", 1150, "fx", "attribute"}]
   alias PrologEx.Error
 
   defbuiltin "put_atts", [var, spec] do

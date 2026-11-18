@@ -31,6 +31,9 @@ defmodule PrologEx.WriterOpsTest do
   setup c do
     Reader.put_current(c.reader)
     PrologEx.Ops.reset()
+    # gprolog kennt attribute als Operator; bei uns kommt er mit
+    # library(atts) (wie Scryer) – für den Vergleich wie nach dem Import
+    PrologEx.Ops.add(1150, "fx", "attribute")
     :ok
   end
 
@@ -118,8 +121,9 @@ defmodule PrologEx.WriterOpsTest do
     # sortiert: die Reihenfolge der Map-Schlüssel hängt von der OTP-Version ab
     # (ohne rdiv: gprolog kennt den Operator nicht, und die Aufzeichnung
     # stammt von davor)
+    # (attribute wie nach library(atts), siehe setup)
     ops =
-      PrologEx.Ops.default() |> Map.keys() |> Enum.sort() |> Enum.reject(&(&1 in ["|", "rdiv"]))
+      PrologEx.Ops.table() |> Map.keys() |> Enum.sort() |> Enum.reject(&(&1 in ["|", "rdiv"]))
 
     q = &Writer.atom(&1, %{quoted: true})
 

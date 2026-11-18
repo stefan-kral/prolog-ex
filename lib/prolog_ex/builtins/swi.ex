@@ -47,6 +47,42 @@ defmodule PrologEx.Builtins.Swi do
     :ok
   end
 
+  # library(quintus) wie SWI: mode/1 nimmt DEC-10/Quintus-Deklarationen
+  # :- mode p(+, -) hin und tut nichts; otherwise/0 für (C -> A ; otherwise -> B)
+  defbuiltin "mode", [_decl] do
+    :ok
+  end
+
+  defbuiltin "otherwise", [] do
+    :ok
+  end
+
+  # wie SWI (dort eingebaut): Deklaration für Werkzeuge, hier ohne Wirkung
+  defbuiltin "public", [_spec] do
+    :ok
+  end
+
+  # library(edinburgh) wie SWI: ohne Operatoren, gequotet (SWI schreibt
+  # dazu Listen als '[|]'(H, T); hier bleiben sie [H|T])
+  defbuiltin "display", [x] do
+    IO.out(
+      PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), quoted: true, ignore_ops: true)
+    )
+
+    :ok
+  end
+
+  defbuiltin "display", [stream, x] do
+    id = IO.output!(deref(stream), :text)
+
+    S.put_text(
+      id,
+      PrologEx.Writer.format(PrologEx.resolve_out(x, subst()), quoted: true, ignore_ops: true)
+    )
+
+    :ok
+  end
+
   defbuiltin "tab", [n] do
     IO.out(spaces(n, subst()))
     :ok

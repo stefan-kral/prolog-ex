@@ -13,6 +13,13 @@ defmodule Prof do
     {db, []} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(prelude))
     PrologEx.put_db(db)
     {db, []} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(Suite.program()))
+
+    db =
+      Enum.reduce(Suite.extra(), db, fn f, db ->
+        {db, _warnings} = PrologEx.Consult.load(db, PrologEx.Parser.read_terms(File.read!(f)))
+        db
+      end)
+
     PrologEx.put_db(db)
 
     extra =

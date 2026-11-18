@@ -276,6 +276,13 @@ defmodule PrologEx.Builtins.Modules do
 
       {exports, _} ->
         ops = PrologEx.Builtins.ops(name)
+
+        # in eine Bibliothek des Systems (clpz.pl lädt library(atts)):
+        # die Operatoren gelten nur, bis diese Datei geladen ist (wie bei
+        # Bibliotheken in Prolog, siehe use_file/4)
+        if ops != [] and PrologEx.Builtins.system_module?(ctx),
+          do: Consult.restore_after_load(Consult.lib_ops_prev(ops))
+
         for {p, type, op} <- ops, do: PrologEx.Reader.op(PrologEx.Reader.current(), p, type, op)
         import(name, select(exports, keys, name), ctx, ops)
     end
@@ -296,8 +303,15 @@ defmodule PrologEx.Builtins.Modules do
           {m, false}
 
         :error ->
-          r = PrologEx.LoadLog.loading(label, fn -> Consult.load_file(f, into: nil) end)
-          {elem(r, 1), true}
+          case Consult.loading(f) do
+            # im Kreis: lädt gerade weiter außen – nur importieren
+            {:ok, m} ->
+              {m, false}
+
+            :error ->
+              r = PrologEx.LoadLog.loading(label, fn -> Consult.load_file(f, into: nil) end)
+              {elem(r, 1), true}
+          end
       end
 
     if module do
