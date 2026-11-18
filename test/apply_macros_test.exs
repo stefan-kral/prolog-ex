@@ -45,6 +45,10 @@ defmodule PrologEx.ApplyMacrosTest do
   n1(Xs) :- maplist(\\X^(X = 0 ; X = 1), Xs).
   n2(Xs) :- maplist(in01, Xs).
   n3(Xs, Ys) :- maplist(\\X^Y^(member(X-Y, [a-1, b-2, a-3])), Xs, Ys).
+  % verschiedene Closures, deren Gerüst phash2 gleich abbildet: je ein
+  % eigenes Hilfsprädikat
+  h1(L) :- maplist(=(#(0,1,0)), L).
+  h2(L) :- maplist(=(#(0,0,1,0)), L).
   """
 
   # eine eigene Definition, auch erst nach dem Aufruf: der Aufruf bleibt
@@ -125,7 +129,8 @@ defmodule PrologEx.ApplyMacrosTest do
         "length(Xs, 12), countall(n2(Xs), N)",
         "n1(Xs)",
         "findall(Xs-Ys, n3([a, b], Ys), L)",
-        "findall(Xs-Ys, (length(Xs, 2), n3(Xs, Ys)), L)"
+        "findall(Xs-Ys, (length(Xs, 2), n3(Xs, Ys)), L)",
+        "h1([X]), h2([Y])"
       ] do
     test q, c do
       Reader.put_current(c.reader)

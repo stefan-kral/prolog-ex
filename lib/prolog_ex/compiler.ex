@@ -54,10 +54,12 @@ defmodule PrologEx.Compiler do
   abgeflacht, `true` entfällt.
 
   Eine kompilierte Klausel ist
-  `{:clause, index_key, nslots, head_patterns, nfresh, body_templates, nvars}`;
+  `{:clause, index_key, nslots, head_patterns, nfresh, body_templates, nvars, code}`;
   nvars: höchstens so viele frische Variablen legt ein Klauselversuch an
   (Slots, anonyme Kopfvariablen, Rumpfvariablen) – die Maschine prüft
-  damit, ob ihr Block von Kennungen reicht.
+  damit, ob ihr Block von Kennungen reicht. code: nil oder der Kopf als
+  BEAM-Funktion (PrologEx.ClauseCode, nachträglich für oft gerufene
+  Prädikate).
 
   Variablenfreie Teilterme (`:ground`, `:t_lit`) werden vollständig als
   gstruct/glist markiert; Write-Modus und Instanziierung markieren über
@@ -77,7 +79,7 @@ defmodule PrologEx.Compiler do
     nfresh = map_size(st.fresh)
     key = with :any <- index_key_of(pats), do: guard(head, goals)
 
-    {:clause, key, nslots, pats, nfresh, tmpls, nslots + st.voids + nfresh}
+    {:clause, key, nslots, pats, nfresh, tmpls, nslots + st.voids + nfresh, nil}
   end
 
   # --- Wächter: Typtest am Anfang -------------------------------------------

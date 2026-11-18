@@ -19,6 +19,13 @@ defmodule PrologEx.DbIndexTest do
     entry({s("p", [first, :rand.uniform(100)]), a("true")})
   end
 
+  # ohne die Aufrufzähler (PrologEx.ClauseCode): ein Neubau hat einen neuen
+  defp cold({:clause, k, ns, ps, nf, b, nv, _}), do: {:clause, k, ns, ps, nf, b, nv, nil}
+  defp cold(t) when is_tuple(t), do: t |> Tuple.to_list() |> cold() |> List.to_tuple()
+  defp cold(l) when is_list(l), do: Enum.map(l, &cold/1)
+  defp cold(m) when is_map(m), do: Map.new(m, fn {k, v} -> {k, cold(v)} end)
+  defp cold(x), do: x
+
   test "materialize nach asserta/assertz == Neubau aus den Einträgen" do
     :rand.seed(:exsss, {7, 8, 9})
 
@@ -34,7 +41,7 @@ defmodule PrologEx.DbIndexTest do
           end
 
         m = materialize(pred)
-        assert flat_pred(m) == pred_from_entries(pred_entries(pred))
+        assert cold(flat_pred(m)) == cold(pred_from_entries(pred_entries(pred)))
         # zufällig mit oder ohne Materialisieren weiter
         if :rand.uniform(2) == 1, do: m, else: pred
       end)
@@ -54,7 +61,7 @@ defmodule PrologEx.DbIndexTest do
     seconds = fn cls -> Enum.map(cls, fn c -> elem(c, 1) end) end
     {:pred, _, by_key, _, _} = m
     assert length(by_key[1]) == 13
-    assert flat_pred(m) == pred_from_entries(pred_entries(p))
+    assert cold(flat_pred(m)) == cold(pred_from_entries(pred_entries(p)))
     assert seconds.(elem(flat_pred(m), 1)) |> hd() == :any
   end
 

@@ -105,7 +105,7 @@ defmodule PrologEx.CompilerAliasTest do
   defp body_len(clause, c) do
     Reader.put_current(c.reader)
     [{:term, {:struct, ":-", [h, b]}, _}] = Reader.read_terms(c.reader, clause <> ".")
-    {:clause, _, _, _, _, tmpls, _} = Compiler.compile_clause({h, b})
+    {:clause, _, _, _, _, tmpls, _, _} = Compiler.compile_clause({h, b})
     length(tmpls)
   end
 

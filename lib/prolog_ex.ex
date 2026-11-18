@@ -1464,6 +1464,7 @@ defmodule PrologEx do
   # auf ein solches Prädikat, siehe materialize/1)
   def pred_from_entries(entries, opt \\ true) do
     cls = Enum.map(entries, &elem(&1, 2))
+    cls = if opt, do: cold_clauses(cls), else: cls
     indexed = Enum.with_index(cls)
     var_only = for {c, _} <- indexed, any_key?(elem(c, 1)), do: c
     any_idx = for {c, i} <- indexed, any_key?(elem(c, 1)), do: {i, c}
@@ -1490,6 +1491,30 @@ defmodule PrologEx do
     {by_key, var_only} = if opt, do: specialize_lists(by_key, var_only), else: {by_key, var_only}
     {:pred, cls, by_key, var_only, entries}
   end
+
+  # Aufrufzähler für PrologEx.ClauseCode: {:cold, ref} im 8. Feld jeder
+  # Klausel (ein Zähler je Prädikat, beginnt bei -Schwelle; bei 0 wird
+  # übersetzt, siehe cold_call/7)
+  defp cold_clauses([]), do: []
+
+  defp cold_clauses(cls) do
+    # (nicht beim Übersetzen von PrologEx selbst: in Modulattribute
+    # gelegte Prädikate können keinen Zähler tragen)
+    if PrologEx.Flags.get("clause_jit") == {:atom, "true"} and
+         not Code.can_await_module_compilation?() do
+      ref = :atomics.new(1, signed: true)
+      :atomics.put(ref, 1, -PrologEx.Flags.get("clause_jit_threshold"))
+      cold_clauses(cls, {:cold, ref})
+    else
+      cls
+    end
+  end
+
+  defp cold_clauses([{:clause, _, _, _, _, _, _, nil} = c | cs], cold),
+    do: [put_elem(c, 7, cold) | cold_clauses(cs, cold)]
+
+  defp cold_clauses([c | cs], cold), do: [c | cold_clauses(cs, cold)]
+  defp cold_clauses([], _cold), do: []
 
   # --- Fassungen je Kandidatenliste ------------------------------------------
   #
@@ -1536,7 +1561,7 @@ defmodule PrologEx do
     end)
   end
 
-  defp spec_clause({:clause, key, ns, pats, nf, tmpls, nv} = c, class, last?) do
+  defp spec_clause({:clause, key, ns, pats, nf, tmpls, nv, cc} = c, class, last?) do
     t1 =
       case {key, tmpls} do
         {{:guard, t}, [{:t_struct, t, [_]} | rest]} when class != :other ->
@@ -1550,7 +1575,7 @@ defmodule PrologEx do
     # der Schlüssel trägt den vollständigen Rumpf: weckt die Kopfunifikation
     # Ziele, gilt der (sie können Choice Points hinterlassen, die der
     # Schnitt wegnähme; siehe clause_matched/9)
-    if t2 === tmpls, do: c, else: {:clause, {:spec, tmpls}, ns, pats, nf, t2, nv}
+    if t2 === tmpls, do: c, else: {:clause, {:spec, tmpls}, ns, pats, nf, t2, nv, cc}
   end
 
   defp drop_neck_cut([{:t_struct, t, [_]} = g | rest], acc) when t in @type_tests,
@@ -1914,7 +1939,7 @@ defmodule PrologEx do
   # {Schlüssel => Klauseln, Klauseln mit Variable an Stelle k} oder :none
   defp xindex_build(cls, k) do
     tagged =
-      Enum.map(cls, fn {:clause, _, _, pats, _, _, _} = c ->
+      Enum.map(cls, fn {:clause, _, _, pats, _, _, _, _} = c ->
         {pat_key(Enum.at(pats, k - 1)), c}
       end)
 
@@ -2093,6 +2118,64 @@ defmodule PrologEx do
   defp ground_eq({:atom, _}, b) when is_number(b), do: false
   defp ground_eq(a, {:atom, _}) when is_number(a), do: false
   defp ground_eq(_, _), do: :unknown
+
+  # --- für PrologEx.ClauseCode: Teile von m/6 ---------------------------
+
+  @doc false
+  def cc_known_ground?(t), do: is_known_ground(t)
+  # (Ergebnis die neue Bindung oder :error)
+
+  @doc false
+  def cc_const(t, c, s) do
+    case Store.walk(t, s) do
+      ^c -> s
+      {:var, _} = v -> Store.fast_bind(v, c, s)
+      _ -> :error
+    end
+  end
+
+  @doc false
+  def cc_ground(t, c, s, mode) do
+    case Store.walk(t, s) do
+      {:var, _} = v ->
+        Store.bind(v, c, s)
+
+      t ->
+        case ground_eq(t, c) do
+          true ->
+            s
+
+          false ->
+            :error
+
+          :unknown ->
+            case unify(t, c, s, mode) do
+              {:ok, s} -> s
+              :error -> :error
+            end
+        end
+    end
+  end
+
+  @doc false
+  # gebunden: [Kopf | Rest] (auch aus einer markierten Liste)
+  def cc_list(t, s) do
+    case Store.walk(t, s) do
+      {:glist, [h | tl]} -> [h | glist_tail(tl)]
+      t -> t
+    end
+  end
+
+  @doc false
+  # Schreibmodus eines Listen- oder Strukturmusters
+  def cc_write(v, p, env, s, nv, mode) do
+    {term, env, nv} = build(p, env, nv)
+
+    case bind_checked(v, term, s, mode) do
+      {:ok, s} -> {:ok, env, s, nv}
+      :error -> :error
+    end
+  end
 
   defp ground_eq_list([], []), do: true
 
@@ -3581,6 +3664,11 @@ defmodule PrologEx do
             k.()
         end
 
+      # noch nicht übersetzt (PrologEx.ClauseCode): zählen
+      {:ok, {:pred, [{:clause, _, _, _, _, _, _, {:cold, ref}} | _], _, _, _} = pred}
+      when st.dlimit == nil ->
+        cold_call(pred, ref, {mod, name, arity}, args, mod, rest, st)
+
       # ohne aufgeschobenes Anhängen und ohne Tiefengrenze (der häufige
       # Fall): ohne Hilfsaufrufe
       {:ok, {:pred, all, _, _, _} = pred} when not is_tuple(all) and st.dlimit == nil ->
@@ -3621,6 +3709,39 @@ defmodule PrologEx do
 
         call_located(found, goal, name, args, mod, rest, st)
     end
+  end
+
+  # Aufruf eines noch nicht übersetzten Prädikats: ab der Schwelle
+  # übersetzen (PrologEx.ClauseCode) und das Prädikat in der Datenbank
+  # ersetzen. Die Datenbank einer Anfrage ist ein Wert: die nächste Anfrage
+  # mit derselben (query(db, ...)) sieht das Prädikat wieder unübersetzt –
+  # dann nimmt sie die übersetzte Fassung aus dem Prozess-Dictionary
+  # (nur für genau dieses Prädikat: nach assert ist es ein anderes)
+  defp cold_call(pred, ref, key, args, mod, rest, st) do
+    pred =
+      if :atomics.add_get(ref, 1, 1) >= 0 do
+        p2 =
+          case Process.get({:"$clause_code", ref}) do
+            {^pred, p2} ->
+              p2
+
+            _ ->
+              p2 = PrologEx.ClauseCode.attach(pred)
+              Process.put({:"$clause_code", ref}, {pred, p2})
+              p2
+          end
+
+        case current_db() do
+          %{^key => ^pred} = db -> put_db(Map.put(db, key, p2))
+          _ -> :ok
+        end
+
+        p2
+      else
+        pred
+      end
+
+    try_clauses(args, candidates(pred, mod, elem(key, 1), args, st.subst), rest, mod, st)
   end
 
   defp call_located(found, goal, name, args, mod, rest, st) do
@@ -5359,15 +5480,15 @@ defmodule PrologEx do
   # ohne Block frischer Variablen und ohne Occurs-Check (ein ground Wert
   # bildet keinen Zyklus, kann also auch mit occurs_check=error nicht
   # werfen). Keine Variable im Fakt, auch keine anonyme: nvars 0
-  defp try_clauses(args, [{:clause, key, 0, pats, 0, [], 0} | more], rest, mod, st) do
-    matched = match_args(pats, args, {}, st.subst, st.next_var, nil)
-    clause_matched(matched, args, more, rest, 0, [], key, mod, st)
+  defp try_clauses(args, [{:clause, key, 0, pats, 0, [], 0, cc} | more], rest, mod, st) do
+    matched = head(cc, pats, 0, args, st.subst, st.next_var, nil)
+
+    clause_matched(matched, args, more, rest, 0, [], key, mod, st, nil)
   end
 
   # mod: Modul, in dem das Prädikat definiert ist (Kontext für den Rumpf)
   defp try_clauses(args, [cl | more], rest, mod, st) do
-    {:clause, key, nslots, pats, nfresh, body, nvars} = cl
-    env = :erlang.make_tuple(nslots, nil)
+    {:clause, key, nslots, pats, nfresh, body, nvars, cc} = cl
     # reicht der Block von Kennungen für die frischen Variablen?
     st = if st.next_var + nvars > st.var_end, do: new_block(st, nvars), else: st
 
@@ -5376,23 +5497,36 @@ defmodule PrologEx do
     mode = occurs_mode()
 
     if mode == :error do
-      case guarded(fn -> match_args(pats, args, env, st.subst, st.next_var, mode) end) do
+      case guarded(fn -> head(cc, pats, nslots, args, st.subst, st.next_var, mode) end) do
         {:ok, matched} ->
-          clause_matched(matched, args, more, rest, nfresh, body, key, mod, st)
+          clause_matched(matched, args, more, rest, nfresh, body, key, mod, st, cc)
 
         {:thrown, ball} ->
           throw_ball(ball, st)
       end
     else
-      matched = match_args(pats, args, env, st.subst, st.next_var, mode)
-      clause_matched(matched, args, more, rest, nfresh, body, key, mod, st)
+      matched = head(cc, pats, nslots, args, st.subst, st.next_var, mode)
+      clause_matched(matched, args, more, rest, nfresh, body, key, mod, st, cc)
     end
   end
+
+  # Kopf: als BEAM-Funktion (PrologEx.ClauseCode) oder interpretiert
+  @compile {:inline, head: 7}
+
+  defp head({h, _}, pats, nslots, args, s, nv, mode) when is_function(h) do
+    case h.(args, s, nv, mode) do
+      :interp -> match_args(pats, args, :erlang.make_tuple(nslots, nil), s, nv, mode)
+      r -> r
+    end
+  end
+
+  defp head(_, pats, nslots, args, s, nv, mode),
+    do: match_args(pats, args, :erlang.make_tuple(nslots, nil), s, nv, mode)
 
   # Typtests, die inline_body selbst ausführt
   @inline_tests ~w(var nonvar atom number integer float atomic compound callable)
 
-  defp clause_matched(matched, args, more, rest, nfresh, body, key, mod, st) do
+  defp clause_matched(matched, args, more, rest, nfresh, body, key, mod, st, cc) do
     case matched do
       :error ->
         try_clauses(args, more, rest, mod, st)
@@ -5452,7 +5586,11 @@ defmodule PrologEx do
                   | cps: cps,
                     height: height,
                     next_var: nv + nfresh,
-                    goals: inst_goals(body, env, nv, barrier, mod, rest),
+                    goals:
+                      case cc do
+                        {_, b} when is_function(b) -> b.(env, nv, barrier, mod, rest)
+                        _ -> inst_goals(body, env, nv, barrier, mod, rest)
+                      end,
                     subst: s1
                 })
             end

@@ -350,7 +350,12 @@ defmodule PrologEx.ApplyMacros do
   # gleiche Art, gleiche Closure bis auf Variablennamen, gleiches Modul:
   # dasselbe Hilfsprädikat
   defp aux_name(kind, ar, c, module) do
-    h = :erlang.phash2({kind, ar, module, skel(c, %{}) |> elem(0)}, 4_294_967_296)
+    # (sha256, nicht phash2: das liefert für verschiedene Closures zu oft
+    # denselben Wert – etwa für #(0,1,0) und #(0,0,1,0) –, dann teilten
+    # sie sich ein Hilfsprädikat)
+    <<h::64, _::binary>> =
+      :crypto.hash(:sha256, :erlang.term_to_binary({kind, ar, module, skel(c, %{}) |> elem(0)}))
+
     "$apply_#{kind}_#{ar}_#{Integer.to_string(h, 36)}"
   end
 

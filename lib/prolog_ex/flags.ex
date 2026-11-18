@@ -33,6 +33,10 @@ defmodule PrologEx.Flags do
     # übersetzt wird erst beim n-ten Aufruf eines Prädikats (1: gleich beim
     # ersten); selten gerufene kosten so keinen Compilerlauf
     "jit_threshold" => {1000, [:positive_integer]},
+    # oft gerufene Prädikate: Köpfe und Rümpfe der Klauseln als BEAM-Code
+    # (PrologEx.ClauseCode), nach so vielen Aufrufen (beim Laden gelesen)
+    "clause_jit" => {true, [false, true]},
+    "clause_jit_threshold" => {2000, [:positive_integer]},
     # auch nichtdeterministische "Blatt"-Prädikate übersetzen (Klauseln,
     # die sich nicht ausschließen; PrologEx.Jit, nd_irs!/3)
     "jit_nondet" => {true, [false, true]},

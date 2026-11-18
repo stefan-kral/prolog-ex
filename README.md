@@ -235,6 +235,39 @@ Ein Prolog-Kern in Elixir:
     tief, bekommt der Heap Luft im Verhältnis (`min_heap_size`, nach dem
     Aufruf wieder wie vorher): eine Summe von Quadraten mit einem
     Hilfsprädikat 110 → 12 ms
+- Klauseln als BEAM-Code (`PrologEx.ClauseCode`; Flag `clause_jit`,
+  Vorgabe `true`, beim Laden gelesen): für alles, was der JIT nicht
+  nimmt – nichtdeterministische Prädikate, Grammatiken. Kein eigener
+  Ablauf wie dort, nur die beiden Teile des Interpreters, die je Klausel
+  Muster und Vorlagen durchlaufen: der Kopf (dasselbe wie die
+  Kopfunifikation, die Slots in Erlang-Variablen, das Umfeld einmal am
+  Ende statt je Slot kopiert) und der Rumpf (die Zielliste direkt gebaut;
+  ob ein Teilterm ground markiert wird, steht meist schon beim Übersetzen
+  fest). Alles andere – Index, Choice Points, Schnitt, Wecken, Grenzen –
+  bleibt beim Interpreter, die Antworten sind dieselben.
+  - Übersetzt wird beim 2000. Aufruf eines Prädikats (Flag
+    `clause_jit_threshold`, ein Zähler je Prädikat beim Laden angelegt),
+    synchron; ein Prädikat kostet im Mittel 6 ms (Erlang-Abstraktcode
+    direkt an `:compile.forms/2`, ohne den Elixir-Compiler, der das
+    Dreifache brauchte; ohne die Optimierungsläufe). Das Modul heißt nach
+    dem SHA-256 der Muster und Vorlagen: dasselbe Prädikat neu geladen
+    nimmt es wieder. Die Datenbank einer Anfrage ist ein Wert – die
+    übersetzte Fassung merkt sich der Prozess, die nächste Anfrage mit
+    derselben Datenbank nimmt sie gleich.
+  - Nicht übersetzt: Köpfe nur aus Konstanten, anonymen und höchstens
+    zwei Variablen (Fakten wie `p(1)` – das macht der Interpreter schon
+    direkt, der Aufruf über die Funktion kostete mehr), Klauseln mit mehr
+    als 100 Slots oder mehr als 400 Knoten in Kopf oder Rumpf (der
+    BEAM-Compiler braucht für tief geschachtelten Code überproportional
+    lange); Prädikate, die der JIT übersetzt hat. Stößt ein Kopf in einem
+    geschachtelten Muster auf eine ungebundene Variable (Schreibmodus
+    unterhalb der obersten Ebene, selten), rechnet der Interpreter die
+    Klausel neu – so verzweigt der Code nur oben, und jeder Schreibzweig
+    bleibt ein Aufruf mit dem Muster als Literal.
+  - chat_parser (Chat-80): −41 % Reduktionen, −12 bis −22 % Zeit (Kopf
+    allein etwa −12 %, Rumpf allein −6 %); die übrigen Fälle der Suite
+    unverändert (Reduktionen ±1 %). Geprüft mit Schwelle 1 über die
+    ganze Testsuite und an chat_parser (`test/clause_code_test.exs`).
 - Deterministische eingebaute Ziele am Anfang eines Rumpfs (`is`,
   arithmetische Vergleiche, `=`, `==`, `\==`, Typtests, ein Neck-Cut)
   laufen gleich beim Eintritt in die Klausel, direkt aus den Vorlagen –
@@ -4837,7 +4870,9 @@ dem Laden): Steht in einem Klauselrumpf `maplist/2..8`, `foldl/4..6`,
 Laden bekannter Closure – ein Atom, eine Struktur, `M:G` –, wird daraus
 beim Laden ein eigenes rekursives Hilfsprädikat (`'$apply_maplist_3_…'`,
 die Listen vorn für die Indexierung, die Variablen der Closure als
-weitere Argumente). Zur Laufzeit gibt es dann kein `call/N` mehr, und der
+weitere Argumente; der Name aus dem SHA-256 der Closure ohne
+Variablennamen – mit `phash2` teilten sich `maplist(=(#(0,1,0)), L)` und
+`maplist(=(#(0,0,1,0)), L)` eines). Zur Laufzeit gibt es dann kein `call/N` mehr, und der
 JIT übersetzt das Hilfsprädikat und damit den Rufer wie jedes andere.
 Ein **Lambda** aus `library(lambda)` verschwindet ganz: sein Rumpf steht
 im Hilfsprädikat, seine Parameter im Kopf – wenn das dieselbe Bedeutung
