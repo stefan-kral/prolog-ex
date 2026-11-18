@@ -34,30 +34,14 @@ defmodule PrologEx.ClauseCode do
   Die Klauseln eines Prädikats (`{:pred, ...}`) übersetzt: das Prädikat
   zurück, jede Klausel mit `{Kopf, Rumpf}` im 8. Feld (Rumpf nil für
   Fakten, Kopf nil, wo er sich nicht lohnt). Klauseln, die schon Code
-  haben, bleiben.
+  haben, bleiben. Mit `compile: false` nur, was schon geladen ist (sonst
+  bleiben die Klauseln beim Interpreter, ohne weiter zu zählen).
   """
-  def attach(pred) do
-    {cls, big} = pred |> collect(%{}) |> Map.keys() |> Enum.split_with(&small?/1)
+  def attach(pred, opts \\ []) do
+    {cls, big, heads, bodies, name} = plan(pred)
 
-    heads =
-      cls
-      |> Enum.map(&{elem(&1, 2), elem(&1, 3)})
-      |> Enum.filter(&worth?/1)
-      |> Enum.uniq()
-      |> Enum.with_index()
-
-    bodies =
-      cls
-      |> Enum.map(&elem(&1, 5))
-      |> Enum.reject(&(&1 == []))
-      |> Enum.uniq()
-      |> Enum.with_index()
-
-    # (sha256: phash2 trifft zu oft dasselbe – #(0,1,0) und #(0,0,1,0))
-    hash = :crypto.hash(:sha256, :erlang.term_to_binary({heads, bodies}))
-    name = :"Elixir.PrologEx.CC#{binary_part(Base.encode16(hash, case: :lower), 0, 20)}"
-
-    if :erlang.module_loaded(name) or load(name, heads, bodies) do
+    if :erlang.module_loaded(name) or
+         (Keyword.get(opts, :compile, true) and load(name, heads, bodies)) do
       hnum = Map.new(heads)
       bnum = Map.new(bodies)
 
@@ -85,6 +69,40 @@ defmodule PrologEx.ClauseCode do
       # ließ sich nicht übersetzen: Interpreter, ohne weiter zu zählen
       replace(pred, Map.new(cls ++ big, &{&1, put_elem(&1, 7, nil)}))
     end
+  end
+
+  @doc """
+  Nur übersetzen und laden (für das Übersetzen in einem eigenen Prozess:
+  attach/2 danach findet das Modul)
+  """
+  def prepare(pred) do
+    {_, _, heads, bodies, name} = plan(pred)
+    :erlang.module_loaded(name) or load(name, heads, bodies)
+  end
+
+  # die Klauseln (übersetzbar, zu groß), Köpfe und Rümpfe je mit Nummer,
+  # der Name des Moduls
+  defp plan(pred) do
+    {cls, big} = pred |> collect(%{}) |> Map.keys() |> Enum.split_with(&small?/1)
+
+    heads =
+      cls
+      |> Enum.map(&{elem(&1, 2), elem(&1, 3)})
+      |> Enum.filter(&worth?/1)
+      |> Enum.uniq()
+      |> Enum.with_index()
+
+    bodies =
+      cls
+      |> Enum.map(&elem(&1, 5))
+      |> Enum.reject(&(&1 == []))
+      |> Enum.uniq()
+      |> Enum.with_index()
+
+    # (sha256: phash2 trifft zu oft dasselbe – #(0,1,0) und #(0,0,1,0))
+    hash = :crypto.hash(:sha256, :erlang.term_to_binary({heads, bodies}))
+    name = :"Elixir.PrologEx.CC#{binary_part(Base.encode16(hash, case: :lower), 0, 20)}"
+    {cls, big, heads, bodies, name}
   end
 
   # Lohnt ein übersetzter Kopf? Nicht bei nur Konstanten, anonymen und

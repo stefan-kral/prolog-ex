@@ -1492,21 +1492,27 @@ defmodule PrologEx do
     {:pred, cls, by_key, var_only, entries}
   end
 
-  # Aufrufzähler für PrologEx.ClauseCode: {:cold, ref} im 8. Feld jeder
-  # Klausel (ein Zähler je Prädikat, beginnt bei -Schwelle; bei 0 wird
-  # übersetzt, siehe cold_call/7)
+  # Aufrufzähler für PrologEx.ClauseCode: {:cold, ref, sync?} im 8. Feld
+  # jeder Klausel (je Prädikat ein atomics: 1. der Zähler, beginnt bei
+  # -Schwelle, bei 0 wird übersetzt; 2. 1, sobald das Übersetzen im
+  # Hintergrund fertig ist; siehe cold_call/7)
   defp cold_clauses([]), do: []
 
   defp cold_clauses(cls) do
     # (nicht beim Übersetzen von PrologEx selbst: in Modulattribute
     # gelegte Prädikate können keinen Zähler tragen)
-    if PrologEx.Flags.get("clause_jit") == {:atom, "true"} and
-         not Code.can_await_module_compilation?() do
-      ref = :atomics.new(1, signed: true)
-      :atomics.put(ref, 1, -PrologEx.Flags.get("clause_jit_threshold"))
-      cold_clauses(cls, {:cold, ref})
-    else
-      cls
+    case PrologEx.Flags.get("clause_jit") do
+      {:atom, m} when m in ["true", "sync"] ->
+        if Code.can_await_module_compilation?() do
+          cls
+        else
+          ref = :atomics.new(2, signed: true)
+          :atomics.put(ref, 1, -PrologEx.Flags.get("clause_jit_threshold"))
+          cold_clauses(cls, {:cold, ref, m == "sync"})
+        end
+
+      _ ->
+        cls
     end
   end
 
@@ -3665,9 +3671,9 @@ defmodule PrologEx do
         end
 
       # noch nicht übersetzt (PrologEx.ClauseCode): zählen
-      {:ok, {:pred, [{:clause, _, _, _, _, _, _, {:cold, ref}} | _], _, _, _} = pred}
+      {:ok, {:pred, [{:clause, _, _, _, _, _, _, {:cold, _, _} = cold} | _], _, _, _} = pred}
       when st.dlimit == nil ->
-        cold_call(pred, ref, {mod, name, arity}, args, mod, rest, st)
+        cold_call(pred, cold, {mod, name, arity}, args, mod, rest, st)
 
       # ohne aufgeschobenes Anhängen und ohne Tiefengrenze (der häufige
       # Fall): ohne Hilfsaufrufe
@@ -3711,37 +3717,62 @@ defmodule PrologEx do
     end
   end
 
-  # Aufruf eines noch nicht übersetzten Prädikats: ab der Schwelle
-  # übersetzen (PrologEx.ClauseCode) und das Prädikat in der Datenbank
-  # ersetzen. Die Datenbank einer Anfrage ist ein Wert: die nächste Anfrage
-  # mit derselben (query(db, ...)) sieht das Prädikat wieder unübersetzt –
-  # dann nimmt sie die übersetzte Fassung aus dem Prozess-Dictionary
-  # (nur für genau dieses Prädikat: nach assert ist es ein anderes)
-  defp cold_call(pred, ref, key, args, mod, rest, st) do
+  # Aufruf eines noch nicht übersetzten Prädikats: an der Schwelle
+  # übersetzen (PrologEx.ClauseCode) – in einem eigenen Prozess mit
+  # niedriger Priorität, der Aufrufer rechnet derweil interpretiert weiter;
+  # mit clause_jit = sync gleich hier. Ist der Code da, ersetzt er das
+  # Prädikat in der Datenbank. Die Datenbank einer Anfrage ist ein Wert:
+  # die nächste Anfrage mit derselben (query(db, ...)) sieht das Prädikat
+  # wieder unübersetzt – dann nimmt sie die übersetzte Fassung aus dem
+  # Prozess-Dictionary (nur für genau dieses Prädikat: nach assert ist es
+  # ein anderes)
+  defp cold_call(pred, {:cold, ref, sync}, key, args, mod, rest, st) do
+    n = :atomics.add_get(ref, 1, 1)
+
     pred =
-      if :atomics.add_get(ref, 1, 1) >= 0 do
-        p2 =
-          case Process.get({:"$clause_code", ref}) do
-            {^pred, p2} ->
-              p2
-
-            _ ->
-              p2 = PrologEx.ClauseCode.attach(pred)
-              Process.put({:"$clause_code", ref}, {pred, p2})
-              p2
-          end
-
-        case current_db() do
-          %{^key => ^pred} = db -> put_db(Map.put(db, key, p2))
-          _ -> :ok
-        end
-
-        p2
-      else
-        pred
+      cond do
+        n < 0 -> pred
+        sync -> compiled(pred, ref, key, true)
+        n == 0 -> compile_async(pred, ref)
+        :atomics.get(ref, 2) == 0 -> pred
+        true -> compiled(pred, ref, key, false)
       end
 
     try_clauses(args, candidates(pred, mod, elem(key, 1), args, st.subst), rest, mod, st)
+  end
+
+  defp compiled(pred, ref, key, compile) do
+    p2 =
+      case Process.get({:"$clause_code", ref}) do
+        {^pred, p2} ->
+          p2
+
+        _ ->
+          p2 = PrologEx.ClauseCode.attach(pred, compile: compile)
+          Process.put({:"$clause_code", ref}, {pred, p2})
+          p2
+      end
+
+    case current_db() do
+      %{^key => ^pred} = db -> put_db(Map.put(db, key, p2))
+      _ -> :ok
+    end
+
+    p2
+  end
+
+  defp compile_async(pred, ref) do
+    spawn(fn ->
+      Process.flag(:priority, :low)
+
+      try do
+        PrologEx.ClauseCode.prepare(pred)
+      after
+        :atomics.put(ref, 2, 1)
+      end
+    end)
+
+    pred
   end
 
   defp call_located(found, goal, name, args, mod, rest, st) do

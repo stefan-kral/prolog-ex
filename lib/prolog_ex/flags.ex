@@ -34,8 +34,9 @@ defmodule PrologEx.Flags do
     # ersten); selten gerufene kosten so keinen Compilerlauf
     "jit_threshold" => {1000, [:positive_integer]},
     # oft gerufene Prädikate: Köpfe und Rümpfe der Klauseln als BEAM-Code
-    # (PrologEx.ClauseCode), nach so vielen Aufrufen (beim Laden gelesen)
-    "clause_jit" => {true, [false, true]},
+    # (PrologEx.ClauseCode), nach so vielen Aufrufen (beim Laden gelesen);
+    # übersetzt im Hintergrund, mit sync gleich beim Aufruf
+    "clause_jit" => {false, [false, true, :sync]},
     "clause_jit_threshold" => {2000, [:positive_integer]},
     # auch nichtdeterministische "Blatt"-Prädikate übersetzen (Klauseln,
     # die sich nicht ausschließen; PrologEx.Jit, nd_irs!/3)

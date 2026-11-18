@@ -236,7 +236,8 @@ Ein Prolog-Kern in Elixir:
     Aufruf wieder wie vorher): eine Summe von Quadraten mit einem
     Hilfsprädikat 110 → 12 ms
 - Klauseln als BEAM-Code (`PrologEx.ClauseCode`; Flag `clause_jit`,
-  Vorgabe `true`, beim Laden gelesen): für alles, was der JIT nicht
+  Vorgabe `false`, beim Laden gelesen – nur für lange Läufe, siehe
+  unten): für alles, was der JIT nicht
   nimmt – nichtdeterministische Prädikate, Grammatiken. Kein eigener
   Ablauf wie dort, nur die beiden Teile des Interpreters, die je Klausel
   Muster und Vorlagen durchlaufen: der Kopf (dasselbe wie die
@@ -247,7 +248,10 @@ Ein Prolog-Kern in Elixir:
   bleibt beim Interpreter, die Antworten sind dieselben.
   - Übersetzt wird beim 2000. Aufruf eines Prädikats (Flag
     `clause_jit_threshold`, ein Zähler je Prädikat beim Laden angelegt),
-    synchron; ein Prädikat kostet im Mittel 6 ms (Erlang-Abstraktcode
+    mit `true` in einem eigenen Prozess niedriger Priorität – der Aufrufer
+    rechnet derweil interpretiert weiter und nimmt den Code, sobald er da
+    ist –, mit `sync` gleich beim Aufruf. Ein Prädikat kostet im Mittel
+    6 ms (Erlang-Abstraktcode
     direkt an `:compile.forms/2`, ohne den Elixir-Compiler, der das
     Dreifache brauchte; ohne die Optimierungsläufe). Das Modul heißt nach
     dem SHA-256 der Muster und Vorlagen: dasselbe Prädikat neu geladen
@@ -264,10 +268,18 @@ Ein Prolog-Kern in Elixir:
     unterhalb der obersten Ebene, selten), rechnet der Interpreter die
     Klausel neu – so verzweigt der Code nur oben, und jeder Schreibzweig
     bleibt ein Aufruf mit dem Muster als Literal.
-  - chat_parser (Chat-80): −41 % Reduktionen, −12 bis −22 % Zeit (Kopf
-    allein etwa −12 %, Rumpf allein −6 %); die übrigen Fälle der Suite
-    unverändert (Reduktionen ±1 %). Geprüft mit Schwelle 1 über die
-    ganze Testsuite und an chat_parser (`test/clause_code_test.exs`).
+  - chat_parser (Chat-80), alles übersetzt: −41 % Reduktionen, −11 %
+    Zeit (Kopf allein etwa −12 % Reduktionen, Rumpf allein −6 %); die
+    übrigen Fälle der Suite unverändert (Reduktionen ±1 %). Geprüft mit
+    Schwelle 1 über die ganze Testsuite und an chat_parser
+    (`test/clause_code_test.exs`).
+  - Warum aus: es lohnt erst bei langen Läufen. chat_parser in frischer
+    VM gegen ohne (die Zeiten schwanken hier um ±10 %): synchron ein
+    Durchgang (130 ms) +20 bis +50 %, zehn +10 bis +30 %, fünfzig (5 s)
+    +1 bis +16 % – zusammen ≈ 0,5 s Übersetzen für 64 Prädikate; im
+    Hintergrund ein Durchgang und zehn gleichauf, fünfzig −2 bis −4 %,
+    danach (alles übersetzt) −7 bis −11 %. Wer viele Sekunden mit wenigen
+    heißen Prädikaten rechnet, schaltet es ein.
 - Deterministische eingebaute Ziele am Anfang eines Rumpfs (`is`,
   arithmetische Vergleiche, `=`, `==`, `\==`, Typtests, ein Neck-Cut)
   laufen gleich beim Eintritt in die Klausel, direkt aus den Vorlagen –

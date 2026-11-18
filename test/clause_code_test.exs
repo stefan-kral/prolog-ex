@@ -4,7 +4,8 @@ defmodule PrologEx.ClauseCodeTest do
   # (Flag clause_jit beim Laden aus) – Lese- und Schreibmodus, geschachtelt
   # (dort übernimmt der Interpreter), mehrfache Variablen, ground Terme,
   # Occurs-Check, Wecken, Wächter, Arithmetik, assert, zu große Klauseln.
-  # Dazu chat_parser (Programm-Batterie) ganz übersetzt.
+  # Dazu chat_parser (Programm-Batterie) ganz übersetzt. Übersetzt wird
+  # hier gleich beim Aufruf (clause_jit = sync), sonst im Hintergrund.
   use ExUnit.Case, async: true
   alias PrologEx.{Reader, TableCase}
 
@@ -50,10 +51,12 @@ defmodule PrologEx.ClauseCodeTest do
     PrologEx.Flags.set("jit", {:atom, "false"})
     PrologEx.Flags.set("clause_jit", {:atom, "false"})
     {off, _} = PrologEx.Consult.load(%{}, terms)
-    PrologEx.Flags.set("clause_jit", {:atom, "true"})
+    PrologEx.Flags.set("clause_jit", {:atom, "sync"})
     PrologEx.Flags.set("clause_jit_threshold", 1)
     {on, _} = PrologEx.Consult.load(%{}, terms)
-    {:ok, reader: r, on: on, off: off}
+    PrologEx.Flags.set("clause_jit", {:atom, "true"})
+    {bg, _} = PrologEx.Consult.load(%{}, terms)
+    {:ok, reader: r, on: on, off: off, bg: bg}
   end
 
   for q <- [
@@ -127,7 +130,7 @@ defmodule PrologEx.ClauseCodeTest do
   # die übersetzte Fassung eines Prädikats (aus dem Prozess-Dictionary:
   # die Datenbank der Anfrage ist danach wieder die alte)
   defp compiled(db, key) do
-    {:cold, ref} = db[key] |> elem(1) |> hd() |> elem(7)
+    {:cold, ref, _} = db[key] |> elem(1) |> hd() |> elem(7)
     {_, p} = Process.get({:"$clause_code", ref})
     p |> elem(1) |> hd() |> elem(7)
   end
@@ -135,7 +138,7 @@ defmodule PrologEx.ClauseCodeTest do
   test "übersetzt wird an der Schwelle, auch für die nächste Anfrage", c do
     Reader.put_current(c.reader)
     on = c.on
-    assert {:cold, ref} = on[{"user", "d", 3}] |> elem(1) |> hd() |> elem(7)
+    assert {:cold, ref, true} = on[{"user", "d", 3}] |> elem(1) |> hd() |> elem(7)
     assert Process.get({:"$clause_code", ref}) == nil
     TableCase.run(c.reader, on, "d(a, X, N)")
     assert {h, nil} = compiled(on, {"user", "d", 3})
@@ -157,6 +160,7 @@ defmodule PrologEx.ClauseCodeTest do
   test "chat_parser mit Schwelle 1: dieselben Parsebäume", c do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
+    PrologEx.Flags.set("clause_jit", {:atom, "sync"})
     PrologEx.Flags.set("clause_jit_threshold", 1)
     dir = "test/programs"
 
@@ -177,6 +181,33 @@ defmodule PrologEx.ClauseCodeTest do
 
     db = PrologEx.current_db()
     assert {"", {:answers, ["Fs = []"]}} = TableCase.run(r, db, "failures(Fs)")
+  end
+
+  # wartet, bis das Übersetzen im Hintergrund fertig ist (höchstens n × 10 ms)
+  defp ready(ref, n) do
+    cond do
+      :atomics.get(ref, 2) == 1 -> true
+      n == 0 -> false
+      true -> Process.sleep(10) && ready(ref, n - 1)
+    end
+  end
+
+  test "im Hintergrund: erst interpretiert, dann übersetzt", c do
+    Reader.put_current(c.reader)
+    bg = c.bg
+    key = {"user", "d", 3}
+    assert {:cold, ref, false} = bg[key] |> elem(1) |> hd() |> elem(7)
+    q = "d(a, X, N)"
+    expected = TableCase.run(c.reader, c.off, q)
+    # der erste Aufruf stößt das Übersetzen an und rechnet interpretiert
+    assert TableCase.run(c.reader, bg, q) == expected
+    assert Process.get({:"$clause_code", ref}) == nil
+
+    assert ready(ref, 500)
+    # der nächste nimmt den Code
+    assert TableCase.run(c.reader, bg, q) == expected
+    assert {h, nil} = compiled(bg, key)
+    assert is_function(h, 4)
   end
 
   test "ohne Flag: kein Zähler", c do
