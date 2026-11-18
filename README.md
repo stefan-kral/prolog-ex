@@ -2621,7 +2621,18 @@ Getestet (`test/clpz_test.exs`, `test/clpz_golden_test.exs`):
     bis 8 Marken, deren kürzeste Länge bekannt ist (OEIS A003022) –
     `labeling([min(L)], …)` muss sie treffen (8 Marken: 3,9 s, SWI 9,1 s).
     `conformance/clpz_puzzles/run.sh` prüft alle 49 151 Sudokus und mehr
-    Marken, auch in SWI und Scryer.
+    Marken, auch in SWI und Scryer. Stand: alle 49 151 Sudokus richtig
+    (PrologEx und SWI; Scryer braucht dafür viele Stunden), Golomb bis 9
+    Marken, 10 nur SWI innerhalb der 600 s. Gefunden hat der volle Lauf
+    zwei Speicherfresser: das quadratische Laden großer Faktentabellen
+    (siehe JIT) und einen Merkzettel in clpz, der über viele Aufgaben auf
+    Gigabytes wuchs.
+  * Eigenschaften nach Scryers `src/tests/clpz` (`conformance/clpz_ops/`):
+    für `mod rem // div * + - min max ^` findet `Z #= X Op Y` mit
+    Schranken genau die Lösungen, für die `Z is X Op Y` gilt, und
+    dieselben Bedingungen in jeder Reihenfolge geben dieselben Domänen.
+    Bis N = 2: keine Abweichung (Scryers Tests verlassen sich auf
+    `copy_term/2` mit Attributen; hier `copy_term/3` mit den Restzielen).
   * Differentielles Fuzzing gegen Scryer (`conformance/clpz_fuzz/`, für
     Läufe über Nacht): `gen.py` erzeugt kleine Probleme mit 1–4 Variablen
     (Arithmetik mit allen Operatoren, lineare Summen, `sum/3`,
