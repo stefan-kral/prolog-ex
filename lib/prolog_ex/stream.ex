@@ -297,7 +297,7 @@ defmodule PrologEx.Stream do
         # der Port kann sich zwischen Prüfen und Schließen selbst beenden
         # (Kindprozess fertig): badarg ist dann kein Fehler
         %{kind: :port_in, dev: port} -> close_port(port)
-        %{kind: :socket, dev: sock} -> :gen_tcp.close(sock)
+        %{kind: :socket, dev: sock} -> transport(sock).close(sock)
         %{kind: :http_out, dev: on_close, buf: buf} -> on_close.(IO.iodata_to_binary(buf))
         %{dev: dev} when dev != nil -> :file.close(dev)
         _ -> :ok
@@ -521,7 +521,7 @@ defmodule PrologEx.Stream do
   defp fill(%{kind: :socket, dev: sock} = s) do
     PrologEx.Effects.external!()
 
-    case :gen_tcp.recv(sock, 0) do
+    case transport(sock).recv(sock, 0) do
       {:ok, data} -> %{s | buf: s.buf <> data}
       {:error, _} -> %{s | eof: true}
     end
@@ -660,13 +660,37 @@ defmodule PrologEx.Stream do
   defp socket_send!(s, data) do
     PrologEx.Effects.external!()
 
-    case :gen_tcp.send(s.dev, data) do
+    case transport(s.dev).send(s.dev, data) do
       :ok ->
         :ok
 
       {:error, reason} ->
         PrologEx.Error.error!(PrologEx.mk("socket_error", [{:atom, Atom.to_string(reason)}]))
     end
+  end
+
+  @doc """
+  Modul für einen Socket: `:gen_tcp` (ein Port) oder `:ssl` (nach
+  library(tls)); beide haben recv/2,3, send/2, close/1
+  """
+  def transport(sock) when is_port(sock), do: :gen_tcp
+  def transport(_sock), do: :ssl
+
+  @doc "Optionen eines Sockets setzen (`:inet` bzw. `:ssl`)"
+  def setopts(sock, opts) when is_port(sock), do: :inet.setopts(sock, opts)
+  def setopts(sock, opts), do: :ssl.setopts(sock, opts)
+
+  @doc """
+  Den Socket eines Socket-Streams herausnehmen (library(tls)): der Stream
+  ist danach geschlossen, der Socket bleibt offen. Ergebnis
+  `{socket, opts}` mit den Optionen für `open_socket/2` (Typ, eof_action;
+  ohne Alias).
+  """
+  def take_socket(id) do
+    %{kind: :socket, dev: sock} = s = get(id)
+    update(%{s | dev: nil, kind: :taken})
+    close(id)
+    {sock, [type: s.type, eof_action: s.eof_action]}
   end
 
   @doc """

@@ -391,7 +391,7 @@ defmodule PrologEx.Builtins.Sockets do
     socks =
       for {_, id} <- rds, {:wait, sock} <- [S.read_wait(id)], reduce: %{} do
         acc ->
-          case :inet.setopts(sock, active: :once) do
+          case S.setopts(sock, active: :once) do
             :ok ->
               Map.put(acc, sock, id)
 
@@ -406,7 +406,7 @@ defmodule PrologEx.Builtins.Sockets do
       if receive_one(refs, socks, tmo), do: drain(refs, socks)
 
       for {sock, id} <- socks do
-        :inet.setopts(sock, active: false)
+        S.setopts(sock, active: false)
         # was zwischen Meldung und Abschalten noch kam
         receive_sock(sock, id)
       end
@@ -421,11 +421,16 @@ defmodule PrologEx.Builtins.Sockets do
         accepted(Map.fetch!(refs, ref), kind, x)
         true
 
-      {tag, sock, data} when tag in [:tcp, :tcp_error] and is_map_key(socks, sock) ->
-        S.socket_received(Map.fetch!(socks, sock), if(tag == :tcp, do: data, else: :closed))
+      # TLS-Streams (library(tls)) melden sich mit :ssl…
+      {tag, sock, data} when tag in [:tcp, :ssl] and is_map_key(socks, sock) ->
+        S.socket_received(Map.fetch!(socks, sock), data)
         true
 
-      {:tcp_closed, sock} when is_map_key(socks, sock) ->
+      {tag, sock, _} when tag in [:tcp_error, :ssl_error] and is_map_key(socks, sock) ->
+        S.socket_received(Map.fetch!(socks, sock), :closed)
+        true
+
+      {tag, sock} when tag in [:tcp_closed, :ssl_closed] and is_map_key(socks, sock) ->
         S.socket_received(Map.fetch!(socks, sock), :closed)
         true
     after
@@ -439,13 +444,13 @@ defmodule PrologEx.Builtins.Sockets do
   # nachsehen – alles, was jetzt schon da ist, wird gemeldet
   defp receive_sock(sock, id) do
     receive do
-      {:tcp, ^sock, data} -> S.socket_received(id, data)
-      {:tcp_closed, ^sock} -> S.socket_received(id, :closed)
-      {:tcp_error, ^sock, _} -> S.socket_received(id, :closed)
+      {tag, ^sock, data} when tag in [:tcp, :ssl] -> S.socket_received(id, data)
+      {tag, ^sock} when tag in [:tcp_closed, :ssl_closed] -> S.socket_received(id, :closed)
+      {tag, ^sock, _} when tag in [:tcp_error, :ssl_error] -> S.socket_received(id, :closed)
     after
       0 ->
         if S.read_wait(id) != :ready do
-          case :gen_tcp.recv(sock, 0, 0) do
+          case S.transport(sock).recv(sock, 0, 0) do
             {:ok, data} -> S.socket_received(id, data)
             {:error, :timeout} -> :ok
             {:error, _} -> S.socket_received(id, :closed)

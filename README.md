@@ -1057,7 +1057,8 @@ ein Sieb auf einer Bitmenge): `examples/bytes.pl`.
 ## Netzwerk: `library(sockets)`
 
 TCP und Unix-Domain-Sockets wie in SICStus 4, dazu `current_hostname/1`
-aus Scryer:
+aus Scryer (verschlüsselt mit `library(tls)`, siehe „Bibliotheken aus
+Scryer Prolog“):
 
 ```prolog
 ?- use_module(library(sockets)).
@@ -1782,6 +1783,39 @@ ist jeweils am Dateianfang vermerkt.
   Vektoren, alle bestanden), ein Auszug von 214 in `test/crypto_test.exs`.
 * `library(uuid)` (gemeinfrei) unverändert: `uuidv4/1`, `uuidv4_string/1`,
   `uuid_string/2`.
+* `library(tls)` (Markus Triska, BSD-Lizenz): ein Socket-Stream aus
+  `library(sockets)` wird verschlüsselt, über OTPs `:ssl` (TLS 1.2 und
+  1.3).
+
+  ```prolog
+  ?- tls_client_context(C, [hostname("github.com")]),
+     socket_client_open('github.com':443, S0, []),
+     tls_client_negotiate(C, S0, S),
+     format(S, "HEAD / HTTP/1.1\r\nHost: github.com\r\n\r\n", []),
+     flush_output(S), get_line_to_chars(S, L, []).
+  L = "HTTP/1.1 200 OK\r\n", ...
+  ```
+
+  Der Client prüft das Zertifikat gegen die CAs des Systems und den
+  Rechnernamen (auch `*.example.org`; der Name geht per SNI mit). Ohne
+  `hostname/1` wird wie bei Scryer nur die Kette geprüft. Neu ist
+  `cacertfile(F)`: nur den CAs aus dieser PEM-Datei vertrauen, etwa einer
+  eigenen. Den Server richtet `tls_server_context(C, [certfile(F),
+  keyfile(K)])` ein, mit Zertifikat samt Kette und Schlüssel als PEM
+  (`password(Ps)` für einen verschlüsselten Schlüssel; ohne `keyfile`
+  steht der Schlüssel in F). Danach handelt `tls_server_negotiate(C, S0,
+  S)` die Verbindung aus. Scryer nimmt dafür ein PKCS#12-Archiv, das OTP
+  nicht lesen kann; `openssl pkcs12 -in id.p12 -nodes` macht daraus PEM.
+  Die Dateien werden schon beim Anlegen des Kontexts geprüft
+  (`existence_error(source_sink, F)`, `domain_error(pem_private_key, F)`
+  bei fehlendem Schlüssel oder falschem Passwort) und bei jeder Verbindung
+  neu gelesen; ein erneuertes Zertifikat gilt also sofort.
+
+  Der TLS-Stream hat Typ und `eof_action` von S0 und funktioniert auch mit
+  `socket_select/7`. S0 ist danach geschlossen, sein Socket gehört dem
+  TLS-Stream. Scheitert das Aushandeln, gibt es wie bei Scryer
+  `permission_error(open, source_sink, Host)` beim Client bzw. `…, S0)`
+  beim Server; die Verbindung ist dann zu.
 * `partial_string/3` in `library(iso_ext)` (für crypto): `partial_string(S,
   L, L0)` – L sind die Zeichen von S (Atom oder Zeichenliste) vor L0.
   Scryers kompakte Zeichenketten gibt es hier nicht, also kein

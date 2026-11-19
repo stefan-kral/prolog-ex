@@ -94,6 +94,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Concurrent,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Crypto,
+    PrologEx.Builtins.Tls,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt
   ]
