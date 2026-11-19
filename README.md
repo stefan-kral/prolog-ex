@@ -1790,6 +1790,13 @@ ist jeweils am Dateianfang vermerkt.
   Vektoren, alle bestanden), ein Auszug von 214 in `test/crypto_test.exs`.
 * `library(uuid)` (gemeinfrei) unverändert: `uuidv4/1`, `uuidv4_string/1`,
   `uuid_string/2`.
+* `library(serialization/abnf)` (Aram Panasenco, BSD-Lizenz): die
+  Kernregeln von ABNF (RFC 5234, Anhang B.1) als DCGs über Zeichen –
+  `abnf_alpha//1`, `abnf_digit//1`, `abnf_hexdig//1`, `abnf_crlf//0`,
+  `abnf_wsp//0`, `abnf_lwsp//0`, `abnf_vchar//1`, `abnf_octet//1` und die
+  übrigen. Verbessert: `abnf_octet//1` und `abnf_vchar//1` riefen in Scryer
+  `char_type/2` ohne geschweifte Klammern (als Nichtterminal, also
+  `existence_error(procedure, char_type/4)`).
 * `library(tls)` (Markus Triska, BSD-Lizenz): ein Socket-Stream aus
   `library(sockets)` wird verschlüsselt, über OTPs `:ssl` (TLS 1.2 und
   1.3).
