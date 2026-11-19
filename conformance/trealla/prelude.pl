@@ -25,3 +25,4 @@
 :- use_module(library(files)).
 :- use_module(library(os)).
 :- use_module(library(edinburgh)).
+:- use_module(library(edinburgh_io)).

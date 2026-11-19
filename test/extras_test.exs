@@ -7,7 +7,7 @@ defmodule PrologEx.ExtrasTest do
 
   setup_all do
     {:ok, r} = Reader.start_link()
-    db = TableCase.db(r, ~w(lists swi terms solution_sequences charsio))
+    db = TableCase.db(r, ~w(lists swi terms solution_sequences charsio edinburgh edinburgh_io))
     {:ok, reader: r, db: db}
   end
 

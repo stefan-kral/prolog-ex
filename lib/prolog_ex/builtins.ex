@@ -26,7 +26,7 @@ defmodule PrologEx.Builtins do
       (kein Autoload, wie SICStus). Eigene Definitionen im importierenden
       Modul gehen vor.
     * Heimat-Bibliotheken (`@homes`: `iso_ext`, `between`, `terms`, `fastrw`, `swi`,
-      `quintus`, `edinburgh`)
+      `quintus`, `edinburgh`, `edinburgh_io`)
       – Builtins in `system`, die weder ISO noch SICStus eingebaut haben:
       sie liegen in `system`, sichtbar aber nur nach Import der Heimat
       (die sie aus `system` weitergibt), in Bibliotheksmodulen des Systems
@@ -144,7 +144,9 @@ defmodule PrologEx.Builtins do
                     duplicate_term/2 atom_to_term/3)},
                 # wie SWI: library(quintus), library(edinburgh) (Chat-80)
                 {"quintus", ~w(mode/1 otherwise/0)},
-                {"edinburgh", ~w(display/1 display/2)}
+                {"edinburgh", ~w(display/1 display/2 name/2)},
+                # Edinburgh-Ein-/Ausgabe (DEC-10; SWI und SICStus eingebaut)
+                {"edinburgh_io", ~w(see/1 seen/0 seeing/1 tell/1 told/0 telling/1 append/1)}
               ],
               k <- keys,
               into: %{} do
@@ -439,6 +441,7 @@ defmodule PrologEx.Builtins do
     # wie SWIs library(quintus) und library(edinburgh) (Auszug)
     "quintus" => @home_reexports["quintus"],
     "edinburgh" => @home_reexports["edinburgh"],
+    "edinburgh_io" => @home_reexports["edinburgh_io"],
     # wie Scryers library(terms) (eingebaut), dazu term_hash/2,4 und
     # term_size/2 wie SWI
     "terms" => Map.put(@home_reexports["terms"], {"numbervars", 3}, "system"),

@@ -4243,7 +4243,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |
-    | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`). Eingebaut (überall, wie in SICStus und SWI) ist dagegen die Edinburgh-Ein-/Ausgabe für ältere Programme und Lehrbücher: `see/1`, `seen/0`, `seeing/1`, `tell/1`, `append/1`, `told/0`, `telling/1` (ein Dateiname öffnet beim ersten Mal, danach derselbe Stream, solange er offen ist; `user` ist die Standard-Ein-/Ausgabe), dazu `name/2` (Zahl, wenn der Text eine ist; Codes oder Zeichen) |
+    | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`), `name/2` (Zahl, wenn der Text eine ist; Codes oder Zeichen) |
+    | `library(edinburgh_io)` | die Edinburgh-Ein-/Ausgabe für ältere Programme und Lehrbücher (in SICStus und SWI eingebaut): `see/1`, `seen/0`, `seeing/1`, `tell/1`, `append/1`, `told/0`, `telling/1` (ein Dateiname öffnet beim ersten Mal, danach derselbe Stream, solange er offen ist; `user` ist die Standard-Ein-/Ausgabe) |
     | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])`; das `format/3` aus `library(format)` ebenso. Terme: `unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3` |
 
     `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
@@ -4526,8 +4527,8 @@ und laufen in `test/scryer_tests_test.exs`.
 Trealla: im Wurzelordner von Trealla, `initialization(main)`, und vergleicht
 die Ausgabe mit `NAME.expected`. Davor lädt `prelude.pl` die Bibliotheken,
 die Trealla wie SWI ohne `use_module` kennt (Listen, `between/3`,
-`library(swi)`, …). Mit `TPL=…/tpl` zählen nur Tests, die Trealla selbst
-besteht; mit `SWIPL=swipl` und `SCRYER=…` heißt eine Abweichung `swi` bzw.
+`library(swi)`, `library(edinburgh_io)`, …). Mit `TPL=…/tpl` zählen nur
+Tests, die Trealla selbst besteht; mit `SWIPL=swipl` und `SCRYER=…` heißt eine Abweichung `swi` bzw.
 `scryer`, wenn PrologEx genau wie dieses System ausgibt – dann ist sie
 Treallas Eigenheit.
 
@@ -4573,7 +4574,8 @@ Gefunden und behoben:
     eingebauten nicht.
 
 Dazu kamen, weil viele Programme sie brauchen: die Edinburgh-Ein-/Ausgabe
-(`see/1`, `tell/1`, …) und `name/2`, `library(solution_sequences)`,
+(`see/1`, `tell/1`, …; `library(edinburgh_io)`) und `name/2`
+(`library(edinburgh)`), `library(solution_sequences)`,
 `unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3`,
 `variant/2`, `statistics(cputime, T)`, die Schreiboptionen `fullstop/1`
 und `nl/1`. Die 312 Programme, die PrologEx besteht und die ohne Dateien,

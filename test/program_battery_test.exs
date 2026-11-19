@@ -6,6 +6,10 @@ defmodule PrologEx.ProgramBatteryTest do
   use ExUnit.Case, async: true
   alias PrologEx.Reader
 
+  # die großen CLP-Programme brauchen unter Last (parallel zu den anderen
+  # Tests) mehr als die 60 s, die ExUnit vorgibt
+  @moduletag timeout: 300_000
+
   @dir Path.expand("programs", __DIR__)
   @runner Path.join(@dir, "runner.pl")
   @external_resource @runner

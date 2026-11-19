@@ -1,8 +1,10 @@
 defmodule PrologEx.Builtins.Edinburgh do
   @moduledoc """
-  Edinburgh-Ein-/Ausgabe und `name/2`, wie in DEC-10 Prolog, SICStus und
-  SWI eingebaut (überall sichtbar) – für ältere Programme und Lehrbücher
-  (Clocksin/Mellish, Bratko):
+  Altlasten aus DEC-10 Prolog (in SICStus und SWI eingebaut), hier erst nach
+  dem Import der Heimat-Bibliothek sichtbar – für ältere Programme und
+  Lehrbücher (Clocksin/Mellish, Bratko):
+
+  `library(edinburgh_io)`, die Edinburgh-Ein-/Ausgabe:
 
     * `see(F)`: liest ab jetzt aus F. F ist `user` (Standardeingabe), ein
       Stream oder Alias, sonst ein Dateiname: beim ersten Mal geöffnet,
@@ -12,12 +14,15 @@ defmodule PrologEx.Builtins.Edinburgh do
       `user` für die Standardeingabe, sonst der Stream.
     * `tell(F)`, `append(F)` (anhängen), `told`, `telling(F)` ebenso für die
       Ausgabe.
-    * `name(AtomOderZahl, Codes)`: wie `atom_codes/2`, aber Text, der eine
-      Zahl ist, wird zur Zahl (`name(X, "12")` gibt `X = 12`); statt Codes
-      gehen auch Zeichen.
 
   Fehler wie `open/3`: Datei fehlt `existence_error(source_sink, F)`, nicht
   erlaubt `permission_error(open, source_sink, F)`.
+
+  `library(edinburgh)` (mit `display/1,2`):
+
+    * `name(AtomOderZahl, Codes)`: wie `atom_codes/2`, aber Text, der eine
+      Zahl ist, wird zur Zahl (`name(X, "12")` gibt `X = 12`); statt Codes
+      gehen auch Zeichen.
   """
   use PrologEx.Builtin
   alias PrologEx.{Error, Store}
