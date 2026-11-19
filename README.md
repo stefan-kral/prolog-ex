@@ -1790,6 +1790,36 @@ ist jeweils am Dateianfang vermerkt.
   Vektoren, alle bestanden), ein Auszug von 214 in `test/crypto_test.exs`.
 * `library(uuid)` (gemeinfrei) unverändert: `uuidv4/1`, `uuidv4_string/1`,
   `uuid_string/2`.
+* `library(cont)`: begrenzte Fortsetzungen wie Scryer, `reset(:Goal, ?Ball,
+  -Cont)` und `shift(+Ball)`. Ruft Goal `shift(B)`, kehrt `reset/3` mit
+  `Ball = B` und `Cont = cont(G)` zurück; `call(G)` setzt Goal hinter
+  `shift/1` fort (beliebig oft, `G` lässt sich kopieren). Endet Goal ohne
+  `shift/1`, ist `Cont = none`. Damit lassen sich Generatoren und
+  Effekt-Handler schreiben:
+
+  ```prolog
+  from_list([]).
+  from_list([X|Xs]) :- shift(yield(X)), from_list(Xs).
+
+  enumerate(G, L) :-
+      reset(G, Ball, Cont),
+      (   Cont == none -> L = []
+      ;   Ball = yield(X), Cont = cont(K), L = [X|T], enumerate(K, T)
+      ).
+  % ?- enumerate(from_list([a,b,c]), L).   L = "abc"
+  ```
+
+  Bei Scryer hängt `library(cont)` an der WAM; hier führt die Maschine die
+  Fortsetzung ohnehin als Liste von Zielen, `shift/1` nimmt sie bis zur
+  Marke von `reset/3` heraus (übersetzte Arithmetik wird dabei wieder zu
+  `is/2`). Choice Points des Ziels vor `shift/1` bleiben wie bei Scryer und
+  SWI. In der Fortsetzung wirken ein Schnitt, `once/1` und if-then-else nur
+  bis zu ihrem Anfang; `catch/3`, `setup_call_cleanup/3` und Grenzen um
+  `shift/1` herum sind mit `shift/1` beendet. `shift/1` ohne `reset/3`:
+  `existence_error(reset, Ball)` (Scryer scheitert). Code ohne reset/shift
+  läuft so schnell wie vorher (nur neue Fälle in der Maschine; die Suite
+  `bench/suite.exs` im Rauschen). Getestet gegen Scryer:
+  `test/cont_test.exs`.
 * `library(serialization/abnf)` (Aram Panasenco, BSD-Lizenz): die
   Kernregeln von ABNF (RFC 5234, Anhang B.1) als DCGs über Zeichen –
   `abnf_alpha//1`, `abnf_digit//1`, `abnf_hexdig//1`, `abnf_crlf//0`,

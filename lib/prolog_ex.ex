@@ -3035,6 +3035,73 @@ defmodule PrologEx do
   # Choice Points, wird der Rahmen entfernt; sonst bleibt er liegen, ist
   # aber inaktiv (catch_off), bis Backtracking wieder in G hineinführt –
   # eine Ausnahme NACH catch/3 wird so nicht von ihm gefangen.
+  # --- Begrenzte Fortsetzungen: library(cont) (reset/3, shift/1) --------
+  #
+  # '$reset'(G, Ball, Cont) ruft G und legt dahinter die Marke
+  # '$reset_exit'(Ball, Cont) in die Zielliste. Endet G ohne shift/1, gibt
+  # die Marke Cont = none. '$shift'(B) nimmt die Ziele bis zur nächsten Marke
+  # heraus: die Programmziele werden die Fortsetzung
+  # cont(cont:call_continuation(L)), die Buchhaltung der Rahmen dazwischen
+  # (catch/3, Grenzen, setup_call_cleanup/3) läuft jetzt, als hätte ihr Ziel
+  # geendet; dann geht es hinter der Marke weiter mit Ball = B. Wie bei
+  # Scryer und SWI bleiben Choice Points des Ziels vor shift/1 bestehen.
+  # Code ohne reset/shift berührt das nicht (nur diese Klauseln).
+  defp step({:struct, "$reset", [g, ball, c]}, _cutb, mod, rest, st) do
+    goals = [
+      {{:struct, "call", [g]}, st.height, mod},
+      {{:struct, "$reset_exit", [ball, c]}, 0, mod} | rest
+    ]
+
+    run(%{st | goals: goals})
+  end
+
+  defp step({:struct, "$reset_exit", [_ball, c]}, _cutb, _mod, rest, st) do
+    case unify(c, a("none"), st.subst) do
+      {:ok, s} -> cont(st, s, rest)
+      :error -> backtrack(st)
+    end
+  end
+
+  defp step({:struct, "$shift", [b]}, _cutb, _mod, rest, st) do
+    case split_at_reset(rest, [], []) do
+      {:ok, items, exits, ball, c, after_} ->
+        k = mk("cont", [mk(":", [a("cont"), mk("call_continuation", [list(items)])])])
+
+        with {:ok, s} <- unify(ball, b, st.subst),
+             {:ok, s} <- unify(c, k, s) do
+          cont(st, s, exits ++ after_)
+        else
+          :error -> backtrack(st)
+        end
+
+      :none ->
+        throw_error(st, fn ->
+          PrologEx.Error.existence!("reset", PrologEx.resolve(b, st.subst))
+        end)
+    end
+  end
+
+  # '$call_continuation'(L): die Ziele der Fortsetzung, ein Schnitt darin
+  # wirkt nur bis zum Anfang der Fortsetzung
+  defp step({:struct, "$call_continuation", [l]}, _cutb, _mod, rest, st) do
+    h = st.height
+    items = PrologEx.Builtins.Lists.items(l, st.subst)
+
+    goals =
+      List.foldr(items, rest, fn item, acc ->
+        case Store.walk(item, st.subst) do
+          {:atom, "$cut"} ->
+            [{{:"$cut_to", h}, 0, "system"} | acc]
+
+          {tag, "$g", [m, g]} when tag in [:struct, :gstruct] ->
+            {:atom, m} = Store.walk(m, st.subst)
+            [{g, h, m} | acc]
+        end
+      end)
+
+    run(%{st | goals: goals})
+  end
+
   defp step({:struct, "catch", [g, c, r]}, _cutb, mod, rest, st) do
     id = make_ref()
     h = st.height
@@ -6033,6 +6100,57 @@ defmodule PrologEx do
   # Der Ball wird kopiert; ein zyklischer reist als {:"$cyc", Kopie,
   # Gleichungen} (copy_cyclic/2), gebunden wird erst, wo er ankommt
   # (land_ball/2)
+  # die Ziele bis zur Marke '$reset_exit'(Ball, Cont): Programmziele als
+  # Fortsetzung ('$g'(Modul, Ziel); ein Schnitt eines if-then-else oder
+  # once/1 als '$cut'), alle anderen Marken (Ausgänge von Rahmen) bleiben
+  # in der Reihenfolge zum Ausführen
+  defp split_at_reset([], _items, _exits), do: :none
+
+  defp split_at_reset([{{:struct, "$reset_exit", [ball, c]}, _, _} | after_], items, exits),
+    do: {:ok, Enum.reverse(items), Enum.reverse(exits), ball, c, after_}
+
+  defp split_at_reset([{goal, _cutb, mod} = e | gs], items, exits) do
+    case goal do
+      {:"$cut_to", _} ->
+        split_at_reset(gs, [a("$cut") | items], exits)
+
+      # die Bedingung von *-> ist erfüllt: kein Sonst-Zweig mehr in der Fortsetzung
+      {:"$soft_cut", _} ->
+        split_at_reset(gs, items, exits)
+
+      {:"$wake", _} ->
+        split_at_reset(gs, items, exits)
+
+      t
+      when is_tuple(t) and is_atom(elem(t, 0)) and
+             elem(t, 0) not in [:atom, :struct, :gstruct, :var, :glist, :rat] ->
+        split_at_reset(gs, items, [e | exits])
+
+      _ ->
+        split_at_reset(gs, [mk("$g", [a(mod), decompile_goal(goal)]) | items], exits)
+    end
+  end
+
+  # übersetzte Arithmetik (PrologEx.Compiler) zurück in ein Ziel
+  defp decompile_goal({:struct, "$is", [x, {:arith, code} | leaves]}),
+    do: mk("is", [x, decompile_arith(code, List.to_tuple(leaves))])
+
+  defp decompile_goal({:struct, "$cmp", [{:arith, {:cmp, op, ca, cb}} | leaves]}) do
+    l = List.to_tuple(leaves)
+    mk(op, [decompile_arith(ca, l), decompile_arith(cb, l)])
+  end
+
+  defp decompile_goal(g), do: g
+
+  defp decompile_arith({:num, n}, _l), do: n
+  defp decompile_arith({:leaf, i}, l), do: elem(l, i)
+
+  defp decompile_arith({:op2, op, x, y}, l),
+    do: mk(op, [decompile_arith(x, l), decompile_arith(y, l)])
+
+  defp decompile_arith({:op1, op, x}, l), do: mk(op, [decompile_arith(x, l)])
+  defp decompile_arith({:op0, name}, _l), do: a(name)
+
   defp throw_ball(ball, st) do
     {ball, s} = land_ball(ball, st.subst)
 
