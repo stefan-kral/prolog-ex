@@ -188,6 +188,10 @@ defmodule PrologEx.StatisticsTest do
     end
 
     assert out =~ "Erlang/OTP #{:erlang.system_info(:otp_release)}"
+    # Tausender mit _ gruppiert (wie Zifferngruppen in Prolog)
+    assert out =~ ~r/% Reduktionen: +\d{1,3}(_\d{3})* \(/
+    assert out =~ ~r/% GC \(VM\): +\d{1,3}(_\d{3})* Läufe/
+    refute out =~ ~r/\d \d{3}\b/
   end
 
   test "Fehler", c do

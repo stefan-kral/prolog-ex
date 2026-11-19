@@ -156,12 +156,12 @@ defmodule PrologEx.Builtins.Statistics do
   defp bytes(b) when b >= 1024, do: "#{:erlang.float_to_binary(b / 1024, decimals: 1)} KB"
   defp bytes(b), do: "#{b} Bytes"
 
-  # 1234567 -> "1 234 567"
+  # 1234567 -> "1_234_567" (wie Zifferngruppen in Prolog)
   defp group(n) do
     n
     |> Integer.to_string()
     |> String.reverse()
-    |> String.replace(~r/(\d{3})(?=\d)/, "\\1 ")
+    |> String.replace(~r/(\d{3})(?=\d)/, "\\1_")
     |> String.reverse()
   end
 end
