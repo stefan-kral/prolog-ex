@@ -448,6 +448,17 @@ rlwrap`); alle Argumente gehen an `mix prolog`:
     seine Zeile bekommt das nächste Lesen. Eine angefangene Zeile behält
     rlwrap (Ctrl-U löscht sie). Beenden also mit `halt.` oder Ctrl-D, nicht
     mit `kill` (das wirkt dann wie Ctrl-C; `kill -KILL` beendet).
+  * **Speicher:** `start_ex` setzt `ERL_FLAGS="+MMmcs 0"` (eine schon
+    gesetzte `ERL_FLAGS` bleibt dahinter erhalten). Sonst behält die BEAM
+    bis zu zehn freigegebene Heap-Blöcke für später, und nach einem großen
+    Lauf bleiben hunderte MB belegt, obwohl die VM sie nicht mehr braucht:
+    `findall/3` über 10⁶ Werte +155 → +68 MB über dem leeren Lauf (SWI
+    +60, Scryer +91, Trealla +113), `length(L, 1000000)` 1046 → 287 MB.
+    Preis nur bei großen Heaps (ab einigen MB lebendiger Daten in einem
+    Prozess): frischer Speicher muss erst berührt werden, `findall` über
+    10⁵–10⁶ Werte etwa 10–25 % langsamer; Programme mit kleinen Daten
+    (Generatoren, clpz, JIT-Schleifen) unverändert. Mit `mix prolog` gilt
+    das nur, wenn man es selbst setzt: `ERL_FLAGS="+MMmcs 0" mix prolog`.
 
 Ohne rlwrap:
 
