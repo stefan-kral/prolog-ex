@@ -30,6 +30,41 @@ defmodule PrologEx.Builtins.IsoExt do
     end
   end
 
+  # partial_string(S, L, L0) wie Scryer: L sind die Zeichen von S (Atom
+  # oder Liste von Zeichen) vor L0 – wie append/3; Scryers kompakte
+  # Darstellung gibt es hier nicht (partial_string/1 darum nicht)
+  defbuiltin "partial_string", [str, l, l0] do
+    s = subst()
+
+    cs =
+      case deref(str) do
+        {:var, _} ->
+          PrologEx.Error.instantiation!()
+
+        {:atom, name} ->
+          for c <- String.codepoints(name), do: a(c)
+
+        _ ->
+          chars_of(str, s)
+      end
+
+    {:unify, [{l, list(cs, l0)}]}
+  end
+
+  defp chars_of(t, s) do
+    case PrologEx.Store.walk(t, s) do
+      [] -> []
+      {:glist, l} -> chars_of(l, s)
+      [h | tl] -> [char_of(PrologEx.Store.walk(h, s), t, s) | chars_of(tl, s)]
+      {:var, _} -> PrologEx.Error.instantiation!()
+      _ -> PrologEx.Error.type!("list", PrologEx.resolve(t, s))
+    end
+  end
+
+  defp char_of({:atom, <<_::utf8>>} = c, _t, _s), do: c
+  defp char_of({:var, _}, _t, _s), do: PrologEx.Error.instantiation!()
+  defp char_of(other, _t, s), do: PrologEx.Error.type!("character", PrologEx.resolve(other, s))
+
   def meta, do: [{"iso_ext", "call_with_memory_limit", [0, "+"]}]
 
   def library do

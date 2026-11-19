@@ -140,6 +140,15 @@ defmodule PrologEx.Consult do
   end
 
   @doc false
+  # wie restore_after_load/1, außerhalb eines Ladevorgangs aber sofort
+  def scoped_ops(prev) do
+    case Process.get(@restore_key) do
+      nil -> restore_ops(prev)
+      l -> Process.put(@restore_key, [prev | l])
+    end
+  end
+
+  @doc false
   # wie ops_prev/1, für die Operatoren einer Bibliothek in Elixir
   # ([{prio, typ, name}] mit Zeichenketten)
   def lib_ops_prev(ops) do
@@ -858,7 +867,8 @@ defmodule PrologEx.Consult do
 
   # die Einträge der Tabelle, die mirror_ops(ops) überschreibt:
   # [{name, typ, {prio, typ} | nil}]
-  defp ops_prev(ops) do
+  @doc false
+  def ops_prev(ops) do
     table = PrologEx.Ops.table()
 
     for {_p, {:atom, type}, names} <- ops,

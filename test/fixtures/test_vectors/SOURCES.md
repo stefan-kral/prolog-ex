@@ -15,3 +15,10 @@
   (UnicodeData.txt, SpecialCasing.txt), © Unicode, Inc., Unicode License
   v3 (https://www.unicode.org/license.txt). Erzeugt von
   `conformance/small/ucd.py`.
+* `crypto_vectors.pl`: Auszug (je Datei höchstens 8) aus
+  pyca/cryptography_vectors 50.0.2 (https://pypi.org/project/cryptography-vectors/,
+  Apache-2.0 oder BSD-3-Clause; darin NIST CAVP, RFC 4231, RFC 5869,
+  RFC 7748, RFC 8032, Testdaten von OpenSSL und BoringSSL), dazu
+  PBKDF2-HMAC-SHA512 nach Pythons hashlib und Vielfache auf secp256k1 aus
+  einer eigenen Python-Rechnung. Erzeugt von
+  `conformance/crypto_vectors/gen.py VEKTOREN 8`.

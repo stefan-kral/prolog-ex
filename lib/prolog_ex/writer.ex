@@ -516,9 +516,19 @@ defmodule PrologEx.Writer do
         ?\b -> "\\b"
         ?\f -> "\\f"
         ?\v -> "\\v"
-        c when c < 32 or c == 127 -> ["\\x", Integer.to_string(c, 16), "\\"]
+        c when c < 32 or c == 127 -> hex_escape(c)
+        c when c > 127 -> wide(c)
         c -> <<c::utf8>>
       end
     end
   end
+
+  # unsichtbare Zeichen (C1-Steuerzeichen, Formatzeichen wie das weiche
+  # Trennzeichen, Leerzeichen außer dem einfachen, nicht vergebene) als
+  # Escape: lesbar und wieder einlesbar (wie SWI; Scryer lässt
+  # Formatzeichen roh)
+  defp wide(c),
+    do: if(PrologEx.UnicodeClasses.invisible?(c), do: hex_escape(c), else: <<c::utf8>>)
+
+  defp hex_escape(c), do: ["\\x", Integer.to_string(c, 16), "\\"]
 end

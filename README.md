@@ -1758,6 +1758,34 @@ ist jeweils am Dateianfang vermerkt.
   Außerhalb des Vorausrechnens werden sie im Memo des Toplevels vermerkt
   wie Ausgaben und Änderungen am Interpreter. Nach einer Antwort mit
   solcher Wirkung wird also gar nicht erst vorausgerechnet.
+* `library(crypto)` (Markus Triska, BSD-Lizenz) unverändert: `hex_bytes/2`,
+  `crypto_n_random_bytes/2`, `crypto_data_hash/3` (sha256, sha384,
+  sha512, sha512_256, sha3_224 … sha3_512, blake2s256, blake2b512,
+  ripemd160; `hmac(Key)`), `crypto_data_hkdf/4`,
+  `crypto_password_hash/2,3` (PBKDF2-HMAC-SHA512),
+  `crypto_data_encrypt/6`, `crypto_data_decrypt/6` (chacha20-poly1305),
+  Ed25519 (`ed25519_new_keypair/1`, `ed25519_sign/4`, `ed25519_verify/4`,
+  …), X25519 (`curve25519_scalar_mult/3`) und secp256k1
+  (`crypto_curve_scalar_mult/4`). Die Maschinenprädikate dahinter
+  (`PrologEx.Builtins.Crypto`) rufen `:crypto` von OTP, also OpenSSL;
+  HKDF (RFC 5869) und secp256k1 sind in Elixir gerechnet – die
+  Skalarmultiplikation auf secp256k1 läuft **nicht** in konstanter Zeit.
+  Daten sind Zeichen (`encoding(utf8)` oder `octet`), Ergebnisse
+  Bytelisten oder Oktett-Zeichen wie bei Scryer; ein direkter Vergleich
+  mit Scryer gab überall dieselben Werte.
+
+  Geprüft gegen Testvektoren aus pyca/cryptography_vectors 50.0.2 (NIST
+  CAVP SHA-2/SHA-3, BLAKE2, RIPEMD-160, RFC 4231, RFC 5869, RFC 7748, RFC
+  8032, OpenSSL und BoringSSL für ChaCha20-Poly1305 samt gefälschter
+  Tags), PBKDF2 gegen Pythons hashlib und secp256k1 gegen eine
+  unabhängige Rechnung: `conformance/crypto_vectors/run.sh` (alle 2860
+  Vektoren, alle bestanden), ein Auszug von 214 in `test/crypto_test.exs`.
+* `library(uuid)` (gemeinfrei) unverändert: `uuidv4/1`, `uuidv4_string/1`,
+  `uuid_string/2`.
+* `partial_string/3` in `library(iso_ext)` (für crypto): `partial_string(S,
+  L, L0)` – L sind die Zeichen von S (Atom oder Zeichenliste) vor L0.
+  Scryers kompakte Zeichenketten gibt es hier nicht, also kein
+  `partial_string/1`.
 * Dafür neu in der Maschine:
   * DCG-Pushback (`H, PB --> B`) nach dem Entwurf des DCG-Standards,
   * die Schreiboption `double_quotes(true)` (Zeichenlisten als `"..."`,
@@ -1804,6 +1832,12 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     Großbuchstabe am Anfang wäre eine Variable (`'Γβα'`, `'Äb'`) – wie SWI
     und Scryer; `write_canonical` schreibt ohne Operatoren (`+(1,2)`), auch Listen
     und `{}` funktional wie ISO 8.14.2.4 verlangt: `'.'(1,'.'(2,[]))`, `{}(a)`.
+  * Unsichtbare Zeichen in Hochkommas schreibt `writeq` als `\xHEX\` wie
+    SWI: Steuerzeichen (C0, DEL, C1), Formatzeichen (Cf: weiches
+    Trennzeichen, Nullbreite-Leerzeichen, Richtungszeichen), Leerzeichen
+    außer dem einfachen (NBSP, U+2028/2029), Ersatzpaarhälften und nicht
+    vergebene Codepunkte. Scryer schreibt C1, NBSP und U+2028 so, Cf roh.
+    `atom_codes(A, [0x81, 0x200B, 0xE4])` → `A = '\x81\\x200B\ä'`.
   * `'$VAR'(N)` erscheint als `A`, `B`, …, `Z`, `A1`, … (außer bei
     `write_canonical`).
   * Zeichenlisten bei `double_quotes=chars` wie Scryer als `"..."`
@@ -4161,7 +4195,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
 
     | Bibliothek | Prädikate |
     |---|---|
-    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer); `call_with_memory_limit/2` (siehe Ressourcen begrenzen), `clausex/2` (wie `clause/2`, scheitert aber statt `permission_error(access, private_procedure, …)`; für Meta-Interpreter, Messung unter „Laufzeit“), `cached_is(X, E)` (rechnet wie `X is E`, wertet aber einen geteilten Teilausdruck nur einmal aus – ein Term wie `X+X` über 60 Stufen kostet 60 Schritte statt 2^60; Fehler wie bei `is/2`; Teile mit `random`, `random_float`, `cputime`, `realtime` werden nicht gemerkt und liefern je Vorkommen einen neuen Wert); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer), `partial_string/3`; `call_with_memory_limit/2` (siehe Ressourcen begrenzen), `clausex/2` (wie `clause/2`, scheitert aber statt `permission_error(access, private_procedure, …)`; für Meta-Interpreter, Messung unter „Laufzeit“), `cached_is(X, E)` (rechnet wie `X is E`, wertet aber einen geteilten Teilausdruck nur einmal aus – ein Term wie `X+X` über 60 Stufen kostet 60 Schritte statt 2^60; Fehler wie bei `is/2`; Teile mit `random`, `random_float`, `cputime`, `realtime` werden nicht gemerkt und liefern je Vorkommen einen neuen Wert); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |
@@ -4199,10 +4233,12 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     ladenden Datei. Operatoren sind global (nicht modul-lokal). Lädt nur
     eine Bibliothek des Systems ein solches Modul (clpz lädt
     `library(debug)` mit `*` und `$` als Präfixoperatoren), gelten dessen
-    Operatoren nur beim Lesen seiner eigenen Datei und werden danach
-    zurückgenommen, auch frühere Definitionen derselben Operatoren – wie in
-    Scryer ist `* a` nach `use_module(library(clpz))` kein Term. Ein
-    eigenes `use_module(library(debug))` setzt sie.
+    Operatoren nur bis zum Ende der ladenden Bibliothek (crypto liest so
+    `B in 0..255` aus clpz) und werden danach zurückgenommen, auch frühere
+    Definitionen derselben Operatoren – wie in Scryer ist `* a` nach
+    `use_module(library(clpz))` und `a in b` nach
+    `use_module(library(crypto))` kein Term. Ein eigenes
+    `use_module(library(debug))` setzt sie.
   * Gleichnamige Prädikate zweier Bibliotheken: der erste Import gilt,
     mit Warnung. (`library(lists)` hat deshalb kein `chain/2` mehr: das
     aus clpz, `chain(Relation, Zs)`, hat die umgekehrte Argumentfolge.)

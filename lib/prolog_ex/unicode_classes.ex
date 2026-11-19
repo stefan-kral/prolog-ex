@@ -38,6 +38,7 @@ defmodule PrologEx.UnicodeClasses do
   @letter ranges |> Map.fetch!("letter") |> List.to_tuple()
   @symbol ranges |> Map.fetch!("symbol") |> List.to_tuple()
   @ident ranges |> Map.fetch!("ident") |> List.to_tuple()
+  @invisible ranges |> Map.fetch!("invisible") |> List.to_tuple()
 
   @doc "Buchstabe (L) oder Buchstabenzahl (Nl)"
   def alphabetic?(c), do: member?(@alphabetic, c, 0, tuple_size(@alphabetic) - 1)
@@ -57,6 +58,8 @@ defmodule PrologEx.UnicodeClasses do
   def symbol?(c), do: member?(@symbol, c, 0, tuple_size(@symbol) - 1)
   @doc "setzt einen Namen fort (L, N, M)"
   def ident?(c), do: member?(@ident, c, 0, tuple_size(@ident) - 1)
+  @doc "unsichtbar (Cc, Cf, Zs außer dem Leerzeichen, Zl, Zp, Cs, nicht vergeben)"
+  def invisible?(c), do: member?(@invisible, c, 0, tuple_size(@invisible) - 1)
 
   defp member?(_t, _c, lo, hi) when lo > hi, do: false
 

@@ -2,7 +2,9 @@
 # Bereiche der Unicode-Klassen aus der allgemeinen Kategorie, für
 # char_type/2: alphabetic (L, Nl), lower (Ll), upper (Lu), numeric (N),
 # control (Cc); für Leser und Schreiber (Namen und Variablen): var_start
-# (Lu, Lt), letter (L), symbol (Sm, So), ident (L, N, M). Je Zeile
+# (Lu, Lt), letter (L), symbol (Sm, So), ident (L, N, M); für writeq:
+# invisible (Cc, Cf, Zs außer dem Leerzeichen, Zl, Zp, Cs, nicht
+# vergeben – als \x..\ geschrieben). Je Zeile
 # "Klasse von bis" (hexadezimal, einschließlich).
 import sys
 src = sys.argv[1]
@@ -29,6 +31,7 @@ classes = [
     ('letter', lambda g: g[0] == 'L'),
     ('symbol', lambda g: g in ('Sm', 'So')),
     ('ident', lambda g: g[0] in 'LNM'),
+    ('invisible', None),
 ]
 print('# Unicode 17.0.0 (UnicodeData.txt), (c) Unicode, Inc., Unicode License v3')
 print('# (https://www.unicode.org/license.txt). Klassen für char_type/2, Leser und')
@@ -36,7 +39,10 @@ print('# Schreiber als Bereiche; erzeugt von gen_char_classes.py')
 for name, p in classes:
     start = None
     for c in range(0x110001):
-        hit = c <= 0x10FFFF and c in gc and p(gc[c])
+        if p is None:  # invisible: auch nicht vergebene Codepunkte
+            hit = c <= 0x10FFFF and c != 0x20 and gc.get(c, 'Cn') in ('Cc', 'Cf', 'Zs', 'Zl', 'Zp', 'Cs', 'Cn')
+        else:
+            hit = c <= 0x10FFFF and c in gc and p(gc[c])
         if hit and start is None: start = c
         if not hit and start is not None:
             print('%s %X %X' % (name, start, c - 1)); start = None

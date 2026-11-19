@@ -93,6 +93,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.SideEffects,
     PrologEx.Builtins.Concurrent,
     PrologEx.Builtins.OS,
+    PrologEx.Builtins.Crypto,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt
   ]

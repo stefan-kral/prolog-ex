@@ -319,13 +319,23 @@ defmodule PrologEx.Builtins.Modules do
       user_ops = if PrologEx.Builtins.system_module?(ctx), do: [], else: Map.get(info, :ops, [])
       import(module, select(info.exports, keys, module), ctx, user_ops)
 
-      # Operatoren der Exportliste gelten in den Modulen des Benutzers;
-      # beim ersten Laden nur für eine Bibliothek des Systems (clpz lädt
-      # library(debug)) werden sie wieder zurückgenommen (wie Scryer)
+      # Operatoren der Exportliste gelten in den Modulen des Benutzers; in
+      # eine Bibliothek des Systems (clpz lädt library(debug), crypto
+      # library(clpz)) nur, bis diese fertig geladen ist (wie Scryer)
+      ops = Map.get(info, :ops, [])
+
       cond do
-        not PrologEx.Builtins.system_module?(ctx) -> Consult.mirror_ops(Map.get(info, :ops, []))
-        fresh -> Consult.restore_ops(Map.get(info, :ops_prev, []))
-        true -> :ok
+        not PrologEx.Builtins.system_module?(ctx) ->
+          Consult.mirror_ops(ops)
+
+        ops == [] ->
+          :ok
+
+        true ->
+          # beim ersten Laden hat die module-Direktive sie schon gesetzt
+          prev = if fresh, do: Map.get(info, :ops_prev, []), else: Consult.ops_prev(ops)
+          if not fresh, do: Consult.mirror_ops(ops)
+          Consult.scoped_ops(prev)
       end
     end
   end
