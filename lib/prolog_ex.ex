@@ -3037,23 +3037,20 @@ defmodule PrologEx do
   # eine Ausnahme NACH catch/3 wird so nicht von ihm gefangen.
   # --- Begrenzte Fortsetzungen: library(cont) (reset/3, shift/1) --------
   #
-  # '$reset'(G, Ball, Cont) ruft G und legt dahinter die Marke
+  # reset(G, Ball, Cont) ruft G und legt dahinter die Marke
   # '$reset_exit'(Ball, Cont) in die Zielliste. Endet G ohne shift/1, gibt
-  # die Marke Cont = none. '$shift'(B) nimmt die Ziele bis zur nächsten Marke
+  # die Marke Cont = none. shift(B) nimmt die Ziele bis zur nächsten Marke
   # heraus: die Programmziele werden die Fortsetzung
-  # cont(cont:call_continuation(L)), die Buchhaltung der Rahmen dazwischen
+  # cont('$call_continuation'(L)), die Buchhaltung der Rahmen dazwischen
   # (catch/3, Grenzen, setup_call_cleanup/3) läuft jetzt, als hätte ihr Ziel
   # geendet; dann geht es hinter der Marke weiter mit Ball = B. Wie bei
   # Scryer und SWI bleiben Choice Points des Ziels vor shift/1 bestehen.
   # Code ohne reset/shift berührt das nicht (nur diese Klauseln).
-  defp step({:struct, "$reset", [g, ball, c]}, _cutb, mod, rest, st) do
-    goals = [
-      {{:struct, "call", [g]}, st.height, mod},
-      {{:struct, "$reset_exit", [ball, c]}, 0, mod} | rest
-    ]
+  defp step({:struct, "reset", [_, _, _]} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
-    run(%{st | goals: goals})
-  end
+  defp step({:struct, "shift", [_]} = goal, cutb, mod, rest, st),
+    do: homed_step(goal, cutb, mod, rest, st)
 
   defp step({:struct, "$reset_exit", [_ball, c]}, _cutb, _mod, rest, st) do
     case unify(c, a("none"), st.subst) do
@@ -3062,45 +3059,16 @@ defmodule PrologEx do
     end
   end
 
-  defp step({:struct, "$shift", [b]}, _cutb, _mod, rest, st) do
-    case split_at_reset(rest, [], []) do
-      {:ok, items, exits, ball, c, after_} ->
-        k = mk("cont", [mk(":", [a("cont"), mk("call_continuation", [list(items)])])])
-
-        with {:ok, s} <- unify(ball, b, st.subst),
-             {:ok, s} <- unify(c, k, s) do
-          cont(st, s, exits ++ after_)
-        else
-          :error -> backtrack(st)
-        end
-
-      :none ->
-        throw_error(st, fn ->
-          PrologEx.Error.existence!("reset", PrologEx.resolve(b, st.subst))
-        end)
-    end
-  end
-
   # '$call_continuation'(L): die Ziele der Fortsetzung, ein Schnitt darin
-  # wirkt nur bis zum Anfang der Fortsetzung
-  defp step({:struct, "$call_continuation", [l]}, _cutb, _mod, rest, st) do
-    h = st.height
-    items = PrologEx.Builtins.Lists.items(l, st.subst)
+  # wirkt nur bis zum Anfang der Fortsetzung (Höhe h). Ausgepackt wird Ziel
+  # für Ziel ('$cont_run'(Rest, h)): ein shift/1 mitten in der Fortsetzung
+  # nimmt den noch offenen Rest dann als '$k'(Rest) in die neue, ohne ihn zu
+  # kopieren – sonst wäre jede Fortsetzung so teuer wie alle offenen Ziele
+  # (Same Fringe auf einem links tiefen Baum: quadratisch)
+  defp step({:struct, "$call_continuation", [l]}, _cutb, _mod, rest, st),
+    do: cont_run(l, st.height, rest, st)
 
-    goals =
-      List.foldr(items, rest, fn item, acc ->
-        case Store.walk(item, st.subst) do
-          {:atom, "$cut"} ->
-            [{{:"$cut_to", h}, 0, "system"} | acc]
-
-          {tag, "$g", [m, g]} when tag in [:struct, :gstruct] ->
-            {:atom, m} = Store.walk(m, st.subst)
-            [{g, h, m} | acc]
-        end
-      end)
-
-    run(%{st | goals: goals})
-  end
+  defp step({:struct, "$cont_run", [l, h]}, _cutb, _mod, rest, st), do: cont_run(l, h, rest, st)
 
   defp step({:struct, "catch", [g, c, r]}, _cutb, mod, rest, st) do
     id = make_ref()
@@ -3465,6 +3433,34 @@ defmodule PrologEx do
 
   def home_visible?(mod),
     do: PrologEx.Builtins.system_module?(mod) or PrologEx.Flags.get("swi_compat") == a("true")
+
+  defp engine_step({:struct, "reset", [g, ball, c]}, _cutb, mod, rest, st) do
+    goals = [
+      {{:struct, "call", [g]}, st.height, mod},
+      {{:struct, "$reset_exit", [ball, c]}, 0, mod} | rest
+    ]
+
+    run(%{st | goals: goals})
+  end
+
+  defp engine_step({:struct, "shift", [b]}, _cutb, _mod, rest, st) do
+    case split_at_reset(rest, [], []) do
+      {:ok, items, exits, ball, c, after_} ->
+        k = mk("cont", [mk("$call_continuation", [list(items)])])
+
+        with {:ok, s} <- unify(ball, b, st.subst),
+             {:ok, s} <- unify(c, k, s) do
+          cont(st, s, exits ++ after_)
+        else
+          :error -> backtrack(st)
+        end
+
+      :none ->
+        throw_error(st, fn ->
+          PrologEx.Error.existence!("reset", PrologEx.resolve(b, st.subst))
+        end)
+    end
+  end
 
   defp engine_step({:struct, "call_nth", [g, n]}, cutb, mod, rest, st) do
     case Store.walk(n, st.subst) do
@@ -6121,6 +6117,10 @@ defmodule PrologEx do
       {:"$wake", _} ->
         split_at_reset(gs, items, exits)
 
+      # der noch offene Rest einer laufenden Fortsetzung: geteilt, nicht kopiert
+      {:struct, "$cont_run", [l, _h]} ->
+        split_at_reset(gs, [mk("$k", [l]) | items], exits)
+
       t
       when is_tuple(t) and is_atom(elem(t, 0)) and
              elem(t, 0) not in [:atom, :struct, :gstruct, :var, :glist, :rat] ->
@@ -6128,6 +6128,38 @@ defmodule PrologEx do
 
       _ ->
         split_at_reset(gs, [mk("$g", [a(mod), decompile_goal(goal)]) | items], exits)
+    end
+  end
+
+  defp cont_run(l, h, rest, st) do
+    case Store.walk(l, st.subst) do
+      [] ->
+        run(%{st | goals: rest})
+
+      {:glist, items} ->
+        cont_run(items, h, rest, st)
+
+      [item | more] ->
+        # nach dem letzten Ziel kein leerer Rest (er landete sonst in jeder
+        # weiteren Fortsetzung)
+        rest =
+          case Store.walk(more, st.subst) do
+            [] -> rest
+            _ -> [{{:struct, "$cont_run", [more, h]}, 0, "system"} | rest]
+          end
+
+        case Store.walk(item, st.subst) do
+          {:atom, "$cut"} ->
+            run(%{st | goals: [{{:"$cut_to", h}, 0, "system"} | rest]})
+
+          {tag, "$g", [m, g]} when tag in [:struct, :gstruct] ->
+            {:atom, m} = Store.walk(m, st.subst)
+            run(%{st | goals: [{g, h, m} | rest]})
+
+          # der Rest einer früheren Fortsetzung, mit eigenem Anfang
+          {tag, "$k", [sub]} when tag in [:struct, :gstruct] ->
+            cont_run(sub, st.height, rest, st)
+        end
     end
   end
 

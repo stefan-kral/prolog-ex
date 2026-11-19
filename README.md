@@ -1812,7 +1812,15 @@ ist jeweils am Dateianfang vermerkt.
   Bei Scryer hängt `library(cont)` an der WAM; hier führt die Maschine die
   Fortsetzung ohnehin als Liste von Zielen, `shift/1` nimmt sie bis zur
   Marke von `reset/3` heraus (übersetzte Arithmetik wird dabei wieder zu
-  `is/2`). Choice Points des Ziels vor `shift/1` bleiben wie bei Scryer und
+  `is/2`). `reset/3` und `shift/1` führt die Maschine selbst aus (Heimat
+  `library(cont)`). Eine laufende Fortsetzung wird Ziel für Ziel
+  ausgepackt; ein `shift/1` darin übernimmt ihren offenen Rest geteilt, ohne
+  ihn zu kopieren – so bleibt etwa Same Fringe auf einem links tiefen Baum
+  linear (4000 Blätter: 73 ms; Scryer 2,3 s, Trealla 0,7 s, SWI 5 ms), und
+  ein Generator braucht konstanten Speicher. Beispiele (Generatoren,
+  Primzahlsieb als Strom, List Comprehension, Same Fringe, Zustand als
+  Effekt) mit Vergleich gegen SWI, Scryer und Trealla: `bench/cont`
+  (`run.sh` für Ergebnisse und Laufzeit, `mem.py` für den Speicher). Choice Points des Ziels vor `shift/1` bleiben wie bei Scryer und
   SWI. In der Fortsetzung wirken ein Schnitt, `once/1` und if-then-else nur
   bis zu ihrem Anfang; `catch/3`, `setup_call_cleanup/3` und Grenzen um
   `shift/1` herum sind mit `shift/1` beendet. `shift/1` ohne `reset/3`:

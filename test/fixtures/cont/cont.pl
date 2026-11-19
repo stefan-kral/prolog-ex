@@ -30,3 +30,14 @@ t7 :- reset(catch(shift(a), _, (write(caught), nl)), _, _), catch(throw(oops), E
 % Fortsetzung zweimal aufrufen, kopierbar
 t8 :- reset((shift(a), X = 1, Y is X + 2, write(Y), nl), _, cont(K)), call(K), copy_term(K, K2), call(K2), writeq(ok), nl.
 t9 :- reset((shift(a), shift(b), write(end), nl), B1, cont(K1)), reset(K1, B2, cont(K2)), call(K2), writeq(B1/B2), nl.
+% Fortsetzung einer Fortsetzung: der offene Rest wird geteilt ('$k'), der
+% Schnitt darin wirkt bis zum Anfang der jeweiligen Fortsetzung
+q(X) :- shift(a), shift(b), member(X, [1,2,3]), !.
+t10 :- reset(q(X), a, cont(K1)), reset(K1, b, cont(K2)), findall(X, call(K2), L), writeq(L), nl.
+% links tiefer Baum: jede Fortsetzung teilt den Rest der vorigen
+leaves(leaf(X)) :- shift(yield(X)).
+leaves(node(L, R)) :- leaves(L), leaves(R).
+left(1, leaf(1)) :- !.
+left(N, node(T, leaf(N))) :- N1 is N - 1, left(N1, T).
+count(G, N0, N) :- reset(G, _, C), ( C == none -> N = N0 ; C = cont(K), N1 is N0 + 1, count(K, N1, N) ).
+t11 :- left(20000, T), count(leaves(T), 0, N), writeq(N), nl.

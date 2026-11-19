@@ -16,7 +16,9 @@ defmodule PrologEx.ContTest do
     "t6" => "[1]\n",
     "t7" => "outer(oops)\n",
     "t8" => "3\n3\nok\n",
-    "t9" => "end\na/b\n"
+    "t9" => "end\na/b\n",
+    "t10" => "[1]\n",
+    "t11" => "20000\n"
   }
 
   setup_all do
@@ -28,6 +30,9 @@ defmodule PrologEx.ContTest do
   end
 
   for {t, exp} <- @expected do
+    # t11: 20 000 Blätter eines links tiefen Baums, etwa 1 s; als jede
+    # Fortsetzung noch alle offenen Ziele kopierte, quadratisch (Minuten)
+    @tag timeout: 30_000
     test t, c do
       Reader.put_current(c.reader)
       [{:term, g, _}] = Reader.read_terms(c.reader, unquote(t) <> ".")

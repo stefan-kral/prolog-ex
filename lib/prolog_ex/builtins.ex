@@ -107,7 +107,8 @@ defmodule PrologEx.Builtins do
   @engine ~w(true/0 fail/0 false/0 !/0 ,/2 ;/2 ->/2 :/2 call/1 call/2 call/3 call/4 call/5 call/6
              call/7 call/8 call_nth/2 findall/3 findall/4 catch/3 throw/1
              findnsols/4 findnsols/5 countall/2 not/1 \\+/1 =/2 is/2 </2 >/2 >=/2 =</2 =:=/2 =\\=/2 time/1
-             *->/2 if/3 call_with_inference_limit/3 call_with_depth_limit/3 setup_call_cleanup/3)
+             *->/2 if/3 call_with_inference_limit/3 call_with_depth_limit/3 setup_call_cleanup/3
+             reset/3 shift/1)
           |> Enum.map(fn s ->
             [n, a] = Regex.run(~r{^(.*)/(\d+)$}, s, capture: :all_but_first)
             {n, String.to_integer(a)}
@@ -146,7 +147,9 @@ defmodule PrologEx.Builtins do
                 {"quintus", ~w(mode/1 otherwise/0)},
                 {"edinburgh", ~w(display/1 display/2 name/2)},
                 # Edinburgh-Ein-/Ausgabe (DEC-10; SWI und SICStus eingebaut)
-                {"edinburgh_io", ~w(see/1 seen/0 seeing/1 tell/1 told/0 telling/1 append/1)}
+                {"edinburgh_io", ~w(see/1 seen/0 seeing/1 tell/1 told/0 telling/1 append/1)},
+                # begrenzte Fortsetzungen wie Scryer (in der Maschine)
+                {"cont", ~w(reset/3 shift/1)}
               ],
               k <- keys,
               into: %{} do
@@ -442,6 +445,7 @@ defmodule PrologEx.Builtins do
     "quintus" => @home_reexports["quintus"],
     "edinburgh" => @home_reexports["edinburgh"],
     "edinburgh_io" => @home_reexports["edinburgh_io"],
+    "cont" => @home_reexports["cont"],
     # wie Scryers library(terms) (eingebaut), dazu term_hash/2,4 und
     # term_size/2 wie SWI
     "terms" => Map.put(@home_reexports["terms"], {"numbervars", 3}, "system"),
