@@ -3,11 +3,17 @@ defmodule PrologEx.ProgramBatteryTest do
   # Quelle) mit NAME.checks.pl (Erwartungen, siehe runner.pl). Die
   # Erwartungen stammen aus unabhängigen Quellen (etwa OEIS) oder aus SWI
   # und Scryer und werden mit test/programs/cross.sh dort gegengeprüft.
-  use ExUnit.Case, async: true
+  #
+  # Nicht parallel zu anderen Tests: Laden muss ohne Meldungen gehen, und
+  # capture_io(:stderr) fängt die Meldungen aller Prozesse – auch die
+  # parallel laufender Tests (etwa die Warnungen beim Laden des Vorspanns
+  # der Trealla-Tests), die hier dann als Fehlschlag galten. Allein läuft
+  # die Batterie in rund 7 s.
+  use ExUnit.Case, async: false
   alias PrologEx.Reader
 
-  # die großen CLP-Programme brauchen unter Last (parallel zu den anderen
-  # Tests) mehr als die 60 s, die ExUnit vorgibt
+  # die großen CLP-Programme brauchen auf einem langsamen Rechner mehr als
+  # die 60 s, die ExUnit vorgibt
   @moduletag timeout: 300_000
 
   @dir Path.expand("programs", __DIR__)
