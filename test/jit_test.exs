@@ -212,6 +212,13 @@ defmodule PrologEx.JitTest do
   inl(X, L, R) :- ( member(X, L) -> R = yes ; R = no ).
   btw2(N, X) :- between(1, N, X).
   smallest(N, L, X) :- ( between(1, N, X), X * X >= L -> true ; X = 0 ).
+  % Schleifen: Endaufruf in der letzten Klausel, nach einem Schnitt, in
+  % einem Zweig von -> ;, mit Ausgabe
+  lpc(N) :- N > 0, !, N1 is N - 1, lpc(N1).
+  lpc(_).
+  lpi(N, A, S) :- ( N =:= 0 -> S = A ; N1 is N - 1, A1 is A + N, lpi(N1, A1, S) ).
+  lpa(0, A, A) :- !.
+  lpa(N, A, S) :- A1 is A + N, N1 is N - 1, lpa(N1, A1, S).
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -1007,6 +1014,24 @@ defmodule PrologEx.JitTest do
     assert {_, {:answers, ["true"]}} = TableCase.run(c.reader, db, q)
     assert :atomics.get(stats, 2) >= 64
     assert :atomics.get(stats, 3) > 0
+  end
+
+  # Endaufrufe bleiben Endaufrufe der BEAM: eine Schleife über eine
+  # Million Runden braucht keinen Stack (vorher je Runde ein Rahmen)
+  test "Schleifen in konstantem Speicher", c do
+    for q <- ["lp(1000000)", "lpc(1000000)", "lpi(1000000, 0, S)", "lpa(1000000, 0, S)"] do
+      {ans, words} =
+        Task.async(fn ->
+          Reader.put_current(c.reader)
+          PrologEx.Flags.set("jit_threshold", 1)
+          {_, a} = TableCase.run(c.reader, c.jit, q)
+          {a, elem(Process.info(self(), :total_heap_size), 1)}
+        end)
+        |> Task.await(60_000)
+
+      assert ans in [{:answers, ["true"]}, {:answers, ["S = 500000500000"]}], q
+      assert words < 1_000_000, "#{q}: #{words} Wörter Heap"
+    end
   end
 
   test "schneller (grob)", c do

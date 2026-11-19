@@ -58,6 +58,18 @@ Ein Prolog-Kern in Elixir:
   2,6 s → 50 ms; Peano-Arithmetik (`s/1`, 300 · 200) 364 → 10 ms, Paare
   `K-V` über 200 000 Elemente 2,4 s → 52 ms, deriv aus `bench/compare.pl`
   424 → 31 ms.
+  - Endaufrufe bleiben Endaufrufe der BEAM: ein Aufruf als letztes Ziel
+    der letzten Klausel, nach einem Schnitt oder am Ende eines Zweigs von
+    `( C -> T ; E )`, dessen Ausgaben die der Klausel sind. Eine Klausel
+    ruft beim Scheitern vor einem Schnitt selbst die nächste (kein
+    Verteiler um die Klauseln), danach scheitert ein Prädikat immer
+    endgültig. Eine Zählschleife über 10⁷ Runden braucht so keinen
+    Speicher mehr (vorher je Runde ein Stack-Rahmen: 704 MB) und läuft
+    etwa doppelt so schnell (`sum_loop` über 3 · 10⁶ 62 → 29 ms,
+    `ack(2, 2000, _)` 134 → 77 ms). Nicht endrekursiv bleibt eine
+    Rekursion in einer früheren Klausel ohne Schnitt (`p(N) :- N > 0,
+    …, p(N1). p(N) :- N =< 0.`): scheitert der Aufruf, käme noch die
+    nächste Klausel.
   - Was übersetzt wird – jede Klausel: im Kopf Zahlen, Atome, Variablen,
     `[]`, `[E1, …, En | T]` und Strukturen `f(A1, …, An)` (Elemente und
     Argumente wieder solche Terme); im Rumpf `is`,

@@ -2007,14 +2007,22 @@ defmodule PrologEx.Jit do
         e = :"e#{info.j}"
         pf = :"p#{info.j}"
 
+        # deterministisch: p ruft die erste Klausel; jede ruft beim
+        # Scheitern vor einem Schnitt selbst die nächste (so bleibt ein
+        # Aufruf am Schluss einer Klausel Endaufruf, siehe failure/1)
+        nd = Map.get(info, :nd, false)
+
         clause_funs =
           info.clauses
           |> Enum.with_index(1)
-          |> Enum.map(fn {c, i} -> gen_clause(c, i, info, targets) end)
+          |> Enum.map(fn {c, i} ->
+            next = if not nd and i < n, do: ccall(info.j, i + 1, ins)
+            gen_clause(c, i, info, targets, not nd and i == n, next)
+          end)
 
-        dispatch = gen_dispatch(1, n, ins, info.j)
+        dispatch = ccall(info.j, 1, ins)
 
-        if Map.get(info, :nd, false) do
+        if nd do
           t1 = {:"t#{info.j}_1", [], ins ++ [Macro.var(:b, __MODULE__)]}
 
           [
@@ -2081,24 +2089,25 @@ defmodule PrologEx.Jit do
     end
   end
 
-  defp gen_dispatch(n, n, ins, j), do: ccall(j, n, ins)
-
-  defp gen_dispatch(i, n, ins, j) do
-    quote do
-      case unquote(ccall(j, i, ins)) do
-        b when is_integer(b) and b >= 0 -> unquote(gen_dispatch(i + 1, n, ins, j))
-        r -> r
-      end
-    end
-  end
-
   # Aufruf der Klauselfunktion c<j>_<i>(Eingaben..., b)
   defp ccall(j, i, ins), do: {:"c#{j}_#{i}", [], ins ++ [Macro.var(:b, __MODULE__)]}
 
-  defp gen_clause(c, i, info, targets) do
+  defp gen_clause(c, i, info, targets, last, next) do
     ins = Enum.map(info.ins, fn {k, _} -> in_var(k) end)
     vmap = var_map(c)
-    st = %{vmap: vmap, cut: false, local: false, num: info.num, hout: c.hout, targets: targets}
+
+    st = %{
+      vmap: vmap,
+      cut: false,
+      local: false,
+      num: info.num,
+      hout: c.hout,
+      targets: targets,
+      last: last,
+      next: next,
+      join: false
+    }
+
     body = gen_goals(c.goals ++ [:end], st)
 
     head =
@@ -2209,9 +2218,18 @@ defmodule PrologEx.Jit do
   defp build_ast({:st, f, bs}, st),
     do: quote(do: {:struct, unquote(f), unquote(Enum.map(bs, &build_ast(&1, st)))})
 
-  # Scheitern: nach einem Schnitt (nicht lokal in einer Bedingung oder
-  # unter \+) -b-1, sonst b
-  defp failure(%{local: false, cut: true}), do: quote(do: -b - 1)
+  # Scheitern: lokal (in einer Bedingung, unter \+) b. Sonst nach einem
+  # Schnitt -b-1; in einer Klausel eines deterministischen Prädikats davor
+  # gleich die nächste Klausel (next), in der letzten -b-1. So scheitert ein
+  # deterministisches Prädikat immer mit -b-1, und ein Aufruf am Schluss
+  # (letzte Klausel oder nach einem Schnitt) gibt sein Ergebnis unverändert
+  # weiter: Endaufruf. In einem Zweig, der danach zusammengeführt wird
+  # (join), b – erst nach dem Zusammenführen die nächste Klausel
+  defp failure(%{local: true}), do: quote(do: b)
+  defp failure(%{cut: true}), do: quote(do: -b - 1)
+  defp failure(%{join: true}), do: quote(do: b)
+  defp failure(%{last: true}), do: quote(do: -b - 1)
+  defp failure(%{next: next}) when next != nil, do: next
   defp failure(_), do: quote(do: b)
 
   # Ergebnis eines Aufrufs: Scheitern (auch nach Schnitt) in b
@@ -2344,31 +2362,21 @@ defmodule PrologEx.Jit do
   defp gen_goals([{:u, bt, mp} | gs], st),
     do: counted(match_ast(build_ast(bt, st), mp, gen_goals(gs, st), st))
 
-  defp gen_goals([{:call, ck, ins, outs} | gs], st) do
-    args = Enum.map(ins, &build_ast(&1, st))
-    tmps = for {_, j} <- Enum.with_index(outs), do: Macro.var(:"o#{j}", __MODULE__)
-
-    rest =
-      outs
-      |> Enum.zip(tmps)
-      |> Enum.reverse()
-      |> Enum.reduce(gen_goals(gs, st), fn {mp, tmp}, acc -> match_ast(tmp, mp, acc, st) end)
-
-    r = Macro.var(:r, __MODULE__)
-
-    counted(
-      quote do
-        case unquote(call_ast(st.targets[ck], args)) do
-          {b, unquote_splicing(tmps)} ->
-            unquote(rest)
-
-          unquote(r) ->
-            b = unquote(unfail(r))
-            unquote(failure(st))
-        end
-      end
-    )
+  # Endaufruf: letztes Ziel der Klausel, Ausgaben die der Klausel, und
+  # das Scheitern des Gerufenen (immer -b-1, siehe failure/1) ist auch
+  # ihres – in der letzten Klausel oder nach einem Schnitt. Ohne den Rahmen
+  # des case läuft eine Schleife in konstantem Speicher
+  defp gen_goals([{:call, ck, ins, outs}, :end], %{local: false} = st)
+       when st.last or st.cut do
+    if same_outs?(outs, st.hout) do
+      args = Enum.map(ins, &build_ast(&1, st))
+      counted(call_ast(st.targets[ck], args))
+    else
+      gen_call(ck, ins, outs, [:end], st)
+    end
   end
+
+  defp gen_goals([{:call, ck, ins, outs} | gs], st), do: gen_call(ck, ins, outs, gs, st)
 
   # letzter Aufruf eines nichtdeterministischen Prädikats: seine Lösungen
   # (step) und wie aus seinen Ausgaben die der Klausel werden (mapf: fn
@@ -2467,14 +2475,17 @@ defmodule PrologEx.Jit do
   end
 
   defp gen_goals([{:ite, c, cvars, t, e, nvars} | gs], st) do
-    dup = nvars == :dead or (not st.local and (cut_in?(t) or cut_in?(e)))
+    # danach nur noch das Ende: beide Zweige gleich zu Ende führen (nichts
+    # doppelt, und ein Aufruf am Schluss eines Zweigs bleibt Endaufruf)
+    dup =
+      nvars == :dead or gs == [:end] or (not st.local and (cut_in?(t) or cut_in?(e)))
 
     {th, el} =
       if dup,
         do: {gen_goals(t ++ gs, st), gen_goals(e ++ gs, st)},
         else:
-          {gen_goals(t ++ [{:yield, :join, nvars}], st),
-           gen_goals(e ++ [{:yield, :join, nvars}], st)}
+          {gen_goals(t ++ [{:yield, :join, nvars}], %{st | join: true}),
+           gen_goals(e ++ [{:yield, :join, nvars}], %{st | join: true})}
 
     cond_code = gen_goals(c ++ [{:yield, :cond, cvars}], %{st | local: true})
 
@@ -2507,10 +2518,37 @@ defmodule PrologEx.Jit do
       quote do
         case unquote(branches) do
           {b, unquote_splicing(vs(nvars, st))} -> unquote(gen_goals(gs, st))
+          b when is_integer(b) and b >= 0 -> unquote(failure(st))
           r -> r
         end
       end
     end
+  end
+
+  defp gen_call(ck, ins, outs, gs, st) do
+    args = Enum.map(ins, &build_ast(&1, st))
+    tmps = for {_, j} <- Enum.with_index(outs), do: Macro.var(:"o#{j}", __MODULE__)
+
+    rest =
+      outs
+      |> Enum.zip(tmps)
+      |> Enum.reverse()
+      |> Enum.reduce(gen_goals(gs, st), fn {mp, tmp}, acc -> match_ast(tmp, mp, acc, st) end)
+
+    r = Macro.var(:r, __MODULE__)
+
+    counted(
+      quote do
+        case unquote(call_ast(st.targets[ck], args)) do
+          {b, unquote_splicing(tmps)} ->
+            unquote(rest)
+
+          unquote(r) ->
+            b = unquote(unfail(r))
+            unquote(failure(st))
+        end
+      end
+    )
   end
 
   # Variablen, die ein Muster bindet
