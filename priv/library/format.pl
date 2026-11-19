@@ -10,6 +10,8 @@
        derselben Bedeutung (phrase_to_stream(format_(Fs, Args), S)).
      - listing/1 sucht im Modul des Aufrufers (meta_predicate).
      - library(apply) für foldl/4 (bei Scryer in library(lists)).
+     - format/3 nimmt auch die Senken der eingebauten (wie SWI): atom(A),
+       chars(Cs), chars(Cs, Rest), codes(Cs), codes(Cs, Rest).
    Nach use_module(library(format)) gelten diese format/2,3 und listing/1
    statt der eingebauten.                                                 */
 
@@ -484,9 +486,28 @@ format(Fs, Args) :-
 %  binary stream, then the code of each emitted character must be in
 %  0..255.
 
+% PrologEx: Senken wie bei SWI und dem eingebauten format/3
+format(Sink, Fs, Args) :-
+        nonvar(Sink),
+        format_sink(Sink),
+        !,
+        phrase(format_(Fs, Args), Cs),
+        format_to_sink(Sink, Cs).
 format(Stream, Fs, Args) :-
         phrase_to_stream(format_(Fs, Args), Stream),
         flush_output(Stream).
+
+format_sink(atom(_)).
+format_sink(chars(_)).
+format_sink(chars(_, _)).
+format_sink(codes(_)).
+format_sink(codes(_, _)).
+
+format_to_sink(atom(A), Cs) :- atom_chars(A, Cs).
+format_to_sink(chars(Cs0), Cs) :- Cs0 = Cs.
+format_to_sink(chars(Cs0, T), Cs) :- append(Cs, T, Cs0).
+format_to_sink(codes(Co), Cs) :- maplist(char_code, Cs, Co).
+format_to_sink(codes(Co, T), Cs) :- maplist(char_code, Cs, Co0), append(Co0, T, Co).
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ?- phrase(format:cells("hello", [], 0, [], []), Cs).

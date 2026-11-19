@@ -1,0 +1,21 @@
+f(1 p p 2) syntax_error
+f(1 p p p 2, x) syntax_error
+[1 p p 2] syntax_error
+[x, 1 p p 2, y] syntax_error
+{1 p p 2} syntax_error
+f(1 p q) f(p(1,q))
+[a,b|c] '.'(a,'.'(b,c))
+0 f f f(f(0))
+0 f f(0)
+(0 f) f f(f(0))
+f f 0 f(f(0))
+f f syntax_error
+(fy 1) yfx 2 same
+fy 1 yfx 2 same
+(1 xfy 2)yf same
+1 xfy 2 yf same
+(fy 1)yf same
+(yf)yf same
+-a+b same
+- (1)+2 same
+('.')'.' same

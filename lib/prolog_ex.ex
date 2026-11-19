@@ -413,8 +413,8 @@ defmodule PrologEx do
   # (+ besuchte Teilterme) – lokal mitgezählt, einmal je Check gebucht
   defp occurs_checked?(var, t, subst) do
     case Store.walk(t, subst) do
-      {:struct, _, _} = c -> count_occurs(occurs_steps(var, c, subst, 0, %{}))
-      [_ | _] = c -> count_occurs(occurs_steps(var, c, subst, 0, %{}))
+      {:struct, _, _} = c -> count_occurs(occurs_counted(var, c, subst))
+      [_ | _] = c -> count_occurs(occurs_counted(var, c, subst))
       ^var -> true
       _ -> false
     end
@@ -427,17 +427,37 @@ defmodule PrologEx do
     found
   end
 
+  # ein zyklischer Term (PrologEx.Cyclic): zyklenfest von vorn
+  defp occurs_counted(var, c, subst) do
+    occurs_steps(var, c, subst, 0, %{}, 0)
+  catch
+    :"$cyclic" -> {occurs_cyclic(var, [c], subst, MapSet.new()), 0, %{}}
+  end
+
   @doc "Kommt die (ungebundene) Variable var in t vor?"
-  def occurs?(var, t, subst), do: elem(occurs_steps(var, t, subst, 0, %{}), 0)
+  def occurs?(var, t, subst) do
+    elem(occurs_steps(var, t, subst, 0, %{}, 0), 0)
+  catch
+    :"$cyclic" -> occurs_cyclic(var, [t], subst, MapSet.new())
+  end
 
   # {gefunden?, n + besuchte Teilterme, Memo}; bricht beim ersten Fund ab.
   # Eigene Rekursion über die Argumente (statt Enum.any? mit Closure):
   # trägt den Zähler und ist schneller. Memo (PrologEx.Share): geteilte
-  # Teilterme ohne var nur einmal ablaufen.
-  defp occurs_steps(var, t, subst, n, m) do
+  # Teilterme ohne var nur einmal ablaufen. d: Bindungen auf dem Pfad
+  # (wie PrologEx.Cyclic.step/4 – wirft bei einem Zyklus)
+  defp occurs_steps(var, t0, subst, n, m, d) do
     n = n + 1
+    t = Store.walk(t0, subst)
 
-    case Store.walk(t, subst) do
+    d =
+      cond do
+        t === t0 -> d
+        d >= map_size(subst) -> throw(:"$cyclic")
+        true -> d + 1
+      end
+
+    case t do
       ^var ->
         {true, n, m}
 
@@ -447,7 +467,7 @@ defmodule PrologEx do
             {false, n, m}
 
           :error ->
-            case occurs_args(var, args, subst, n, m) do
+            case occurs_args(var, args, subst, n, m, d) do
               {false, n, m} -> {false, n, PrologEx.Share.put(m, st, true)}
               found -> found
             end
@@ -455,8 +475,8 @@ defmodule PrologEx do
 
       # Listenrest per Tail Call: keine Rekursionstiefe entlang der Liste
       [h | tl] ->
-        case occurs_steps(var, h, subst, n, m) do
-          {false, n, m} -> occurs_steps(var, tl, subst, n, m)
+        case occurs_steps(var, h, subst, n, m, d) do
+          {false, n, m} -> occurs_steps(var, tl, subst, n, m, d)
           found -> found
         end
 
@@ -466,12 +486,36 @@ defmodule PrologEx do
     end
   end
 
-  defp occurs_args(_var, [], _subst, n, m), do: {false, n, m}
+  defp occurs_args(_var, [], _subst, n, m, _d), do: {false, n, m}
 
-  defp occurs_args(var, [a | as], subst, n, m) do
-    case occurs_steps(var, a, subst, n, m) do
-      {false, n, m} -> occurs_args(var, as, subst, n, m)
+  defp occurs_args(var, [a | as], subst, n, m, d) do
+    case occurs_steps(var, a, subst, n, m, d) do
+      {false, n, m} -> occurs_args(var, as, subst, n, m, d)
       found -> found
+    end
+  end
+
+  # zyklenfest: jede Bindung, über die der Weg lief, nur einmal ablaufen
+  defp occurs_cyclic(_var, [], _s, _seen), do: false
+
+  defp occurs_cyclic(var, [t0 | rest], s, seen) do
+    {t, last} = PrologEx.Cyclic.walk_last(t0, s, nil)
+
+    cond do
+      t === var ->
+        true
+
+      last != nil and MapSet.member?(seen, last) ->
+        occurs_cyclic(var, rest, s, seen)
+
+      true ->
+        seen = if last, do: MapSet.put(seen, last), else: seen
+
+        case t do
+          {:struct, _, args} -> occurs_cyclic(var, args ++ rest, s, seen)
+          [h | tl] -> occurs_cyclic(var, [h, tl | rest], s, seen)
+          _ -> occurs_cyclic(var, rest, s, seen)
+        end
     end
   end
 
@@ -6209,7 +6253,9 @@ defmodule PrologEx do
         cps: cps,
         subst: attrs,
         counters: counters,
-        threshold: threshold(st, size, Store.size(attrs))
+        # die Ziele zählen mit: jedes kostet beim Kompaktieren einen Schritt,
+        # auch ein ground (tief verschachtelte catch/3: N Ausgänge)
+        threshold: threshold(st, size + length(goals), Store.size(attrs))
     }
   end
 

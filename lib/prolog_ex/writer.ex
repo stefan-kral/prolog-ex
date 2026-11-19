@@ -69,7 +69,17 @@ defmodule PrologEx.Writer do
 
     role = if Keyword.get(opts, :operand, false), do: :operand, else: :arg
     {io, _, _} = w(t, Keyword.get(opts, :priority, 1200), role, 1, o)
-    IO.iodata_to_binary(io)
+    text = IO.iodata_to_binary(io)
+    text = if Keyword.get(opts, :fullstop, false), do: fullstop(text), else: text
+    if Keyword.get(opts, :nl, false), do: text <> "\n", else: text
+  end
+
+  # fullstop(true) (wie SWI): ein Punkt dahinter; nach Symbolzeichen mit
+  # Leerzeichen, sonst verschmölze er mit ihnen zu einem Namen
+  defp fullstop(text) do
+    if String.ends_with?(text, ~w(# $ & * + - . / : < = > ? @ ^ ~ \\)),
+      do: text <> " .",
+      else: text <> "."
   end
 
   @doc "Optionen für Toplevel-Antworten, writeq und print"

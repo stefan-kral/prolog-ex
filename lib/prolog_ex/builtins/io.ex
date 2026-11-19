@@ -361,10 +361,21 @@ defmodule PrologEx.Builtins.IO do
         other -> Error.type!("atom", PrologEx.resolve(other, s))
       end
 
-    # Punkt anhängen, falls der Text keinen hat
-    text =
-      if Regex.match?(~r/(^|[^.#$&*+\-\/:<=>?@^~\\])\.\s*$/, text), do: text, else: text <> " ."
+    # erst so, wie er ist (mit Punkt am Ende, oder nur Layout: end_of_file);
+    # ein Syntaxfehler, dann mit Zeilenende und Punkt dahinter (der Punkt
+    # ist optional; das Zeilenende schließt einen %-Kommentar, 0'. bleibt
+    # ein Zeichen)
+    try do
+      read_text(text, t, opts, s)
+    rescue
+      e in PrologEx.Error ->
+        if syntax_error?(e),
+          do: read_text(text <> "\n.", t, opts, s),
+          else: reraise(e, __STACKTRACE__)
+    end
+  end
 
+  defp read_text(text, t, opts, s) do
     id = S.open_memory(text)
 
     try do
@@ -372,6 +383,10 @@ defmodule PrologEx.Builtins.IO do
     after
       S.close(id)
     end
+  end
+
+  defp syntax_error?(%PrologEx.Error{term: term}) do
+    match?({:struct, "error", [{:struct, "syntax_error", _} | _]}, PrologEx.unmark(term))
   end
 
   @doc "Text auf den aktuellen Ausgabestrom (write/1, nl/0, listing ...)"

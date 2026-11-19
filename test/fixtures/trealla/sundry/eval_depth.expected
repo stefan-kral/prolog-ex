@@ -1,0 +1,8 @@
+wide 128k sum: 131072
+wide 128k comparison: yes
+left 200 sum: 201
+left 100k sum: ok
+right 100k sum: ok
+evaluated afterwards: 3
+deep error: evaluation_error(zero_divisor)
+tab(1+1) after it: 2

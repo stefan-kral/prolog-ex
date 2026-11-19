@@ -1,0 +1,6 @@
+t_rebuilt: failed
+t_bound: failed
+t_cond_fails: else
+t_soft: [1,2]
+t_soft_fails: else
+t_commit: [1]

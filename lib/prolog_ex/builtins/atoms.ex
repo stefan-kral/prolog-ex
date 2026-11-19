@@ -641,11 +641,11 @@ defmodule PrologEx.Builtins.Atoms do
     rest = skip_layout(str)
 
     {sign, rest} =
-      case rest do
+      case minus(rest) do
         # nach dem Minus nur Leerraumzeichen, keine Kommentare (ISO-
         # Konformitätstests 21 und 24)
-        "-" <> r -> {-1, skip_blanks(r)}
-        r -> {1, r}
+        {:ok, r} -> {-1, skip_blanks(r)}
+        :error -> {1, rest}
       end
 
     case unsigned(rest) do
@@ -657,6 +657,17 @@ defmodule PrologEx.Builtins.Atoms do
   rescue
     ArgumentError -> :error
   end
+
+  # das Minus: "-" oder als Name in Hochkommas ('-', auch mit
+  # Fortsetzungszeilen '\\<Zeilenende>' darin), wie Scryer und Trealla
+  defp minus("-" <> r), do: {:ok, r}
+  defp minus("'" <> r), do: quoted_minus(r, false)
+  defp minus(_), do: :error
+
+  defp quoted_minus("\\\n" <> r, seen), do: quoted_minus(r, seen)
+  defp quoted_minus("-" <> r, false), do: quoted_minus(r, true)
+  defp quoted_minus("'" <> r, true), do: {:ok, r}
+  defp quoted_minus(_, _), do: :error
 
   defp skip_blanks(<<c, rest::binary>>) when c in [?\s, ?\t, ?\n, ?\r, ?\f, ?\v],
     do: skip_blanks(rest)
@@ -733,17 +744,20 @@ defmodule PrologEx.Builtins.Atoms do
     ArgumentError -> {:max_float, r}
   end
 
-  # Ziffern mit Gruppen: "_" zwischen Ziffern
-  defp digits(s) do
-    {d, rest} = span(s, &(&1 in ?0..?9))
+  # Ziffern mit Gruppen: "_" zwischen Ziffern, nach "_" auch Layout und
+  # Kommentare (wie beim Lesen; Ulrichs digit_separators)
+  defp digits(s), do: grouped(s, &(&1 in ?0..?9))
 
-    case rest do
-      <<"_", c, r::binary>> when c in ?0..?9 ->
-        {more, rest} = digits(<<c, r::binary>>)
-        {d <> more, rest}
+  defp grouped(s, pred) do
+    {d, rest} = span(s, pred)
 
-      _ ->
-        {d, rest}
+    with "_" <> r <- rest,
+         <<c, _::binary>> = r <- skip_layout(r),
+         true <- d != "" and pred.(c) do
+      {more, rest} = grouped(r, pred)
+      {d <> more, rest}
+    else
+      _ -> {d, rest}
     end
   end
 
@@ -763,7 +777,7 @@ defmodule PrologEx.Builtins.Atoms do
   defp exponent(rest), do: {:ok, "", rest}
 
   defp radix(s, base) do
-    {ds, rest} = span(s, &digit_in_base?(&1, base))
+    {ds, rest} = grouped(s, &digit_in_base?(&1, base))
     if ds == "", do: :error, else: {:ok, String.to_integer(ds, base), rest}
   end
 

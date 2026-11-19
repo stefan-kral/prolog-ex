@@ -95,6 +95,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Crypto,
     PrologEx.Builtins.Tls,
+    PrologEx.Builtins.Edinburgh,
+    PrologEx.Builtins.SwiTerms,
     PrologEx.Builtins.Sockets,
     PrologEx.Builtins.IsoExt
   ]
@@ -127,7 +129,7 @@ defmodule PrologEx.Builtins do
                     call_with_inference_limit/3 atomic_concat/3 evaluable_property/2
                     cached_is/2 clausex/2)},
                 {"between", ~w(between/3 repeat/1)},
-                {"terms", ~w(term_hash/2 term_hash/4 term_size/2)},
+                {"terms", ~w(term_hash/2 term_hash/4 term_size/2 variant/2)},
                 {"fastrw", ~w(fast_read/1 fast_read/2 fast_write/1 fast_write/2)},
                 {"swi", ~w(ignore/1 not/1 *->/2 plus/3 atomic_list_concat/2 atomic_list_concat/3
                     atom_number/2 term_to_atom/2 read_term_from_atom/3 =@=/2 \\=@=/2
@@ -138,7 +140,8 @@ defmodule PrologEx.Builtins do
                     tab/2 with_output_to/2 select/4 selectchk/3 selectchk/4 flatten/2
                     predsort/3 sort/4 code_type/2 nb_setval/2 nb_getval/2 b_setval/2
                     b_getval/2 nb_current/2 term_variables/3 string/1 garbage_collect/0
-                    get_time/1 cyclic_term/1 public/1)},
+                    get_time/1 cyclic_term/1 public/1 unifiable/3 term_singletons/2
+                    duplicate_term/2 atom_to_term/3)},
                 # wie SWI: library(quintus), library(edinburgh) (Chat-80)
                 {"quintus", ~w(mode/1 otherwise/0)},
                 {"edinburgh", ~w(display/1 display/2)}
@@ -199,7 +202,8 @@ defmodule PrologEx.Builtins do
          write_term/2 write_term/3 writeln/1 writeln/2 writeq/1 writeq/2 listing/0 listing/1
          statistics/0 with_output_to/2 fast_read/1 fast_read/2 fast_write/1 fast_write/2
          $get_n_chars/3 $chars_input/2 $lazy_block/5 $lazy_position/4 $lazy_start/2
-         $wot_close/3 $wot_open/2 $wot_restore/2 $wot_sink/1 $http_put_byte_chars/2),
+         $wot_close/3 $wot_open/2 $wot_restore/2 $wot_sink/1 $http_put_byte_chars/2
+         see/1 seen/0 tell/1 told/0 append/1),
     "external" => ~w(halt/0 halt/1 delete_file/1 $shell/2 $setenv/2 $unsetenv/1 $process_create/8
          $process_kill/1 $process_release/1 $process_wait/3 $http_accept/7 $http_answer/4
          $http_answer/5 $http_listen/5 $http_listen_stop/1 $http_open/7 $http_send_file/4),

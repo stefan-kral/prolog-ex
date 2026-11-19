@@ -286,8 +286,52 @@ defmodule PrologEx.Builtins.Core do
     # die Leser nehmen den ersten Eintrag (Keyword.get)
     opts
     |> PrologEx.Builtins.Lists.items(s)
-    |> Enum.map(&write_option(PrologEx.unmark(PrologEx.resolve(&1, s)), s))
+    |> Enum.map(&write_option_term(&1, s))
     |> Enum.reverse()
+  end
+
+  # variable_names/1 ohne aufzulösen: die Werte sind Variablen oder bleiben
+  # unbeachtet – auch ein zyklischer (X = f(X), variable_names(['X'=X]))
+  defp write_option_term(o, s) do
+    case PrologEx.Store.walk(o, s) do
+      {:struct, "variable_names", [l]} = opt ->
+        items = walk_items(PrologEx.Store.walk(l, s), s, fn -> resolve_opt(opt, s) end)
+
+        for(i <- items, do: vn_entry(i, s, opt))
+        |> Enum.reverse()
+        |> List.flatten()
+        |> Map.new()
+        |> then(&{:variable_names, &1})
+
+      _ ->
+        write_option(PrologEx.unmark(PrologEx.resolve(o, s)), s)
+    end
+  end
+
+  defp resolve_opt(opt, s), do: PrologEx.unmark(PrologEx.resolve(opt, s))
+
+  defp walk_items([], _s, _opt), do: []
+  defp walk_items([h | t], s, opt), do: [h | walk_items(PrologEx.Store.walk(t, s), s, opt)]
+  defp walk_items({:glist, l}, _s, _opt), do: l
+  defp walk_items({:var, _}, _s, _opt), do: PrologEx.Error.instantiation!()
+  defp walk_items(_, _s, opt), do: PrologEx.Error.domain!("write_option", opt.())
+
+  defp vn_entry(i, s, opt) do
+    case PrologEx.Store.walk(i, s) do
+      {tag, "=", [n, v]} when tag in [:struct, :gstruct] ->
+        case {PrologEx.Store.walk(n, s), PrologEx.Store.walk(v, s)} do
+          {{:atom, name}, {:var, _} = w} -> [{w, name}]
+          {{:atom, _}, _} -> []
+          {{:var, _}, _} -> PrologEx.Error.instantiation!()
+          _ -> PrologEx.Error.domain!("write_option", resolve_opt(opt, s))
+        end
+
+      {:var, _} ->
+        PrologEx.Error.instantiation!()
+
+      _ ->
+        PrologEx.Error.domain!("write_option", resolve_opt(opt, s))
+    end
   end
 
   @bool_options %{"quoted" => :quoted, "ignore_ops" => :ignore_ops, "numbervars" => :numbervars}
@@ -297,12 +341,17 @@ defmodule PrologEx.Builtins.Core do
   # bekannte Option mit ungebundenem Wert: instantiation_error (ISO 8.14.2.3)
   defp write_option({:struct, name, [{:var, _}]}, _s)
        when name in ~w(quoted ignore_ops numbervars max_depth priority spacing variable_names portray
-                       double_quotes),
+                       double_quotes fullstop nl),
        do: PrologEx.Error.instantiation!()
 
   defp write_option({:struct, name, [{:atom, b}]}, _s)
        when is_map_key(@bool_options, name) and b in ["true", "false"],
        do: {@bool_options[name], b == "true"}
+
+  # fullstop(true), nl(true) wie SWI: Punkt bzw. Zeilenende dahinter
+  defp write_option({:struct, name, [{:atom, b}]}, _s)
+       when name in ["fullstop", "nl"] and b in ["true", "false"],
+       do: {String.to_atom(name), b == "true"}
 
   # double_quotes(true): Zeichenlisten als "..." (wie Scryer; keine
   # ISO-Option)

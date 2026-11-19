@@ -296,21 +296,29 @@ defmodule PrologEx.Order do
   Sind a und b Varianten (gleich bis auf eine eineindeutige Umbenennung der
   Variablen)? Wie `=@=/2` in SWI.
   """
-  def variant?(a, b, subst), do: variant(a, b, subst, {%{}, %{}}) != :no
+  def variant?(a, b, subst) do
+    variant(a, b, subst, {%{}, %{}}, 0) != :no
+  catch
+    # zyklische Terme (PrologEx.Cyclic): koinduktiv – ein Paar, das schon
+    # verglichen wird, gilt als Variante
+    :"$cyclic" -> variant_cyc(a, b, subst, {%{}, %{}}, MapSet.new()) != :no
+  end
 
-  defp variant(a, b, subst, maps) do
-    a = walk(a, subst)
-    b = walk(b, subst)
+  # d: Bindungen auf dem Pfad (wie PrologEx.Cyclic.step/4)
+  defp variant(a0, b0, subst, maps, d) do
+    a = walk(a0, subst)
+    b = walk(b0, subst)
+
+    d =
+      cond do
+        a === a0 and b === b0 -> d
+        d >= 2 * map_size(subst) -> throw(:"$cyclic")
+        true -> d + 1
+      end
 
     case {a, b} do
       {{:var, _}, {:var, _}} ->
-        {ab, ba} = maps
-
-        case {Map.fetch(ab, a), Map.fetch(ba, b)} do
-          {{:ok, ^b}, {:ok, ^a}} -> maps
-          {:error, :error} -> {Map.put(ab, a, b), Map.put(ba, b, a)}
-          _ -> :no
-        end
+        variant_vars(a, b, maps)
 
       {{:var, _}, _} ->
         :no
@@ -319,10 +327,22 @@ defmodule PrologEx.Order do
         :no
 
       _ ->
-        variant_nonvar(a, b, subst, maps)
+        case variant_nonvar(a, b, subst, maps) do
+          {:args, aa, ab} -> variant_args(aa, ab, subst, maps, d)
+          r -> r
+        end
     end
   end
 
+  defp variant_vars(a, b, {ab, ba} = maps) do
+    case {Map.fetch(ab, a), Map.fetch(ba, b)} do
+      {{:ok, ^b}, {:ok, ^a}} -> maps
+      {:error, :error} -> {Map.put(ab, a, b), Map.put(ba, b, a)}
+      _ -> :no
+    end
+  end
+
+  # maps, :no oder {:args, Argumente a, Argumente b} (noch zu vergleichen)
   defp variant_nonvar(a, b, subst, maps) do
     cond do
       # ground markiert: Variante heißt gleich
@@ -334,7 +354,7 @@ defmodule PrologEx.Order do
         {fb, ab} = parts(b)
 
         if fa == fb and length(aa) == length(ab),
-          do: variant_args(aa, ab, subst, maps),
+          do: {:args, aa, ab},
           else: :no
 
       class(a) == class(b) and same_class(class(a), a, b, subst) == :eq ->
@@ -345,12 +365,53 @@ defmodule PrologEx.Order do
     end
   end
 
-  defp variant_args([], [], _subst, maps), do: maps
+  defp variant_args([], [], _subst, maps, _d), do: maps
 
-  defp variant_args([x | xs], [y | ys], subst, maps) do
-    case variant(x, y, subst, maps) do
+  defp variant_args([x | xs], [y | ys], subst, maps, d) do
+    case variant(x, y, subst, maps, d) do
       :no -> :no
-      maps -> variant_args(xs, ys, subst, maps)
+      maps -> variant_args(xs, ys, subst, maps, d)
+    end
+  end
+
+  # zyklenfest: Schlüssel eines Paars je Seite die letzte Variable, über die
+  # sie lief (sonst der Term selbst)
+  defp variant_cyc(a0, b0, subst, maps, seen) do
+    {a, va} = PrologEx.Cyclic.walk_last(a0, subst, nil)
+    {b, vb} = PrologEx.Cyclic.walk_last(b0, subst, nil)
+
+    case {a, b} do
+      {{:var, _}, {:var, _}} ->
+        variant_vars(a, b, maps)
+
+      {{:var, _}, _} ->
+        :no
+
+      {_, {:var, _}} ->
+        :no
+
+      _ ->
+        key = if va == nil and vb == nil, do: nil, else: {va || a, vb || b}
+
+        if key != nil and MapSet.member?(seen, key) do
+          maps
+        else
+          seen = if key, do: MapSet.put(seen, key), else: seen
+
+          case variant_nonvar(a, b, subst, maps) do
+            {:args, aa, ab} -> variant_cyc_args(aa, ab, subst, maps, seen)
+            r -> r
+          end
+        end
+    end
+  end
+
+  defp variant_cyc_args([], [], _subst, maps, _seen), do: maps
+
+  defp variant_cyc_args([x | xs], [y | ys], subst, maps, seen) do
+    case variant_cyc(x, y, subst, maps, seen) do
+      :no -> :no
+      maps -> variant_cyc_args(xs, ys, subst, maps, seen)
     end
   end
 

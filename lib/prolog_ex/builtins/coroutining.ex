@@ -288,7 +288,11 @@ defmodule PrologEx.Builtins.Coroutining do
 
       val ->
         if Order.variables(val, s) == [] do
-          if MapSet.member?(set, PrologEx.resolve(val, s)), do: :fail, else: {:ok, s}
+          # ein zyklischer Wert ist keiner der (endlichen) Werte der Menge
+          case PrologEx.resolve_finite(val, s) do
+            {:ok, r} -> if MapSet.member?(set, r), do: :fail, else: {:ok, s}
+            _ -> {:ok, s}
+          end
         else
           rev
           |> Enum.reverse()

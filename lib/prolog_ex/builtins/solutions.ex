@@ -169,6 +169,23 @@ defmodule PrologEx.Builtins.Solutions do
   # Auftreten nummeriert) – ein Durchgang mit einer Map, O(n log n). Die
   # Gruppen kommen in der Reihenfolge ihres ersten (kleinsten) Zeugen.
   defp groups(sorted, s, w, l) do
+    groups_canon(sorted, s) |> solutions(w, l)
+  catch
+    # ein zyklischer Zeuge (PrologEx.Cyclic): Gruppen paarweise über
+    # Varianten (zyklenfest), O(n · Gruppen)
+    :"$cyclic" -> sorted |> groups_variant(s, []) |> solutions(w, l)
+  end
+
+  defp groups_variant([], _s, acc), do: acc |> Enum.reverse() |> Enum.map(&Enum.reverse/1)
+
+  defp groups_variant([{k, _} = item | rest], s, acc) do
+    case Enum.split_while(acc, fn [{k2, _} | _] -> not Order.variant?(k, k2, s) end) do
+      {before, [g | after_]} -> groups_variant(rest, s, before ++ [[item | g] | after_])
+      {_, []} -> groups_variant(rest, s, [[item] | acc])
+    end
+  end
+
+  defp groups_canon(sorted, s) do
     {order, by} =
       Enum.reduce(sorted, {[], %{}}, fn {k, _} = item, {order, by} ->
         c = canonical(k, s)
@@ -182,7 +199,6 @@ defmodule PrologEx.Builtins.Solutions do
     order
     |> Enum.reverse()
     |> Enum.map(&Enum.reverse(Map.fetch!(by, &1)))
-    |> solutions(w, l)
   end
 
   defp solutions([], _w, _l), do: []
@@ -199,12 +215,22 @@ defmodule PrologEx.Builtins.Solutions do
 
   # Term mit Variablen als {:v, Nummer} (Reihenfolge des ersten Auftretens)
   defp canonical(t, s) do
-    {c, _} = canon(t, s, %{})
+    {c, _} = canon(t, s, %{}, 0)
     c
   end
 
-  defp canon(t, s, m) do
-    case PrologEx.Store.walk(t, s) do
+  # d: Bindungen auf dem Pfad (wie PrologEx.Cyclic.step/4)
+  defp canon(t0, s, m, d) do
+    t = PrologEx.Store.walk(t0, s)
+
+    d =
+      cond do
+        t === t0 -> d
+        d >= map_size(s) -> throw(:"$cyclic")
+        true -> d + 1
+      end
+
+    case t do
       {:var, _} = v ->
         case m do
           %{^v => n} -> {{:v, n}, m}
@@ -212,16 +238,16 @@ defmodule PrologEx.Builtins.Solutions do
         end
 
       {tag, f, args} when tag in [:struct, :gstruct] ->
-        {args, m} = Enum.map_reduce(args, m, &canon(&1, s, &2))
+        {args, m} = Enum.map_reduce(args, m, &canon(&1, s, &2, d))
         {{:s, f, args}, m}
 
       [h | tl] ->
-        {h, m} = canon(h, s, m)
-        {tl, m} = canon(tl, s, m)
+        {h, m} = canon(h, s, m, d)
+        {tl, m} = canon(tl, s, m, d)
         {{:s, ".", [h, tl]}, m}
 
       {:glist, l} ->
-        canon(PrologEx.unmark(l), s, m)
+        canon(PrologEx.unmark(l), s, m, d)
 
       other ->
         {other, m}

@@ -553,7 +553,21 @@ defmodule PrologEx.Arith do
   defp eval2("^", x, y) when x == 0 and y < 0, do: undefined()
   defp eval2("^", x, y), do: pow(x, y)
 
-  defp eval2(">>", x, y), do: Bitwise.bsr(int!(x), int!(y))
+  defp eval2(">>", x, y) when is_integer(x) and is_integer(y) and y in -65_536..65_536,
+    do: Bitwise.bsr(x, y)
+
+  defp eval2(">>", x, y) do
+    {x, y} = {int!(x), int!(y)}
+
+    cond do
+      # weiter als x lang ist: 0 bzw. -1 (die BEAM nimmt keine riesige
+      # Schiebeweite)
+      y > 65_536 and y > bits(x) -> if x < 0, do: -1, else: 0
+      y < -65_536 -> eval2("<<", x, -y)
+      true -> Bitwise.bsr(x, y)
+    end
+  end
+
   defp eval2("getbit", x, y), do: getbit(int!(x), nonneg_int!(int!(y)))
 
   defp eval2("<<", x, y) when is_integer(x) and is_integer(y) and y <= 65_536,
@@ -561,9 +575,19 @@ defmodule PrologEx.Arith do
 
   defp eval2("<<", x, y) do
     {x, y} = {int!(x), int!(y)}
-    # groß: vorab gegen eine Speichergrenze (Bits / 64 Wörter)
-    if y > 65_536, do: PrologEx.reserve!(div(bits(x) + y, 64) + 2)
-    Bitwise.bsl(x, y)
+
+    cond do
+      x == 0 ->
+        0
+
+      y < -65_536 ->
+        eval2(">>", x, -y)
+
+      true ->
+        # groß: vorab gegen eine Speichergrenze (Bits / 64 Wörter)
+        if y > 65_536, do: PrologEx.reserve!(div(bits(x) + y, 64) + 2)
+        Bitwise.bsl(x, y)
+    end
   end
 
   defp eval2("/\\", x, y), do: Bitwise.band(int!(x), int!(y))

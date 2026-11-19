@@ -9,6 +9,8 @@ defmodule PrologEx.Builtins.Statistics do
       die CPU-Zeit der ganzen Erlang-VM (alle Scheduler); solange nur die
       Prolog-Sitzung rechnet, ist das ihre.
     * `walltime`: vergangene Zeit in ms seit Start der VM.
+    * `cputime` (wie SWI): CPU-Zeit in Sekunden, eine Gleitkommazahl, ohne
+      Abstand.
     * `real_time`: Sekunden seit 1970.
 
   Rechenarbeit:
@@ -52,7 +54,7 @@ defmodule PrologEx.Builtins.Statistics do
   # [T, D] mit Bezug auf den letzten Aufruf
   @deltas ~w(runtime total_runtime process_cputime walltime real_time reductions)
   @keys @deltas ++
-          ~w(inferences occurs_checks occurs_check_steps memory process_memory vm_memory
+          ~w(cputime inferences occurs_checks occurs_check_steps memory process_memory vm_memory
              garbage_collection schedulers process_count)
 
   defbuiltin "statistics", [key, value] do
@@ -122,6 +124,7 @@ defmodule PrologEx.Builtins.Statistics do
   defp start("real_time", now), do: now
   defp start(_, _now), do: 0
 
+  defp other("cputime"), do: elem(:erlang.statistics(:runtime), 0) / 1000
   defp other("inferences"), do: PrologEx.inferences()
   defp other("occurs_checks"), do: elem(PrologEx.occurs_counts(), 0)
   defp other("occurs_check_steps"), do: elem(PrologEx.occurs_counts(), 1)

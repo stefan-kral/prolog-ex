@@ -666,7 +666,7 @@ Abbruch einer Anfrage im Toplevel nach der ersten Antwort läuft es noch nicht),
 `current_prolog_flag/2`, `set_prolog_flag/2` (u. a. `double_quotes`, `unknown`,
 `occurs_check`, `clpz_residuals`, `stack_limit`), `unify_with_occurs_check/2`, `acyclic_term/1`, `clause/2`,
 `current_predicate/1`, `assert/1` `asserta/1` `assertz/1` `retract/1`
-`retractall/1` `abolish/1` `dynamic/1`, `number_chars/2`, `number_codes/2` (ISO; Leerraum und Kommentare davor erlaubt, `0x`/`0o`/`0b`/`0'c`, Zifferngruppen),
+`retractall/1` `abolish/1` `dynamic/1`, `number_chars/2`, `number_codes/2` (ISO; Leerraum und Kommentare davor erlaubt, `0x`/`0o`/`0b`/`0'c`, Zifferngruppen wie beim Lesen – nach `_` auch Layout und Kommentare, `"0_%\n6"` ist 6 –, das Minus auch als `'-'` wie in Scryer und Trealla),
 `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_chars/2`, `atom_codes/2`,
 `char_code/2` (ISO, streng getypt, zählen Zeichen statt Bytes), `atom_number/2`,
 `op/3`, `current_op/3` (ISO; Operatoren sind global und gelten ab dem nächsten
@@ -1725,6 +1725,13 @@ ist jeweils am Dateianfang vermerkt.
   - `term_size(+T, -N)`: Zellen wie SWI – `f(A1, ..., An)` belegt 1 + n
     plus die Argumente (eine Listenzelle 3), Atome, kleine Zahlen und
     Variablen 0; was über dieselbe Variable geteilt ist, zählt einmal.
+  - `variant(A, B)`: dasselbe wie `A =@= B` (auch für zyklische Terme).
+* `library(solution_sequences)` wie SWI: `limit(N, G)` (höchstens N
+  Lösungen, `inf`: alle), `offset(N, G)` (ohne die ersten N),
+  `distinct(G)` und `distinct(W, G)` (jede Variante von G bzw. W nur
+  einmal; die gesehenen Varianten liegen in einer Tabelle, die mit dem Ziel
+  verschwindet), `order_by(Spec, G)` (alle Lösungen, stabil sortiert nach
+  einer Liste aus `asc(T)` und `desc(T)`).
 * `library(varnumbers)` (wie SICStus/SWI; `numbervars/3` selbst ist
   eingebaut): `numbervars/1`, `max_var_number(+T, +Start, -Max)`,
   `varnumbers/2,3` (Umkehrung von `numbervars/3`: jedes `'$VAR'(N)` mit
@@ -1900,7 +1907,9 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     `write_term/2` und `spacing(next_argument)` (wie SWI: `f(a, b)`,
     `[1, 2]`).
   * `write_term/2`: `quoted/1`, `ignore_ops/1`, `numbervars/1`,
-    `variable_names/1` (ISO), `max_depth/1`, `spacing/1`, `priority/1` (SWI).
+    `variable_names/1` (ISO), `max_depth/1`, `spacing/1`, `priority/1`,
+    `fullstop/1` (ein Punkt dahinter, nach Symbolzeichen mit Leerzeichen:
+    `+ .`), `nl/1` (SWI).
     Mehrfach angegeben gilt die letzte Option (wie Scryer, ISO Cor.3).
   * Die Operatortabelle für die Ausgabe spiegelt die des Readers: `op/3`,
     Operatoren aus Bibliotheken und aus `module/2`-Exportlisten.
@@ -3610,6 +3619,7 @@ Term zuerst):
 |---|---|
 | `runtime` (auch `total_runtime`, `process_cputime`) | `[T, D]` CPU-Zeit der VM in ms |
 | `walltime` | `[T, D]` ms seit Start der VM |
+| `cputime` | CPU-Zeit in Sekunden, eine Gleitkommazahl (wie SWI) |
 | `real_time` | `[S, D]` Sekunden seit 1970 |
 | `inferences` | Prädikataufrufe der Sitzung (wie SWI; auch `=/2`, `is/2`; nicht `,` `;` `->` `!` `call/N`) |
 | `reductions` | `[R, D]` Reduktionen des Sitzungsprozesses (Arbeitsmaß der BEAM) |
@@ -4233,8 +4243,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |
-    | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`) |
-    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])` |
+    | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`). Eingebaut (überall, wie in SICStus und SWI) ist dagegen die Edinburgh-Ein-/Ausgabe für ältere Programme und Lehrbücher: `see/1`, `seen/0`, `seeing/1`, `tell/1`, `append/1`, `told/0`, `telling/1` (ein Dateiname öffnet beim ersten Mal, danach derselbe Stream, solange er offen ist; `user` ist die Standard-Ein-/Ausgabe), dazu `name/2` (Zahl, wenn der Text eine ist; Codes oder Zeichen) |
+    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `statistics/0`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])`; das `format/3` aus `library(format)` ebenso. Terme: `unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3` |
 
     `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
     und nach in Bibliotheken, zu denen sie inhaltlich passen. Eigene
@@ -4509,6 +4519,71 @@ Ausgabe statt test/2 gleich bis auf die drei genannten (`builtins`:
 Dateien liegen unverändert in `test/fixtures/scryer_tests` (BSD-3-Clause)
 und laufen in `test/scryer_tests_test.exs`.
 
+## Treallas Tests
+
+`conformance/trealla/run.sh` lädt jedes Testprogramm von Trealla Prolog
+(`tests/{tests,issues,issues-OLD,sundry,misc}`, Stand 9ac861d, MIT) wie
+Trealla: im Wurzelordner von Trealla, `initialization(main)`, und vergleicht
+die Ausgabe mit `NAME.expected`. Davor lädt `prelude.pl` die Bibliotheken,
+die Trealla wie SWI ohne `use_module` kennt (Listen, `between/3`,
+`library(swi)`, …). Mit `TPL=…/tpl` zählen nur Tests, die Trealla selbst
+besteht; mit `SWIPL=swipl` und `SCRYER=…` heißt eine Abweichung `swi` bzw.
+`scryer`, wenn PrologEx genau wie dieses System ausgibt – dann ist sie
+Treallas Eigenheit.
+
+Stand: 778 Programme, davon besteht Trealla 3.15.20 selbst 739. PrologEx:
+339 gleich, 138 wie SWI oder Scryer, 262 anders. Bei den 262 ist zum
+größten Teil anders, was es in PrologEx nicht gibt oder was gewollt ist:
+
+  * Treallas eigene Werkzeuge und SWIs Erweiterungen: Threads, Engines,
+    Tasks, Tabling-Optionen, `shift/reset`, Strings (`string_concat/3`,
+    `sub_string/5`, `split_string/4`), `nb_setarg/3`, Klausel-Referenzen
+    (`assertz/2`, `clause/3`, `erase/1`), `recordz/2`, HTTP, „Quads“
+    (`?- G.` mit Antwortbeschreibung in einer Datei);
+  * die Darstellung: zyklische Terme schreibt Trealla abgekürzt
+    (`f(f(...))`), PrologEx als `@(T, [_S1 = …])`; Zeichenlisten
+    schreiben PrologEx und Scryer als `"abc"`, Trealla und SWI als
+    `[a,b,c]`; `"abc"||T` als Liste;
+  * strengeres ISO wie Scryer und GNU: ein Operator als Operand braucht
+    Klammern (`a, !` mit `!` als Präfixoperator, `'-:'/2` mit `-:` als
+    Infixoperator); `X is 370370367037037036703703703670 /
+    123456789012345678901234567890` ist exakt 3 (Trealla:
+    `3.0000000000000004`);
+  * Fehlerkontexte: PrologEx lässt den Kontext meist offen (`error(E, _)`),
+    Trealla nennt das Prädikat.
+
+Gefunden und behoben:
+
+  * `unify_with_occurs_check/2` (und das Flag `occurs_check`) lief auf
+    einem zyklischen Term endlos (`V = V-X, unify_with_occurs_check(V, W)`);
+  * `=@=/2` und `bagof/3`, `setof/3` mit zyklischem Zeugen liefen endlos;
+  * `dif(X, c)` mit einem zyklischen Wert für X warf
+    `representation_error(cyclic_term)`;
+  * `write_term/2` mit `variable_names/1` warf auf einem zyklischen Term;
+  * tief verschachteltes `catch/3` (`d(N) :- …, catch(d(M), _, true)`) war
+    quadratisch: 60 000 Ebenen 3,5 s, dreimal 100 000 nach 12 s
+    `resource_error(memory)`; jetzt linear, 100 000 Ebenen in 1 s (die
+    Kompaktierung zählt die offenen Ziele zu ihren Kosten);
+  * `number_chars/2`: Zifferngruppen mit Layout und Kommentar nach `_`
+    (`"0_%\n6"`), Minus in Hochkommas (`"'-'1"`, wie Scryer);
+  * `read_term_from_atom/3`, `term_to_atom/2`: Text ohne Schlusspunkt, der
+    auf `0'.` oder einen `%`-Kommentar endet;
+  * `0 << 2^70` und `X >> 2^70` (vorher `resource_error(memory)`);
+  * `format/3` aus `library(format)` kannte die Senken (`atom(A)`, …) des
+    eingebauten nicht.
+
+Dazu kamen, weil viele Programme sie brauchen: die Edinburgh-Ein-/Ausgabe
+(`see/1`, `tell/1`, …) und `name/2`, `library(solution_sequences)`,
+`unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3`,
+`variant/2`, `statistics(cputime, T)`, die Schreiboptionen `fullstop/1`
+und `nl/1`. Die 312 Programme, die PrologEx besteht und die ohne Dateien,
+Zeiten oder Zufall auskommen, liegen in `test/fixtures/trealla` (mit
+Treallas Lizenz) und laufen in `test/trealla_test.exs`.
+
+Bekannt und offen: Unifikation und Vergleich sehr langer Zyklen
+(`X = f(f(…X…))` mit 100 000 Gliedern) sind in der Maschine quadratisch,
+als einzelne Operation linear.
+
 ## Programm-Batterie
 
 `test/programs/` sammelt Beispielprogramme mit überprüfbaren Ergebnissen
@@ -4527,8 +4602,13 @@ nur Singleton-Warnungen sind erlaubt (übernommene Programme bleiben
 unverändert). `test/programs/runner.pl` prüft sie
 portabel (nur ISO, `findall/3`, `length/2`); `test/program_battery_test.exs`
 läuft je Programm als eigener Test, `test/programs/cross.sh [NAME…]` prüft
-dieselben Erwartungen in SWI und Scryer gegen
-(`SCRYER=/pfad/scryer-prolog test/programs/cross.sh`).
+dieselben Erwartungen in SWI, Scryer und Trealla gegen
+(`SCRYER=/pfad/scryer-prolog TPL=/pfad/tpl test/programs/cross.sh`;
+`TPL=` lässt Trealla aus). Trealla 3.15.20 besteht alle bis auf
+`logtalk__dcgs_translation` (wie SWI und Scryer: Randfälle der
+DCG-Übersetzung), `triska__simplex_examples` (Treallas library(simplex)
+ist eine andere) sowie `oeis__a000372_dedekind` und `oeis__a006506_grid`
+(Speicher, abgebrochen).
 
 | Programm | Prüft |
 |---|---|

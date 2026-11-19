@@ -1,0 +1,2 @@
+[trio(3,Y,Z),pair(2,X)]
+[pair(2,X),trio(3,Y,Z)]
