@@ -40,7 +40,9 @@ defmodule PrologEx.Builtins.Statistics do
 
   System:
 
-    * `schedulers`: Anzahl der aktiven Scheduler (≈ CPU-Kerne).
+    * `schedulers`: Anzahl der aktiven Scheduler – die Threads der BEAM,
+      die Erlang-Prozesse ausführen, normalerweise einer je CPU-Kern (so
+      viele Prozesse können gleichzeitig rechnen).
     * `process_count`: Anzahl der Erlang-Prozesse.
 
   `statistics/0` gibt eine Übersicht davon aus, ohne die Abstände von
@@ -98,9 +100,11 @@ defmodule PrologEx.Builtins.Statistics do
       {"Speicher VM", bytes(:erlang.memory(:total))},
       {"GC (VM)",
        "#{group(gcs)} Läufe, #{bytes(words * :erlang.system_info(:wordsize))} freigegeben"},
+      # Scheduler: die Threads der BEAM, die Erlang-Prozesse ausführen,
+      # normalerweise einer je CPU-Kern
       {"Scheduler",
-       "#{:erlang.system_info(:schedulers_online)}, " <>
-         "#{:erlang.system_info(:process_count)} Prozesse"},
+       "#{:erlang.system_info(:schedulers_online)} (Threads der BEAM, einer je CPU-Kern)"},
+      {"Erlang-Prozesse", group(:erlang.system_info(:process_count))},
       {"System", "Erlang/OTP #{:erlang.system_info(:otp_release)}, Elixir #{System.version()}"}
     ]
 

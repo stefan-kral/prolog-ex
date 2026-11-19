@@ -3628,7 +3628,7 @@ Term zuerst):
 | `memory` | `[Bytes, 0]` Speicher des Sitzungsprozesses (wie SICStus) |
 | `process_memory`, `vm_memory` | Bytes: Sitzungsprozess, ganze VM |
 | `garbage_collection` | `[Anzahl, Bytes freigegeben, 0]` der VM (die GC-Zeit misst die BEAM nicht) |
-| `schedulers`, `process_count` | aktive Scheduler, Erlang-Prozesse |
+| `schedulers`, `process_count` | aktive Scheduler (die Threads der BEAM, die Erlang-Prozesse ausführen, normalerweise einer je CPU-Kern), Anzahl der Erlang-Prozesse |
 
 `D` ist der Abstand zum letzten Aufruf mit demselben Schlüssel. Inferenzen
 pro Sekunde:

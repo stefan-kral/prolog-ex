@@ -182,6 +182,7 @@ defmodule PrologEx.StatisticsTest do
           "Speicher VM",
           "GC",
           "Scheduler",
+          "Erlang-Prozesse",
           "System"
         ] do
       assert out =~ "% " <> label, label
