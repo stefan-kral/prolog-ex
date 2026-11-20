@@ -6899,25 +6899,13 @@ defmodule PrologEx do
 
           :error ->
             {args2, memo} = resolve_b_args(args, subst, memo, d, lim)
-            r = {:struct, f, args2}
+            # nichts gebunden darin: die Struktur selbst, keine Kopie
+            r = if same_list?(args2, args), do: st, else: {:struct, f, args2}
             {r, PrologEx.Share.put(memo, st, r)}
         end
 
-      [h | tl] = l when is_tuple(h) or is_list(h) ->
-        case PrologEx.Share.get(memo, l) do
-          {:ok, r} ->
-            {r, memo}
-
-          :error ->
-            {h2, memo} = resolve_b(h, subst, memo, d, lim)
-            {t2, memo} = resolve_b(tl, subst, memo, d, lim)
-            r = [h2 | t2]
-            {r, PrologEx.Share.put(memo, l, r)}
-        end
-
-      [h | tl] ->
-        {t2, memo} = resolve_b(tl, subst, memo, d, lim)
-        {[h | t2], memo}
+      [_ | _] = l ->
+        resolve_b_list(l, subst, memo, d, lim, [])
 
       t when is_marked(t) ->
         {unmark(t), memo}
@@ -6929,6 +6917,96 @@ defmodule PrologEx do
         {other, memo}
     end
   end
+
+  # Listen als Schleife über die Zellen (rekursiv kostete jede Zelle einen
+  # Stack-Rahmen: eine Antwort mit 10^6 Elementen rund 80 MB Stack). acc:
+  # die besuchten Zellen mit aufgelöstem Kopf, innerste vorn. Wie zuvor:
+  # Zellen mit zusammengesetztem Kopf (auch einer Variablen) ins Memo
+  # (PrologEx.Share), d zählt die gebundenen Variablen auf dem Pfad
+  # ein Abschnitt unveränderlicher Zellen (vorn eine Zahl, ein Atom oder
+  # eine ungebundene Variable, der Rest direkt die nächste Zelle): nur
+  # Anfang und Länge merken, nicht jede Zelle
+  defp resolve_b_list([h | [_ | _] = tl] = l, subst, memo, d, lim, acc) do
+    if plain?(h, subst) do
+      resolve_b_run(tl, subst, memo, d, lim, acc, l, 1)
+    else
+      resolve_b_cell(l, subst, memo, d, lim, acc)
+    end
+  end
+
+  defp resolve_b_list(l, subst, memo, d, lim, acc),
+    do: resolve_b_cell(l, subst, memo, d, lim, acc)
+
+  defp resolve_b_run([h | [_ | _] = tl] = l, subst, memo, d, lim, acc, start, n) do
+    if plain?(h, subst),
+      do: resolve_b_run(tl, subst, memo, d, lim, acc, start, n + 1),
+      else: resolve_b_cell(l, subst, memo, d, lim, [{:run, start, n, l} | acc])
+  end
+
+  defp resolve_b_run(l, subst, memo, d, lim, acc, start, n),
+    do: resolve_b_cell(l, subst, memo, d, lim, [{:run, start, n, l} | acc])
+
+  defp plain?(h, _subst) when is_number(h), do: true
+  defp plain?({:atom, _}, _subst), do: true
+  defp plain?({:var, id} = v, subst) when not is_tuple(id), do: Store.walk(v, subst) === v
+  defp plain?(_, _subst), do: false
+
+  defp resolve_b_cell([h | tl] = l, subst, memo, d, lim, acc) when is_tuple(h) or is_list(h) do
+    case PrologEx.Share.get(memo, l) do
+      {:ok, r} ->
+        resolve_b_build(acc, r, memo)
+
+      :error ->
+        {h2, memo} = resolve_b(h, subst, memo, d, lim)
+        resolve_b_next(tl, subst, memo, d, lim, [{l, h2, true} | acc])
+    end
+  end
+
+  defp resolve_b_cell([h | tl] = l, subst, memo, d, lim, acc),
+    do: resolve_b_next(tl, subst, memo, d, lim, [{l, h, false} | acc])
+
+  # der Rest einer Zelle: wie resolve_b/5 ablaufen; eine weitere Zelle in
+  # der Schleife, sonst resolve_b/5
+  defp resolve_b_next(t, subst, memo, d, lim, acc) do
+    w = Store.walk(t, subst)
+    d2 = if w !== t and is_tuple(t) and elem(t, 0) == :var, do: d + 1, else: d
+    if d2 > lim, do: throw(:cyclic)
+
+    case w do
+      [_ | _] ->
+        resolve_b_list(w, subst, memo, d2, lim, acc)
+
+      _ ->
+        {r, memo} = resolve_b(t, subst, memo, d, lim)
+        resolve_b_build(acc, r, memo)
+    end
+  end
+
+  # von innen nach außen zusammensetzen; bleiben Kopf und Rest einer Zelle
+  # physisch dieselben (ungebundene Variablen, Zahlen), die Zelle selbst –
+  # nichts kopiert
+  defp resolve_b_build([{[h | tl] = l, h2, memo?} | acc], r, memo) do
+    r =
+      if PrologEx.Share.same?(h2, h) and PrologEx.Share.same?(r, tl), do: l, else: [h2 | r]
+
+    memo = if memo?, do: PrologEx.Share.put(memo, l, r), else: memo
+    resolve_b_build(acc, r, memo)
+  end
+
+  # ein Abschnitt: dieselbe Fortsetzung wie im Original – der Abschnitt
+  # selbst; sonst seine n Köpfe vor r
+  defp resolve_b_build([{:run, start, n, after_} | acc], r, memo) do
+    r = if PrologEx.Share.same?(r, after_), do: start, else: heads_onto(start, n, [], r)
+    resolve_b_build(acc, r, memo)
+  end
+
+  defp resolve_b_build([], r, memo), do: {r, memo}
+
+  defp same_list?([a | as], [b | bs]), do: PrologEx.Share.same?(a, b) and same_list?(as, bs)
+  defp same_list?([], []), do: true
+
+  defp heads_onto(_l, 0, rev, r), do: :lists.reverse(rev, r)
+  defp heads_onto([h | tl], n, rev, r), do: heads_onto(tl, n - 1, [h | rev], r)
 
   defp resolve_b_args([], _subst, memo, _d, _lim), do: {[], memo}
 

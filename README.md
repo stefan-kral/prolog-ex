@@ -376,6 +376,14 @@ Ein Prolog-Kern in Elixir:
   Suche nie kompaktiert wurde, zehnmal so oft (Rucksack aus
   `bench/scalar_product_clpz.pl`: 1158 statt 1 Kompaktierung, +20 %
   Zeit).
+  Die Antwort einer Anfrage wird ohne Stack aufgelöst: Listen als
+  Schleife über die Zellen, und was sich nicht ändert (ungebundene
+  Variablen, Zahlen, Atome, Strukturen ohne gebundene Variable darin),
+  bleibt der Term selbst statt einer Kopie. Rekursiv kostete jede
+  Listenzelle einen Stack-Rahmen, und jede Zelle wurde neu gebaut:
+  `length(L, 1000000)` als Antwort 161 → 52 MB im Prozess (so viel wie
+  die Liste selbst) und 2,8 → 0,8 s; 10⁶ Paare `X-_` aus `findall/3` als
+  Antwort 545 → 300 MB.
   Wenige Bindungen können aber große Terme halten: eine `findall/3`-Liste
   aus 10⁶ Elementen ist eine einzige. Vor einer Unter-Maschine
   (`findall/3,4`, `aggregate_all/3`, `findnsols/4,5`, `countall/2`) wird
@@ -465,7 +473,8 @@ rlwrap`); alle Argumente gehen an `mix prolog`:
     bis zu zehn freigegebene Heap-Blöcke für später, und nach einem großen
     Lauf bleiben hunderte MB belegt, obwohl die VM sie nicht mehr braucht:
     `findall/3` über 10⁶ Werte +155 → +68 MB über dem leeren Lauf (SWI
-    +60, Scryer +91, Trealla +113), `length(L, 1000000)` 1046 → 287 MB.
+    +60, Scryer +91, Trealla +113), `length(L, 1000000)` 1046 → 287 MB (mit
+    dem Antwortaufbau ohne Kopie, s. u.: 171 MB).
     Preis nur bei großen Heaps (ab einigen MB lebendiger Daten in einem
     Prozess): frischer Speicher muss erst berührt werden, `findall` über
     10⁵–10⁶ Werte etwa 10–25 % langsamer; Programme mit kleinen Daten
