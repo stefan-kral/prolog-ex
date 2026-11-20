@@ -2375,7 +2375,10 @@ defmodule PrologEx do
             dlimit: nil,
             # gab es in diesem Lauf schon setup_call_cleanup/3? Nur dann
             # müssen Cuts die abgeschnittenen Choice Points ansehen
-            scc: false
+            scc: false,
+            # Heap (Wörter), ab dem eine Unter-Maschine vorher kompaktiert
+            # (siehe tidy/5)
+            heap_mark: 0
 
   # Der häufige Fall zuerst und ganz ohne Hilfsaufrufe: ein Ziel und
   # wenige Bindungen; ab st.threshold Bindungen erst kompaktieren (siehe
@@ -2764,7 +2767,9 @@ defmodule PrologEx do
   defp step({:struct, "findall", [t, g, l]}, cutb, mod, rest, st),
     do: step({:struct, "findall", [t, g, l, []]}, cutb, mod, rest, st)
 
-  defp step({:struct, "findall", [t, g, l, tail]}, _cutb, mod, rest, st) do
+  defp step({:struct, "findall", [_, _, _, _]} = goal, cutb, mod, rest, st) do
+    {{:struct, "findall", [t, g, l, tail]}, rest, st} = tidy(goal, cutb, mod, rest, st)
+
     # ISO 8.10.1.3: die Ergebnisliste muss eine (Teil-)Liste sein – vorab;
     # bei findall/4 ebenso der Rest (wie Scryer und SWI)
     case guarded(fn ->
@@ -2786,7 +2791,9 @@ defmodule PrologEx do
   # '$aggregate_all'(T, G, R) (library(aggregate)): die Lösungen von G
   # in das Template T falten (PrologEx.Aggregate), ohne sie zu sammeln –
   # count, sum, min, max mit konstantem Speicher; Template vorab geprüft
-  defp step({:struct, "$aggregate_all", [t, g, r]}, _cutb, mod, rest, st) do
+  defp step({:struct, "$aggregate_all", [_, _, _]} = goal, cutb, mod, rest, st) do
+    {{:struct, "$aggregate_all", [t, g, r]}, rest, st} = tidy(goal, cutb, mod, rest, st)
+
     folded =
       guarded(fn ->
         spec = PrologEx.Aggregate.spec!(t, st.subst)
@@ -3485,7 +3492,9 @@ defmodule PrologEx do
   defp engine_step({:struct, "findnsols", [n, t, g, l]}, cutb, mod, rest, st),
     do: step({:struct, "findnsols", [n, t, g, l, []]}, cutb, mod, rest, st)
 
-  defp engine_step({:struct, "findnsols", [n, t, g, l, tail]}, _cutb, mod, rest, st) do
+  defp engine_step({:struct, "findnsols", [_, _, _, _, _]} = goal, cutb, mod, rest, st) do
+    {{:struct, "findnsols", [n, t, g, l, tail]}, rest, st} = tidy(goal, cutb, mod, rest, st)
+
     chunk =
       guarded(fn ->
         k =
@@ -3505,7 +3514,9 @@ defmodule PrologEx do
     end
   end
 
-  defp engine_step({:struct, "countall", [g, n]}, _cutb, mod, rest, st) do
+  defp engine_step({:struct, "countall", [_, _]} = goal, cutb, mod, rest, st) do
+    {{:struct, "countall", [g, n]}, rest, st} = tidy(goal, cutb, mod, rest, st)
+
     counted =
       guarded(fn ->
         case Store.walk(n, st.subst) do
@@ -5527,6 +5538,36 @@ defmodule PrologEx do
     IO.puts(:stderr, "% #{:erlang.float_to_binary(secs, decimals: 3)} seconds")
   end
 
+  # Vor einer Unter-Maschine (findall/3 & Co.) aufräumen, wenn der Heap
+  # groß ist: Die Maschine hält ihren Zustand fest, solange die
+  # Unter-Maschine läuft, und darin auch Bindungen, deren Variablen längst
+  # unerreichbar sind. Die Schwelle der Kompaktierung zählt Bindungen und
+  # sieht nicht, dass eine einzige eine Liste aus 10^6 Elementen halten
+  # kann; eine Anfrage aus vier findall-Runden über 10^6 Werte wurde so von
+  # Runde zu Runde langsamer (jede Speicherbereinigung kopierte die toten
+  # Listen der vorigen mit). Prüfpunkte nach Inferenzen helfen nicht: die
+  # Lösungen von between/3 kommen durch Zurücksetzen, ungezählt.
+  # Ab @heap_compact_min Wörtern und dem Doppelten des Heaps nach dem
+  # letzten Aufräumen (bzw. beim Start der Anfrage): kompaktieren und
+  # bereinigen – amortisiert, wie die
+  # Schwelle. Ergebnis: {Ziel, Rest, Zustand} (Ziel und Rest kompaktiert)
+  @heap_compact_min 2_000_000
+
+  defp tidy(goal, cutb, mod, rest, st) do
+    h = heap_words()
+
+    if h < st.heap_mark or h < @heap_compact_min do
+      {goal, rest, st}
+    else
+      %{goals: [{goal, _, _} | rest]} =
+        st = compact_all(%{st | goals: [{goal, cutb, mod} | rest]})
+
+      :erlang.garbage_collect()
+      goal = with {:gstruct, f, args} <- goal, do: {:struct, f, args}
+      {goal, rest, %{st | heap_mark: 2 * heap_words()}}
+    end
+  end
+
   # Unter-Maschine für findall & Co.: eigener Ziel- und Choice-Point-Stack;
   # das Template steht in der Antwortliste, damit die Kompaktierung seine
   # Bindungen mitführt. Cut im Ziel ist lokal (Barriere 0).
@@ -6771,6 +6812,10 @@ defmodule PrologEx do
       answer: answer,
       threshold: min,
       min_threshold: min,
+      # nur was die Anfrage selbst anlegt, zählt (tidy/5): ein Prozess, der
+      # schon groß ist (Datenbank, frühere Anfragen), räumte sonst vor dem
+      # ersten findall/3 jeder Anfrage auf
+      heap_mark: 2 * heap_words(),
       icount: inference_counter(),
       qref: make_ref()
     }

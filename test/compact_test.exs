@@ -14,6 +14,8 @@ defmodule PrologEx.CompactTest do
   share(0, X, X) :- !.
   share(N, X, R) :- N1 is N - 1, share(N1, f(X, X), R).
   % zwischen den beiden Vorkommen von X liegen andere n/4-Strukturen
+  % eine große Liste, deren Variable nach dem Aufruf unerreichbar ist
+  big(N) :- findall(X, between(1, N, X), L), length(L, N).
   share3(0, X, X) :- !.
   share3(N, X, R) :-
       N1 is N - 1,
@@ -26,7 +28,7 @@ defmodule PrologEx.CompactTest do
 
     db =
       Enum.reduce(
-        ["lists", "apply", "iso_ext", "swi"],
+        ["lists", "apply", "iso_ext", "swi", "between"],
         %{},
         &PrologEx.use_library(&2, &1, "user")
       )
@@ -176,5 +178,28 @@ defmodule PrologEx.CompactTest do
 
     assert both(c, "X = 7, call_with_depth_limit(build(300, _, []), 1000, R), Y = X.") ==
              ["R = 301, X = 7, Y = 7"]
+  end
+
+  # Tote große Terme vor einer Unter-Maschine (findall/3 & Co.) weg: zehn
+  # Runden à 500 000 Elemente in einer Anfrage hielten sonst alle zehn
+  # Listen (10^7 Wörter, 80 MB) bis zum Ende fest – jede Runde langsamer
+  test "große tote Listen bleiben nicht bis zum Ende der Anfrage", c do
+    q =
+      String.duplicate("big(500000), ", 10) <>
+        "garbage_collect, statistics(process_memory, M)."
+
+    [{:term, g, _}] = Reader.read_terms(c.reader, q)
+    db = c.db
+    reader = c.reader
+
+    bytes =
+      Task.async(fn ->
+        Reader.put_current(reader)
+        [%{"M" => m}] = db |> PrologEx.query(g) |> Enum.take(1)
+        m
+      end)
+      |> Task.await(60_000)
+
+    assert bytes < 40_000_000, "#{bytes} Bytes"
   end
 end

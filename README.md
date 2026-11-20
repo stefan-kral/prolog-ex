@@ -376,6 +376,18 @@ Ein Prolog-Kern in Elixir:
   Suche nie kompaktiert wurde, zehnmal so oft (Rucksack aus
   `bench/scalar_product_clpz.pl`: 1158 statt 1 Kompaktierung, +20 %
   Zeit).
+  Wenige Bindungen können aber große Terme halten: eine `findall/3`-Liste
+  aus 10⁶ Elementen ist eine einzige. Vor einer Unter-Maschine
+  (`findall/3,4`, `aggregate_all/3`, `findnsols/4,5`, `countall/2`) wird
+  deshalb zusätzlich kompaktiert, wenn der Heap über 16 MB liegt und sich
+  seit dem letzten Mal verdoppelt hat (amortisiert wie die Schwelle; die
+  Abfrage des Heaps kostet 0,4 µs; gezählt wird nur, was die Anfrage selbst anlegt – die Marke startet beim Doppelten des Heaps zu Beginn). Sonst hielt die Maschine, solange die
+  Unter-Maschine lief, die toten Listen der früheren Runden fest, und jede
+  Speicherbereinigung kopierte sie mit: fünf Runden `findall` über 10⁶
+  Werte in einer Anfrage 516, 707, 890, 1031, 1168 ms, jetzt gleichbleibend
+  um 500 ms; zehn Runden über 500 000 Werte halten am Ende 12 statt
+  103 MB. Ein Prüfpunkt nach Inferenzen sähe das nicht: die Lösungen von
+  `between/3` kommen durch Zurücksetzen, ungezählt.
 - Geteilte Teilterme (DAGs wie `T1 = f(T0,T0), T2 = f(T1,T1), …` oder die
   Knoten eines BDDs) bearbeitet jede Operation, die Terme abläuft, nur
   einmal: Kompaktieren, Auflösen, Kopieren (`copy_term/2,3`, `findall`,
