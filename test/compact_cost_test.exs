@@ -36,6 +36,8 @@ defmodule PrologEx.CompactCostTest do
   test "Same Fringe über einen links tiefen Baum: Kompaktierung linear", c do
     small = cells(c, 4000)
     big = cells(c, 16000)
-    assert big < 8 * max(small, 1), "#{small} Zellen bei 4000, #{big} bei 16000"
+    # gezählt muss werden (sonst lief die Anfrage nicht)
+    assert small > 0
+    assert big < 8 * small, "#{small} Zellen bei 4000, #{big} bei 16000"
   end
 end

@@ -4933,6 +4933,26 @@ chat_parser (Stand 18. November 2026) ist mit 1 MLIPS der langsamste der
 reinen Fälle: ein Durchlauf (16 Fragen) braucht hier 72 ms, in SWI
 5,5 ms, in Scryer 11,5 ms.
 
+### Skalierung
+
+`bench/scaling` prüft, ob eine Operation mit der Datengröße so wächst,
+wie sie soll: 38 Fälle (Listen, Sortieren, Terme, Atome, Datenbank,
+globale Variablen, assoc, Ausnahmen, dif/freeze) je bei N, 2N, 4N, …
+(ab 10 000, bis 1,28 Mio. oder bis eine Messung 1,5 s übersteigt), in
+PrologEx und SWI. `report.py` schätzt daraus den Exponenten k (Zeit ~
+N^k) und markiert, was in PrologEx über 1,3 und deutlich über SWI liegt:
+
+```sh
+sh bench/scaling/run.sh > out.txt && python3 bench/scaling/report.py < out.txt
+```
+
+Gefunden und behoben (20. November 2026): `sub_atom(A, B, 1, _, C)`
+Zeichen für Zeichen über ein langes Atom war quadratisch – jeder Aufruf
+prüfte das ganze Atom auf ASCII bzw. baute die Tabelle der
+Zeichenpositionen (40 000 Zeichen 2,8 s, jetzt 63 ms; bei langen Atomen
+wird die Tabelle des zuletzt benutzten gemerkt, erkannt an der Identität
+des Binärwerts; `test/sub_atom_cost_test.exs`).
+
 ### Vergleich mit Scryer Prolog
 
 `bench/compare.pl` läuft unverändert in PrologEx, Scryer und SWI (jeder

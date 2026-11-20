@@ -390,8 +390,32 @@ defmodule PrologEx.Builtins.Atoms do
   defp opt_int!(other), do: Error.type!("integer", other)
 
   # Zugriff auf Zeichenpositionen: bei ASCII Byte = Zeichen, sonst ein
-  # Tupel der Byte-Offsets (Index i -> Byte-Offset von Zeichen i, plus Ende)
-  defp text_index(name) do
+  # Tupel der Byte-Offsets (Index i -> Byte-Offset von Zeichen i, plus Ende).
+  # Beides kostet O(Länge); für lange Atome (über 64 Bytes: ein geteilter
+  # Binärwert, kein Kopie je Aufruf) das zuletzt benutzte merken, erkannt an
+  # der Identität des Binärwerts (O(1)) – sonst kostete ein Durchgang
+  # Zeichen für Zeichen mit sub_atom(A, B, 1, _, C) O(n²)
+  @text_index_key :prolog_ex_text_index
+
+  defp text_index(name) when byte_size(name) > 64 do
+    case Process.get(@text_index_key) do
+      {cached, at} ->
+        if PrologEx.Share.same?(cached, name), do: at, else: remember_index(name)
+
+      _ ->
+        remember_index(name)
+    end
+  end
+
+  defp text_index(name), do: build_index(name)
+
+  defp remember_index(name) do
+    at = build_index(name)
+    Process.put(@text_index_key, {name, at})
+    at
+  end
+
+  defp build_index(name) do
     if ascii?(name) do
       %{name: name, len: byte_size(name), offs: nil}
     else
