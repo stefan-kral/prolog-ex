@@ -4202,7 +4202,7 @@ X = 42.
 | `in(Ts, T)`, `rd(Ts, T)` | das erste verfügbare zu einem der Muster in `Ts`; passt es nicht zu `T`: Scheitern, bei `in` bleibt es trotzdem draußen (wie SICStus) |
 | `bagof_rd_noblock(Tmpl, T, Bag)` | wie `bagof/3` über alle passenden Tupel, auf einmal gelesen (`V^T` wie bei `bagof`) |
 | `bagof_in_noblock(Tmpl, T, Bag)` | ebenso, nimmt alle passenden heraus (SWI) |
-| `linda_timeout(Old, New)` | Zeitgrenze für Antworten des Servers: `off` (Vorgabe), `Sekunden:Millisekunden` oder Sekunden als Zahl (wie SWI: `0.25`); gerissen: das Prädikat scheitert. `New` offen: nur abfragen |
+| `linda_timeout(Old, New)` | Zeitgrenze für Antworten des Servers: `off` (Vorgabe), `Sekunden:Millisekunden` oder Sekunden als Zahl (wie SWI: `0.25`); gerissen: das Prädikat scheitert (ein `in_noblock` legt das Tupel dann zurück, ein `out` kann trotzdem ankommen). `New` offen: nur abfragen |
 | `linda_timeout(New)` | vorübergehend (SWI): das Alte gilt wieder beim Cut, beim Backtracking, bei einer Ausnahme |
 
 * **Passen** heißt unifizierbar; Tupel dürfen Variablen enthalten (Kopien

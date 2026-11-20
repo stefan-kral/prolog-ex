@@ -295,6 +295,26 @@ defmodule PrologEx.LindaTest do
     assert st.reserved == %{} and st.waiters == []
   end
 
+  test "linda_timeout reißt (Server hängt): Scheitern, das Tupel bleibt", c do
+    ask(c, "out(slow(1))")
+    pid = Process.whereis(:prolog_ex_linda)
+    :sys.suspend(pid)
+
+    try do
+      assert ask(
+               c,
+               "linda_timeout(_, 0:150), ( in_noblock(slow(_)) -> R = da ; R = weg ), linda_timeout(_, off)"
+             ) ==
+               ["R = weg"]
+    after
+      :sys.resume(pid)
+    end
+
+    # die Anfrage kam nach der Absage an: das vorgemerkte Tupel ist zurück
+    assert ask(c, "rd_noblock(slow(X))") == ["X = 1"]
+    assert :sys.get_state(pid).reserved == %{}
+  end
+
   # --- Anwendungsfälle (wie examples/linda.pl, hier mit Prozessen dieses
   # Knotens, je einer Verbindung) -------------------------------------------
 
