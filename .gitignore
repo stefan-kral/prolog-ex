@@ -13,3 +13,4 @@ erl_crash.dump
 
 # Assembler-Listings der BEAM (erlc +S / @compile :S), nur zur Analyse
 *.S
+__pycache__/

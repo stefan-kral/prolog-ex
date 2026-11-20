@@ -465,6 +465,15 @@ rlwrap`); alle Argumente gehen an `mix prolog`:
     beziehen sich auf dieses (`start_ex` übergibt es in `PROLOG_EX_CWD`).
   * Zeilenbearbeitung und Verlauf von rlwrap, TAB ergänzt die Wörter aus
     `.rlwrap_completions` (eine Datei im Projekt, ein Wort je Zeile).
+  * TAB ergänzt auch mit Klammern, je nach Stelle: `use_mod` →
+    `use_module(library(clpz))` und alle anderen Bibliotheken,
+    `use_module(` → `library(…))`, `library(cl` → `clpz)`; innerhalb von
+    Klammern weiter die Wörter (`forall(mem` → `member`). Das macht ein
+    rlwrap-Filter in Python (`.rlwrap_filter.py`, Bibliotheken aus
+    `.rlwrap_libraries`; `test/rlwrap_test.exs` prüft, dass die Liste zu
+    PrologEx passt). `start_ex` nimmt ihn nur, wenn rlwraps
+    Filterbibliothek und `python3` da sind (auf dem Mac mit Homebrew und
+    den Xcode-Kommandozeilenwerkzeugen); sonst nur die Wörter.
   * Ctrl-D beendet `[user]` bzw. die Sitzung.
   * **Ctrl-C bricht die laufende Anfrage ab**: `rlwrap -I` schickt dann
     ein SIGTERM statt SIGINT (SIGINT kann die BEAM nicht abfangen, es führt

@@ -20,5 +20,15 @@ export ERL_FLAGS="+MMmcs 0${ERL_FLAGS:+ $ERL_FLAGS}"
 export PROLOG_EX_CWD="$PWD"
 cd "$DIR" || exit 1
 
+# TAB-Ergänzung mit Klammern (use_module(library(clpz)), ...): ein
+# rlwrap-Filter in Python (.rlwrap_filter.py), wenn rlwraps
+# Filterbibliothek und python3 da sind – sonst nur die Wörter aus
+# .rlwrap_completions
+FILTER=
+FDIR=$(rlwrap -z listing 2>/dev/null | sed -n 's/.*can be found in *//p' | head -n 1)
+if [ -n "$FDIR" ] && [ -f "$FDIR/rlwrapfilter.py" ] && command -v python3 >/dev/null 2>&1; then
+  FILTER="$DIR/.rlwrap_filter.py"
+fi
+
 # Alle Argumente nach dem Wrapper unverändert an "mix prolog" weiterreichen.
-exec rlwrap -A -a -I -e '' -f "$DIR/.rlwrap_completions" mix prolog --no-edit "$@"
+exec rlwrap -A -a -I -e '' -f "$DIR/.rlwrap_completions" ${FILTER:+-z "$FILTER"} mix prolog --no-edit "$@"
