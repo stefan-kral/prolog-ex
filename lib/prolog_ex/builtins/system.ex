@@ -136,8 +136,8 @@ defmodule PrologEx.Builtins.System do
     end
 
     case PrologEx.locate(db, m, name, arity) do
-      {:db, _, pred} ->
-        PrologEx.pred_source(pred, Compiler.args_of(head), s)
+      {:db, dm, pred} ->
+        PrologEx.pred_source(pred, Compiler.args_of(head), s, {dm, name, arity})
 
       {:builtin, lm, {:prolog, pred, _}} ->
         if lm == "system" or String.starts_with?(name, "$"),

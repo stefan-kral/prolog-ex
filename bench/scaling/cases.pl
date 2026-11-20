@@ -156,6 +156,21 @@ go(retract_each, N) :-
     forall(between(1, N, I), assertz(fact(I, I))),
     forall(between(1, N, I), retract(fact(I, _))).
 
+% retract im Wechsel mit Aufrufen (Graphensuche: retract(unbesucht(X)))
+case(retract_call, N, N).
+go(retract_call, N) :-
+    retractall(fact(_, _)),
+    forall(between(1, N, I), assertz(fact(I, I))),
+    forall(between(1, N, I), (retract(fact(I, _)), J is N + 1 - I, ( fact(J, _) -> true ; true ))).
+
+% Warteschlange aus Fakten (Breitensuche): vorn retract, hinten assertz,
+% N Elemente lang, N Runden
+case(retract_queue, N, N).
+go(retract_queue, N) :-
+    retractall(fact(_, _)),
+    forall(between(1, N, I), assertz(fact(q, I))),
+    forall(between(1, N, _), (retract(fact(q, X)), Y is X + N, assertz(fact(q, Y)))).
+
 case(nb_counter, N, N).
 go(nb_counter, N) :-
     nb_setval(scaling_c, 0),

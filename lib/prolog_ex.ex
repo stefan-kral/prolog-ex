@@ -1719,6 +1719,35 @@ defmodule PrologEx do
   @doc false
   # Klausel mit Kennung `ref` entfernen. Kosten O(Position der Klausel):
   # das häufige "erste Klausel zurückziehen" ist O(1).
+  #
+  # Ein übersetztes Prädikat bleibt übersetzt: die Klausel geht aus allen
+  # Listen (alle, ihre Schlüsselliste, Einträge) – sonst baute der nächste
+  # Aufruf den ganzen Index neu (retract im Wechsel mit Aufrufen: O(n) je
+  # Schritt, 10 000 Fakten 43 s). Die Klausel in der Schlüsselliste wird an
+  # ihrer Identität erkannt (dasselbe Objekt wie in der Liste aller); ist
+  # sie dort eine angepasste Fassung (ohne Typtest, ohne Schnitt) oder hat
+  # sie eine Variable an erster Stelle (sie steht dann in jeder
+  # Schlüsselliste) oder hat das Prädikat Wächter: wie bisher {:stale, ...}.
+  # Entfernen kann keine Fassung ungültig machen (nur Anhängen kann das).
+  def remove_entry({:pred, all, by_key, var_only, entries} = pred, ref) when is_list(var_only) do
+    case drop_pair(flat(entries), flat(all), ref, [], []) do
+      {:ok, entries2, all2, c} ->
+        k = elem(c, 1)
+
+        with false <- any_key?(k),
+             {:ok, l} <- Map.fetch(by_key, k),
+             {:ok, l2} <- drop_same(l, c, []) do
+          by_key = if l2 == [], do: Map.delete(by_key, k), else: Map.put(by_key, k, l2)
+          {:pred, all2, by_key, var_only, entries2}
+        else
+          _ -> {:stale, entries2, []}
+        end
+
+      :error ->
+        pred
+    end
+  end
+
   def remove_entry(pred, ref) do
     # hinten angehängte Klauseln einmal nach vorn holen, damit folgende
     # retracts (und ihre Schnappschüsse) wieder O(1) beginnen
@@ -1729,6 +1758,24 @@ defmodule PrologEx do
       :error -> {:stale, entries, []}
     end
   end
+
+  # Eintrag ref und die Klausel an derselben Stelle der Liste aller
+  defp drop_pair([{ref, _, _} | es], [c | cs], ref, acc_e, acc_c),
+    do: {:ok, :lists.reverse(acc_e, es), :lists.reverse(acc_c, cs), c}
+
+  defp drop_pair([e | es], [c | cs], ref, acc_e, acc_c),
+    do: drop_pair(es, cs, ref, [e | acc_e], [c | acc_c])
+
+  defp drop_pair(_, _, _ref, _acc_e, _acc_c), do: :error
+
+  # die Klausel c (physisch dieselbe) aus einer Liste
+  defp drop_same([x | xs], c, acc) do
+    if PrologEx.Share.same?(x, c),
+      do: {:ok, :lists.reverse(acc, xs)},
+      else: drop_same(xs, c, [x | acc])
+  end
+
+  defp drop_same([], _c, _acc), do: :error
 
   defp drop_ref([], _ref, _acc), do: :error
   defp drop_ref([{ref, _, _} | rest], ref, acc), do: {:ok, :lists.reverse(acc, rest)}
@@ -1741,31 +1788,112 @@ defmodule PrologEx do
   # clause/2: Quelltext der Klauseln, die der Aufruf mit diesen Argumenten
   # versuchen würde (Index aufs erste Argument: gleicher Schlüssel oder
   # Variable an erster Stelle), in Reihenfolge
-  def pred_source(pred, args, subst),
-    do: for({_, src, _} <- candidate_entries(pred, args, subst), do: src)
+  def pred_source(pred, args, subst, pkey \\ nil),
+    do: for({_, src, _} <- candidate_entries(pred, args, subst, pkey), do: src)
 
   @doc false
   # Einträge {ref, quelltext, übersetzt} wie pred_source/3 (für retract/1,
   # retractall/1: nur diese können passen)
-  def candidate_entries(pred, args, subst) do
-    entries = pred_entries(pred)
-
+  # pkey ({modul, name, stelligkeit}, sonst nil): mit ihm der Schlüsselindex
+  # der Einträge (entry_index/2), sonst linear
+  def candidate_entries(pred, args, subst, pkey \\ nil) do
     case args do
       [x | _] ->
         case Store.walk(x, subst) do
           {:var, _} ->
-            entries
+            pred_entries(pred)
 
           # nach dem Kopf der Quelle, nicht dem übersetzten Schlüssel: der
           # kann genauer sein (V = T am Anfang ist in den Kopf gewandert)
           t ->
             k = index_key(t)
-            for {_, src, _} = e <- entries, (sk = src_key(src)) == k or sk == :any, do: e
+
+            case pkey && stable_entries(pred) do
+              entries when is_list(entries) ->
+                case entry_index(pkey, entries) do
+                  :none -> by_src_key(entries, k)
+                  idx -> Map.get(idx, k, [])
+                end
+
+              _ ->
+                by_src_key(pred_entries(pred), k)
+            end
         end
 
       [] ->
-        entries
+        pred_entries(pred)
     end
+  end
+
+  defp by_src_key(entries, k),
+    do: for({_, src, _} = e <- entries, (sk = src_key(src)) == k or sk == :any, do: e)
+
+  # --- Schlüsselindex der Einträge (retract/1, retractall/1, clause/2) -----
+  #
+  # Je Schlüssel des ersten Arguments im Quelltext-Kopf die Einträge in
+  # Reihenfolge – sonst filterte jedes retract alle Klauseln (eine Schleife
+  # retract(f(I, _)) über n Fakten: O(n²), 20 000 Fakten 2,6 s). Liegt im
+  # Prozess-Dictionary unter {@eidx_key, Prädikat} samt der Liste der
+  # Einträge, für die er gilt, und wird nur benutzt, wenn die aktuelle Liste
+  # physisch dieselbe ist (Share.same?/2, O(1)): jede Änderung auf anderem
+  # Weg (assert, neu laden, retractall, ...) gibt eine neue Liste und baut
+  # ihn neu. retract führt ihn selbst nach (eidx_removed/5). Nur für
+  # Prädikate ohne Variable an erster Stelle im Kopf (:none, dann linear)
+  # und nur für Listen, die im Prädikat selbst stehen (stable_entries/1;
+  # sonst entstünde bei jedem Zugriff eine neue).
+  @eidx_key :"$eidx"
+
+  defp stable_entries({:pred, _, _, _, l}) when is_list(l), do: l
+  defp stable_entries({:stale, front, []}), do: front
+  defp stable_entries(_), do: nil
+
+  defp entry_index(pkey, entries) do
+    case :erlang.get({@eidx_key, pkey}) do
+      {cached, idx} ->
+        if PrologEx.Share.same?(cached, entries), do: idx, else: build_entry_index(pkey, entries)
+
+      _ ->
+        build_entry_index(pkey, entries)
+    end
+  end
+
+  defp build_entry_index(pkey, entries) do
+    idx = group_entries(:lists.reverse(entries), %{})
+    :erlang.put({@eidx_key, pkey}, {entries, idx})
+    idx
+  end
+
+  defp group_entries([{_, src, _} = e | es], acc) do
+    case src_key(src) do
+      :any -> :none
+      k -> group_entries(es, Map.update(acc, k, [e], &[e | &1]))
+    end
+  end
+
+  defp group_entries([], acc), do: acc
+
+  @doc false
+  # nach retract: aus old (Prädikat vorher) wurde new, ohne den Eintrag ref
+  # (Quelltext src); galt der Index für old, gilt er nun – nachgeführt – für
+  # new
+  def eidx_removed(pkey, old, new, ref, src) do
+    with old_entries when is_list(old_entries) <- stable_entries(old),
+         new_entries when is_list(new_entries) <- stable_entries(new),
+         {cached, idx} when is_map(idx) <- :erlang.get({@eidx_key, pkey}),
+         true <- PrologEx.Share.same?(cached, old_entries) do
+      k = src_key(src)
+
+      idx =
+        case drop_ref(Map.get(idx, k, []), ref, []) do
+          {:ok, []} -> Map.delete(idx, k)
+          {:ok, l} -> Map.put(idx, k, l)
+          :error -> idx
+        end
+
+      :erlang.put({@eidx_key, pkey}, {new_entries, idx})
+    end
+
+    :ok
   end
 
   @doc false

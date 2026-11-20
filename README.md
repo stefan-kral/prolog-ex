@@ -730,8 +730,16 @@ mit `:- dynamic`); Änderungen an statischen ergeben `permission_error`.
 Es gilt die *logical update view* (ISO): ein laufender Aufruf sieht den
 Stand von seinem Start. `assert` ist O(1); der Index wird beim nächsten
 Aufruf erweitert statt neu gebaut, `retract` der ersten Klausel ist O(1).
-Abwechselnd `assertz` und Aufruf bleibt quadratisch (Kopie der
-Klauselliste, klein: 8000 Runden ≈ 0,4 s).
+`retract/1` mit gebundenem erstem Argument findet die Klausel über einen
+Schlüsselindex der Einträge und nimmt sie aus dem übersetzten Index
+heraus, ohne ihn neu zu bauen: eine Schleife `retract(f(I, _))` über
+20 000 Fakten 2,6 s → 0,2 s, `retract` im Wechsel mit Aufrufen (etwa
+`retract(unbesucht(X))` in einer Graphensuche) bei 10 000 Fakten 43 s →
+0,13 s, beides jetzt linear (`test/retract_cost_test.exs`). Abwechselnd
+`assertz` und Aufruf bleibt quadratisch (Kopie der Klauselliste, klein:
+8000 Runden ≈ 0,4 s), ebenso eine Warteschlange aus Fakten mit einem
+gemeinsamen Schlüssel (vorn `retract`, hinten `assertz`: 10 000 Runden
+4,7 s, SWI 19 ms).
 
 Zahlen im Quelltext: Zifferntrenner wie von WG17 2025 angenommen
 (`1_000_000`; nach `_` darf Layout-Text folgen, also Leerraum, Zeilenumbruch
@@ -4936,7 +4944,7 @@ reinen Fälle: ein Durchlauf (16 Fragen) braucht hier 72 ms, in SWI
 ### Skalierung
 
 `bench/scaling` prüft, ob eine Operation mit der Datengröße so wächst,
-wie sie soll: 38 Fälle (Listen, Sortieren, Terme, Atome, Datenbank,
+wie sie soll: 40 Fälle (Listen, Sortieren, Terme, Atome, Datenbank,
 globale Variablen, assoc, Ausnahmen, dif/freeze) je bei N, 2N, 4N, …
 (ab 10 000, bis 1,28 Mio. oder bis eine Messung 1,5 s übersteigt), in
 PrologEx und SWI. `report.py` schätzt daraus den Exponenten k (Zeit ~
@@ -4946,7 +4954,8 @@ N^k) und markiert, was in PrologEx über 1,3 und deutlich über SWI liegt:
 sh bench/scaling/run.sh > out.txt && python3 bench/scaling/report.py < out.txt
 ```
 
-Gefunden und behoben (20. November 2026): `sub_atom(A, B, 1, _, C)`
+Gefunden und behoben (20. November 2026): `retract/1` über viele Fakten
+war quadratisch (Abschnitt Datenbank); `sub_atom(A, B, 1, _, C)`
 Zeichen für Zeichen über ein langes Atom war quadratisch – jeder Aufruf
 prüfte das ganze Atom auf ASCII bzw. baute die Tabelle der
 Zeichenpositionen (40 000 Zeichen 2,8 s, jetzt 63 ms; bei langen Atomen

@@ -49,7 +49,9 @@ defmodule PrologEx.Builtins.Database do
       {:ok, pred} ->
         check_dynamic!(key)
         # nur Klauseln, die zum ersten Argument passen können
-        entries = PrologEx.candidate_entries(pred, Compiler.args_of(PrologEx.Store.walk(h, s)), s)
+        entries =
+          PrologEx.candidate_entries(pred, Compiler.args_of(PrologEx.Store.walk(h, s)), s, key)
+
         retract_from(next_match(entries, h, b, s), key, h, b, s)
     end
   end
@@ -79,7 +81,7 @@ defmodule PrologEx.Builtins.Database do
 
         # Kandidaten wie beim Aufruf; nur diese werden geprüft
         gone =
-          PrologEx.candidate_entries(pred, Compiler.args_of(head), s)
+          PrologEx.candidate_entries(pred, Compiler.args_of(head), s, key)
           |> matching_refs(h, s, %{})
 
         # nichts gefunden: das Prädikat bleibt, wie es ist (samt Index)
@@ -360,12 +362,15 @@ defmodule PrologEx.Builtins.Database do
 
   defp retract_from(:none, _key, _h, _b, _s), do: []
 
-  defp retract_from({ref, pairs, rest}, key, h, b, s) do
-    # die gefundene Klausel entfernen (falls noch vorhanden)
+  defp retract_from({ref, src, pairs, rest}, key, h, b, s) do
+    # die gefundene Klausel entfernen (falls noch vorhanden); den
+    # Schlüsselindex der Einträge nachführen
     PrologEx.update_db(fn db ->
       case Map.fetch(db, key) do
         {:ok, pred} ->
-          Map.put(db, key, PrologEx.remove_entry(pred, ref))
+          new = PrologEx.remove_entry(pred, ref)
+          PrologEx.eidx_removed(key, pred, new, ref, src)
+          Map.put(db, key, new)
 
         :error ->
           db
@@ -385,11 +390,11 @@ defmodule PrologEx.Builtins.Database do
   # erste Klausel im Schnappschuss, die zu (H :- B) passt
   defp next_match([], _h, _b, _s), do: :none
 
-  defp next_match([{ref, {ch, cb}, _} | rest], h, b, s) do
+  defp next_match([{ref, {ch, cb} = src, _} | rest], h, b, s) do
     {_, "$clause", [ch2, cb2]} = PrologEx.copy_fresh({:struct, "$clause", [ch, cb]}, %{})
     pairs = [{h, ch2}, {b, cb2}]
 
-    if unify_all(pairs, s), do: {ref, pairs, rest}, else: next_match(rest, h, b, s)
+    if unify_all(pairs, s), do: {ref, src, pairs, rest}, else: next_match(rest, h, b, s)
   end
 
   defp matches?(h, ch, s) do
