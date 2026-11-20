@@ -5,27 +5,15 @@ defmodule PrologEx.RlwrapTest do
   # Auswahl (von Hand gepflegt); jeder Eintrag muss eine Bibliothek von
   # PrologEx sein.
   #
-  # .rlwrap_predicates: je Name die Stelligkeiten aller Prädikate (für
-  # member( mit Klammer), erzeugt; muss zu PrologEx passen. Neu schreiben:
+  # Aus PrologEx erzeugt (PrologEx.Shell.Complete.rlwrap_files/0), müssen
+  # dazu passen: .rlwrap_predicates (Stelligkeiten: member( mit Klammer),
+  # .rlwrap_flags, .rlwrap_ops, .rlwrap_evaluables, .rlwrap_char_types.
+  # Alle neu schreiben:
   #
-  #   mix run -e 'File.write!(".rlwrap_predicates", PrologEx.Shell.Complete.rlwrap_predicates_text())'
-  #
-  # .rlwrap_flags: die Prolog-Flags mit den Werten der schreibbaren (für
-  # current_prolog_flag(dialect, und set_prolog_flag(occurs_check, true)),
-  # erzeugt; muss zu PrologEx passen. Neu schreiben:
-  #
-  #   mix run -e 'File.write!(".rlwrap_flags", PrologEx.Shell.Complete.rlwrap_flags_text())'
-  #
-  # .rlwrap_ops: die Standard-Operatoren (für current_op(P, T, N)), erzeugt;
-  # muss zu PrologEx passen. Neu schreiben:
-  #
-  #   mix run -e 'File.write!(".rlwrap_ops", PrologEx.Shell.Complete.rlwrap_ops_text())'
+  #   mix run -e 'PrologEx.Shell.Complete.write_rlwrap_files()'
   use ExUnit.Case, async: true
 
   @libs ".rlwrap_libraries"
-  @preds ".rlwrap_predicates"
-  @flags ".rlwrap_flags"
-  @ops ".rlwrap_ops"
   @filter ".rlwrap_filter.py"
 
   test ".rlwrap_libraries: nur Bibliotheken, die es gibt" do
@@ -34,19 +22,11 @@ defmodule PrologEx.RlwrapTest do
     assert listed -- known == [], "keine Bibliothek von PrologEx"
   end
 
-  test ".rlwrap_predicates: passt zu PrologEx" do
-    assert File.read!(@preds) == PrologEx.Shell.Complete.rlwrap_predicates_text(),
-           "#{@preds} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
-  end
-
-  test ".rlwrap_flags: passt zu PrologEx" do
-    assert File.read!(@flags) == PrologEx.Shell.Complete.rlwrap_flags_text(),
-           "#{@flags} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
-  end
-
-  test ".rlwrap_ops: passt zu PrologEx" do
-    assert File.read!(@ops) == PrologEx.Shell.Complete.rlwrap_ops_text(),
-           "#{@ops} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
+  test "erzeugte .rlwrap-Dateien passen zu PrologEx" do
+    for {file, text} <- PrologEx.Shell.Complete.rlwrap_files() do
+      assert File.read!(file) == text,
+             "#{file} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
+    end
   end
 
   # die Ergänzungslogik des Filters, ohne rlwrap (wenn python3 da ist)
@@ -54,10 +34,9 @@ defmodule PrologEx.RlwrapTest do
   import importlib.util, sys
   spec = importlib.util.spec_from_file_location("flt", sys.argv[1])
   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-  libs, preds, flags = m.read_libraries(), m.read_predicates(), m.read_flags()
-  ops = m.read_ops()
+  data = m.load()
   words = ["use_module", "member", "findall", "halt", "true", "lists"]
-  c = lambda line, prefix: m.complete(line, prefix, words, libs, preds, flags, ops)
+  c = lambda line, prefix: m.complete(line, prefix, words, data)
   assert c("use_mod", "use_mod") == ["use_module("]
   assert not [x for x in c("", "") if "library" in x]
   assert c("use_module(library(cl", "cl") == ["clpb)", "clpz)"], c("use_module(library(cl", "cl")
@@ -87,6 +66,20 @@ defmodule PrologEx.RlwrapTest do
   assert c("current_op(1200, T,", "") == ["-->)", ":-)", "?-)"]
   assert c("current_op(P, T, dyn", "dyn") == ["dynamic)"]
   assert c("current_op(P, T, =.", "") == [".)"]
+  assert c("X is ma", "ma") == ["max(", "max_tagged_integer"]
+  assert "abs(" in c("X is ", "") and "mod" not in c("X is ", "")
+  assert c("X is A ", "") == ["div", "mod", "rdiv", "rem", "xor"]
+  assert c("X is (A + B) m", "m") == ["mod"]
+  assert c("X is A mod s", "s")[0] == "sign("
+  assert c("X is max(A, sq", "sq") == ["sqrt("]
+  assert c("X =:= ab", "ab") == ["abs("]
+  assert c("X is 1.5 + p", "p") == ["pi", "plus(", "popcount("]
+  assert c("X is 1, Y = tr", "tr") == ["true"]
+  assert c("X -> tr", "tr") == ["true"]
+  assert c("X @< mem", "mem") == ["member("]
+  assert c("char_type(C, alpha", "alpha") == ["alpha)", "alphabetic)", "alphanumeric)"]
+  assert c("char_type(C, up", "up") == ["upper)", "upper("]
+  assert c("code_type(0'a, dig", "dig") == ["digit("]
   print("ok")
   """
 

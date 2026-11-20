@@ -489,7 +489,12 @@ mix compile                          # einmal, und nach jeder Änderung
     → `false)`, `true)`, `error)`. Operatoren: `current_op(` → die
     Prioritäten, `current_op(700, ` → die Typen dazu, `current_op(P, T, `
     → die Namen (auch angefangene symbolische: `=.` → `=..)`), jeweils
-    passend zu den schon angegebenen Argumenten.
+    passend zu den schon angegebenen Argumenten. Arithmetik: nach `is`
+    und den Vergleichen (`=:=`, `<`, `>=`, …) die auswertbaren Funktionen
+    (`X is ma` → `max(`, `max_tagged_integer`), nach einem Operanden die
+    Operatoren aus Buchstaben (`X is A m` → `mod`). Zeichenklassen:
+    `char_type(C, ` → die von `library(charsio)`, `code_type(C, ` → die
+    von `library(swi)`.
     Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`). Die Dateien:
 
     | Datei | Inhalt | gepflegt |
@@ -499,10 +504,13 @@ mix compile                          # einmal, und nach jeder Änderung
     | `.rlwrap_predicates` | je Name die Stelligkeiten: ob `(` dazukommt; selbst keine Vorschläge | erzeugt |
     | `.rlwrap_flags` | die Flags, bei schreibbaren mit ihren Werten | erzeugt |
     | `.rlwrap_ops` | die Standard-Operatoren (Priorität, Typ, Name) | erzeugt |
+    | `.rlwrap_evaluables` | die auswertbaren Funktionen mit Stelligkeiten | erzeugt |
+    | `.rlwrap_char_types` | die Typen von `char_type/2` und `code_type/2` | erzeugt |
 
     `test/rlwrap_test.exs` prüft den Filter, dass die Bibliotheken
-    existieren und die erzeugten Dateien zu PrologEx passen (dort auch der
-    Befehl zum Neuschreiben). `start_ex` nimmt
+    existieren und die erzeugten Dateien zu PrologEx passen; alle neu
+    schreiben: `mix run -e 'PrologEx.Shell.Complete.write_rlwrap_files()'`.
+    `start_ex` nimmt
     ihn nur, wenn rlwraps
     Filterbibliothek und `python3` da sind (auf dem Mac mit Homebrew und
     den Xcode-Kommandozeilenwerkzeugen); sonst nur die Wörter. Preis:

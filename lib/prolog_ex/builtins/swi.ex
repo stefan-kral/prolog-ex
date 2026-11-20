@@ -275,6 +275,10 @@ defmodule PrologEx.Builtins.Swi do
              graph print period quote paren)
   @ctypes1 ~w(digit lower upper code to_lower to_upper xdigit)
 
+  @doc false
+  # die Typen von code_type/2: Namen, mit Argument als {Name, 1}
+  def code_types, do: @ctypes ++ for(n <- @ctypes1, do: {n, 1})
+
   defbuiltin "code_type", [code, type], nondet: true do
     s = subst()
     ty = PrologEx.unmark_top(deref(type))

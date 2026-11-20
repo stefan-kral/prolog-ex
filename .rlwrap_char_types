@@ -1,0 +1,2 @@
+char_type alnum alpha alphabetic alphanumeric ascii ascii_graphic ascii_punctuation binary_digit control decimal_digit exponent graphic graphic_token hexadecimal_digit layout lower lower( meta numeric octal_digit octet prolog sign solo symbolic_control symbolic_hexadecimal upper upper( whitespace
+code_type alnum alpha ascii cntrl code( csym csymf digit( end_of_line graph lower lower( paren period print punct quote space to_lower( to_upper( upper upper( white xdigit(

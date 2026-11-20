@@ -153,7 +153,7 @@ defmodule PrologEx.Shell.Complete do
   # Stelligkeiten der Prädikate, die man im Toplevel rufen kann – System
   # und die Exporte aller Bibliotheken (eingebaute über use_library/3,
   # Prolog-Dateien über ihr :- module/2). Text: "name a1 a2 ..." je Zeile,
-  # sortiert; steht in .rlwrap_predicates (test/rlwrap_test.exs prüft das)
+  # sortiert; steht in .rlwrap_predicates (test/rlwrap_test.exs)
   def rlwrap_predicates_text do
     sys = PrologEx.Builtins.system_keys()
 
@@ -197,7 +197,7 @@ defmodule PrologEx.Shell.Complete do
   @doc false
   # Für die TAB-Ergänzung unter rlwrap: die Standard-Operatoren, je Zeile
   # "Priorität Typ Name" (Name wie writeq), wie in PrologEx.Ops; steht in
-  # .rlwrap_ops (test/rlwrap_test.exs prüft das)
+  # .rlwrap_ops (test/rlwrap_test.exs)
   def rlwrap_ops_text do
     ops =
       for {name, by_class} <- PrologEx.Ops.default(), {_, {p, t}} <- by_class, do: {-p, t, name}
@@ -206,6 +206,56 @@ defmodule PrologEx.Shell.Complete do
       "#{-p} #{t} #{PrologEx.Writer.atom(name, %{quoted: true})}\n"
     end
   end
+
+  @doc false
+  # Für die TAB-Ergänzung unter rlwrap: die auswertbaren Funktionen mit
+  # Namen aus Buchstaben (die symbolischen sind Operatoren), je Zeile
+  # "name a1 a2 ..."; steht in .rlwrap_evaluables (test/rlwrap_test.exs)
+  def rlwrap_evaluables_text do
+    PrologEx.Arith.evaluables()
+    |> Enum.filter(fn {n, _} -> plain?(n) end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.sort()
+    |> Enum.map_join(fn {n, ars} -> Enum.join([n | Enum.sort(ars)], " ") <> "\n" end)
+  end
+
+  @doc false
+  # Für die TAB-Ergänzung unter rlwrap: die Zeichenklassen, je Zeile das
+  # Prädikat und seine Typen (mit Argument: "upper("). char_type/2 aus
+  # library(charsio) (ctype/1 in charsio.pl), code_type/2 aus library(swi);
+  # steht in .rlwrap_char_types (test/rlwrap_test.exs)
+  def rlwrap_char_types_text do
+    file = Path.join([:code.priv_dir(:prolog_ex), "library", "charsio.pl"])
+
+    char =
+      for [_, n | arg] <- Regex.scan(~r/^ctype\((\w+)(\(_\))?\)\./m, File.read!(file)),
+          do: if(arg in [[], [""]], do: n, else: n <> "(")
+
+    code = for t <- PrologEx.Builtins.Swi.code_types(), do: type_text(t)
+
+    for {p, ts} <- [{"char_type", char}, {"code_type", code}], into: "" do
+      Enum.join([p | ts |> Enum.uniq() |> Enum.sort()], " ") <> "\n"
+    end
+  end
+
+  defp type_text({n, _}), do: n <> "("
+  defp type_text(n), do: n
+
+  @doc false
+  # die erzeugten Dateien für die TAB-Ergänzung unter rlwrap (Projekt-
+  # verzeichnis), Name => Inhalt; test/rlwrap_test.exs prüft sie
+  def rlwrap_files do
+    %{
+      ".rlwrap_predicates" => rlwrap_predicates_text(),
+      ".rlwrap_flags" => rlwrap_flags_text(),
+      ".rlwrap_ops" => rlwrap_ops_text(),
+      ".rlwrap_evaluables" => rlwrap_evaluables_text(),
+      ".rlwrap_char_types" => rlwrap_char_types_text()
+    }
+  end
+
+  @doc false
+  def write_rlwrap_files, do: for({f, t} <- rlwrap_files(), do: File.write!(f, t))
 
   # Exporte aus :- module(Name, Liste) am Anfang einer Bibliotheksdatei
   defp file_exports(path) do

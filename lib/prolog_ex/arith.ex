@@ -136,6 +136,10 @@ defmodule PrologEx.Arith do
     unless Map.has_key?(@templates, {op, n}), do: raise("Signatur fehlt: #{op}/#{n}")
   end
 
+  @doc false
+  # alle auswertbaren Funktoren {Name, Stelligkeit} (TAB-Ergänzung)
+  def evaluables, do: Map.keys(@templates)
+
   @doc "Signaturen eines auswertbaren Funktors (siehe @templates) oder nil"
   def templates(name, arity), do: Map.get(@templates, {name, arity})
 

@@ -19,6 +19,12 @@ nach Stelle:
   current_op(700,<TAB>       xfx,                (Typen, passend zur Priorität)
   current_op(P, fx,<TAB>     dynamic), table), ... (Namen, passend zu P
                              und Typ; auch angefangene symbolische: =.)
+  X is ma<TAB>               max(                (auswertbare Funktionen, auch
+                             nach =:= < >= usw., in Klammern, nach + - ...)
+  X is A m<TAB>              mod                 (nach einem Operanden: die
+                             Operatoren aus Buchstaben: div mod rdiv rem xor)
+  char_type(C, <TAB>         alnum), ..., upper( (die Klassen von charsio;
+  code_type(C, <TAB>         alnum), ..., digit(  code_type: die von swi)
   sonst                      die Wörter aus .rlwrap_completions; ein
                              Prädikat nur mit Argumenten gleich mit
                              Klammer (mem<TAB> member(), mit und ohne
@@ -28,8 +34,10 @@ Die Bibliotheken stehen in .rlwrap_libraries (eine Auswahl, ein Name je
 Zeile), die Stelligkeiten aller Prädikate in .rlwrap_predicates ("name
 a1 a2 ...", erzeugt), die Flags in .rlwrap_flags ("name" oder "name =
 wert ...", erzeugt), die Standard-Operatoren in .rlwrap_ops ("Priorität
-Typ Name", erzeugt); test/rlwrap_test.exs prüft sie, dort auch, wie man
-die erzeugten neu schreibt.
+Typ Name", erzeugt), die auswertbaren Funktionen in .rlwrap_evaluables
+("name a1 a2 ...", erzeugt), die Zeichenklassen in .rlwrap_char_types
+("char_type t1 t2 ...", erzeugt); test/rlwrap_test.exs prüft sie, dort
+auch, wie man die erzeugten neu schreibt.
 """
 import os
 import re
@@ -51,6 +59,7 @@ LIB_CLOSING = re.compile(r"(use_module\()?library\(([A-Za-z0-9_/]+)(\)+)$")
 
 
 def read_predicates(path=os.path.join(HERE, ".rlwrap_predicates")):
+    """Name -> Menge der Stelligkeiten (auch für .rlwrap_evaluables)."""
     try:
         with open(path, encoding="utf-8") as f:
             return {p[0]: {int(a) for a in p[1:]} for p in (l.split() for l in f) if p}
@@ -108,6 +117,78 @@ FLAG_NAME = re.compile(r"\b(current|set)_prolog_flag\(\s*$")
 FLAG_VALUE = re.compile(r"\bset_prolog_flag\(\s*([a-z_]+)\s*,\s*$")
 
 
+def read_char_types(path=os.path.join(HERE, ".rlwrap_char_types")):
+    """Prädikat -> Typen (mit Argument als "name(")."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {p[0]: p[1:] for p in (l.split() for l in f) if p}
+    except OSError:
+        return {}
+
+
+def load():
+    """Alle Daten des Filters (die Dateien neben ihm)."""
+    return {
+        "libraries": read_libraries(),
+        "predicates": read_predicates(),
+        "flags": read_flags(),
+        "ops": read_ops(),
+        "evaluables": read_predicates(os.path.join(HERE, ".rlwrap_evaluables")),
+        "char_types": read_char_types(),
+    }
+
+
+CHAR_TYPE = re.compile(r"\b(char_type|code_type)\([^,]*,\s*$")
+
+# in einem arithmetischen Ausdruck: nach is oder einem Vergleich (nicht
+# -> --> >> << @< #< \= ...)
+ARITH_REL = re.compile(r"\bis\b|(?<![=<>\\:@#-])(?:=:=|=\\=|=<|>=|<|>)(?![=<>:])")
+
+
+def arith_tail(before):
+    """Der Ausdruck nach dem letzten is/Vergleich bis zum Cursor, oder None,
+    wenn der Cursor nicht (mehr) darin steht."""
+    last = None
+    for last in ARITH_REL.finditer(before):
+        pass
+    if last is None:
+        return None
+    tail = before[last.end() :]
+    depth = 0
+    for i, ch in enumerate(tail):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif depth == 0 and (
+            ch in ",;|" or tail.startswith("->", i) or (ch == "." and tail[i + 1 : i + 2] in ("", " "))
+        ):
+            return None
+    return tail
+
+
+def complete_arith(before, prefix, data):
+    """Ergänzungen in einem arithmetischen Ausdruck oder None."""
+    tail = arith_tail(before)
+    if tail is None:
+        return None
+    evaluables = data["evaluables"]
+    # die Operatoren aus Buchstaben, die auch auswertbar sind (mod, rem, ...)
+    infix = sorted(
+        {n for _, t, n in data["ops"] if t in ("xfx", "xfy", "yfx") and 2 in evaluables.get(n, ())}
+    )
+    t = tail.rstrip()
+    if t == "" or t[-1] in "([{,+-*/^\\<>=:" or (t.split() and t.split()[-1] in infix):
+        cands = with_paren(sorted(evaluables), evaluables)
+    elif tail != t and (t[-1].isalnum() or t[-1] in ")]_"):
+        cands = infix
+    else:
+        return None
+    return [c for c in cands if c.startswith(prefix)]
+
+
 def with_paren(words, predicates):
     """Wörter als Ergänzungen: Prädikate mit Argumenten mit Klammer."""
     out = []
@@ -122,14 +203,21 @@ def with_paren(words, predicates):
     return out
 
 
-def complete(line, prefix, words, libraries, predicates=None, flags=None, ops=None):
-    """Ergänzungen für das angefangene Wort prefix am Ende von line."""
+def complete(line, prefix, words, data):
+    """Ergänzungen für das angefangene Wort prefix am Ende von line (data:
+    load())."""
     before = line[: len(line) - len(prefix)] if line.endswith(prefix) else line
-    flags = flags or {}
-    if ops:
-        r = complete_op(before + prefix, prefix, ops)
-        if r is not None:
-            return r
+    flags, libraries = data["flags"], data["libraries"]
+    r = complete_op(before + prefix, prefix, data["ops"])
+    if r is not None:
+        return r
+    m = CHAR_TYPE.search(before)
+    if m:
+        return [
+            c if c.endswith("(") else c + ")"
+            for c in data["char_types"].get(m.group(1), [])
+            if c.startswith(prefix)
+        ]
     m = FLAG_NAME.search(before)
     if m:
         # set_prolog_flag: nur die schreibbaren
@@ -145,12 +233,15 @@ def complete(line, prefix, words, libraries, predicates=None, flags=None, ops=No
         # (sonst passte das leere Wort auf alles)
         missing = (2 if m.group(1) else 1) - len(m.group(3))
         return [")" * missing] if missing > 0 and m.group(2) in libraries else []
+    r = complete_arith(before, prefix, data)
+    if r is not None:
+        return r
     if before.endswith("library("):
         cands = [n + ")" for n in libraries]
     elif before.endswith("use_module("):
         cands = ["library(%s)" % n for n in libraries]
     else:
-        cands = with_paren(words, predicates or {})
+        cands = with_paren(words, data["predicates"])
     seen = set()
     out = []
     for c in cands:
@@ -165,15 +256,10 @@ def main():
     sys.path.insert(0, os.environ.get("RLWRAP_FILTERDIR", "/usr/share/rlwrap/filters"))
     import rlwrapfilter
 
-    libraries = read_libraries()
-    predicates = read_predicates()
-    flags = read_flags()
-    ops = read_ops()
+    data = load()
     f = rlwrapfilter.RlwrapFilter()
-    f.help_text = "PrologEx: TAB ergänzt auch Bibliotheken und Flags"
-    f.completion_handler = lambda line, prefix, words: complete(
-        line, prefix, words, libraries, predicates, flags, ops
-    )
+    f.help_text = "PrologEx: TAB ergänzt auch je nach Stelle (Bibliotheken, Flags, ...)"
+    f.completion_handler = lambda line, prefix, words: complete(line, prefix, words, data)
     f.run()
 
 
