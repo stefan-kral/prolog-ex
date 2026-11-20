@@ -18,7 +18,8 @@ defmodule Mix.Tasks.Prolog do
   leerer Zeile beendet `[user]` bzw. die Sitzung). Ctrl-C bricht die
   laufende Anfrage ab, wenn die BEAM mit `+Bc` läuft:
   `elixir --erl "+Bc" -S mix prolog`. `--no-edit` liest wie früher
-  zeilenweise von stdin, etwa unter rlwrap (`./start_ex`); am Terminal
+  zeilenweise von stdin, etwa unter rlwrap (`./start_ex`, das ohne mix
+  direkt aus dem Build startet); am Terminal
   bricht dann SIGTERM die laufende Anfrage ab (`rlwrap -I` schickt es bei
   Ctrl-C).
   """
@@ -28,27 +29,6 @@ defmodule Mix.Tasks.Prolog do
   @impl true
   def run(args) do
     Mix.Task.run("compile")
-
-    # start_ex aus einem anderen Verzeichnis: mix läuft im Projekt, Prolog
-    # im Aufrufverzeichnis (Dateien auf der Kommandozeile, consult/1,
-    # working_directory/2 relativ dazu). Danach gelöscht, damit von hier
-    # gestartete Programme sie nicht erben
-    case System.get_env("PROLOG_EX_CWD") do
-      dir when dir in [nil, ""] ->
-        :ok
-
-      dir ->
-        System.delete_env("PROLOG_EX_CWD")
-
-        case File.cd(dir) do
-          :ok ->
-            :ok
-
-          {:error, _} ->
-            IO.puts(:stderr, "% Verzeichnis #{dir} nicht erreichbar, bleibe im Projekt")
-        end
-    end
-
     code = PrologEx.Toplevel.main(args)
     if code != 0, do: exit({:shutdown, code})
   end

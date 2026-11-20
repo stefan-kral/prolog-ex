@@ -451,18 +451,30 @@ mix prolog --no-jit prog.pl          # ohne JIT (alles interpretiert)
 
 `mix rebuild` baut alles neu (wie `make clean && make all`).
 
-**`./start_ex`** (im Wurzelverzeichnis) startet `mix prolog --no-edit`
-unter [rlwrap](https://github.com/hanslub42/rlwrap) (`brew install
-rlwrap`); alle Argumente gehen an `mix prolog`:
+**`./start_ex`** (im Wurzelverzeichnis) startet PrologEx wie `mix prolog
+--no-edit` unter [rlwrap](https://github.com/hanslub42/rlwrap) (`brew
+install rlwrap`); alle Argumente gehen an PrologEx:
 
 ```sh
+mix compile                          # einmal, und nach jeder Änderung
 ./start_ex examples/demo.pl
 ```
 
+  * **Ohne mix, direkt aus dem Build** (`_build/dev`; wie bei mix über
+    `MIX_ENV`, `MIX_BUILD_ROOT`, `MIX_BUILD_PATH` änderbar): `elixir`
+    mit den Pfaden auf `ebin` und die konsolidierten Protokolle. Der
+    Start dauert so etwa 0,35 statt 0,7 s (mix lädt sich selbst und
+    prüft bei jedem Start, ob etwas zu übersetzen ist). Dafür übersetzt
+    `start_ex` nichts: nach Änderungen an den Quellen (auch nach `git
+    pull`) selbst `mix compile` aufrufen, nach einem Wechsel der
+    Elixir-/OTP-Version `mix rebuild`. Fehlt der Build, sagt `start_ex`
+    das und endet; sind Dateien in `lib/` neuer als die letzte
+    Übersetzung, gibt es einen Hinweis (es läuft der alte Stand). Mix
+    übersetzt nur bei geändertem Inhalt – nach einem bloßen `touch`
+    bleibt der Hinweis bis `mix rebuild`.
   * Aus jedem Verzeichnis startbar (`~/dev/prolog-ex/start_ex meins.pl`):
-    mix läuft im Projektverzeichnis, Prolog im Aufrufverzeichnis –
-    Dateien auf der Kommandozeile, `consult/1` und `working_directory/2`
-    beziehen sich auf dieses (`start_ex` übergibt es in `PROLOG_EX_CWD`).
+    Prolog läuft im Aufrufverzeichnis – Dateien auf der Kommandozeile,
+    `consult/1` und `working_directory/2` beziehen sich auf dieses.
   * Zeilenbearbeitung und Verlauf von rlwrap, TAB ergänzt die Wörter aus
     `.rlwrap_completions` (eine Datei im Projekt, ein Wort je Zeile).
   * TAB ergänzt auch mit Klammern, je nach Stelle: `use_mod` →
