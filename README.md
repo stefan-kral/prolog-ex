@@ -486,7 +486,10 @@ mix compile                          # einmal, und nach jeder Änderung
     `forall(fin` → `forall(findall(`), mit und ohne beides (`halt`,
     `halt(`). Flags: `current_prolog_flag(dia` → `dialect,`,
     `set_prolog_flag(` → nur die schreibbaren, `set_prolog_flag(occurs_check,`
-    → `false)`, `true)`, `error)`.
+    → `false)`, `true)`, `error)`. Operatoren: `current_op(` → die
+    Prioritäten, `current_op(700, ` → die Typen dazu, `current_op(P, T, `
+    → die Namen (auch angefangene symbolische: `=.` → `=..)`), jeweils
+    passend zu den schon angegebenen Argumenten.
     Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`). Die Dateien:
 
     | Datei | Inhalt | gepflegt |
@@ -495,6 +498,7 @@ mix compile                          # einmal, und nach jeder Änderung
     | `.rlwrap_libraries` | Bibliotheken für `use_module(library(…))` | von Hand (Auswahl) |
     | `.rlwrap_predicates` | je Name die Stelligkeiten: ob `(` dazukommt; selbst keine Vorschläge | erzeugt |
     | `.rlwrap_flags` | die Flags, bei schreibbaren mit ihren Werten | erzeugt |
+    | `.rlwrap_ops` | die Standard-Operatoren (Priorität, Typ, Name) | erzeugt |
 
     `test/rlwrap_test.exs` prüft den Filter, dass die Bibliotheken
     existieren und die erzeugten Dateien zu PrologEx passen (dort auch der

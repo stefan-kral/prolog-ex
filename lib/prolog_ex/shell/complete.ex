@@ -194,6 +194,19 @@ defmodule PrologEx.Shell.Complete do
     end
   end
 
+  @doc false
+  # Für die TAB-Ergänzung unter rlwrap: die Standard-Operatoren, je Zeile
+  # "Priorität Typ Name" (Name wie writeq), wie in PrologEx.Ops; steht in
+  # .rlwrap_ops (test/rlwrap_test.exs prüft das)
+  def rlwrap_ops_text do
+    ops =
+      for {name, by_class} <- PrologEx.Ops.default(), {_, {p, t}} <- by_class, do: {-p, t, name}
+
+    for {p, t, name} <- Enum.sort(ops), into: "" do
+      "#{-p} #{t} #{PrologEx.Writer.atom(name, %{quoted: true})}\n"
+    end
+  end
+
   # Exporte aus :- module(Name, Liste) am Anfang einer Bibliotheksdatei
   defp file_exports(path) do
     text = File.read!(path)

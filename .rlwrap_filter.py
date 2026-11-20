@@ -15,6 +15,10 @@ nach Stelle:
   current_prolog_flag(<TAB>  bounded,, dialect,, ... (alle Flags)
   set_prolog_flag(<TAB>      double_quotes,, ...  (nur die schreibbaren)
   set_prolog_flag(occurs_check,<TAB>  false), true), error)
+  current_op(<TAB>           1200,, 1150,, ...   (Prioritäten)
+  current_op(700,<TAB>       xfx,                (Typen, passend zur Priorität)
+  current_op(P, fx,<TAB>     dynamic), table), ... (Namen, passend zu P
+                             und Typ; auch angefangene symbolische: =.)
   sonst                      die Wörter aus .rlwrap_completions; ein
                              Prädikat nur mit Argumenten gleich mit
                              Klammer (mem<TAB> member(), mit und ohne
@@ -23,8 +27,9 @@ nach Stelle:
 Die Bibliotheken stehen in .rlwrap_libraries (eine Auswahl, ein Name je
 Zeile), die Stelligkeiten aller Prädikate in .rlwrap_predicates ("name
 a1 a2 ...", erzeugt), die Flags in .rlwrap_flags ("name" oder "name =
-wert ...", erzeugt); test/rlwrap_test.exs prüft alle drei, dort auch,
-wie man die erzeugten neu schreibt.
+wert ...", erzeugt), die Standard-Operatoren in .rlwrap_ops ("Priorität
+Typ Name", erzeugt); test/rlwrap_test.exs prüft sie, dort auch, wie man
+die erzeugten neu schreibt.
 """
 import os
 import re
@@ -62,6 +67,42 @@ def read_flags(path=os.path.join(HERE, ".rlwrap_flags")):
         return {}
 
 
+def read_ops(path=os.path.join(HERE, ".rlwrap_ops")):
+    """Liste der Operatoren (Priorität, Typ, Name wie writeq)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [tuple(p) for p in (l.split() for l in f) if len(p) == 3]
+    except OSError:
+        return []
+
+
+# current_op(P, T, N): die Argumente bis zur Stelle des Cursors (das
+# letzte angefangen, auch symbolisch: rlwrap trennt dort Wörter)
+OP_ARGS = re.compile(r"\bcurrent_op\(((?:\s*[^,()\s]*\s*,){0,2})\s*([^,()\s]*)$")
+
+
+def complete_op(line, prefix, ops):
+    """Ergänzungen in current_op/3 oder None, wenn nicht dort."""
+    m = OP_ARGS.search(line)
+    if not m:
+        return None
+    given = [a.strip() for a in m.group(1).split(",")[:-1]]
+    typed = m.group(2)
+    if not typed.endswith(prefix):
+        return None
+    pos = len(given)
+    # schon angegebene Argumente schränken ein (Variablen nicht)
+    def fits(op):
+        return all(not g or g[0].isupper() or g[0] == "_" or g == v for g, v in zip(given, op))
+
+    cands = sorted({op[pos] for op in ops if fits(op)}, key=lambda c: (-int(c), c) if pos == 0 else c)
+    close = ")" if pos == 2 else ","
+    # rlwrap ersetzt nur das Wort prefix: ein angefangenes symbolisches
+    # Argument ("=.") steht schon da, nur der Rest kommt dazu
+    cut = len(typed) - len(prefix)
+    return [c[cut:] + close for c in cands if c.startswith(typed)]
+
+
 # Flag als erstes Argument bzw. Wert als zweites, am Ende der Zeile
 FLAG_NAME = re.compile(r"\b(current|set)_prolog_flag\(\s*$")
 FLAG_VALUE = re.compile(r"\bset_prolog_flag\(\s*([a-z_]+)\s*,\s*$")
@@ -81,10 +122,14 @@ def with_paren(words, predicates):
     return out
 
 
-def complete(line, prefix, words, libraries, predicates=None, flags=None):
+def complete(line, prefix, words, libraries, predicates=None, flags=None, ops=None):
     """Ergänzungen für das angefangene Wort prefix am Ende von line."""
     before = line[: len(line) - len(prefix)] if line.endswith(prefix) else line
     flags = flags or {}
+    if ops:
+        r = complete_op(before + prefix, prefix, ops)
+        if r is not None:
+            return r
     m = FLAG_NAME.search(before)
     if m:
         # set_prolog_flag: nur die schreibbaren
@@ -123,10 +168,11 @@ def main():
     libraries = read_libraries()
     predicates = read_predicates()
     flags = read_flags()
+    ops = read_ops()
     f = rlwrapfilter.RlwrapFilter()
     f.help_text = "PrologEx: TAB ergänzt auch Bibliotheken und Flags"
     f.completion_handler = lambda line, prefix, words: complete(
-        line, prefix, words, libraries, predicates, flags
+        line, prefix, words, libraries, predicates, flags, ops
     )
     f.run()
 

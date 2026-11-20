@@ -15,11 +15,17 @@ defmodule PrologEx.RlwrapTest do
   # erzeugt; muss zu PrologEx passen. Neu schreiben:
   #
   #   mix run -e 'File.write!(".rlwrap_flags", PrologEx.Shell.Complete.rlwrap_flags_text())'
+  #
+  # .rlwrap_ops: die Standard-Operatoren (für current_op(P, T, N)), erzeugt;
+  # muss zu PrologEx passen. Neu schreiben:
+  #
+  #   mix run -e 'File.write!(".rlwrap_ops", PrologEx.Shell.Complete.rlwrap_ops_text())'
   use ExUnit.Case, async: true
 
   @libs ".rlwrap_libraries"
   @preds ".rlwrap_predicates"
   @flags ".rlwrap_flags"
+  @ops ".rlwrap_ops"
   @filter ".rlwrap_filter.py"
 
   test ".rlwrap_libraries: nur Bibliotheken, die es gibt" do
@@ -38,14 +44,20 @@ defmodule PrologEx.RlwrapTest do
            "#{@flags} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
   end
 
+  test ".rlwrap_ops: passt zu PrologEx" do
+    assert File.read!(@ops) == PrologEx.Shell.Complete.rlwrap_ops_text(),
+           "#{@ops} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
+  end
+
   # die Ergänzungslogik des Filters, ohne rlwrap (wenn python3 da ist)
   @check """
   import importlib.util, sys
   spec = importlib.util.spec_from_file_location("flt", sys.argv[1])
   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
   libs, preds, flags = m.read_libraries(), m.read_predicates(), m.read_flags()
+  ops = m.read_ops()
   words = ["use_module", "member", "findall", "halt", "true", "lists"]
-  c = lambda line, prefix: m.complete(line, prefix, words, libs, preds, flags)
+  c = lambda line, prefix: m.complete(line, prefix, words, libs, preds, flags, ops)
   assert c("use_mod", "use_mod") == ["use_module("]
   assert not [x for x in c("", "") if "library" in x]
   assert c("use_module(library(cl", "cl") == ["clpb)", "clpz)"], c("use_module(library(cl", "cl")
@@ -69,6 +81,12 @@ defmodule PrologEx.RlwrapTest do
   assert c("set_prolog_flag(occurs_check,", "") == ["false)", "true)", "error)"]
   assert c("set_prolog_flag(occurs_check, t", "t") == ["true)"]
   assert c("set_prolog_flag(dialect,", "") == []
+  assert c("current_op(", "")[:2] == ["1200,", "1150,"]
+  assert c("current_op(11", "11") == ["1150,", "1105,", "1100,"]
+  assert c("current_op(700, x", "x") == ["xfx,"]
+  assert c("current_op(1200, T,", "") == ["-->)", ":-)", "?-)"]
+  assert c("current_op(P, T, dyn", "dyn") == ["dynamic)"]
+  assert c("current_op(P, T, =.", "") == [".)"]
   print("ok")
   """
 
