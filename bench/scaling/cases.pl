@@ -171,6 +171,14 @@ go(retract_queue, N) :-
     forall(between(1, N, I), assertz(fact(q, I))),
     forall(between(1, N, _), (retract(fact(q, X)), Y is X + N, assertz(fact(q, Y)))).
 
+% ebenso, eigenes Prädikat, erstes Argument ungebunden: retract(q(X))
+:- dynamic(qu/1).
+case(retract_queue1, N, N).
+go(retract_queue1, N) :-
+    retractall(qu(_)),
+    forall(between(1, N, I), assertz(qu(I))),
+    forall(between(1, N, _), (retract(qu(X)), Y is X + N, assertz(qu(Y)))).
+
 case(nb_counter, N, N).
 go(nb_counter, N) :-
     nb_setval(scaling_c, 0),

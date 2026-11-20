@@ -49,4 +49,21 @@ defmodule PrologEx.RetractCostTest do
     # ein Aufbau am Anfang (vorher einer je Schritt)
     assert n >= 1 and n < 10, "#{n}"
   end
+
+  # Warteschlange aus Fakten (vorn retract, hinten assertz), @n Runden:
+  # nichts wird je retract zusammengelegt (vorher die ganze Liste je
+  # Schritt). Gezählt: src_key/1 bei gebundenem erstem Argument (vorher
+  # ~@n² für die Kandidaten), pred_entries/1 bei ungebundenem (vorher zwei
+  # je Schritt)
+  defp queue(first),
+    do:
+      "dynamic(g/2), retractall(g(_, _)), forall(between(1, #{@n}, I), assertz(g(q, I))), g(q, 1), " <>
+        "forall(between(1, #{@n}, _), (once(retract(g(#{first}, X))), Y is X + #{@n}, assertz(g(q, Y))))."
+
+  test "Warteschlange aus Fakten: retract ohne Zusammenlegen je Schritt", c do
+    n = count(c, queue("q"), :src_key)
+    assert n >= @n and n < 10 * @n, "src_key: #{n}"
+    n = count(c, queue("_"), :pred_entries)
+    assert n < 20, "pred_entries: #{n}"
+  end
 end

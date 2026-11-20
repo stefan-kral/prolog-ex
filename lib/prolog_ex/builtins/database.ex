@@ -48,11 +48,16 @@ defmodule PrologEx.Builtins.Database do
 
       {:ok, pred} ->
         check_dynamic!(key)
-        # nur Klauseln, die zum ersten Argument passen können
-        entries =
-          PrologEx.candidate_entries(pred, Compiler.args_of(PrologEx.Store.walk(h, s)), s, key)
+        # nur Klauseln, die zum ersten Argument passen können; hinten
+        # Angehängtes erst, wenn vorn nichts passt (retract_candidates/4)
+        args = Compiler.args_of(PrologEx.Store.walk(h, s))
+        {pred2, entries, back} = PrologEx.retract_candidates(pred, args, s, key)
 
-        retract_from(next_match(entries, h, b, s), key, h, b, s)
+        # zusammengelegt: dieselben Klauseln, für die folgenden retracts
+        unless PrologEx.Share.same?(pred2, pred),
+          do: PrologEx.update_db(&Map.put(&1, key, pred2))
+
+        retract_from(next_match(entries, back, h, b, s), key, h, b, s)
     end
   end
 
@@ -362,14 +367,14 @@ defmodule PrologEx.Builtins.Database do
 
   defp retract_from(:none, _key, _h, _b, _s), do: []
 
-  defp retract_from({ref, src, pairs, rest}, key, h, b, s) do
+  defp retract_from({ref, src, pairs, {rest, back}}, key, h, b, s) do
     # die gefundene Klausel entfernen (falls noch vorhanden); den
     # Schlüsselindex der Einträge nachführen
     PrologEx.update_db(fn db ->
       case Map.fetch(db, key) do
         {:ok, pred} ->
-          new = PrologEx.remove_entry(pred, ref)
-          PrologEx.eidx_removed(key, pred, new, ref, src)
+          {new, where} = PrologEx.remove_entry2(pred, ref)
+          PrologEx.eidx_removed(key, pred, new, ref, src, where)
           Map.put(db, key, new)
 
         :error ->
@@ -381,20 +386,26 @@ defmodule PrologEx.Builtins.Database do
 
     # nächste passende Klausel schon suchen: gibt es keine, ist dies die
     # letzte Lösung (deterministisch)
-    case next_match(rest, h, b, s) do
+    case next_match(rest, back, h, b, s) do
       :none -> [res]
       found -> [res | fn -> retract_from(found, key, h, b, s) end]
     end
   end
 
-  # erste Klausel im Schnappschuss, die zu (H :- B) passt
-  defp next_match([], _h, _b, _s), do: :none
+  # erste Klausel im Schnappschuss, die zu (H :- B) passt; back: die hinten
+  # angehängten ({hinten_umgekehrt, Schlüssel}), erst nach den vorderen
+  defp next_match([], nil, _h, _b, _s), do: :none
 
-  defp next_match([{ref, {ch, cb} = src, _} | rest], h, b, s) do
+  defp next_match([], {back, k}, h, b, s),
+    do: next_match(PrologEx.back_candidates(back, k), nil, h, b, s)
+
+  defp next_match([{ref, {ch, cb} = src, _} | rest], back, h, b, s) do
     {_, "$clause", [ch2, cb2]} = PrologEx.copy_fresh({:struct, "$clause", [ch, cb]}, %{})
     pairs = [{h, ch2}, {b, cb2}]
 
-    if unify_all(pairs, s), do: {ref, src, pairs, rest}, else: next_match(rest, h, b, s)
+    if unify_all(pairs, s),
+      do: {ref, src, pairs, {rest, back}},
+      else: next_match(rest, back, h, b, s)
   end
 
   defp matches?(h, ch, s) do

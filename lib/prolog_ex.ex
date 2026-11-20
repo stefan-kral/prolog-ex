@@ -1729,33 +1729,118 @@ defmodule PrologEx do
   # sie eine Variable an erster Stelle (sie steht dann in jeder
   # Schlüsselliste) oder hat das Prädikat Wächter: wie bisher {:stale, ...}.
   # Entfernen kann keine Fassung ungültig machen (nur Anhängen kann das).
-  def remove_entry({:pred, all, by_key, var_only, entries} = pred, ref) when is_list(var_only) do
-    case drop_pair(flat(entries), flat(all), ref, [], []) do
-      {:ok, entries2, all2, c} ->
+  # Aufgeschobenes Anhängen ({:cat, vorn, hinten_umgekehrt} in Einträgen und
+  # Liste aller, gleich geformt) bleibt aufgeschoben: entfernt wird vorn
+  # oder hinten, nichts zusammengelegt.
+  #
+  # remove_entry/2: das neue Prädikat. remove_entry2/2: {neu, wo} mit wo =
+  # :front, wenn genau dieser Eintrag aus dem vorderen Teil (parts/1) ging
+  # und der Rest vorn derselbe blieb – nur dann darf der Schlüsselindex
+  # nachgeführt werden (eidx_removed/5); sonst bleibt er unberührt und
+  # prüft sich beim nächsten Zugriff selbst (Identität der Liste).
+  def remove_entry(pred, ref), do: elem(remove_entry2(pred, ref), 0)
+
+  @doc false
+  def remove_entry2({:pred, all, by_key, var_only, entries} = pred, ref) when is_list(var_only) do
+    case drop_pair_cat(entries, all, ref) do
+      {:ok, entries2, all2, c, where} ->
         k = elem(c, 1)
 
         with false <- any_key?(k),
              {:ok, l} <- Map.fetch(by_key, k),
              {:ok, l2} <- drop_same(l, c, []) do
           by_key = if l2 == [], do: Map.delete(by_key, k), else: Map.put(by_key, k, l2)
-          {:pred, all2, by_key, var_only, entries2}
+          {{:pred, all2, by_key, var_only, entries2}, where}
         else
-          _ -> {:stale, entries2, []}
+          # flach: vorn ist nur dann der alte Rest, wenn nichts hinten lag
+          _ ->
+            {{:stale, flat(entries2), []},
+             if(is_list(entries2) and where == :front, do: :front, else: :other)}
         end
 
       :error ->
-        pred
+        {pred, :other}
     end
   end
 
-  def remove_entry(pred, ref) do
-    # hinten angehängte Klauseln einmal nach vorn holen, damit folgende
-    # retracts (und ihre Schnappschüsse) wieder O(1) beginnen
+  # Warteschlange (vorn, hinten umgekehrt): aus vorn oder hinten entfernen,
+  # nicht zusammenlegen – sonst kostete jedes retract nach einem assertz
+  # O(n) (eine Warteschlange aus Fakten: vorn retract, hinten assertz).
+  # Zusammengelegt wird erst, wenn vorn nichts mehr passt
+  # (retract_candidates/4).
+  def remove_entry2({:stale, front, back} = pred, ref) do
+    case drop_ref(front, ref, []) do
+      {:ok, f2} ->
+        {{:stale, f2, back}, :front}
+
+      :error ->
+        case drop_ref(back, ref, []) do
+          {:ok, b2} -> {{:stale, front, b2}, :other}
+          :error -> {pred, :other}
+        end
+    end
+  end
+
+  # angefügte Klauseln vorn oder hinten, sonst im übersetzten Prädikat
+  def remove_entry2({:pending, p, fr, bk} = pred, ref) do
+    case drop_ref(fr, ref, []) do
+      {:ok, fr2} ->
+        {{:pending, p, fr2, bk}, :other}
+
+      :error ->
+        case remove_entry2(p, ref) do
+          {{:pred, _, _, _, _} = p2, where} ->
+            if PrologEx.Share.same?(p2, p) do
+              case drop_ref(bk, ref, []) do
+                {:ok, bk2} -> {{:pending, p, fr, bk2}, :other}
+                :error -> {pred, :other}
+              end
+            else
+              {{:pending, p2, fr, bk}, where}
+            end
+
+          {stale, where} ->
+            {[], f, b} = parts(stale)
+            {{:stale, fr ++ f, bk ++ b}, if(fr == [], do: where, else: :other)}
+        end
+    end
+  end
+
+  def remove_entry2(pred, ref) do
     entries = pred_entries(pred)
 
     case drop_ref(entries, ref, []) do
-      {:ok, rest} -> {:stale, rest, []}
-      :error -> {:stale, entries, []}
+      {:ok, rest} -> {{:stale, rest, []}, :other}
+      :error -> {{:stale, entries, []}, :other}
+    end
+  end
+
+  # wie drop_pair, auch in aufgeschobenen Listen ({:cat, vorn, hinten_rev})
+  # Ergebnis {:ok, einträge, alle, klausel, wo} (wo: :front, wenn vorn)
+  defp drop_pair_cat({:cat, el, er}, {:cat, al, ar}, ref) do
+    case drop_pair(el, al, ref, [], []) do
+      {:ok, el2, al2, c} ->
+        {:ok, {:cat, el2, er}, {:cat, al2, ar}, c, :front}
+
+      :error ->
+        case drop_pair(er, ar, ref, [], []) do
+          {:ok, er2, ar2, c} -> {:ok, {:cat, el, er2}, {:cat, al, ar2}, c, :other}
+          :error -> :error
+        end
+    end
+  end
+
+  defp drop_pair_cat(entries, all, ref) when is_list(entries) and is_list(all) do
+    case drop_pair(entries, all, ref, [], []) do
+      {:ok, e2, a2, c} -> {:ok, e2, a2, c, :front}
+      :error -> :error
+    end
+  end
+
+  defp drop_pair_cat(entries, all, ref) do
+    case drop_pair(flat(entries), flat(all), ref, [], []) do
+      {:ok, e2, a2, c} -> {:ok, e2, a2, c, :other}
+      :error -> :error
     end
   end
 
@@ -1797,32 +1882,82 @@ defmodule PrologEx do
   # pkey ({modul, name, stelligkeit}, sonst nil): mit ihm der Schlüsselindex
   # der Einträge (entry_index/2), sonst linear
   def candidate_entries(pred, args, subst, pkey \\ nil) do
-    case args do
-      [x | _] ->
-        case Store.walk(x, subst) do
-          {:var, _} ->
-            pred_entries(pred)
-
-          # nach dem Kopf der Quelle, nicht dem übersetzten Schlüssel: der
-          # kann genauer sein (V = T am Anfang ist in den Kopf gewandert)
-          t ->
-            k = index_key(t)
-
-            case pkey && stable_entries(pred) do
-              entries when is_list(entries) ->
-                case entry_index(pkey, entries) do
-                  :none -> by_src_key(entries, k)
-                  idx -> Map.get(idx, k, [])
-                end
-
-              _ ->
-                by_src_key(pred_entries(pred), k)
-            end
-        end
-
-      [] ->
+    case first_key(args, subst) do
+      :all ->
         pred_entries(pred)
+
+      k ->
+        {extra, front, back} = parts(pred)
+        front_candidates(pkey, extra, front, k) ++ back_candidates(back, k)
     end
+  end
+
+  # Schlüssel des ersten Arguments, :all wenn ungebunden (oder nullstellig).
+  # Nach dem Kopf der Quelle, nicht dem übersetzten Schlüssel: der kann
+  # genauer sein (V = T am Anfang ist in den Kopf gewandert)
+  defp first_key([x | _], subst) do
+    case Store.walk(x, subst) do
+      {:var, _} -> :all
+      t -> index_key(t)
+    end
+  end
+
+  defp first_key([], _subst), do: :all
+
+  @doc false
+  # retract/1: Kandidaten {Prädikat, vorn, hinten}. Vorn: die Kandidaten vor
+  # den hinten angehängten (über den Schlüsselindex, ohne Kopie der Liste);
+  # hinten: {hinten_umgekehrt, Schlüssel} für back_candidates/2, erst
+  # gebraucht, wenn vorn nichts passt (nil: keine). Passt vorn nichts mehr,
+  # aber hinten liegt etwas: einmal zusammenlegen (das Prädikat im Ergebnis
+  # ist dann ein anderes, gleich in Klauseln und Reihenfolge; der Aufrufer
+  # schreibt es zurück) – das kostet O(n), kommt aber erst wieder, wenn
+  # vorn erneut leer ist: amortisiert O(1) je retract.
+  def retract_candidates(pred, args, subst, pkey) do
+    k = first_key(args, subst)
+    {extra, front, back} = parts(pred)
+    fc = front_candidates(pkey, extra, front, k)
+
+    cond do
+      back == [] ->
+        {pred, fc, nil}
+
+      fc == [] ->
+        merged = {:stale, extra ++ front ++ :lists.reverse(back), []}
+        {merged, front_candidates(pkey, [], elem(merged, 1), k), nil}
+
+      true ->
+        {pred, fc, {back, k}}
+    end
+  end
+
+  @doc false
+  def back_candidates([], _k), do: []
+  def back_candidates(back, :all), do: :lists.reverse(back)
+  def back_candidates(back, k), do: by_src_key(:lists.reverse(back), k)
+
+  defp front_candidates(_pkey, extra, front, :all), do: extra ++ front
+
+  defp front_candidates(pkey, extra, front, k) do
+    fc =
+      case pkey && entry_index(pkey, front) do
+        idx when is_map(idx) -> Map.get(idx, k, [])
+        _ -> by_src_key(front, k)
+      end
+
+    if extra == [], do: fc, else: by_src_key(extra, k) ++ fc
+  end
+
+  # die Einträge als {vorn_extra, vorn, hinten_umgekehrt}, Reihenfolge
+  # extra ++ vorn ++ reverse(hinten); vorn steht so im Prädikat (physisch
+  # dieselbe Liste bei jedem Zugriff: der Schlüsselindex gilt für sie)
+  defp parts({:pred, _, _, _, {:cat, l, r}}), do: {[], l, r}
+  defp parts({:pred, _, _, _, l}), do: {[], l, []}
+  defp parts({:stale, front, back}), do: {[], front, back}
+
+  defp parts({:pending, p, fr, bk}) do
+    {[], l, r} = parts(p)
+    {fr, l, bk ++ r}
   end
 
   defp by_src_key(entries, k),
@@ -1839,13 +1974,11 @@ defmodule PrologEx do
   # Weg (assert, neu laden, retractall, ...) gibt eine neue Liste und baut
   # ihn neu. retract führt ihn selbst nach (eidx_removed/5). Nur für
   # Prädikate ohne Variable an erster Stelle im Kopf (:none, dann linear)
-  # und nur für Listen, die im Prädikat selbst stehen (stable_entries/1;
-  # sonst entstünde bei jedem Zugriff eine neue).
+  # und nur für den vorderen Teil, der im Prädikat selbst steht (parts/1;
+  # hinten Angehängtes wird gefiltert, bis es nach vorn kommt).
   @eidx_key :"$eidx"
 
-  defp stable_entries({:pred, _, _, _, l}) when is_list(l), do: l
-  defp stable_entries({:stale, front, []}), do: front
-  defp stable_entries(_), do: nil
+  defp stable_entries(pred), do: elem(parts(pred), 1)
 
   defp entry_index(pkey, entries) do
     case :erlang.get({@eidx_key, pkey}) do
@@ -1874,9 +2007,12 @@ defmodule PrologEx do
 
   @doc false
   # nach retract: aus old (Prädikat vorher) wurde new, ohne den Eintrag ref
-  # (Quelltext src); galt der Index für old, gilt er nun – nachgeführt – für
-  # new
-  def eidx_removed(pkey, old, new, ref, src) do
+  # (Quelltext src) aus dem vorderen Teil (:front, remove_entry2/2); galt
+  # der Index für old, gilt er nun – nachgeführt – für new. Sonst (:other)
+  # nichts: der Index prüft sich beim nächsten Zugriff selbst
+  def eidx_removed(_pkey, _old, _new, _ref, _src, :other), do: :ok
+
+  def eidx_removed(pkey, old, new, ref, src, :front) do
     with old_entries when is_list(old_entries) <- stable_entries(old),
          new_entries when is_list(new_entries) <- stable_entries(new),
          {cached, idx} when is_map(idx) <- :erlang.get({@eidx_key, pkey}),

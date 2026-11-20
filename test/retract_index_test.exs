@@ -132,4 +132,53 @@ defmodule PrologEx.RetractIndexTest do
     ask(c, "assertz(n0), n0, assertz(n0), n0")
     assert is_list(PrologEx.current_db() |> Map.fetch!({"user", "n0", 0}) |> elem(1))
   end
+
+  # Schlüsselindex der Einträge (retract/1, retractall/1): nachgeführt nur,
+  # wenn ein retract genau einen Eintrag vorn entfernt. Fällt es auf die
+  # flache Form zurück (hier: Klausel mit Variable an erster Stelle), kommt
+  # hinten Angehängtes nach vorn – mit dem alten Index daran fehlte
+  # retractall/1 danach eine passende Klausel (gefunden mit einem
+  # Vergleich zufälliger Operationsfolgen gegen den vorigen Stand)
+  test "retract mit Rückfall auf die flache Form: Index bleibt vollständig", c do
+    ask(c, "retractall(r(_, _)), assertz(r(1, a)), assertz(r(2, b)), r(1, _)")
+    # hinten: eine Klausel mit Variable im Quelltext-Kopf (übersetzt mit
+    # Schlüssel 7) und eine mit Variable an erster Stelle
+    ask(c, "assertz((r(X, c) :- X = 7)), assertz(r(_, d)), r(1, _)")
+    # vorn entfernen (Index entsteht), dann die Klausel mit Variable vorn
+    assert ask(c, "retract(r(1, a))") == ["true"]
+    assert ask(c, "retract(r(_, d))") == ["true"]
+    assert ask(c, "retractall(r(7, _)), findall(K-V, r(K, V), L)") == ["L = [2-b]"]
+  end
+
+  # Warteschlange aus Fakten: vorn retract, hinten assertz – dieselben
+  # Lösungen in derselben Reihenfolge wie SWI. Mit once/1 eine
+  # Warteschlange; ohne setzt findall/3 auch in retract/1 zurück, das dann
+  # den ganzen Schnappschuss (5 Fakten) zurückzieht: 12 × 5
+  test "Warteschlange aus Fakten mit und ohne gebundenes erstes Argument", c do
+    for {fill, re, as, rest} <- [
+          {"assertz(r(q, I))", "once(retract(r(q, X)))", "assertz(r(q, Y))",
+           "findall(V, r(q, V), Rest)"},
+          {"assertz(r(I, x))", "once(retract(r(X, _)))", "assertz(r(Y, x))",
+           "findall(K, r(K, _), Rest)"}
+        ] do
+      a =
+        ask(c, """
+        retractall(r(_, _)), forall(between(1, 5, I), #{fill}),
+        findall(X, (between(1, 12, _), #{re}, Y is X + 5, #{as}), Xs), #{rest}
+        """)
+
+      assert a == ["Rest = [13,14,15,16,17], Xs = [1,2,3,4,5,6,7,8,9,10,11,12]"]
+    end
+
+    [b] =
+      ask(c, """
+      retractall(r(_, _)), forall(between(1, 5, I), assertz(r(q, I))),
+      findall(X, (between(1, 12, _), retract(r(q, X)), Y is X + 5, assertz(r(q, Y))), Xs),
+      length(Xs, N), last(Xs, La), findall(V, r(q, V), Rest)
+      """)
+
+    assert b =~ "N = 60"
+    assert b =~ "La = 60"
+    assert b =~ "Rest = [61,62,63,64,65]"
+  end
 end

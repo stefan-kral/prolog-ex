@@ -735,11 +735,15 @@ Schlüsselindex der Einträge und nimmt sie aus dem übersetzten Index
 heraus, ohne ihn neu zu bauen: eine Schleife `retract(f(I, _))` über
 20 000 Fakten 2,6 s → 0,2 s, `retract` im Wechsel mit Aufrufen (etwa
 `retract(unbesucht(X))` in einer Graphensuche) bei 10 000 Fakten 43 s →
-0,13 s, beides jetzt linear (`test/retract_cost_test.exs`). Abwechselnd
-`assertz` und Aufruf bleibt quadratisch (Kopie der Klauselliste, klein:
-8000 Runden ≈ 0,4 s), ebenso eine Warteschlange aus Fakten mit einem
-gemeinsamen Schlüssel (vorn `retract`, hinten `assertz`: 10 000 Runden
-4,7 s, SWI 19 ms).
+0,13 s, beides jetzt linear (`test/retract_cost_test.exs`). Eine
+Warteschlange aus Fakten (vorn `retract`, hinten `assertz`, wie in einer
+Breitensuche, mit oder ohne gebundenes erstes Argument) ist ebenfalls
+linear: `retract` entfernt vorn oder hinten, ohne die Klauseln
+zusammenzulegen, und die hinten angehängten kommen erst in Betracht, wenn
+vorn keine mehr passt; zusammengelegt wird erst dann (amortisiert O(1)).
+10 000 Runden 4,7 s → 0,09 s, 320 000 Runden 3,9 s (SWI 1,6 s).
+Abwechselnd `assertz` und Aufruf bleibt quadratisch (Kopie der
+Klauselliste, klein: 8000 Runden ≈ 0,4 s).
 
 Zahlen im Quelltext: Zifferntrenner wie von WG17 2025 angenommen
 (`1_000_000`; nach `_` darf Layout-Text folgen, also Leerraum, Zeilenumbruch
@@ -4944,7 +4948,7 @@ reinen Fälle: ein Durchlauf (16 Fragen) braucht hier 72 ms, in SWI
 ### Skalierung
 
 `bench/scaling` prüft, ob eine Operation mit der Datengröße so wächst,
-wie sie soll: 40 Fälle (Listen, Sortieren, Terme, Atome, Datenbank,
+wie sie soll: 41 Fälle (Listen, Sortieren, Terme, Atome, Datenbank,
 globale Variablen, assoc, Ausnahmen, dif/freeze) je bei N, 2N, 4N, …
 (ab 10 000, bis 1,28 Mio. oder bis eine Messung 1,5 s übersteigt), in
 PrologEx und SWI. `report.py` schätzt daraus den Exponenten k (Zeit ~
