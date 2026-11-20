@@ -385,6 +385,55 @@ defmodule PrologEx.LindaTest do
     assert_receive {:other, ["true"]}, 5000
   end
 
+  test "Server in einem anderen Betriebssystemprozess stirbt: Wartende bekommen einen Fehler",
+       c do
+    lib = to_string(:code.lib_dir(:prolog_ex))
+    [_, host] = String.split(c.addr, "@")
+    name = "fremd_#{System.unique_integer([:positive])}@#{host}"
+
+    goal =
+      "use_module(library(linda)), linda('#{name}'-true), linda_client('#{name}'), in(quit)"
+
+    port =
+      Port.open({:spawn_executable, System.find_executable("elixir")}, [
+        :binary,
+        :exit_status,
+        args: [
+          "-pa",
+          Path.join(lib, "consolidated"),
+          "-pa",
+          Path.join(lib, "ebin"),
+          "-e",
+          "System.halt(PrologEx.Toplevel.main(System.argv()))",
+          "--",
+          "-q",
+          "-g",
+          goal,
+          "-g",
+          "halt"
+        ]
+      ])
+
+    {:os_pid, os_pid} = Port.info(port, :os_pid)
+    ask(c, "close_client")
+    # warten, bis der fremde Server läuft
+    connect = "catch(linda_client('#{name}'), error(existence_error(_, _), _), fail)"
+
+    assert Enum.any?(1..100, fn _ ->
+             ask(c, connect) == ["true"] or (Process.sleep(100) && false)
+           end)
+
+    spawn(fn ->
+      Process.sleep(300)
+      System.cmd("kill", ["-9", to_string(os_pid)])
+    end)
+
+    assert err(c, "in(nie)") == ["E = existence_error(linda_server,'#{name}')"]
+    # die Verbindung ist zu
+    assert err(c, "out(x)") == ["E = existence_error(linda_client,none)"]
+    assert_receive {^port, {:exit_status, _}}, 5000
+  end
+
   test "shutdown_server: keine neuen Clients, Ende nach dem letzten", c do
     pid = Process.whereis(:prolog_ex_linda)
     ref = Process.monitor(pid)
