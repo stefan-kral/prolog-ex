@@ -33,6 +33,7 @@ http/http_server
 http/json
 iso_ext
 lambda
+linda
 lists
 memo
 mutables

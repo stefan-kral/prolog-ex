@@ -56,6 +56,8 @@ automaton 3 8
 b_getval 2
 b_setval 2
 bagof 3
+bagof_in_noblock 3
+bagof_rd_noblock 3
 bb_b_put 2
 bb_delete 2
 bb_get 2
@@ -118,6 +120,7 @@ circuit 1
 clause 2
 clausex 2
 close 1 2
+close_client 0
 clpz_listing 0 1
 clpz_t 2
 clumped 2
@@ -317,7 +320,8 @@ if 3
 if_ 3
 ignore 1
 illarg 3 4
-in 2
+in 1 2
+in_noblock 1
 include 3 4 5
 increasing_prefix 3 4
 indomain 1
@@ -358,6 +362,9 @@ lcm 3
 length 2
 lex_chain 1
 limit 2
+linda 0 1
+linda_client 1
+linda_timeout 1 2
 line_count 2
 line_position 2
 list_frequencies 2
@@ -477,6 +484,7 @@ order_by 2
 ordered 1 2
 ordset_order 3
 otherwise 0
+out 1
 pairs_keys 2
 pairs_keys_values 3
 pairs_values 2
@@ -591,6 +599,8 @@ rb_size 2
 rb_update 4 5
 rb_visit 2
 rb_visit_range 4
+rd 1 2
+rd_noblock 1
 re 3 4 5
 re_compile 3
 re_config 1
@@ -661,6 +671,7 @@ shadow_price 3
 shell 1 2
 shift 1
 shorter_list 2
+shutdown_server 0
 singleton_heap 3
 singleton_queue 2
 skewness 2

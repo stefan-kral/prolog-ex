@@ -4154,6 +4154,77 @@ also ab etwa 0,1 ms Arbeit je Element.
 
 Zum Ausprobieren: `mix prolog examples/concurrent.pl -g main -q -g halt`.
 
+## Tupelraum: `library(linda)`
+
+Linda wie bei SICStus (`library(linda/server)`, `library(linda/client)` – unter
+diesen Namen gibt es auch die beiden Teile), dazu `bagof_in_noblock/3` und
+`linda_timeout/1` aus SWI. Ein Server hält den Tupelraum; Clients legen Tupel
+ab (`out/1`), lesen sie (`rd/1`) oder nehmen sie heraus (`in/1`) – `in` und
+`rd` warten, bis ein passendes Tupel da ist. So koordinieren sich Prozesse
+ohne gemeinsamen Speicher: Erzeuger und Verbraucher, Semaphore, Arbeitslisten.
+
+Server und Clients reden über die **Erlang-Distribution** (statt TCP mit
+eigenem Format wie SICStus): jede beteiligte PrologEx-Sitzung wird dafür zum
+Knoten der BEAM, auf einem Rechner oder auf mehreren. Die Adresse ist ein
+Knotenname wie `'linda_4711@rechner'` (statt `Host:Port`). PrologEx startet
+dabei nötigenfalls `epmd` (den Namensdienst der BEAM, wie `erl -sname`; er
+läuft danach weiter). Die Knoten brauchen dasselbe Cookie: auf einem Rechner
+und mit demselben Benutzer von selbst (`~/.erlang.cookie`), sonst diese Datei
+auf alle Rechner kopieren. Kurznamen (`-sname`), außer der Rechnername
+enthält einen Punkt (dann lange Namen, `-name`).
+
+```prolog
+% Sitzung 1: Server (und selbst Client)
+?- use_module(library(linda)), linda.
+'linda_4711@rechner'
+?- linda_client('linda_4711@rechner'), in(ergebnis(X)).   % wartet ...
+X = 42.
+
+% Sitzung 2: ein Client
+?- use_module(library(linda)), linda_client('linda_4711@rechner').
+?- out(ergebnis(42)).
+```
+
+| Prädikat | Bedeutung |
+|---|---|
+| `linda` | Server starten, Adresse ausgeben (`writeq`). Kehrt gleich zurück, der Server läuft im Hintergrund (SICStus wartet in `linda/0`, bis er endet) |
+| `linda(Address-Goal)` | ebenso, ohne Ausgabe: `Address` wird die Adresse (gebunden: so soll der Knoten heißen), dann `Goal`; auch `[Address-Goal]` oder nur ein Ziel (SWI) |
+| `linda_client(Address)` / `close_client` | verbinden / trennen; höchstens eine Verbindung je Sitzung |
+| `shutdown_server` | keine neuen Clients mehr; der Server endet, wenn der letzte getrennt hat |
+| `out(T)` | Tupel ablegen |
+| `in(T)`, `rd(T)` | passendes Tupel herausnehmen bzw. lesen; wartet |
+| `in_noblock(T)`, `rd_noblock(T)` | ebenso, scheitert sofort, wenn keins da ist |
+| `in(Ts, T)`, `rd(Ts, T)` | das erste verfügbare zu einem der Muster in `Ts`; passt es nicht zu `T`: Scheitern, bei `in` bleibt es trotzdem draußen (wie SICStus) |
+| `bagof_rd_noblock(Tmpl, T, Bag)` | wie `bagof/3` über alle passenden Tupel, auf einmal gelesen (`V^T` wie bei `bagof`) |
+| `bagof_in_noblock(Tmpl, T, Bag)` | ebenso, nimmt alle passenden heraus (SWI) |
+| `linda_timeout(Old, New)` | Zeitgrenze für Antworten des Servers: `off` (Vorgabe) oder `Sekunden:Millisekunden`; gerissen: das Prädikat scheitert. `New` offen: nur abfragen |
+| `linda_timeout(New)` | vorübergehend (SWI): das Alte gilt wieder beim Cut, beim Backtracking, bei einer Ausnahme |
+
+* **Passen** heißt unifizierbar; Tupel dürfen Variablen enthalten (Kopien
+  mit frischen Variablen, ohne Attribute). Gefunden wird das älteste passende
+  Tupel. Ein neues Tupel bekommen erst alle wartenden `rd`, zu denen es passt,
+  dann nimmt es das erste wartende `in` (in der Reihenfolge des Wartens).
+* **Warten** hat keine Zeitgrenze (`linda_timeout/2` gilt für die Antwort des
+  Servers, nicht für das Warten auf ein Tupel). Ctrl-C und
+  `call_with_time_limit/2` brechen es ab (nachgesehen alle 100 ms). Ein
+  Tupel geht dabei nicht verloren: der Server merkt ein herausgenommenes
+  Tupel erst vor, bis der Client es bestätigt; bricht er vorher ab oder endet
+  sein Prozess (auch die ganze Sitzung), kommt es an seine alte Stelle zurück.
+* **Fehler:** Server nicht (mehr) da: `existence_error(linda_server,
+  Address)`, die Verbindung ist dann zu; ohne Verbindung:
+  `existence_error(linda_client, none)`; zweite Verbindung oder zweiter
+  Server: `permission_error(create, linda_client | linda_server, Address)`.
+* Alle Operationen sind äußere Wirkungen: der Toplevel rechnet sie nicht
+  voraus, in `library(concurrent)` und `call_with_no_side_effects/1` sind sie
+  verboten.
+* **Server als eigener Prozess** (ohne Terminal, bis ein Client `out(quit)`
+  ablegt):
+
+  ```sh
+  start_ex -q -g "use_module(library(linda)), linda('tupel@rechner'-true), \
+                  linda_client('tupel@rechner'), in(quit)" -g halt &
+  ```
+
 ## Coroutining
 
 `freeze/2`, `frozen/2`, `dif/2`, `when/2` (Bedingungen `nonvar/1`,

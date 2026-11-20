@@ -31,6 +31,17 @@ defmodule PrologEx.Stop do
     end
   end
 
+  @doc """
+  Sofort prüfen (ohne Zähler): für Builtins, die blockierend warten
+  (library(linda)) und dabei regelmäßig nachsehen
+  """
+  def poll! do
+    case Process.get(@key) do
+      nil -> :ok
+      {d, ref, _} -> check!(d, ref)
+    end
+  end
+
   defp check!(d, ref) do
     if (d != nil and System.monotonic_time(:microsecond) >= d) or
          (ref != nil and :atomics.get(ref, 1) != 0) do

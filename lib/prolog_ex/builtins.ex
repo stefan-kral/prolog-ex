@@ -92,6 +92,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Tabling,
     PrologEx.Builtins.SideEffects,
     PrologEx.Builtins.Concurrent,
+    PrologEx.Builtins.Linda,
     PrologEx.Builtins.OS,
     PrologEx.Builtins.Crypto,
     PrologEx.Builtins.Tls,
@@ -211,7 +212,9 @@ defmodule PrologEx.Builtins do
          see/1 seen/0 tell/1 told/0 append/1),
     "external" => ~w(halt/0 halt/1 delete_file/1 $shell/2 $setenv/2 $unsetenv/1 $process_create/8
          $process_kill/1 $process_release/1 $process_wait/3 $http_accept/7 $http_answer/4
-         $http_answer/5 $http_listen/5 $http_listen_stop/1 $http_open/7 $http_send_file/4),
+         $http_answer/5 $http_listen/5 $http_listen_stop/1 $http_open/7 $http_send_file/4
+         $linda_start/1 $linda_connect/1 $linda_close/0 $linda_shutdown/0 $linda_out/1
+         $linda_in/3 $linda_rd/3 $linda_all/3),
     "memo" => ~w($memo_lookup/3 $memo_store/2 $memo_drop/1 $memo_abolish/1),
     "tabling" => ~w($tbl_lookup/4 $tbl_abolish/1),
     "random" => ~w($clpb_random_bindings/2)
