@@ -6704,11 +6704,19 @@ defmodule PrologEx do
   defp compact_rebuild([{:link, var} | rest], t, {memo, size, attvs}, _ch, g),
     do: compact_rebuild(rest, t, {Map.put(memo, var, {t, g}), size, attvs}, true, g)
 
-  defp compact_rebuild([{:cell, l, h2, ch, gh} | rest], t2, {memo, size, attvs} = acc, ct, gt) do
+  # Jede Zelle zählt als Kosten, auch eine ground: markiert wird nur eine
+  # ganz ground Liste, der ground Rest einer Liste mit nicht-ground Anfang
+  # läuft beim nächsten Mal wieder durch (eine Fortsetzung über einen links
+  # tiefen Baum: N ground Ziele hinter wenigen offenen – ungezählt blieb die
+  # Schwelle klein, jede Kompaktierung lief über die ganze Liste: Same
+  # Fringe quadratisch)
+  defp compact_rebuild([{:cell, l, h2, ch, gh} | rest], t2, {memo, size, attvs}, ct, gt) do
+    acc = {memo, size + 1, attvs}
+
     cond do
       gh and gt -> compact_rebuild(rest, cons(h2, t2), acc, true, true)
-      ch or ct -> compact_rebuild(rest, [h2 | t2], {memo, size + 1, attvs}, true, false)
-      true -> compact_rebuild(rest, l, {memo, size + 1, attvs}, false, false)
+      ch or ct -> compact_rebuild(rest, [h2 | t2], acc, true, false)
+      true -> compact_rebuild(rest, l, acc, false, false)
     end
   end
 

@@ -384,6 +384,14 @@ Ein Prolog-Kern in Elixir:
   `length(L, 1000000)` als Antwort 161 → 52 MB im Prozess (so viel wie
   die Liste selbst) und 2,8 → 0,8 s; 10⁶ Paare `X-_` aus `findall/3` als
   Antwort 545 → 300 MB.
+  Als Kosten zählt dabei jede durchlaufene Listenzelle, auch eine ground:
+  markiert (und danach übersprungen) wird nur eine ganz ground Liste, der
+  ground Rest hinter einem offenen Anfang läuft jedes Mal wieder durch.
+  Ungezählt blieb die Schwelle bei solchen Termen klein (eine Fortsetzung
+  über einen links tiefen Baum: N ground Ziele hinter wenigen offenen), und
+  jede Kompaktierung lief über die ganze Liste – Same Fringe über 64 000
+  Blätter 4,2 → 1,5 s, die Zahl der durchlaufenen Zellen wuchs mit dem
+  Quadrat der Blätter (`test/compact_cost_test.exs`).
   Wenige Bindungen können aber große Terme halten: eine `findall/3`-Liste
   aus 10⁶ Elementen ist eine einzige. Vor einer Unter-Maschine
   (`findall/3,4`, `aggregate_all/3`, `findnsols/4,5`, `countall/2`) wird
@@ -1860,8 +1868,10 @@ ist jeweils am Dateianfang vermerkt.
   `library(cont)`). Eine laufende Fortsetzung wird Ziel für Ziel
   ausgepackt; ein `shift/1` darin übernimmt ihren offenen Rest geteilt, ohne
   ihn zu kopieren – so bleibt etwa Same Fringe auf einem links tiefen Baum
-  linear (4000 Blätter: 73 ms; Scryer 2,3 s, Trealla 0,7 s, SWI 5 ms), und
-  ein Generator braucht konstanten Speicher. Beispiele (Generatoren,
+  linear in Zeit und Speicher (Blätter 4000/16 000/64 000: 72/340/1536 ms,
+  +26 MB bei 16 000; SWI 4/18/73 ms; Scryer und Trealla quadratisch:
+  4000 Blätter 2,5 s und 0,7 s, 8000 schon 1,96 und 4,5 GB, 16 000 über
+  6 GB), und ein Generator braucht konstanten Speicher. Beispiele (Generatoren,
   Primzahlsieb als Strom, List Comprehension, Same Fringe, Zustand als
   Effekt) mit Vergleich gegen SWI, Scryer und Trealla: `bench/cont`
   (`run.sh` für Ergebnisse und Laufzeit, `mem.py` für den Speicher). Choice Points des Ziels vor `shift/1` bleiben wie bei Scryer und
