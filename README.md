@@ -459,6 +459,10 @@ rlwrap`); alle Argumente gehen an `mix prolog`:
 ./start_ex examples/demo.pl
 ```
 
+  * Aus jedem Verzeichnis startbar (`~/dev/prolog-ex/start_ex meins.pl`):
+    mix läuft im Projektverzeichnis, Prolog im Aufrufverzeichnis –
+    Dateien auf der Kommandozeile, `consult/1` und `working_directory/2`
+    beziehen sich auf dieses (`start_ex` übergibt es in `PROLOG_EX_CWD`).
   * Zeilenbearbeitung und Verlauf von rlwrap, TAB ergänzt die Wörter aus
     `.rlwrap_completions` (eine Datei im Projekt, ein Wort je Zeile).
   * Ctrl-D beendet `[user]` bzw. die Sitzung.
