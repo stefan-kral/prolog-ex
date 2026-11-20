@@ -1,0 +1,799 @@
+abnf_alpha 3
+abnf_bit 3
+abnf_char 3
+abnf_cr 2
+abnf_crlf 2
+abnf_ctl 3
+abnf_digit 3
+abnf_dquote 2
+abnf_hexdig 3
+abnf_htab 2
+abnf_lf 2
+abnf_lwsp 2
+abnf_octet 3
+abnf_sp 2
+abnf_vchar 3
+abnf_wsp 2
+abolish 1
+abolish_all_tables 0
+abolish_memo 0 1
+acyclic_term 1
+add_edges 3
+add_to_heap 4
+add_vertices 3
+aggregate 3 4
+aggregate_all 3 4
+all_different 1
+all_distinct 1
+alpha_to_lower 3
+append 1 2 3 5
+append_length 3 4
+append_queue 3
+arg 3
+argv 1
+assert 1
+asserta 1
+assertz 1
+assignment 2
+assoc_to_keys 2
+assoc_to_list 2
+assoc_to_values 2
+at_end_of_stream 0 1
+atom 1 3
+atom_chars 2
+atom_codes 2
+atom_concat 3
+atom_json_term 3
+atom_length 2
+atom_number 2
+atom_si 1
+atom_to_term 3
+atomic 1
+atomic_concat 3
+atomic_list_concat 2 3
+atomic_si 1
+automaton 3 8
+b_getval 2
+b_setval 2
+bagof 3
+bb_b_put 2
+bb_delete 2
+bb_get 2
+bb_put 2
+bb_update 3
+between 3
+binomial 3
+bit_is_set 2
+blank 2
+blanks 2
+blanks_to_nl 2
+bytes 1
+bytes_and 3
+bytes_at 3
+bytes_base64 2
+bytes_bit 3
+bytes_concat 3
+bytes_concat_list 2
+bytes_fill 3
+bytes_hex 2
+bytes_latin1 2
+bytes_length 2
+bytes_list 2
+bytes_not 2
+bytes_or 3
+bytes_popcount 2
+bytes_search 3
+bytes_set_bit 4
+bytes_to_lazy_list 3
+bytes_utf8 2
+bytes_xor 3
+cached_is 2
+call 1 2 3 4 5 6 7 8
+call_cleanup 2
+call_dcg 3
+call_nth 2
+call_residue_vars 2
+call_with_depth_limit 3
+call_with_error_context 2
+call_with_inference_limit 3
+call_with_memory_limit 2
+call_with_no_side_effects 1
+call_with_time_limit 2
+call_with_timeout 2 3
+callable 1
+can_be 2
+cancel_timer 0
+catch 3
+central_moment 3
+chain 2
+char_code 2
+char_conversion 2
+char_type 2
+character_count 2
+character_si 1
+chars_base64 3
+chars_si 1
+chars_utf8bytes 2
+circuit 1
+clause 2
+clausex 2
+close 1 2
+clpz_listing 0 1
+clpz_t 2
+clumped 2
+clumps 2
+code_type 2
+coefficient_of_variation 2
+commalist_append 3
+commalist_length 2
+commalist_member 2
+commalist_memberchk 2
+commalist_to_list 2
+compare 3
+compare_si 3
+complement 2
+compose 3
+compound 1
+concurrent 3
+concurrent_and 2 3
+concurrent_child 1
+concurrent_child_stack 1
+concurrent_findall 3
+concurrent_forall 2 3
+concurrent_maplist 2 3 4
+cond_t 3
+connect_ugraph 3
+cons 3
+constraint 3 4
+constraint_add 4
+consult 1
+convlist 3
+copy_term 2 3
+copy_term_nat 2
+correlation 3
+correspond 4
+countall 2
+create_mutable 2
+crypto_curve_generator 2
+crypto_curve_order 2
+crypto_curve_scalar_mult 4
+crypto_data_decrypt 6
+crypto_data_encrypt 6
+crypto_data_hash 3
+crypto_data_hkdf 4
+crypto_n_random_bytes 2
+crypto_name_curve 2
+crypto_password_hash 2 3
+csv 3 4
+csv_options 2
+csv_read_file 2 3
+csv_read_file_row 3
+csv_read_row 3
+csv_read_stream 3
+csv_write_file 2 3
+csv_write_stream 3
+csym 3
+csyms 3
+cumlist 4 5 6
+cumulative 1 2
+current_char_conversion 2
+current_gensym_base 1
+current_host 1
+current_hostname 1
+current_input 1
+current_module 1
+current_op 3
+current_output 1
+current_predicate 1
+current_prolog_flag 2
+current_time 1
+curve25519_generator 1
+curve25519_scalar_mult 3
+cyclic_term 1
+dcg_translate_rule 2
+decreasing_prefix 3 4
+del_assoc 4
+del_edges 3
+del_max_assoc 4
+del_min_assoc 4
+del_vertices 3
+delete 3 4
+delete_directory 1
+delete_file 1
+delete_from_heap 4
+dif 2 3
+dif_si 2
+digit 3
+digits 3
+directive_module 2
+directory_exists 1
+directory_files 2
+disjoint2 1
+display 1 2
+distinct 1 2
+divisors 2
+domain_error 2 3
+downcase_atom 2
+duplicate_term 2
+dynamic 1
+ed25519_keypair_public_key 2
+ed25519_new_keypair 1
+ed25519_seed_keypair 2
+ed25519_sign 4
+ed25519_verify 4
+edges 2
+element 3
+empty_assoc 1
+empty_heap 1
+empty_queue 1
+ensure_loaded 1
+eol 2
+eos 2
+evaluable_property 2
+exclude 3 4 5
+exists_directory 1
+exists_file 1
+expand_goal 2
+expand_term 2
+expmod 4
+factorial 2
+factorize 2
+fail 0
+false 0
+fast_read 1 2
+fast_term_serialized 2
+fast_write 1 2
+fd_dom 2
+fd_inf 2
+fd_size 2
+fd_sup 2
+fd_var 1
+file_access_time 2
+file_copy 2
+file_creation_time 2
+file_exists 1
+file_modification_time 2
+file_size 2
+findall 3 4
+findnsols 4 5
+first_solution 3
+flatten 2
+float 1 3
+flush_output 0 1
+foldl 4 5 6
+forall 2
+foreach 2 4 5
+format 1 2 3
+format_ 4
+format_time 4
+fractile 3
+freeze 2
+frequency_distribution 2
+frozen 2
+functor 3
+garbage_collect 0
+gen_assoc 3
+gen_int 1
+gen_nat 1
+gen_state 1
+gensym 2
+geometric_mean 2
+get_assoc 3 5
+get_atts 2
+get_byte 1 2
+get_bytes 3
+get_char 1 2
+get_code 1 2
+get_from_heap 4
+get_line_to_chars 3
+get_mutable 2
+get_n_chars 3
+get_next_assoc 4
+get_prev_assoc 4
+get_single_char 1
+get_time 1
+getenv 2
+getrand 1
+global_cardinality 2 3
+ground 1
+group 3 4 5
+group_pairs_by_key 2
+halt 0 1
+harmonic_mean 2
+head 2
+heap_size 2
+heap_to_list 2
+hex_bytes 2
+html_write 2 3
+http_basic_auth 4
+http_body 2
+http_headers 2
+http_listen 2 3
+http_open 3
+http_query 3
+http_redirect 2
+http_status_code 2
+if 3
+if_ 3
+ignore 1
+illarg 3 4
+in 2
+include 3 4 5
+increasing_prefix 3 4
+indomain 1
+ins 2
+instantiation_error 0 1
+integer 1 3
+integer_si 1
+interquartile_range 2
+intersection 3
+iroot 3
+is 2
+is_assoc 1
+is_heap 1
+is_json_term 1 2
+is_list 1
+is_ordset 1
+is_prime 1
+is_queue 1
+is_rbtree 1
+isqrt 2
+jacobi 3
+jit_listing 0 1
+json_chars 3
+json_read 2 3
+json_write 2 3
+keyclumped 2
+keyclumps 2
+keys_and_values 3
+keysort 2
+keysort_si 2
+kurtosis 2
+label 1
+labeling 1 2
+last 2 3
+lazy_list_character_count 3
+lazy_list_location 3
+lcm 3
+length 2
+lex_chain 1
+limit 2
+line_count 2
+line_position 2
+list_frequencies 2
+list_queue 2
+list_runs 2
+list_si 1
+list_to_assoc 2
+list_to_heap 2
+list_to_ord_set 2
+list_to_rbtree 2
+list_to_set 2
+listing 0 1
+load_html 3
+load_xml 3
+lsb 2
+make_directory 1
+make_directory_path 1
+map_assoc 2 3
+map_list_queue 3
+map_list_to_pairs 3
+map_product 4
+map_queue 2 3
+map_queue_list 3
+maplist 2 3 4 5 6 7 8
+max 2
+max_assoc 3
+max_cliques 2
+max_list 2
+max_member 2 3
+max_path 5
+max_sleep_time 1
+max_var_number 3
+maximize 3
+maybe 0
+mean 2
+mean_deviation 2
+median 2
+median_deviation 2
+member 2
+memberchk 2
+memberd 2
+memberd_t 3
+memo 1
+memo_statistics 2
+merge_heaps 3
+meta_predicate 1
+min 2
+min_assoc 3
+min_list 2
+min_max 3
+min_max_normalization 2
+min_member 2 3
+min_of_heap 3 5
+min_path 5
+min_paths 3
+min_tree 3
+minimize 3
+mod_inverse 3
+mode 1
+modes 2
+msb 2
+msort 2
+msort_si 2
+must_be 2 4
+mutable 1
+name 2
+nb_current 2
+nb_getval 2
+nb_setval 2
+neighbors 3
+neighbours 3
+next_prime 2
+nextto 3
+nl 0 1
+nonblank 3
+nonblanks 3
+nonemptylist_to_commalist 2
+nonvar 1
+not 1
+not_si 1
+nth0 3 4
+nth1 3 4
+number 1 3
+number_chars 2
+number_codes 2
+number_to_rational 2 3
+numbervars 1 3
+numlist 2 3 5
+nvalue 2
+objective 2
+offset 2
+once 1
+one_longer 2
+op 3
+open 3 4
+optional 4
+ord_add_element 3
+ord_del_element 3
+ord_disjoint 2
+ord_disjoint_union 3
+ord_empty 1
+ord_intersect 2 3
+ord_intersection 2 3 4
+ord_list_to_assoc 2
+ord_list_to_rbtree 2
+ord_member 2
+ord_memberchk 2
+ord_nonmember 2
+ord_selectchk 3
+ord_seteq 2
+ord_setproduct 3
+ord_subset 2
+ord_subtract 3
+ord_symdiff 3
+ord_union 2 3 4
+order_by 2
+ordered 1 2
+ordset_order 3
+otherwise 0
+pairs_keys 2
+pairs_keys_values 3
+pairs_values 2
+parse_csv 3 4
+partial_string 3
+partition 4 5
+path 3
+path_canonical 2
+path_segments 2
+peek_byte 1 2
+peek_char 1 2
+peek_code 1 2
+percentile 3
+perm 2
+perm2 4
+permutation 2
+phrase 2 3 4 5
+phrase_bytes 2 3 4
+phrase_from_file 2 3
+phrase_from_stream 2 3
+phrase_to_file 2 3
+phrase_to_stream 2 3
+pid 1
+pis 3
+plus 3
+popcount 2
+population_covariance 3
+population_standard_deviation 2
+population_variance 2
+portray_assoc 1
+portray_clause 1 2
+portray_clause_ 3
+portray_heap 1
+portray_queue 1
+predicate_property 2
+predsort 3
+prefix 2
+prefix_length 3
+prev_prime 2
+prime_factors 2
+primes_between 3
+print 1 2
+process_create 3
+process_id 2
+process_kill 1
+process_release 1
+process_wait 2 3
+prolog_load_context 2
+prolog_symbol 3
+proper_length 2
+proper_prefix 2
+proper_prefix_length 3
+proper_segment 2
+proper_suffix 2
+proper_suffix_length 3
+public 1
+put_assoc 4
+put_atts 2
+put_byte 1 2
+put_char 1 2
+put_code 1 2
+quartiles 4
+queue 1 2
+queue_append 3
+queue_cons 3
+queue_head 2 3
+queue_head_list 3
+queue_last 2 3
+queue_last_list 3
+queue_length 2
+queue_list 2
+queue_member 2
+queue_memberchk 2
+queue_tail 2
+random 1 3
+random_between 3
+random_integer 3
+random_labeling 2
+random_member 2
+random_permutation 2
+random_select 3
+random_subseq 3
+random_ugraph 3
+random_wgraph 4
+randseq 3
+randset 3
+range 2
+rank_correlation 3
+rational 1 3
+rational_numerator_denominator 3
+raw_argv 1
+rb_apply 4
+rb_clone 3
+rb_del_max 4
+rb_del_min 4
+rb_delete 3 4
+rb_empty 1
+rb_fold 4
+rb_in 3
+rb_insert 4
+rb_insert_new 4
+rb_keys 2
+rb_lookup 3
+rb_map 2 3
+rb_max 3
+rb_min 3
+rb_new 1
+rb_next 4
+rb_partial_map 4
+rb_previous 4
+rb_size 2
+rb_update 4 5
+rb_visit 2
+rb_visit_range 4
+re 3 4 5
+re_compile 3
+re_config 1
+re_flush 0
+re_foldl 6
+re_match 2 3
+re_matchsub 3 4
+re_replace 4 5
+re_split 3 4
+reachable 3
+read 1 2
+read_file_to_bytes 2
+read_from_chars 2
+read_term 2 3
+read_term_from_atom 3
+read_term_from_chars 3
+reduce 2
+remainder 3
+remove_dups 2
+rename_file 2
+repeat 0 1
+representation_error 1
+reset 3
+reset_gensym 0 1
+resource_error 1
+retract 1
+retractall 1
+rev 2
+reverse 2
+rlimit 3
+rotate_list 2 3
+s16be 3
+s16le 3
+s32be 3
+s32le 3
+s8 3
+same_length 2 3
+sample_covariance 3
+sample_standard_deviation 2
+sample_variance 2
+sat 1
+sat_count 2
+scalar_product 4
+scanlist 4 5 6
+see 1
+seeing 1
+seen 0
+segment 2
+select 3 4
+select_max 3 4
+select_min 3 4
+selectchk 3 4
+seq 3
+seqq 3
+sequence 4 5 7
+serialized 2
+set_input 1
+set_output 1
+set_prolog_flag 2
+set_random 1
+set_stream_position 2
+set_timer 1
+setenv 2
+setof 3
+setrand 1
+setup_call_cleanup 3
+shadow_price 3
+shell 1 2
+shift 1
+shorter_list 2
+singleton_heap 3
+singleton_queue 2
+skewness 2
+sleep 1
+sleep_ms 1
+socket_client_open 3
+socket_select 7
+socket_server_accept 4
+socket_server_close 1
+socket_server_open 2 3
+some 2 3 4
+some_queue 2 3
+somechk 2 3 4
+somechk_queue 2 3
+sort 2 4
+sort_si 2
+standard_error 2
+start_tabling 2
+statistics 0 2
+stream_property 2
+stream_to_lazy_chars 2
+stream_to_lazy_codes 2
+stream_to_lazy_list 2
+string 1 3
+string_without 4
+strip_module 3
+style_check 1
+sub_atom 5
+sub_bytes 5
+sublist 3 4 5
+subseq 3
+subseq0 2
+subseq1 2
+subsumes_term 2
+subtract 3
+succ 2
+suffix 2
+suffix_length 3
+sum 3
+sum_list 2
+sumlist 2
+symmetric_closure 2
+syntax_error 3
+tab 1 2
+table 1
+table_statistics 1 2
+tail 2
+take 4
+taut 2
+tell 1
+telling 1
+term_attributed_variables 2
+term_attvars 2
+term_hash 2 4
+term_si 1
+term_singletons 2
+term_size 2
+term_to_atom 2
+term_variables 2 3
+tfilter 3
+throw 1
+time 1
+tls_client_context 2
+tls_client_negotiate 3
+tls_server_context 2
+tls_server_negotiate 3
+tmember 2
+tmember_t 3
+tnot 1
+told 0
+top_sort 2 3
+totient 2
+tpartition 4
+transitive_closure 2
+transitive_reduction 2
+transportation 4
+transpose 2
+transpose_pairs 2
+transpose_ugraph 2
+transpose_wgraph 2
+trimmed_mean 3
+true 0
+tuples_in 2
+type_error 2 3
+u16be 3
+u16le 3
+u32be 3
+u32le 3
+u8 3
+ugraph_to_wgraph 2 3
+ugraph_union 3
+unifiable 3
+unify_with_occurs_check 2
+union 3
+unsetenv 1
+upcase_atom 2
+update_mutable 2
+use_module 1 2
+uuid_string 2
+uuidv4 1
+uuidv4_string 1
+var 1
+variable_value 3
+variant 2
+varnumbers 2 3
+varnumbers_names 3
+vertices 2
+vertices_edges_to_ugraph 3
+vertices_edges_to_wgraph 3
+weighted_maximum 3
+weighted_mean 3
+weighted_variance 3
+wgraph_to_ugraph 2
+when 2
+when_si 2
+white 2
+whites 2
+with_output_to 2
+working_directory 2
+wrap_declare 6
+write 1 2
+write_bytes 2
+write_canonical 1 2
+write_csv 2 3
+write_term 2 3
+write_term_to_chars 3
+writeln 1 2
+writeq 1 2
+xdigit 3
+xdigits 3
+xinteger 3
+xml_write 2 3
+xpath 3
+xpath_chk 3
+z_normalization 2
+zcompare 3

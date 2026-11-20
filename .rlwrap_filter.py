@@ -11,11 +11,15 @@ nach Stelle:
   use_module(library(cl<TAB> clpz)), clpb))
   library(cl<TAB>            clpz), clpb)        (überall sonst)
   use_module(library(si)<TAB> )                  (nur die fehlenden Klammern)
-  sonst                      die Wörter aus .rlwrap_completions
+  sonst                      die Wörter aus .rlwrap_completions; ein
+                             Prädikat nur mit Argumenten gleich mit
+                             Klammer (mem<TAB> member(), mit und ohne
+                             Argumente beides (halt, halt()
 
-Die Bibliotheken stehen in .rlwrap_libraries (ein Name je Zeile; ein
-Test prüft, dass die Liste zu PrologEx passt: test/rlwrap_test.exs, dort
-auch, wie man sie neu schreibt).
+Die Bibliotheken stehen in .rlwrap_libraries (eine Auswahl, ein Name je
+Zeile), die Stelligkeiten aller Prädikate in .rlwrap_predicates ("name
+a1 a2 ...", erzeugt; test/rlwrap_test.exs prüft beide, dort auch, wie
+man .rlwrap_predicates neu schreibt).
 """
 import os
 import re
@@ -36,7 +40,29 @@ def read_libraries(path=os.path.join(HERE, ".rlwrap_libraries")):
 LIB_CLOSING = re.compile(r"(use_module\()?library\(([A-Za-z0-9_/]+)(\)+)$")
 
 
-def complete(line, prefix, words, libraries):
+def read_predicates(path=os.path.join(HERE, ".rlwrap_predicates")):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {p[0]: {int(a) for a in p[1:]} for p in (l.split() for l in f) if p}
+    except OSError:
+        return {}
+
+
+def with_paren(words, predicates):
+    """Wörter als Ergänzungen: Prädikate mit Argumenten mit Klammer."""
+    out = []
+    for w in words:
+        ars = predicates.get(w)
+        if ars and min(ars) > 0:
+            out.append(w + "(")
+        elif ars and max(ars) > 0:
+            out += [w, w + "("]
+        else:
+            out.append(w)
+    return out
+
+
+def complete(line, prefix, words, libraries, predicates=None):
     """Ergänzungen für das angefangene Wort prefix am Ende von line."""
     before = line[: len(line) - len(prefix)] if line.endswith(prefix) else line
     m = LIB_CLOSING.search(before) if prefix == "" else None
@@ -52,7 +78,9 @@ def complete(line, prefix, words, libraries):
     elif before.endswith("use_module("):
         cands = ["library(%s))" % n for n in libraries]
     else:
-        cands = list(words) + ["use_module(library(%s))" % n for n in libraries]
+        cands = with_paren(words, predicates or {}) + [
+            "use_module(library(%s))" % n for n in libraries
+        ]
     seen = set()
     out = []
     for c in cands:
@@ -68,9 +96,12 @@ def main():
     import rlwrapfilter
 
     libraries = read_libraries()
+    predicates = read_predicates()
     f = rlwrapfilter.RlwrapFilter()
     f.help_text = "PrologEx: TAB ergänzt auch use_module(library(...))"
-    f.completion_handler = lambda line, prefix, words: complete(line, prefix, words, libraries)
+    f.completion_handler = lambda line, prefix, words: complete(
+        line, prefix, words, libraries, predicates
+    )
     f.run()
 
 

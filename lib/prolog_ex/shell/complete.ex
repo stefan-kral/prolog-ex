@@ -149,6 +149,62 @@ defmodule PrologEx.Shell.Complete do
   end
 
   @doc false
+  # Für die TAB-Ergänzung unter rlwrap (.rlwrap_filter.py): je Name die
+  # Stelligkeiten der Prädikate, die man im Toplevel rufen kann – System
+  # und die Exporte aller Bibliotheken (eingebaute über use_library/3,
+  # Prolog-Dateien über ihr :- module/2). Text: "name a1 a2 ..." je Zeile,
+  # sortiert; steht in .rlwrap_predicates (test/rlwrap_test.exs prüft das)
+  def rlwrap_predicates_text do
+    sys = PrologEx.Builtins.system_keys()
+
+    home =
+      for l <- PrologEx.Builtins.library_names(),
+          {:import, "user", n, ar} <- Map.keys(PrologEx.use_library(%{}, l, "user")),
+          do: {n, ar}
+
+    files =
+      for f <- Path.wildcard(Path.join([:code.priv_dir(:prolog_ex), "library", "**", "*.pl"])),
+          e <- file_exports(f),
+          do: e
+
+    (sys ++ home ++ files)
+    |> Enum.filter(fn {n, _} -> plain?(n) end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.sort()
+    |> Enum.map_join(fn {n, ars} ->
+      Enum.join([n | ars |> Enum.uniq() |> Enum.sort()], " ") <> "\n"
+    end)
+  end
+
+  # Exporte aus :- module(Name, Liste) am Anfang einer Bibliotheksdatei
+  defp file_exports(path) do
+    text = File.read!(path)
+
+    case Regex.run(~r/:-\s*module\(.*?\]\s*\)\s*\./s, text) do
+      [decl] ->
+        case PrologEx.Parser.read_terms(decl) do
+          [{:term, {_, ":-", [{_, "module", [_, list]}]}, _} | _] -> export_items(list)
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp export_items([{t, "/", [{:atom, n}, ar]} | rest])
+       when t in [:struct, :gstruct] and is_integer(ar),
+       do: [{n, ar} | export_items(rest)]
+
+  defp export_items([{t, "//", [{:atom, n}, ar]} | rest])
+       when t in [:struct, :gstruct] and is_integer(ar),
+       do: [{n, ar + 2} | export_items(rest)]
+
+  defp export_items([_ | rest]), do: export_items(rest)
+  defp export_items({:glist, l}), do: export_items(l)
+  defp export_items(_), do: []
+
+  @doc false
   def libraries do
     dir = Path.join(:code.priv_dir(:prolog_ex), "library")
 

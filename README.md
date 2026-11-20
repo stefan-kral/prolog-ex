@@ -466,12 +466,15 @@ rlwrap`); alle Argumente gehen an `mix prolog`:
   * Zeilenbearbeitung und Verlauf von rlwrap, TAB ergänzt die Wörter aus
     `.rlwrap_completions` (eine Datei im Projekt, ein Wort je Zeile).
   * TAB ergänzt auch mit Klammern, je nach Stelle: `use_mod` →
-    `use_module(library(clpz))` und alle anderen Bibliotheken,
-    `use_module(` → `library(…))`, `library(cl` → `clpz)`; innerhalb von
-    Klammern weiter die Wörter (`forall(mem` → `member`). Das macht ein
-    rlwrap-Filter in Python (`.rlwrap_filter.py`, Bibliotheken aus
-    `.rlwrap_libraries`; `test/rlwrap_test.exs` prüft, dass die Liste zu
-    PrologEx passt). `start_ex` nimmt ihn nur, wenn rlwraps
+    `use_module(library(clpz))` und die anderen Bibliotheken aus
+    `.rlwrap_libraries` (eine Auswahl), `use_module(` → `library(…))`,
+    `library(cl` → `clpz)`, `use_module(library(si)` → `)`. Prädikate
+    nur mit Argumenten gleich mit Klammer (`mem` → `member(`,
+    `forall(fin` → `forall(findall(`), mit und ohne beides (`halt`,
+    `halt(`); die Stelligkeiten stehen in `.rlwrap_predicates` (erzeugt).
+    Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`;
+    `test/rlwrap_test.exs` prüft ihn und beide Listen). `start_ex` nimmt
+    ihn nur, wenn rlwraps
     Filterbibliothek und `python3` da sind (auf dem Mac mit Homebrew und
     den Xcode-Kommandozeilenwerkzeugen); sonst nur die Wörter.
   * Ctrl-D beendet `[user]` bzw. die Sitzung.
