@@ -6,11 +6,12 @@ rlwrap trennt Wörter an ( ) [ ] , usw.; ein Eintrag in
 bekommt bei jedem TAB die Zeile und das angefangene Wort und ergänzt je
 nach Stelle:
 
-  use_mod<TAB>               use_module, use_module(library(lists)), ...
-  use_module(<TAB>           library(lists)), library(clpz)), ...
-  use_module(library(cl<TAB> clpz)), clpb))
+  use_mod<TAB>               use_module, use_module(library(lists), ...
+  use_module(<TAB>           library(lists), library(clpz), ...
+  use_module(library(cl<TAB> clpz), clpb)
   library(cl<TAB>            clpz), clpb)        (überall sonst)
   use_module(library(si)<TAB> )                  (nur die fehlenden Klammern)
+  (use_module bleibt offen: danach kann noch die Importliste kommen)
   current_prolog_flag(<TAB>  bounded,, dialect,, ... (alle Flags)
   set_prolog_flag(<TAB>      double_quotes,, ...  (nur die schreibbaren)
   set_prolog_flag(occurs_check,<TAB>  false), true), error)
@@ -100,13 +101,12 @@ def complete(line, prefix, words, libraries, predicates=None, flags=None):
         missing = (2 if m.group(1) else 1) - len(m.group(3))
         return [")" * missing] if missing > 0 and m.group(2) in libraries else []
     if before.endswith("library("):
-        close = "))" if before.endswith("use_module(library(") else ")"
-        cands = [n + close for n in libraries]
+        cands = [n + ")" for n in libraries]
     elif before.endswith("use_module("):
-        cands = ["library(%s))" % n for n in libraries]
+        cands = ["library(%s)" % n for n in libraries]
     else:
         cands = with_paren(words, predicates or {}) + [
-            "use_module(library(%s))" % n for n in libraries
+            "use_module(library(%s)" % n for n in libraries
         ]
     seen = set()
     out = []

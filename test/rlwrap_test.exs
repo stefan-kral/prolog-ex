@@ -48,17 +48,17 @@ defmodule PrologEx.RlwrapTest do
   c = lambda line, prefix: m.complete(line, prefix, words, libs, preds, flags)
   assert "use_module(" in c("use_mod", "use_mod")
   assert "use_module" not in c("use_mod", "use_mod")
-  assert "use_module(library(clpz))" in c("use_mod", "use_mod")
-  assert c("use_module(library(cl", "cl") == ["clpb))", "clpz))"], c("use_module(library(cl", "cl")
+  assert "use_module(library(clpz)" in c("use_mod", "use_mod")
+  assert c("use_module(library(cl", "cl") == ["clpb)", "clpz)"], c("use_module(library(cl", "cl")
   assert c("X = library(betw", "betw") == ["between)"]
-  assert "library(lists))" in c("use_module(", "")
+  assert "library(lists)" in c("use_module(", "")
   assert c("forall(mem", "mem") == ["member("], c("forall(mem", "mem")
   assert c("fin", "fin") == ["findall("]
   assert c("hal", "hal") == ["halt", "halt("]
   assert c("tr", "tr") == ["true"]
   assert c("lis", "lis") == ["lists"]
   assert c("foo", "foo") == []
-  assert c("use_module(library(si", "si") == ["si))", "simplex))"]
+  assert c("use_module(library(si", "si") == ["si)", "simplex)"]
   assert c("use_module(library(si)", "") == [")"]
   assert c("use_module(library(si))", "") == []
   assert c("X = library(si)", "") == []
