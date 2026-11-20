@@ -488,7 +488,10 @@ mix compile                          # einmal, und nach jeder Änderung
     `test/rlwrap_test.exs` prüft ihn und beide Listen). `start_ex` nimmt
     ihn nur, wenn rlwraps
     Filterbibliothek und `python3` da sind (auf dem Mac mit Homebrew und
-    den Xcode-Kommandozeilenwerkzeugen); sonst nur die Wörter.
+    den Xcode-Kommandozeilenwerkzeugen); sonst nur die Wörter. Preis:
+    rlwrap wartet beim Start mit einem Filter fest 0,5 s (eine Pause in
+    seinem `filter.c`) – parallel zum Start der BEAM, der Prompt kommt
+    darum nach etwa 0,5 s statt 0,3 s.
   * Ctrl-D beendet `[user]` bzw. die Sitzung.
   * **Ctrl-C bricht die laufende Anfrage ab**: `rlwrap -I` schickt dann
     ein SIGTERM statt SIGINT (SIGINT kann die BEAM nicht abfangen, es führt

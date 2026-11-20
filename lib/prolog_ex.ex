@@ -7046,8 +7046,11 @@ defmodule PrologEx do
     answer = Enum.reject(named, fn {n, _} -> String.starts_with?(n, "_") end)
 
     # Merkzettel der vorigen Anfrage weg: sie hielten deren Terme am Leben
-    # (größerer Heap, teurere Speicherbereinigung)
-    PrologEx.Builtins.ClpzPrims.forget()
+    # (größerer Heap, teurere Speicherbereinigung). Nur wenn clpz schon
+    # geladen ist: sonst lüde die erste Anfrage das Modul (363 KB, ~10 ms
+    # beim Start)
+    if :erlang.module_loaded(PrologEx.Builtins.ClpzPrims),
+      do: PrologEx.Builtins.ClpzPrims.forget()
 
     start = new_state(db, [{goal, 0, Keyword.get(opts, :module, "user")}], answer, opts)
 
