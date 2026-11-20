@@ -20,9 +20,12 @@ nach Stelle:
   current_op(P, fx,<TAB>     dynamic), table), ... (Namen, passend zu P
                              und Typ; auch angefangene symbolische: =.)
   X is ma<TAB>               max(                (auswertbare Funktionen, auch
-                             nach =:= < >= usw., in Klammern, nach + - ...)
+                             nach =:= < >= usw., in Klammern, nach + - ...;
+                             mit leerem Wort auch "(")
   X is A m<TAB>              mod                 (nach einem Operanden: die
                              Operatoren aus Buchstaben: div mod rdiv rem xor)
+  X #= ab<TAB>               abs(                (ebenso nach #= #< ..., mit
+                             den Funktionen von clpz: abs max min sign ...)
   char_type(C, <TAB>         alnum), ..., upper( (die Klassen von charsio;
   code_type(C, <TAB>         alnum), ..., digit(  code_type: die von swi)
   sonst                      die Wörter aus .rlwrap_completions; ein
@@ -35,7 +38,8 @@ Zeile), die Stelligkeiten aller Prädikate in .rlwrap_predicates ("name
 a1 a2 ...", erzeugt), die Flags in .rlwrap_flags ("name" oder "name =
 wert ...", erzeugt), die Standard-Operatoren in .rlwrap_ops ("Priorität
 Typ Name", erzeugt), die auswertbaren Funktionen in .rlwrap_evaluables
-("name a1 a2 ...", erzeugt), die Zeichenklassen in .rlwrap_char_types
+("name a1 a2 ...", erzeugt), die von clpz in .rlwrap_clpz (ebenso), die
+Zeichenklassen in .rlwrap_char_types
 ("char_type t1 t2 ...", erzeugt); test/rlwrap_test.exs prüft sie, dort
 auch, wie man die erzeugten neu schreibt.
 """
@@ -135,19 +139,25 @@ def load():
         "ops": read_ops(),
         "evaluables": read_predicates(os.path.join(HERE, ".rlwrap_evaluables")),
         "char_types": read_char_types(),
+        "clpz": read_predicates(os.path.join(HERE, ".rlwrap_clpz")),
     }
 
 
 CHAR_TYPE = re.compile(r"\b(char_type|code_type)\([^,]*,\s*$")
 
 # in einem arithmetischen Ausdruck: nach is oder einem Vergleich (nicht
-# -> --> >> << @< #< \= ...)
-ARITH_REL = re.compile(r"\bis\b|(?<![=<>\\:@#-])(?:=:=|=\\=|=<|>=|<|>)(?![=<>:])")
+# -> --> >> << @< \= ...); in einem von clpz nach #= #\= #< #> #=< #>=
+# (nicht #<==> #==> ...)
+ARITH_REL = re.compile(
+    r"(?P<is>\bis\b|(?<![=<>\\:@#-])(?:=:=|=\\=|=<|>=|<|>)(?![=<>:]))"
+    r"|(?P<clpz>#(?:=<|>=|\\=|=|<|>)(?![=<>]))"
+)
 
 
 def arith_tail(before):
-    """Der Ausdruck nach dem letzten is/Vergleich bis zum Cursor, oder None,
-    wenn der Cursor nicht (mehr) darin steht."""
+    """(Art, Ausdruck): der Ausdruck nach dem letzten is/Vergleich bis zum
+    Cursor, Art "is" oder "clpz"; None, wenn der Cursor nicht (mehr) darin
+    steht (auch nach #<==>, #/\\ usw.)."""
     last = None
     for last in ARITH_REL.finditer(before):
         pass
@@ -163,25 +173,27 @@ def arith_tail(before):
             if depth < 0:
                 return None
         elif depth == 0 and (
-            ch in ",;|" or tail.startswith("->", i) or (ch == "." and tail[i + 1 : i + 2] in ("", " "))
+            ch in ",;|#" or tail.startswith("->", i) or (ch == "." and tail[i + 1 : i + 2] in ("", " "))
         ):
             return None
-    return tail
+    return ("is" if last.group("is") else "clpz"), tail
 
 
 def complete_arith(before, prefix, data):
     """Ergänzungen in einem arithmetischen Ausdruck oder None."""
-    tail = arith_tail(before)
-    if tail is None:
+    r = arith_tail(before)
+    if r is None:
         return None
-    evaluables = data["evaluables"]
+    kind, tail = r
+    evaluables = data["evaluables" if kind == "is" else "clpz"]
     # die Operatoren aus Buchstaben, die auch auswertbar sind (mod, rem, ...)
     infix = sorted(
         {n for _, t, n in data["ops"] if t in ("xfx", "xfy", "yfx") and 2 in evaluables.get(n, ())}
     )
     t = tail.rstrip()
     if t == "" or t[-1] in "([{,+-*/^\\<>=:" or (t.split() and t.split()[-1] in infix):
-        cands = with_paren(sorted(evaluables), evaluables)
+        # auch "(" für einen geklammerten Teilausdruck
+        cands = ["("] + with_paren(sorted(evaluables), evaluables)
     elif tail != t and (t[-1].isalnum() or t[-1] in ")]_"):
         cands = infix
     else:

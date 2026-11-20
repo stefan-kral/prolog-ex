@@ -238,6 +238,27 @@ defmodule PrologEx.Shell.Complete do
     end
   end
 
+  @doc false
+  # Für die TAB-Ergänzung unter rlwrap: die Funktionen in clpz-Ausdrücken
+  # mit Namen aus Buchstaben (aus parse_clpz/3 in clpz.pl: m(abs(A)),
+  # m(A mod B), ...), je Zeile "name a1 ..."; steht in .rlwrap_clpz
+  def rlwrap_clpz_text do
+    text = File.read!(Path.join([:code.priv_dir(:prolog_ex), "library", "clpz.pl"]))
+    [_, block] = Regex.run(~r/^parse_clpz\(E, R,(.*?)\]\)\./ms, text)
+
+    funs =
+      for [_, n, args] <- Regex.scan(~r/\bm\(([a-z]\w*)\(([^()]*)\)\)/, block),
+          do: {n, length(String.split(args, ","))}
+
+    infix = for [_, n] <- Regex.scan(~r/\bm\([A-Z]\w* ([a-z]\w*) [A-Z]\w*\)/, block), do: {n, 2}
+
+    (funs ++ infix)
+    |> Enum.uniq()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.sort()
+    |> Enum.map_join(fn {n, ars} -> Enum.join([n | Enum.sort(ars)], " ") <> "\n" end)
+  end
+
   defp type_text({n, _}), do: n <> "("
   defp type_text(n), do: n
 
@@ -250,7 +271,8 @@ defmodule PrologEx.Shell.Complete do
       ".rlwrap_flags" => rlwrap_flags_text(),
       ".rlwrap_ops" => rlwrap_ops_text(),
       ".rlwrap_evaluables" => rlwrap_evaluables_text(),
-      ".rlwrap_char_types" => rlwrap_char_types_text()
+      ".rlwrap_char_types" => rlwrap_char_types_text(),
+      ".rlwrap_clpz" => rlwrap_clpz_text()
     }
   end
 

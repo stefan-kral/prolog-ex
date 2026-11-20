@@ -7,7 +7,8 @@ defmodule PrologEx.RlwrapTest do
   #
   # Aus PrologEx erzeugt (PrologEx.Shell.Complete.rlwrap_files/0), müssen
   # dazu passen: .rlwrap_predicates (Stelligkeiten: member( mit Klammer),
-  # .rlwrap_flags, .rlwrap_ops, .rlwrap_evaluables, .rlwrap_char_types.
+  # .rlwrap_flags, .rlwrap_ops, .rlwrap_evaluables, .rlwrap_char_types,
+  # .rlwrap_clpz.
   # Alle neu schreiben:
   #
   #   mix run -e 'PrologEx.Shell.Complete.write_rlwrap_files()'
@@ -77,6 +78,15 @@ defmodule PrologEx.RlwrapTest do
   assert c("X is 1, Y = tr", "tr") == ["true"]
   assert c("X -> tr", "tr") == ["true"]
   assert c("X @< mem", "mem") == ["member("]
+  assert c("X is ", "")[:2] == ["(", "abs("]
+  assert c("X is (A + ", "")[0] == "("
+  assert c("X #= ", "") == ["(", "abs(", "div(", "lsb(", "max(", "min(", "mod(", "msb(",
+                            "popcount(", "rem(", "sign(", "xor("]
+  assert c("X #=< Y*ma", "ma") == ["max("]
+  assert c("X #\\\\= A ", "") == ["div", "mod", "rem", "xor"]
+  assert c("X #= 1 #<==> tr", "tr") == ["true"]
+  assert c("X #<==> tr", "tr") == ["true"]
+  assert c("X #= 1 #/\\\\ Y #= ab", "ab") == ["abs("]
   assert c("char_type(C, alpha", "alpha") == ["alpha)", "alphabetic)", "alphanumeric)"]
   assert c("char_type(C, up", "up") == ["upper)", "upper("]
   assert c("code_type(0'a, dig", "dig") == ["digit("]

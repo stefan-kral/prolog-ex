@@ -491,8 +491,11 @@ mix compile                          # einmal, und nach jeder Änderung
     → die Namen (auch angefangene symbolische: `=.` → `=..)`), jeweils
     passend zu den schon angegebenen Argumenten. Arithmetik: nach `is`
     und den Vergleichen (`=:=`, `<`, `>=`, …) die auswertbaren Funktionen
-    (`X is ma` → `max(`, `max_tagged_integer`), nach einem Operanden die
-    Operatoren aus Buchstaben (`X is A m` → `mod`). Zeichenklassen:
+    (`X is ma` → `max(`, `max_tagged_integer`; mit leerem Wort auch `(`),
+    nach einem Operanden die Operatoren aus Buchstaben (`X is A m` →
+    `mod`). Ebenso nach den Vergleichen von clpz (`#=`, `#<`, …) mit den
+    Funktionen, die clpz kennt (`abs`, `max`, `min`, `sign`, …; nicht
+    nach `#<==>`, `#/\` usw.). Zeichenklassen:
     `char_type(C, ` → die von `library(charsio)`, `code_type(C, ` → die
     von `library(swi)`.
     Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`). Die Dateien:
@@ -506,6 +509,7 @@ mix compile                          # einmal, und nach jeder Änderung
     | `.rlwrap_ops` | die Standard-Operatoren (Priorität, Typ, Name) | erzeugt |
     | `.rlwrap_evaluables` | die auswertbaren Funktionen mit Stelligkeiten | erzeugt |
     | `.rlwrap_char_types` | die Typen von `char_type/2` und `code_type/2` | erzeugt |
+    | `.rlwrap_clpz` | die Funktionen in clpz-Ausdrücken (aus `clpz.pl`) | erzeugt |
 
     `test/rlwrap_test.exs` prüft den Filter, dass die Bibliotheken
     existieren und die erzeugten Dateien zu PrologEx passen; alle neu
