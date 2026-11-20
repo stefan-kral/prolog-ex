@@ -8,9 +8,11 @@ defmodule PrologEx.Builtins.Linda do
   (wie `erl -sname`; er läuft danach weiter) und wird zum Knoten: der
   Server unter dem gewünschten bzw. `linda_<Prozessnummer>`, ein Client
   unter `linda_client_<Prozessnummer>`; Kurznamen, außer der Rechner im
-  Namen enthält einen Punkt (dann lange Namen, wie `-name`). Knoten
-  müssen dasselbe Cookie haben – auf einem Rechner und mit demselben
-  Benutzer von selbst (`~/.erlang.cookie`).
+  Namen enthält einen Punkt (dann lange Namen, wie `-name`; ein Client
+  dann mit seiner IP-Adresse auf dem Weg zum Server). Verborgen (wie
+  `-hidden`): kein vollständiges Netz über `global`. Knoten müssen
+  dasselbe Cookie haben – auf einem Rechner und mit demselben Benutzer
+  von selbst (`~/.erlang.cookie`).
 
   Je Sitzung höchstens eine Verbindung (wie SICStus), im
   Prozess-Wörterbuch des Toplevels. Warten blockiert die Anfrage, Ctrl-C
@@ -18,7 +20,8 @@ defmodule PrologEx.Builtins.Linda do
   `PrologEx.Stop.poll!/0`); ein schon vorgemerktes Tupel gibt der Client
   dann zurück (siehe Protokoll im Server).
 
-  Zeitgrenze (`linda_timeout/2`): `off` oder `S:Ms`; gilt für die Antwort
+  Zeitgrenze (`linda_timeout/2`): `off`, `S:Ms` oder Sekunden als Zahl
+  (wie SWI); gilt für die Antwort
   des Servers bei allem außer dem Warten von `in`/`rd` selbst.
   Voreingestellt `off`.
   """
@@ -224,6 +227,24 @@ defmodule PrologEx.Builtins.Linda do
         reraise e, __STACKTRACE__
     else
       {:ok, _} = r when elem(req, 0) == :in or (elem(req, 0) == :all and elem(req, 2)) ->
+        # erst bestätigen, wenn nicht inzwischen abgebrochen ist (eine
+        # Zeitgrenze, die während des Wartens ablief, gälte sonst erst nach
+        # dem Herausnehmen – das Tupel wäre weg). Läuft sie in den nächsten
+        # 2 ms ab, erst das abwarten: sonst träfe sie die Maschine kurz nach
+        # dem Bestätigen, noch im Rahmen von call_with_time_limit/2
+        try do
+          case PrologEx.Stop.ms_left() do
+            left when is_integer(left) and left <= 2 -> Process.sleep(left)
+            _ -> :ok
+          end
+
+          PrologEx.Stop.poll!()
+        rescue
+          e in PrologEx.Stop ->
+            cancel(server, ref)
+            reraise e, __STACKTRACE__
+        end
+
         send(server, {:ack, ref})
         r
 
@@ -237,11 +258,15 @@ defmodule PrologEx.Builtins.Linda do
   end
 
   defp await(ref, mon, addr, deadline) do
+    # bis zum nächsten Nachsehen: höchstens @poll, aber nicht über die
+    # eigene Frist oder eine Zeitgrenze der Maschine hinaus
+    now = System.monotonic_time(:millisecond)
+
     wait =
-      case deadline do
-        nil -> @poll
-        d -> max(0, min(@poll, d - System.monotonic_time(:millisecond)))
-      end
+      [@poll, deadline && deadline - now, PrologEx.Stop.ms_left()]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.min()
+      |> max(0)
 
     receive do
       {:linda_reply, ^ref, answer} ->

@@ -42,6 +42,17 @@ defmodule PrologEx.Stop do
     end
   end
 
+  @doc "Millisekunden bis zur Zeitgrenze der Maschine (aufgerundet) oder nil"
+  def ms_left do
+    case Process.get(@key) do
+      {d, _, _} when is_integer(d) ->
+        div(max(0, d - System.monotonic_time(:microsecond)) + 999, 1000)
+
+      _ ->
+        nil
+    end
+  end
+
   defp check!(d, ref) do
     if (d != nil and System.monotonic_time(:microsecond) >= d) or
          (ref != nil and :atomics.get(ref, 1) != 0) do

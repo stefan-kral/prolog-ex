@@ -4216,10 +4216,23 @@ X = 42.
   dann nimmt es das erste wartende `in` (in der Reihenfolge des Wartens).
 * **Warten** hat keine Zeitgrenze (`linda_timeout/2` gilt für die Antwort des
   Servers, nicht für das Warten auf ein Tupel). Ctrl-C und
-  `call_with_time_limit/2` brechen es ab (nachgesehen alle 100 ms). Ein
-  Tupel geht dabei nicht verloren: der Server merkt ein herausgenommenes
-  Tupel erst vor, bis der Client es bestätigt; bricht er vorher ab oder endet
-  sein Prozess (auch die ganze Sitzung), kommt es an seine alte Stelle zurück.
+  `call_with_time_limit/2` brechen es ab (nachgesehen alle 100 ms und genau
+  zur Zeitgrenze). Ein Tupel geht dabei nicht verloren: der Server merkt ein
+  herausgenommenes Tupel erst vor, bis der Client es bestätigt; bricht er
+  vorher ab oder endet sein Prozess (auch die ganze Sitzung), kommt es an
+  seine alte Stelle zurück. Bestätigt wird erst, wenn die Zeitgrenze nicht
+  in den nächsten 2 ms abläuft (sonst wartet der Client das ab und gibt das
+  Tupel zurück) – eine Grenze, die erst nach dem Herausnehmen abläuft, noch
+  bevor `call_with_time_limit/2` verlassen ist, nähme es sonst mit.
+  Geprüft mit 12 Prozessen, die um ein Token mit Grenzen von 1–30 ms
+  ringen (Tausende Abbrüche): das Token bleibt.
+* **Kosten:** ein `out` mit `in` im selben Knoten rund 8 µs, über zwei
+  Knoten rund 75 µs. Tupel liegen je Hauptfunktor und je erstem Argument in
+  Bäumen: `in(f(17))` unter vielen `f(I)` kostet O(log n) (vorher wurde
+  linear gesucht: 8000 Tupel rückwärts herausnehmen 8,6 s, jetzt 0,06 s).
+  Ein Muster mit offenem erstem Argument (`in(f(_, 17))`) sucht wie Prolog
+  linear im Fach seines Funktors. Wartende werden bei jedem `out`
+  durchgesehen (2000 Wartende, je eins bedient: 0,26 s).
 * **Fehler:** Server nicht (mehr) da: `existence_error(linda_server,
   Address)`, die Verbindung ist dann zu; ohne Verbindung:
   `existence_error(linda_client, none)`; zweite Verbindung oder zweiter

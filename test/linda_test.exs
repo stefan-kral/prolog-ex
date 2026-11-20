@@ -18,7 +18,7 @@ defmodule PrologEx.LindaTest do
           r,
           ":- use_module(library(linda)).\n:- use_module(library(time)).\n" <>
             ":- use_module(library(lists)).\n:- use_module(library(iso_ext)).\n:- use_module(library(between)).\n" <>
-            ":- use_module(library(dif)).\n"
+            ":- use_module(library(dif)).\n:- use_module(library(random)).\n"
         )
       )
 
@@ -263,6 +263,36 @@ defmodule PrologEx.LindaTest do
              "catch(call_with_no_side_effects(linda_timeout(_, off)), error(_, context(C, K)), true)"
            ) ==
              ["C = linda:linda_timeout/2, K = state"]
+  end
+
+  test "Index nach dem ersten Argument: in(f(I)) rückwärts ohne Suche durch alle", c do
+    ask(c, "forall(between(1, 2000, I), out(f(I)))")
+    :erlang.trace_pattern({PrologEx, :unify_status, 3}, true, [:call_count])
+
+    try do
+      assert ask(c, "forall(between(1, 2000, J), (I is 2001 - J, in(f(I))))") == ["true"]
+      {:call_count, n} = :erlang.trace_info({PrologEx, :unify_status, 3}, :call_count)
+      # je in ein Vergleich (vorher bis zu 2000: ~2 Mio.)
+      assert n >= 2000 and n < 3 * 2000, "#{n}"
+    after
+      :erlang.trace_pattern({PrologEx, :unify_status, 3}, false, [:call_count])
+    end
+  end
+
+  test "Zeitgrenzen beim Warten: kein Tupel geht verloren (6 Prozesse, 1 Token)", c do
+    ask(c, "out(tok(1))")
+
+    loop = """
+    forall(between(1, 40, _),
+      ( random_between(5, 30, Ms), S is Ms / 1000,
+        ( catch(call_with_time_limit(S, in(tok(X))), time_limit_exceeded, fail)
+        -> sleep(0.003), out(tok(X)) ; true ) ))
+    """
+
+    assert others(c, List.duplicate(loop, 6)) == List.duplicate(["true"], 6)
+    assert ask(c, "bagof_in_noblock(I, tok(I), L)") == ["L = [1]"]
+    st = :sys.get_state(:prolog_ex_linda)
+    assert st.reserved == %{} and st.waiters == []
   end
 
   # --- Anwendungsfälle (wie examples/linda.pl, hier mit Prozessen dieses

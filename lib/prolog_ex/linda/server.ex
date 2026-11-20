@@ -36,9 +36,11 @@ defmodule PrologEx.Linda.Server do
   überschneiden. Passen heißt unifizierbar (ohne Bindungen zu behalten).
 
   Ablage: je Hauptfunktor (Name/Stelligkeit, bei atomaren Tupeln das
-  Tupel selbst, bei einer Variablen `:var`) ein `:gb_trees` Nummer →
-  Tupel; die Nummer gibt die Reihenfolge des Eintreffens. Ein Muster mit
-  Hauptfunktor sucht nur in seinem Fach und in `:var`.
+  Tupel selbst) ein `:gb_trees` Nummer → Tupel, dazu je Schlüssel des
+  ersten Arguments (ebenso; `:var` für eine Variable dort) noch einer; die
+  Nummer gibt die Reihenfolge des Eintreffens. Ein Muster mit festem
+  ersten Argument sucht nur in dessen Fach und in dem mit Variable dort –
+  `in(f(17))` unter 100 000 Tupeln `f(I)` kostet so O(log n) statt O(n).
   """
   use GenServer
 
@@ -204,60 +206,96 @@ defmodule PrologEx.Linda.Server do
   defp put_back(items, st),
     do: Enum.reduce(items, st, fn {k, n, t}, st -> deliver(k, n, t, st) end)
 
-  defp insert(space, key, n, t) do
-    Map.update(space, key, :gb_trees.insert(n, t, :gb_trees.empty()), &:gb_trees.insert(n, t, &1))
+  # Ablage: Hauptschlüssel => {alle, nach_erstem}; alle: :gb_trees Nummer
+  # => Tupel; nach_erstem: Schlüssel des ersten Arguments => :gb_trees (ein
+  # Tupel steht in beiden). Ein Muster mit festem erstem Argument sucht nur
+  # in dessen Fach und in dem der Tupel mit Variable dort.
+  defp insert(space, {fk, a1}, n, t) do
+    {all, by1} = Map.get(space, fk, {:gb_trees.empty(), %{}})
+    all = :gb_trees.insert(n, t, all)
+
+    by1 =
+      if a1 == nil,
+        do: by1,
+        else: Map.put(by1, a1, :gb_trees.insert(n, t, Map.get(by1, a1, :gb_trees.empty())))
+
+    Map.put(space, fk, {all, by1})
   end
 
-  defp remove(space, key, n) do
-    tree = :gb_trees.delete(n, Map.fetch!(space, key))
-    if :gb_trees.is_empty(tree), do: Map.delete(space, key), else: Map.put(space, key, tree)
+  defp remove(space, {fk, a1}, n) do
+    {all, by1} = Map.fetch!(space, fk)
+    all = :gb_trees.delete(n, all)
+
+    by1 =
+      if a1 == nil do
+        by1
+      else
+        tree = :gb_trees.delete(n, Map.fetch!(by1, a1))
+        if :gb_trees.is_empty(tree), do: Map.delete(by1, a1), else: Map.put(by1, a1, tree)
+      end
+
+    if :gb_trees.is_empty(all), do: Map.delete(space, fk), else: Map.put(space, fk, {all, by1})
   end
 
-  # das älteste Tupel, das zu einem der Muster passt: {fach, nummer, tupel}
+  # das älteste Tupel, das zu einem der Muster passt: {schlüssel, nummer, tupel}
   defp find(pats, space) do
     pats
-    |> Enum.flat_map(fn p -> for k <- keys_for(p, space), do: {k, p} end)
-    |> Enum.uniq()
-    |> Enum.map(fn {k, p} -> first_in(k, p, space) end)
+    |> Enum.flat_map(fn p -> for tree <- trees_for(p, space), do: {tree, p} end)
+    |> Enum.map(fn {tree, p} -> first_match(:gb_trees.next(:gb_trees.iterator(tree)), p) end)
     |> Enum.reject(&is_nil/1)
     |> Enum.min_by(fn {_, n, _} -> n end, fn -> nil end)
   end
 
-  defp first_in(key, pat, space) do
-    case Map.fetch(space, key) do
-      {:ok, tree} -> first_match(:gb_trees.next(:gb_trees.iterator(tree)), key, pat)
-      :error -> nil
-    end
-  end
+  defp first_match(:none, _pat), do: nil
 
-  defp first_match(:none, _key, _pat), do: nil
-
-  defp first_match({n, t, it}, key, pat) do
-    if fits?(pat, t), do: {key, n, t}, else: first_match(:gb_trees.next(it), key, pat)
+  defp first_match({n, t, it}, pat) do
+    if fits?(pat, t), do: {key(t), n, t}, else: first_match(:gb_trees.next(it), pat)
   end
 
   defp find_all(pat, space) do
-    for k <- keys_for(pat, space),
-        {n, t} <- :gb_trees.to_list(Map.fetch!(space, k)),
+    for tree <- trees_for(pat, space),
+        {n, t} <- :gb_trees.to_list(tree),
         fits?(pat, t) do
-      {k, n, t}
+      {key(t), n, t}
     end
     |> Enum.sort_by(fn {_, n, _} -> n end)
   end
 
-  # die Fächer, in denen ein Muster Treffer haben kann
-  defp keys_for(pat, space) do
+  # die Bäume, in denen ein Muster Treffer haben kann (jedes Tupel in
+  # höchstens einem davon)
+  defp trees_for(pat, space) do
+    vars = for {all, _} <- [Map.get(space, :var)], all != nil, do: all
+
     case key(pat) do
-      :var -> Map.keys(space)
-      k -> Enum.filter([k, :var], &Map.has_key?(space, &1))
+      {:var, _} ->
+        for {_, {all, _}} <- space, do: all
+
+      {fk, a1} when a1 in [nil, :var] ->
+        for({all, _} <- [Map.get(space, fk)], all != nil, do: all) ++ vars
+
+      {fk, a1} ->
+        case Map.get(space, fk) do
+          nil -> vars
+          {_, by1} -> Enum.reject([Map.get(by1, a1), Map.get(by1, :var)], &is_nil/1) ++ vars
+        end
     end
   end
 
   defp fits?(pat, t), do: PrologEx.unify_status(pat, t, %{}) != :no
 
   @doc false
+  # {Hauptschlüssel, Schlüssel des ersten Arguments oder nil}
   def key(t) do
     case PrologEx.unmark_top(t) do
+      {:var, _} -> {:var, nil}
+      {:struct, f, [a | _] = args} -> {{f, length(args)}, arg_key(a)}
+      [h | _] -> {{".", 2}, arg_key(h)}
+      other -> {{:atomic, other}, nil}
+    end
+  end
+
+  defp arg_key(a) do
+    case PrologEx.unmark_top(a) do
       {:var, _} -> :var
       {:struct, f, args} -> {f, length(args)}
       [_ | _] -> {".", 2}

@@ -32,8 +32,9 @@
                                    mehr an und endet, wenn alle getrennt
                                    haben
      linda_timeout(?Old, ?New)     Zeitgrenze für Antworten des Servers:
-                                   off (Vorgabe) oder Sekunden:Millisekunden;
-                                   New offen: nur abfragen
+                                   off (Vorgabe), Sekunden:Millisekunden
+                                   oder Sekunden als Zahl (SWI); New offen:
+                                   nur abfragen
      linda_timeout(+New)           wie SWI: vorübergehend; das Alte gilt
                                    wieder beim Cut, beim Backtracking und
                                    bei einer Ausnahme
