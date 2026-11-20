@@ -6,7 +6,7 @@ rlwrap trennt Wörter an ( ) [ ] , usw.; ein Eintrag in
 bekommt bei jedem TAB die Zeile und das angefangene Wort und ergänzt je
 nach Stelle:
 
-  use_mod<TAB>               use_module, use_module(library(lists), ...
+  use_mod<TAB>               use_module(           (wie jedes Prädikat)
   use_module(<TAB>           library(lists), library(clpz), ...
   use_module(library(cl<TAB> clpz), clpb)
   library(cl<TAB>            clpz), clpb)        (überall sonst)
@@ -105,9 +105,7 @@ def complete(line, prefix, words, libraries, predicates=None, flags=None):
     elif before.endswith("use_module("):
         cands = ["library(%s)" % n for n in libraries]
     else:
-        cands = with_paren(words, predicates or {}) + [
-            "use_module(library(%s)" % n for n in libraries
-        ]
+        cands = with_paren(words, predicates or {})
     seen = set()
     out = []
     for c in cands:
@@ -126,7 +124,7 @@ def main():
     predicates = read_predicates()
     flags = read_flags()
     f = rlwrapfilter.RlwrapFilter()
-    f.help_text = "PrologEx: TAB ergänzt auch use_module(library(...))"
+    f.help_text = "PrologEx: TAB ergänzt auch Bibliotheken und Flags"
     f.completion_handler = lambda line, prefix, words: complete(
         line, prefix, words, libraries, predicates, flags
     )

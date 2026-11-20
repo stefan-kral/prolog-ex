@@ -478,8 +478,8 @@ mix compile                          # einmal, und nach jeder Änderung
   * Zeilenbearbeitung und Verlauf von rlwrap, TAB ergänzt die Wörter aus
     `.rlwrap_completions` (eine Datei im Projekt, ein Wort je Zeile).
   * TAB ergänzt auch mit Klammern, je nach Stelle: `use_mod` →
-    `use_module(library(clpz)` und die anderen Bibliotheken aus
-    `.rlwrap_libraries` (eine Auswahl), `use_module(` → `library(…)`,
+    `use_module(`, dann `use_module(` → `library(clpz)` und die anderen
+    Bibliotheken aus `.rlwrap_libraries` (eine Auswahl),
     `library(cl` → `clpz)`, `use_module(library(si)` → `)` – `use_module(`
     bleibt offen, danach kann noch die Importliste kommen. Prädikate
     nur mit Argumenten gleich mit Klammer (`mem` → `member(`,

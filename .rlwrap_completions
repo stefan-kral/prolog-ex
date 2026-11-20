@@ -46,6 +46,7 @@ sort
 statistics
 true
 unify_with_occurs_check
+use_module
 var
 when
 write
