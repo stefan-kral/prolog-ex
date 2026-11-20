@@ -30,6 +30,11 @@ defmodule PrologEx.RlwrapTest do
   assert "library(lists))" in c("use_module(", "")
   assert c("forall(mem", "mem") == ["member"]
   assert c("foo", "foo") == []
+  assert c("use_module(library(si", "si") == ["si))", "simplex))"]
+  assert c("use_module(library(si)", "") == [")"]
+  assert c("use_module(library(si))", "") == []
+  assert c("X = library(si)", "") == []
+  assert c("use_module(library(nix)", "") == []
   print("ok")
   """
 
