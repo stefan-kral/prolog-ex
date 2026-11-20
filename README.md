@@ -4241,6 +4241,14 @@ X = 42.
   voraus, in `library(concurrent)` und `call_with_no_side_effects/1` sind sie
   verboten (`permission_error(perform, side_effect, out(…))`;
   `linda_timeout/2` zählt als Zustand).
+* **Tests** (`test/linda_test.exs`): neben Einzelfällen zufällige Folgen
+  von `out`, `in_noblock`, `rd_noblock` und `bagof_*` gegen ein Modell (eine
+  Liste in Ablagereihenfolge) mit Prüfung der Invarianten des Servers nach
+  jedem Schritt (`PrologEx.Linda.Server.invariants/1`: Index stimmig, kein
+  Wartender, den ein Tupel im Raum bedienen könnte, …; einmal mit 60 Folgen
+  zu je 300 Schritten gelaufen), Reihenfolge der Wartenden, mehrere Clients
+  mit Buchführung (jedes Tupel genau einmal genommen oder noch da),
+  Zeitgrenzen, Abstürze von Clients und Servern.
 * **Anwendungsfälle** in `examples/linda.pl`: Arbeitsliste (Master/Worker),
   kritischer Bereich (gemeinsamer Zähler), beschränkter Puffer, Barriere,
   speisende Philosophen. `examples/linda_demo.sh [Worker]` startet je Rolle

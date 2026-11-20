@@ -293,6 +293,7 @@ defmodule PrologEx.LindaTest do
     assert ask(c, "bagof_in_noblock(I, tok(I), L)") == ["L = [1]"]
     st = :sys.get_state(:prolog_ex_linda)
     assert st.reserved == %{} and st.waiters == []
+    assert PrologEx.Linda.Server.invariants(st) == []
   end
 
   test "linda_timeout reißt (Server hängt): Scheitern, das Tupel bleibt", c do
@@ -313,6 +314,225 @@ defmodule PrologEx.LindaTest do
     # die Anfrage kam nach der Absage an: das vorgemerkte Tupel ist zurück
     assert ask(c, "rd_noblock(slow(X))") == ["X = 1"]
     assert :sys.get_state(pid).reserved == %{}
+  end
+
+  # --- Zufällige Folgen gegen ein Modell -------------------------------------
+  #
+  # Eine Liste der Tupel in der Reihenfolge des Ablegens ist die ganze
+  # Bedeutung: in/rd nehmen das erste passende (unifizierbare), bagof alle in
+  # dieser Reihenfolge. Zufällige Folgen von out, in_noblock, rd_noblock,
+  # bagof_rd_noblock und bagof_in_noblock laufen gegen den Server und gegen
+  # diese Liste; die Tupel sind ground, die Muster haben offene Stellen
+  # (auch das erste Argument und das ganze Muster) und treffen so alle Wege
+  # des Index. Nach jedem Schritt: die Invarianten des Servers.
+
+  # (keine Listen nur aus einbuchstabigen Atomen: die erschienen in der
+  # Antwort als "ab")
+  @firsts ~w|1 2 1.0 a b g(1) g(2) [1] h(a,b)|
+  @seconds ~w(1 x y)
+
+  defp gen_tuple do
+    a = Enum.random(@firsts)
+
+    case :rand.uniform(7) do
+      1 -> "f(#{a})"
+      2 -> "f(#{a},#{Enum.random(@seconds)})"
+      3 -> "g(#{a})"
+      # (keine einbuchstabigen: eine Liste nur aus solchen erschiene in der
+      # Antwort von bagof als "aa")
+      4 -> Enum.random(~w(ab bc 7))
+      5 -> "[#{a},9]"
+      6 -> "[9,#{a}]"
+      7 -> "k(#{a},#{Enum.random(@firsts)},#{Enum.random(@seconds)})"
+    end
+  end
+
+  # ein Muster: ein Tupel, Argumente zufällig offen
+  defp gen_pattern do
+    if :rand.uniform(20) == 1 do
+      "_"
+    else
+      t = gen_tuple()
+
+      case Regex.run(~r/^(\w+)\((.*)\)$/, t) do
+        [_, f, args] ->
+          parts = split_args(args)
+
+          "#{f}(" <>
+            Enum.map_join(parts, ",", &if(:rand.uniform(5) <= 2, do: "_", else: &1)) <> ")"
+
+        nil ->
+          if String.starts_with?(t, "[") and :rand.uniform(3) == 1,
+            do: "[_|_]",
+            else: t
+      end
+    end
+  end
+
+  # Argumente auf oberster Ebene trennen (h(a,b) bleibt eins)
+  defp split_args(text) do
+    {parts, cur, _} =
+      for <<ch <- text>>, reduce: {[], "", 0} do
+        {ps, cur, 0} when ch == ?, -> {[cur | ps], "", 0}
+        {ps, cur, d} when ch in [?(, ?[] -> {ps, cur <> <<ch>>, d + 1}
+        {ps, cur, d} when ch in [?), ?]] -> {ps, cur <> <<ch>>, d - 1}
+        {ps, cur, d} -> {ps, cur <> <<ch>>, d}
+      end
+
+    Enum.reverse([cur | parts])
+  end
+
+  defp term(c, text) do
+    [{:term, t, _}] = Reader.read_terms(c.reader, text <> ".")
+    t
+  end
+
+  defp fits?(c, pat, tuple), do: PrologEx.unify_status(term(c, pat), term(c, tuple), %{}) != :no
+
+  defp model_step(c, model) do
+    case :rand.uniform(20) do
+      n when n <= 8 ->
+        t = gen_tuple()
+        {"out(#{t})", ["true"], model ++ [t]}
+
+      n when n <= 13 ->
+        p = gen_pattern()
+
+        case Enum.find_index(model, &fits?(c, p, &1)) do
+          nil -> {"T = #{p}, in_noblock(T)", [], model}
+          i -> {"T = #{p}, in_noblock(T)", ["T = #{Enum.at(model, i)}"], List.delete_at(model, i)}
+        end
+
+      n when n <= 16 ->
+        p = gen_pattern()
+
+        case Enum.find(model, &fits?(c, p, &1)) do
+          nil -> {"T = #{p}, rd_noblock(T)", [], model}
+          t -> {"T = #{p}, rd_noblock(T)", ["T = #{t}"], model}
+        end
+
+      n ->
+        # (bagof mit offenem Tupel: instantiation_error, wie bagof/3)
+        p = Stream.repeatedly(&gen_pattern/0) |> Enum.find(&(&1 != "_"))
+        take = n > 18
+        {hits, rest} = Enum.split_with(model, &fits?(c, p, &1))
+        op = if take, do: "bagof_in_noblock", else: "bagof_rd_noblock"
+        q = "copy_term(#{p}, T), #{op}(T, T, L), T = _, L = [_|_]"
+        expect = if hits == [], do: [], else: ["L = [#{Enum.join(hits, ",")}]"]
+        {q, expect, if(take, do: rest, else: model)}
+    end
+  end
+
+  for seed <- [1, 2, 3] do
+    test "zufällige Folge #{seed} gegen das Modell (Index, Reihenfolge, Invarianten)", c do
+      :rand.seed(:exsss, {unquote(seed), 17, 4711})
+
+      Enum.reduce(1..300, [], fn i, model ->
+        {q, expect, model} = model_step(c, model)
+        got = ask(c, q) |> Enum.map(&Regex.replace(~r/, T = .*$|^T = _\w+, /, &1, ""))
+
+        assert got == expect,
+               "Schritt #{i}: #{q}\nerhalten: #{inspect(got)}\nerwartet: #{inspect(expect)}\nModell: #{inspect(model)}"
+
+        assert PrologEx.Linda.Server.invariants(:sys.get_state(:prolog_ex_linda)) == [],
+               "Schritt #{i}: #{q}"
+
+        model
+      end)
+    end
+  end
+
+  test "wartende in werden in der Reihenfolge ihres Wartens bedient", c do
+    me = self()
+
+    # nacheinander warten lassen (jeweils erst, wenn der vorige wartet)
+    for k <- 1..3 do
+      spawn(fn ->
+        Reader.put_current(c.reader)
+        r = ask(c, "linda_client('#{c.addr}'), in(job(X)), close_client")
+        send(me, {:fifo, k, r})
+      end)
+
+      wait_waiters(k)
+    end
+
+    ask(c, "out(job(1)), out(job(2)), out(job(3))")
+
+    got =
+      for _ <- 1..3, do: receive(do: ({:fifo, k, [r]} -> {k, r}), after: (2000 -> flunk("fehlt")))
+
+    assert Enum.sort(got) == [{1, "X = 1"}, {2, "X = 2"}, {3, "X = 3"}]
+  end
+
+  test "Index: Tupel mit Variable im ersten Argument, Reihenfolge über die Fächer, 1 und 1.0",
+       c do
+    # f(_) passt zu jedem f(...) und steht im Fach :var; das älteste gewinnt
+    assert ask(c, "out(f(1)), out(f(_)), in(f(1)), in(f(1)), \\+ rd_noblock(f(_))") == ["true"]
+    assert ask(c, "out(f(_)), out(f(1)), in(f(1)), rd_noblock(f(Y)), in(f(_))") == ["Y = 1"]
+    assert ask(c, "out(f(_)), in(f(g(Z))), \\+ rd_noblock(f(_))") == ["true"]
+
+    assert ask(c, "out(f(g(_))), ( in_noblock(f(h)) -> R = falsch ; R = ok ), in(f(g(1)))") ==
+             ["R = ok"]
+
+    # 1 und 1.0 sind verschiedene Schlüssel (sie unifizieren nicht)
+    assert ask(c, "out(n(1)), ( in_noblock(n(1.0)) -> R = falsch ; R = ok ), in(n(1))") ==
+             ["R = ok"]
+
+    # Listen: der Kopf ist das erste Argument
+    assert ask(c, "out([a, b]), out([_ | c]), in([X | _]), in([q | Y])") == ["X = a, Y = c"]
+    assert PrologEx.Linda.Server.invariants(:sys.get_state(:prolog_ex_linda)) == []
+  end
+
+  test "6 Clients zufällig: jedes abgelegte Tupel ist genau einmal genommen oder noch da", c do
+    run = """
+    findall(x, ( between(1, 60, I), random_between(1, 3, K),
+                 ( K =< 2 -> Me = me, out(v(Me, I)), out(put(Me, I))
+                 ; in_noblock(v(A, B)) -> out(took(A, B)) ; true ) ), _)
+    """
+
+    procs =
+      for p <- 1..6 do
+        String.replace(run, "Me = me", "Me = #{p}")
+      end
+
+    assert others(c, procs) == List.duplicate(["true"], 6)
+
+    assert ask(c, """
+           bagof_rd_noblock(A-B, put(A, B), Ps), msort(Ps, Ps1),
+           ( bagof_rd_noblock(A-B, took(A, B), Ts) -> true ; Ts = [] ),
+           ( bagof_rd_noblock(A-B, v(A, B), Vs) -> true ; Vs = [] ),
+           append(Ts, Vs, Alle), msort(Alle, Alle1),
+           ( Ps1 == Alle1 -> R = ok ; R = falsch ), length(Ps, N), N > 100
+           """)
+           |> hd() =~ "R = ok"
+
+    assert PrologEx.Linda.Server.invariants(:sys.get_state(:prolog_ex_linda)) == []
+  end
+
+  test "die Invarianten-Prüfung selbst findet Fehler (verdorbene Zustände)", c do
+    ask(c, "out(f(1)), out(f(2)), out(g(a))")
+    st = :sys.get_state(:prolog_ex_linda)
+    assert PrologEx.Linda.Server.invariants(st) == []
+
+    # ein Tupel fehlt im Fach seines ersten Arguments
+    {all, by1} = st.space[{"f", 1}]
+    [{a1, tree} | _] = Map.to_list(by1)
+    {n, _} = :gb_trees.smallest(tree)
+    broken = put_in(st.space[{"f", 1}], {all, Map.put(by1, a1, :gb_trees.delete(n, tree))})
+    assert PrologEx.Linda.Server.invariants(broken) != []
+
+    # ein Wartender, den ein Tupel im Raum bedienen könnte
+    w =
+      {make_ref(), self(), :in, [elem(PrologEx.copy_mapped({:struct, "g", [{:var, 1}]}, %{}), 0)]}
+
+    assert PrologEx.Linda.Server.invariants(%{st | waiters: [w]})
+           |> Enum.any?(&(&1 =~ "Wartender"))
+
+    # vorgemerkt und zugleich im Raum
+    item = {{{"f", 1}, {:atomic, 1}}, n, {:struct, "f", [1]}}
+
+    assert PrologEx.Linda.Server.invariants(%{st | reserved: %{make_ref() => {self(), [item]}}}) !=
+             []
   end
 
   # --- Anwendungsfälle (wie examples/linda.pl, hier mit Prozessen dieses

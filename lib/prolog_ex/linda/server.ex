@@ -306,6 +306,63 @@ defmodule PrologEx.Linda.Server do
   # mit Variablen dieses Knotens
   defp import_term(t), do: elem(PrologEx.copy_mapped(t, %{}), 0)
 
+  # --- Prüfen (Tests) ---------------------------------------------------------
+
+  @doc false
+  # Verletzte Invarianten des Zustands (Liste von Texten, leer: in Ordnung):
+  # jedes Tupel steht unter seinem Hauptschlüssel in alle und, hat es ein
+  # erstes Argument, genau unter dessen Schlüssel in nach_erstem – und
+  # nirgends sonst; keine leeren Bäume; Nummern eindeutig, höchstens seq,
+  # nicht zugleich vorgemerkt; kein Wartender, den ein Tupel im Raum schon
+  # bedienen könnte
+  def invariants(st) do
+    in_space =
+      for {fk, {all, by1}} <- st.space, {n, t} <- :gb_trees.to_list(all) do
+        {fk, by1, n, t}
+      end
+
+    by1_entries =
+      for {_fk, {_all, by1}} <- st.space,
+          {a1, tree} <- by1,
+          {n, _} <- :gb_trees.to_list(tree),
+          do: {a1, n}
+
+    reserved = for {_, {_, items}} <- st.reserved, {_, n, _} <- items, do: n
+    nums = for {_, _, n, _} <- in_space, do: n
+
+    [
+      for {fk, {all, by1}} <- st.space,
+          :gb_trees.is_empty(all) or Enum.any?(by1, fn {_, t} -> :gb_trees.is_empty(t) end) do
+        "leerer Baum unter #{inspect(fk)}"
+      end,
+      for {fk, _by1, n, t} <- in_space, {k, _a1} = key(t), k != fk do
+        "Tupel #{n} unter #{inspect(fk)} statt #{inspect(k)}"
+      end,
+      for {fk, by1, n, t} <- in_space,
+          {^fk, a1} = key(t),
+          a1 != nil,
+          not (Map.has_key?(by1, a1) and :gb_trees.is_defined(n, Map.fetch!(by1, a1))) do
+        "Tupel #{n} fehlt unter erstem Argument #{inspect(a1)}"
+      end,
+      if(
+        length(by1_entries) != Enum.count(in_space, fn {_, _, _, t} -> elem(key(t), 1) != nil end),
+        do: ["nach_erstem hat Einträge, die nicht in alle stehen"],
+        else: []
+      ),
+      if(length(Enum.uniq(nums)) != length(nums), do: ["Nummern doppelt"], else: []),
+      for n <- nums ++ reserved, n > st.seq do
+        "Nummer #{n} > seq #{st.seq}"
+      end,
+      for n <- reserved, n in nums do
+        "Nummer #{n} vorgemerkt und im Raum"
+      end,
+      for {ref, _pid, op, pats} <- st.waiters, find(pats, st.space) != nil do
+        "Wartender #{op} #{inspect(ref)} könnte bedient werden"
+      end
+    ]
+    |> List.flatten()
+  end
+
   # --- Clients ----------------------------------------------------------------
 
   # ein Client ist weg: seine Wartenden streichen, seine Vormerkungen
