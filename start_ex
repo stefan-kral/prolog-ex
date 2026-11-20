@@ -24,10 +24,18 @@ cd "$DIR" || exit 1
 # rlwrap-Filter in Python (.rlwrap_filter.py), wenn rlwraps
 # Filterbibliothek und python3 da sind – sonst nur die Wörter aus
 # .rlwrap_completions
+# (Filterbibliothek neben rlwrap: .../bin/rlwrap -> .../share/rlwrap/filters,
+# bei Homebrew auch hinter dem Link; nicht über "rlwrap -z listing", das
+# jeden Filter startet und Sekunden kostet)
 FILTER=
-FDIR=$(rlwrap -z listing 2>/dev/null | sed -n 's/.*can be found in *//p' | head -n 1)
-if [ -n "$FDIR" ] && [ -f "$FDIR/rlwrapfilter.py" ] && command -v python3 >/dev/null 2>&1; then
+RLW=$(command -v rlwrap)
+for b in "$RLW" "$(readlink -f "$RLW" 2>/dev/null)"; do
+  [ -n "$b" ] && [ -f "$(dirname "$b")/../share/rlwrap/filters/rlwrapfilter.py" ] && FILTER=y
+done
+if [ -n "$FILTER" ] && command -v python3 >/dev/null 2>&1; then
   FILTER="$DIR/.rlwrap_filter.py"
+else
+  FILTER=
 fi
 
 # Alle Argumente nach dem Wrapper unverändert an "mix prolog" weiterreichen.
