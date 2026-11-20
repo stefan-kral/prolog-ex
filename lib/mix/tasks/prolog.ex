@@ -29,6 +29,26 @@ defmodule Mix.Tasks.Prolog do
   def run(args) do
     Mix.Task.run("compile")
 
+    # start_ex aus einem anderen Verzeichnis: mix läuft im Projekt, Prolog
+    # im Aufrufverzeichnis (Dateien auf der Kommandozeile, consult/1,
+    # working_directory/2 relativ dazu). Danach gelöscht, damit von hier
+    # gestartete Programme sie nicht erben
+    case System.get_env("PROLOG_EX_CWD") do
+      dir when dir in [nil, ""] ->
+        :ok
+
+      dir ->
+        System.delete_env("PROLOG_EX_CWD")
+
+        case File.cd(dir) do
+          :ok ->
+            :ok
+
+          {:error, _} ->
+            IO.puts(:stderr, "% Verzeichnis #{dir} nicht erreichbar, bleibe im Projekt")
+        end
+    end
+
     code = PrologEx.Toplevel.main(args)
     if code != 0, do: exit({:shutdown, code})
   end
