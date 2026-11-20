@@ -1,6 +1,7 @@
 append
 arg
-assert
+asserta
+assertz
 bb_get
 bb_put
 between
@@ -20,6 +21,7 @@ functor
 ground
 halt
 keysort
+lambda
 length
 library
 listing
