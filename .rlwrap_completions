@@ -23,7 +23,6 @@ halt
 keysort
 lambda
 length
-library
 listing
 lists
 maplist
@@ -48,7 +47,6 @@ sort
 statistics
 true
 unify_with_occurs_check
-use_module
 var
 when
 write
