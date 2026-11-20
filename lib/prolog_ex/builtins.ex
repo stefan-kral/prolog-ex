@@ -198,7 +198,8 @@ defmodule PrologEx.Builtins do
       ~w(abolish/1 assert/1 asserta/1 assertz/1 retract/1 retractall/1 consult/1 dynamic/1
          ensure_loaded/1 use_module/1 use_module/2 meta_predicate/1 $expansion_hooks/0
          $expansion_hooks/2),
-    "state" => ~w(b_setval/2 nb_setval/2 char_conversion/2 op/3 set_prolog_flag/2 style_check/1),
+    "state" => ~w(b_setval/2 nb_setval/2 char_conversion/2 op/3 set_prolog_flag/2 style_check/1
+         $linda_timeout/2),
     "io" => ~w(at_end_of_stream/0 at_end_of_stream/1 close/1 close/2 flush_output/0 flush_output/1
          format/1 format/2 format/3 get_byte/1 get_byte/2 get_char/1 get_char/2 get_code/1
          get_code/2 peek_byte/1 peek_byte/2 peek_char/1 peek_char/2 peek_code/1 peek_code/2

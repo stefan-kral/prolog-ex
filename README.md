@@ -4171,7 +4171,12 @@ dabei nötigenfalls `epmd` (den Namensdienst der BEAM, wie `erl -sname`; er
 läuft danach weiter). Die Knoten brauchen dasselbe Cookie: auf einem Rechner
 und mit demselben Benutzer von selbst (`~/.erlang.cookie`), sonst diese Datei
 auf alle Rechner kopieren. Kurznamen (`-sname`), außer der Rechnername
-enthält einen Punkt (dann lange Namen, `-name`).
+enthält einen Punkt (dann lange Namen, `-name`; ein Client nennt sich dann
+nach seiner eigenen IP-Adresse auf dem Weg zum Server, etwa
+`'linda_client_815@10.0.0.7'`). Kurz- und Langnamen können nicht
+miteinander. Die Knoten sind verborgen (`-hidden`): Clients verbinden sich
+nur mit dem Server, nicht untereinander. Läuft die Sitzung schon als Knoten
+(`elixir --sname …`), nimmt linda diesen, auch für den Server.
 
 ```prolog
 % Sitzung 1: Server (und selbst Client)
@@ -4197,11 +4202,16 @@ X = 42.
 | `in(Ts, T)`, `rd(Ts, T)` | das erste verfügbare zu einem der Muster in `Ts`; passt es nicht zu `T`: Scheitern, bei `in` bleibt es trotzdem draußen (wie SICStus) |
 | `bagof_rd_noblock(Tmpl, T, Bag)` | wie `bagof/3` über alle passenden Tupel, auf einmal gelesen (`V^T` wie bei `bagof`) |
 | `bagof_in_noblock(Tmpl, T, Bag)` | ebenso, nimmt alle passenden heraus (SWI) |
-| `linda_timeout(Old, New)` | Zeitgrenze für Antworten des Servers: `off` (Vorgabe) oder `Sekunden:Millisekunden`; gerissen: das Prädikat scheitert. `New` offen: nur abfragen |
+| `linda_timeout(Old, New)` | Zeitgrenze für Antworten des Servers: `off` (Vorgabe), `Sekunden:Millisekunden` oder Sekunden als Zahl (wie SWI: `0.25`); gerissen: das Prädikat scheitert. `New` offen: nur abfragen |
 | `linda_timeout(New)` | vorübergehend (SWI): das Alte gilt wieder beim Cut, beim Backtracking, bei einer Ausnahme |
 
 * **Passen** heißt unifizierbar; Tupel dürfen Variablen enthalten (Kopien
-  mit frischen Variablen, ohne Attribute). Gefunden wird das älteste passende
+  mit frischen Variablen, ohne Attribute – `dif/2` & Co. gehen nicht mit;
+  zyklische Terme: `representation_error(cyclic_term)`; `out(_)`:
+  `instantiation_error`). `in/2`, `rd/2` binden nur das zweite Argument,
+  nicht die Muster der Liste: `in([task(_), stop], T), ( T = task(I) -> … )`.
+  Herausnehmen ist eine Wirkung: Backtracking oder eine Ausnahme danach legt
+  das Tupel nicht zurück. Gefunden wird das älteste passende
   Tupel. Ein neues Tupel bekommen erst alle wartenden `rd`, zu denen es passt,
   dann nimmt es das erste wartende `in` (in der Reihenfolge des Wartens).
 * **Warten** hat keine Zeitgrenze (`linda_timeout/2` gilt für die Antwort des
@@ -4216,7 +4226,13 @@ X = 42.
   Server: `permission_error(create, linda_client | linda_server, Address)`.
 * Alle Operationen sind äußere Wirkungen: der Toplevel rechnet sie nicht
   voraus, in `library(concurrent)` und `call_with_no_side_effects/1` sind sie
-  verboten.
+  verboten (`permission_error(perform, side_effect, out(…))`;
+  `linda_timeout/2` zählt als Zustand).
+* **Anwendungsfälle** in `examples/linda.pl`: Arbeitsliste (Master/Worker),
+  kritischer Bereich (gemeinsamer Zähler), beschränkter Puffer, Barriere,
+  speisende Philosophen. `examples/linda_demo.sh [Worker]` startet je Rolle
+  eine eigene Sitzung und prüft die Ergebnisse; die Arbeitsliste mit
+  `fib(21)` braucht hier (2 Kerne) mit 4 Workern 2,2 s, mit einem 4,4 s.
 * **Server als eigener Prozess** (ohne Terminal, bis ein Client `out(quit)`
   ablegt):
 

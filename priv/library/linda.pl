@@ -98,46 +98,55 @@ linda_options(Options, _, _, _) :-
 linda_options(Goal, M, _, M:Goal).
 
 linda_client(Address) :-
-    '$linda_connect'(Address).
+    linda_fx('$linda_connect'(Address), linda_client(Address)).
 
 close_client :-
-    '$linda_close'.
+    linda_fx('$linda_close', close_client).
 
 shutdown_server :-
-    '$linda_shutdown'.
+    linda_fx('$linda_shutdown', shutdown_server).
 
 linda_timeout(Old, New) :-
-    '$linda_timeout'(Old, New).
+    linda_fx('$linda_timeout'(Old, New), linda_timeout(Old, New)).
 
 linda_timeout(New) :-
-    setup_call_cleanup('$linda_timeout'(Old, New),
+    setup_call_cleanup(linda_timeout(Old, New),
                        ( true ; fail ),
                        '$linda_timeout'(_, Old)).
 
 out(Tuple) :-
-    '$linda_out'(Tuple).
+    linda_fx('$linda_out'(Tuple), out(Tuple)).
 
 in(Tuple) :-
-    '$linda_in'([Tuple], true, Tuple).
+    linda_fx('$linda_in'([Tuple], true, Tuple), in(Tuple)).
 
 in_noblock(Tuple) :-
-    '$linda_in'([Tuple], false, Tuple).
+    linda_fx('$linda_in'([Tuple], false, Tuple), in_noblock(Tuple)).
 
 in(TupleList, Tuple) :-
     must_be(list, TupleList),
-    '$linda_in'(TupleList, true, Found),
+    linda_fx('$linda_in'(TupleList, true, Found), in(TupleList, Tuple)),
     Tuple = Found.
 
 rd(Tuple) :-
-    '$linda_rd'([Tuple], true, Tuple).
+    linda_fx('$linda_rd'([Tuple], true, Tuple), rd(Tuple)).
 
 rd_noblock(Tuple) :-
-    '$linda_rd'([Tuple], false, Tuple).
+    linda_fx('$linda_rd'([Tuple], false, Tuple), rd_noblock(Tuple)).
 
 rd(TupleList, Tuple) :-
     must_be(list, TupleList),
-    '$linda_rd'(TupleList, true, Found),
+    linda_fx('$linda_rd'(TupleList, true, Found), rd(TupleList, Tuple)),
     Tuple = Found.
+
+% Die Grundlagen sind äußere Wirkungen: wo das verboten ist
+% (library(concurrent), call_with_no_side_effects/1), nennt der Fehler
+% das Prädikat der Bibliothek statt der Grundlage
+linda_fx(G, User) :-
+    catch(G, error(permission_error(perform, side_effect, _), context(_, Kind)),
+          ( functor(User, N, A),
+            throw(error(permission_error(perform, side_effect, User),
+                        context(linda:N/A, Kind))) )).
 
 bagof_rd_noblock(Template, _:Tuple, Bag) :-
     linda_bagof(Template, Tuple, false, Bag).
@@ -149,7 +158,11 @@ bagof_in_noblock(Template, _:Tuple, Bag) :-
 % bagof/3 mit demselben ^ (die Liste selbst ist nicht frei)
 linda_bagof(Template, Tuple, Remove, Bag) :-
     linda_pattern(Tuple, Pattern, Tuples, Goal),
-    '$linda_all'(Pattern, Remove, Tuples),
+    (   Remove == true
+    ->  User = bagof_in_noblock(Template, Tuple, Bag)
+    ;   User = bagof_rd_noblock(Template, Tuple, Bag)
+    ),
+    linda_fx('$linda_all'(Pattern, Remove, Tuples), User),
     bagof(Template, Tuples^Goal, Bag).
 
 linda_pattern(T, _, _, _) :-

@@ -17,7 +17,8 @@ defmodule PrologEx.LindaTest do
         Reader.read_terms(
           r,
           ":- use_module(library(linda)).\n:- use_module(library(time)).\n" <>
-            ":- use_module(library(lists)).\n:- use_module(library(iso_ext)).\n"
+            ":- use_module(library(lists)).\n:- use_module(library(iso_ext)).\n:- use_module(library(between)).\n" <>
+            ":- use_module(library(dif)).\n"
         )
       )
 
@@ -222,6 +223,116 @@ defmodule PrologEx.LindaTest do
 
     assert ask(c, "out(ping(41)), in(pong(Y))") == ["Y = 42"]
     assert {"", 0} = Task.await(task, 20_000)
+  end
+
+  test "Ecken: Variable als Tupel, zyklisch, Attribute, Listen der Muster", c do
+    assert err(c, "out(_)") == ["E = instantiation_error"]
+    assert err(c, "X = f(X), out(X)") == ["E = representation_error(cyclic_term)"]
+    # Attribute gehen nicht mit (wie bei SICStus): dif/2 bindet die Kopie nicht
+    assert ask(c, "dif(D, a), out(s(D)), in(s(V)), V = a") == ["V = a, dif(D,a)"]
+    assert err(c, "in(_, _)") == ["E = instantiation_error"]
+    assert err(c, "rd(foo, _)") == ["E = type_error(list,foo)"]
+    assert ask(c, "in_noblock(_)") == []
+    assert err(c, "bagof_rd_noblock(X, X, _)") == ["E = instantiation_error"]
+  end
+
+  test "in/1 nimmt heraus, auch wenn danach etwas scheitert oder wirft", c do
+    assert ask(c, "out(t(1)), catch((in(t(_)), throw(weg)), weg, true), \\+ rd_noblock(t(_))") ==
+             ["true"]
+
+    assert ask(c, "out(t(2)), ( in(t(_)), fail ; true ), \\+ rd_noblock(t(_))") == ["true"]
+  end
+
+  test "linda_timeout: Sekunden als Zahl (SWI), offene Teile", c do
+    assert ask(c, "linda_timeout(O, 0.25), linda_timeout(T, T), linda_timeout(_, O)") ==
+             ["O = off, T = 0:250"]
+
+    assert err(c, "linda_timeout(_, _:3)") == ["E = instantiation_error"]
+    assert err(c, "linda_timeout(_, 1:2.0)") == ["E = domain_error(linda_timeout,1:2.0)"]
+  end
+
+  test "verboten in library(concurrent) und ohne Seiteneffekte: Fehler nennt das Prädikat", c do
+    assert err(c, "call_with_no_side_effects(out(x))") ==
+             ["E = permission_error(perform,side_effect,out(x))"]
+
+    assert err(c, "call_with_no_side_effects(rd_noblock(x))") ==
+             ["E = permission_error(perform,side_effect,rd_noblock(x))"]
+
+    assert ask(
+             c,
+             "catch(call_with_no_side_effects(linda_timeout(_, off)), error(_, context(C, K)), true)"
+           ) ==
+             ["C = linda:linda_timeout/2, K = state"]
+  end
+
+  # --- Anwendungsfälle (wie examples/linda.pl, hier mit Prozessen dieses
+  # Knotens, je einer Verbindung) -------------------------------------------
+
+  defp others(c, qs) do
+    for q <- qs, do: other(c, q)
+    for _ <- qs, do: assert_receive({:other, r}, 10_000) && r
+  end
+
+  test "kritischer Bereich: count(N) als einziges Tupel, 4 Prozesse je 25 Schritte", c do
+    ask(c, "out(count(0))")
+    step = "forall(between(1, 25, _), (in(count(C)), C1 is C + 1, out(count(C1))))"
+    assert others(c, List.duplicate(step, 4)) == List.duplicate(["true"], 4)
+    assert ask(c, "in(count(N))") == ["N = 100"]
+  end
+
+  test "Arbeitsliste: Worker nehmen Aufgaben bis stop, jede genau einmal", c do
+    worker = """
+    W = (in([task(_), stop], T), ( T = stop -> out(stop) ; T = task(I), R is I * I, out(result(I, R)), fail )),
+    repeat, call(W), !
+    """
+
+    for _ <- 1..3, do: other(c, worker)
+    assert ask(c, "forall(between(1, 30, I), out(task(I)))") == ["true"]
+
+    assert ask(
+             c,
+             "findall(I-R, (between(1, 30, _), in(result(I, R))), L), msort(L, M), length(M, N)",
+             1
+           )
+           |> hd() =~ "N = 30"
+
+    ask(c, "out(stop)")
+    for _ <- 1..3, do: assert_receive({:other, [_]}, 5000)
+    assert ask(c, "\\+ rd_noblock(task(_)), \\+ rd_noblock(result(_, _)), in(stop)") == ["true"]
+  end
+
+  test "Philosophen: 5 Gabeln, 4 Plätze, keine Verklemmung", c do
+    ask(c, "forall(between(1, 5, I), out(fork(I))), forall(between(1, 4, _), out(room))")
+
+    ph = fn i ->
+      j = rem(i, 5) + 1
+
+      "forall(between(1, 10, R), (in(room), in(fork(#{i})), in(fork(#{j})), out(ate(#{i}, R)), " <>
+        "out(fork(#{i})), out(fork(#{j})), out(room)))"
+    end
+
+    assert others(c, Enum.map(1..5, ph)) == List.duplicate(["true"], 5)
+
+    assert ask(c, """
+           findall(N-Gs, (bagof_in_noblock(x, I^R^ate(I, R), L), length(L, N),
+                          bagof_in_noblock(F, fork(F), Fs), msort(Fs, Gs)), [P])
+           """) == ["P = 50-[1,2,3,4,5]"]
+  end
+
+  test "beschränkter Puffer: nie mehr Elemente als Plätze", c do
+    ask(c, "out(slot), out(slot)")
+    other(c, "forall(between(1, 40, I), (in(slot), out(item(I)))), out(item(ende))")
+
+    assert ask(c, """
+           Lauf = (repeat, findall(I, (bagof_rd_noblock(I, item(I), L), member(I, L), integer(I)), Is),
+                   length(Is, Da),
+                   ( Da > 2 -> throw(zu_viele(Da)) ; true ),
+                   in(item(J)), ( J == ende -> ! ; out(slot), out(gesehen(J)), fail )),
+           call(Lauf), bagof_in_noblock(K, gesehen(K), Js), length(Js, N), sum_list(Js, S)
+           """)
+           |> hd() =~ "N = 40, S = 820"
+
+    assert_receive {:other, ["true"]}, 5000
   end
 
   test "shutdown_server: keine neuen Clients, Ende nach dem letzten", c do

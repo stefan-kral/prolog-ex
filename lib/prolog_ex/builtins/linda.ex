@@ -143,9 +143,11 @@ defmodule PrologEx.Builtins.Linda do
   end
 
   defbuiltin "$linda_out", [t] do
+    s = subst()
+    if match?({:var, _}, PrologEx.Store.walk(t, s)), do: Error.instantiation!()
     Effects.external!()
     client!()
-    ok!(request({:out, export(t, subst())}))
+    ok!(request({:out, export(t, s)}))
   end
 
   # $linda_in(+Muster, +Blockieren, -Tupel) / $linda_rd(...): Muster ist
@@ -294,6 +296,12 @@ defmodule PrologEx.Builtins.Linda do
     sec * 1000 + ms
   end
 
+  defp timeout!({:struct, ":", [{:var, _}, _]}), do: Error.instantiation!()
+  defp timeout!({:struct, ":", [_, {:var, _}]}), do: Error.instantiation!()
+
+  # Sekunden als Zahl (wie SWI: 0.25), auf Millisekunden gerundet
+  defp timeout!(sec) when is_number(sec) and sec >= 0, do: round(sec * 1000)
+
   defp timeout!({:var, _}), do: Error.instantiation!()
   defp timeout!(t), do: Error.domain!("linda_timeout", t)
 
@@ -310,17 +318,71 @@ defmodule PrologEx.Builtins.Linda do
 
       {name, long} =
         case want do
-          nil -> {"#{prefix}_#{System.pid()}", host != nil and String.contains?(host, ".")}
-          w -> {w, String.contains?(host_of(w) || "", ".")}
+          nil ->
+            long = host != nil and String.contains?(host, ".")
+            base = "#{prefix}_#{System.pid()}"
+            # lange Namen brauchen einen Rechner im eigenen Namen: die
+            # eigene Adresse auf dem Weg zum Gegenüber
+            {if(long, do: base <> "@" <> local_address(host), else: base), long}
+
+          w ->
+            if name_taken?(w), do: Error.permission!("create", "linda_server", a(w))
+            {w, String.contains?(host_of(w) || "", ".")}
         end
 
       domain = if long, do: :longnames, else: :shortnames
 
-      case :net_kernel.start([String.to_atom(name), domain]) do
+      case start_node(String.to_atom(name), domain) do
         {:ok, _} -> Node.self()
         {:error, _} -> Error.resource!("linda_node")
       end
     end
+  end
+
+  # als verborgener Knoten (wie erl -hidden): Clients verbinden sich nur mit
+  # dem Server, nicht über global auch untereinander (das vollständige Netz
+  # wüchse quadratisch, und global trennte beim Ende eines Clients andere
+  # Verbindungen, um Partitionen zu vermeiden). Ältere OTP ohne die
+  # Option: normal
+  defp start_node(name, domain) do
+    :net_kernel.start(name, %{name_domain: domain, hidden: true})
+  rescue
+    _ -> :net_kernel.start([name, domain])
+  end
+
+  # schon ein Knoten dieses Namens auf diesem Rechner (bei epmd gemeldet)?
+  defp name_taken?(w) do
+    [short | _] = String.split(w, "@", parts: 2)
+
+    case :erl_epmd.names() do
+      {:ok, names} -> Enum.any?(names, fn {n, _port} -> to_string(n) == short end)
+      _ -> false
+    end
+  end
+
+  # die eigene IP-Adresse, über die host erreicht wird (UDP "verbinden"
+  # schickt nichts, wählt aber die Schnittstelle); sonst der Rechnername
+  defp local_address(host) do
+    with {:ok, ip} <- :inet.getaddr(String.to_charlist(host), :inet),
+         {:ok, sock} <- :gen_udp.open(0, [:inet]) do
+      try do
+        with :ok <- :gen_udp.connect(sock, ip, 9),
+             {:ok, {me, _}} <- :inet.sockname(sock) do
+          to_string(:inet.ntoa(me))
+        else
+          _ -> fallback_host()
+        end
+      after
+        :gen_udp.close(sock)
+      end
+    else
+      _ -> fallback_host()
+    end
+  end
+
+  defp fallback_host do
+    {:ok, h} = :inet.gethostname()
+    to_string(h)
   end
 
   defp host_of(name) do
