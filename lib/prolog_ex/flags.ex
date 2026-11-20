@@ -85,6 +85,11 @@ defmodule PrologEx.Flags do
               {name, {v, _}} -> {name, v}
             end)
 
+  @doc false
+  # name => {standardwert, erlaubte_werte | :read_only} (für die
+  # TAB-Ergänzung unter rlwrap, PrologEx.Shell.Complete)
+  def spec, do: @flags
+
   @doc "Größte Stelligkeit eines Terms (Flag max_arity, 255 wie SICStus und Scryer)"
   def max_arity, do: 255
 

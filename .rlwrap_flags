@@ -1,0 +1,27 @@
+answer_chunk = auto
+apply_macros = false true
+bounded
+char_conversion = off on
+clause_jit = false true sync
+clause_jit_threshold =
+clpz_residuals = compact scryer
+color_term = false true
+debug = off on
+dialect
+double_quotes = chars codes atom
+integer_rounding_function
+jit = false true
+jit_nondet = false true
+jit_threshold =
+last_call_optimisation
+max_arity
+max_tagged_integer
+min_tagged_integer
+occurs_check = false true error
+prefer_rationals = false true
+stack_limit = unlimited
+swi_compat = false true
+unknown = error fail warning
+verbose_load = silent normal full
+version
+version_data

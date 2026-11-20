@@ -176,6 +176,24 @@ defmodule PrologEx.Shell.Complete do
     end)
   end
 
+  @doc false
+  # Für die TAB-Ergänzung unter rlwrap: die Prolog-Flags, je Zeile der Name,
+  # bei schreibbaren dazu "=" und die Werte, die ein Atom sind (also ohne
+  # positive_integer), sortiert; steht in .rlwrap_flags (test/rlwrap_test.exs
+  # prüft das)
+  def rlwrap_flags_text do
+    for {name, {_, allowed}} <- Enum.sort(PrologEx.Flags.spec()), into: "" do
+      case allowed do
+        :read_only ->
+          name <> "\n"
+
+        vs ->
+          Enum.join([name, "=" | for(v <- vs, v != :positive_integer, do: to_string(v))], " ") <>
+            "\n"
+      end
+    end
+  end
+
   # Exporte aus :- module(Name, Liste) am Anfang einer Bibliotheksdatei
   defp file_exports(path) do
     text = File.read!(path)

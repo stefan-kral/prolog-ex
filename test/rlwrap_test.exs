@@ -9,10 +9,17 @@ defmodule PrologEx.RlwrapTest do
   # member( mit Klammer), erzeugt; muss zu PrologEx passen. Neu schreiben:
   #
   #   mix run -e 'File.write!(".rlwrap_predicates", PrologEx.Shell.Complete.rlwrap_predicates_text())'
+  #
+  # .rlwrap_flags: die Prolog-Flags mit den Werten der schreibbaren (für
+  # current_prolog_flag(dialect, und set_prolog_flag(occurs_check, true)),
+  # erzeugt; muss zu PrologEx passen. Neu schreiben:
+  #
+  #   mix run -e 'File.write!(".rlwrap_flags", PrologEx.Shell.Complete.rlwrap_flags_text())'
   use ExUnit.Case, async: true
 
   @libs ".rlwrap_libraries"
   @preds ".rlwrap_predicates"
+  @flags ".rlwrap_flags"
   @filter ".rlwrap_filter.py"
 
   test ".rlwrap_libraries: nur Bibliotheken, die es gibt" do
@@ -26,14 +33,19 @@ defmodule PrologEx.RlwrapTest do
            "#{@preds} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
   end
 
+  test ".rlwrap_flags: passt zu PrologEx" do
+    assert File.read!(@flags) == PrologEx.Shell.Complete.rlwrap_flags_text(),
+           "#{@flags} neu schreiben (Befehl oben in test/rlwrap_test.exs)"
+  end
+
   # die Ergänzungslogik des Filters, ohne rlwrap (wenn python3 da ist)
   @check """
   import importlib.util, sys
   spec = importlib.util.spec_from_file_location("flt", sys.argv[1])
   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-  libs, preds = m.read_libraries(), m.read_predicates()
+  libs, preds, flags = m.read_libraries(), m.read_predicates(), m.read_flags()
   words = ["use_module", "member", "findall", "halt", "true", "lists"]
-  c = lambda line, prefix: m.complete(line, prefix, words, libs, preds)
+  c = lambda line, prefix: m.complete(line, prefix, words, libs, preds, flags)
   assert "use_module(" in c("use_mod", "use_mod")
   assert "use_module" not in c("use_mod", "use_mod")
   assert "use_module(library(clpz))" in c("use_mod", "use_mod")
@@ -51,6 +63,13 @@ defmodule PrologEx.RlwrapTest do
   assert c("use_module(library(si))", "") == []
   assert c("X = library(si)", "") == []
   assert c("use_module(library(nix)", "") == []
+  assert c("current_prolog_flag(dia", "dia") == ["dialect,"]
+  assert "bounded," in c("X = 1, current_prolog_flag(", "")
+  assert c("set_prolog_flag(occ", "occ") == ["occurs_check,"]
+  assert c("set_prolog_flag(dia", "dia") == []
+  assert c("set_prolog_flag(occurs_check,", "") == ["false)", "true)", "error)"]
+  assert c("set_prolog_flag(occurs_check, t", "t") == ["true)"]
+  assert c("set_prolog_flag(dialect,", "") == []
   print("ok")
   """
 

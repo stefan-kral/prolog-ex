@@ -483,9 +483,21 @@ mix compile                          # einmal, und nach jeder Änderung
     `library(cl` → `clpz)`, `use_module(library(si)` → `)`. Prädikate
     nur mit Argumenten gleich mit Klammer (`mem` → `member(`,
     `forall(fin` → `forall(findall(`), mit und ohne beides (`halt`,
-    `halt(`); die Stelligkeiten stehen in `.rlwrap_predicates` (erzeugt).
-    Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`;
-    `test/rlwrap_test.exs` prüft ihn und beide Listen). `start_ex` nimmt
+    `halt(`). Flags: `current_prolog_flag(dia` → `dialect,`,
+    `set_prolog_flag(` → nur die schreibbaren, `set_prolog_flag(occurs_check,`
+    → `false)`, `true)`, `error)`.
+    Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`). Die Dateien:
+
+    | Datei | Inhalt | gepflegt |
+    |---|---|---|
+    | `.rlwrap_completions` | die Wörter, die TAB anbietet (ein Wort je Zeile) | von Hand |
+    | `.rlwrap_libraries` | Bibliotheken für `use_module(library(…))` | von Hand (Auswahl) |
+    | `.rlwrap_predicates` | je Name die Stelligkeiten: ob `(` dazukommt; selbst keine Vorschläge | erzeugt |
+    | `.rlwrap_flags` | die Flags, bei schreibbaren mit ihren Werten | erzeugt |
+
+    `test/rlwrap_test.exs` prüft den Filter, dass die Bibliotheken
+    existieren und die erzeugten Dateien zu PrologEx passen (dort auch der
+    Befehl zum Neuschreiben). `start_ex` nimmt
     ihn nur, wenn rlwraps
     Filterbibliothek und `python3` da sind (auf dem Mac mit Homebrew und
     den Xcode-Kommandozeilenwerkzeugen); sonst nur die Wörter. Preis:
