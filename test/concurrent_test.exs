@@ -494,19 +494,28 @@ defmodule PrologEx.ConcurrentTest do
     end
   end
 
+  # Zeitmessung, darum robust gemacht: erst einmal warm laufen lassen (sonst
+  # zahlte der zuerst gemessene parallele Lauf das Laden/Übersetzen), dann
+  # drei Runden und je die schnellste vergleichen (ein einzelner Ausreißer
+  # der Maschine kippt das Ergebnis nicht; mit 2 Schedulern ist parallel
+  # nur etwa 1,4-mal schneller)
   test "parallel schneller als nacheinander (bei mehr als einem Scheduler)", c do
     if System.schedulers_online() > 1 do
       [a] =
         ask(
           c,
-          ~S"numlist(1, 4, L), statistics(walltime, [A0|_]), concurrent_maplist(\_^F^sfib(20, F), L, Fs), " <>
-            ~S"statistics(walltime, [A1|_]), maplist(\_^F^sfib(20, F), L, Fs), statistics(walltime, [A2|_]), " <>
-            "P is A1 - A0, S is A2 - A1"
+          ~S"numlist(1, 4, L), maplist(\_^F^sfib(20, F), L, _), " <>
+            ~S"findall(P-S, (between(1, 3, _), statistics(walltime, [A0|_]), " <>
+            ~S"concurrent_maplist(\_^F^sfib(20, F), L, _), statistics(walltime, [A1|_]), " <>
+            ~S"maplist(\_^F^sfib(20, F), L, _), statistics(walltime, [A2|_]), " <>
+            "P is A1 - A0, S is A2 - A1), Runden), " <>
+            "findall(P, member(P-_, Runden), Ps), min_list(Ps, Par), " <>
+            "findall(S, member(_-S, Runden), Ss), min_list(Ss, Seq)"
         )
 
-      [_, p] = Regex.run(~r/P = (\d+)/, a)
-      [_, s] = Regex.run(~r/S = (\d+)/, a)
-      assert String.to_integer(p) < String.to_integer(s), a
+      [_, par] = Regex.run(~r/\bPar = (\d+)/, a)
+      [_, seq] = Regex.run(~r/\bSeq = (\d+)/, a)
+      assert String.to_integer(par) < String.to_integer(seq), a
     end
   end
 end
