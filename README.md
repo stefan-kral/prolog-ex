@@ -469,9 +469,11 @@ mix compile                          # einmal, und nach jeder Änderung
     pull`) selbst `mix compile` aufrufen, nach einem Wechsel der
     Elixir-/OTP-Version `mix rebuild`. Fehlt der Build, sagt `start_ex`
     das und endet; sind Dateien in `lib/` neuer als die letzte
-    Übersetzung, gibt es einen Hinweis (es läuft der alte Stand). Mix
-    übersetzt nur bei geändertem Inhalt – nach einem bloßen `touch`
-    bleibt der Hinweis bis `mix rebuild`.
+    Übersetzung, gibt es einen Hinweis (es läuft der alte Stand).
+    Verglichen wird in ganzen Sekunden, wie Mix seine Zeit ablegt (sonst
+    galt eine Datei, die in derselben Sekunde gespeichert und übersetzt
+    wurde, als neuer). Mix übersetzt nur bei geändertem Inhalt – nach
+    einem bloßen `touch` bleibt der Hinweis bis `mix rebuild`.
   * Aus jedem Verzeichnis startbar (`~/dev/prolog-ex/start_ex meins.pl`):
     Prolog läuft im Aufrufverzeichnis – Dateien auf der Kommandozeile,
     `consult/1` und `working_directory/2` beziehen sich auf dieses.

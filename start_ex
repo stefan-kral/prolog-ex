@@ -27,8 +27,22 @@ if [ ! -f "$APP/ebin/Elixir.PrologEx.Toplevel.beam" ]; then
   echo "start_ex: kein Build in $APP – bitte in $DIR \"mix compile\" aufrufen" >&2
   exit 1
 fi
-if [ -n "$(find "$DIR/lib" "$DIR/mix.exs" -newer "$APP/.mix/compile.elixir" -name '*.ex*' 2>/dev/null | head -1)" ]; then
-  echo "% start_ex: Quellen geändert seit dem letzten Übersetzen – \"mix compile\" in $DIR" >&2
+#
+# Mix setzt die Zeit seines Manifests auf ganze Sekunden (den Beginn des
+# Übersetzens); eine Datei, die in derselben Sekunde davor gespeichert
+# wurde, wirkte für find -newer sonst neuer. Darum: find nur als Vorauswahl,
+# dann in ganzen Sekunden vergleichen (stat: GNU -c %Y, BSD/macOS -f %m)
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+MANIFEST="$APP/.mix/compile.elixir"
+if [ -f "$MANIFEST" ]; then
+  BUILT=$(mtime "$MANIFEST")
+  find "$DIR/lib" "$DIR/mix.exs" -newer "$MANIFEST" -name '*.ex*' 2>/dev/null |
+    while IFS= read -r f; do
+      if [ "$(mtime "$f")" -gt "$BUILT" ]; then
+        echo "% start_ex: Quellen geändert seit dem letzten Übersetzen – \"mix compile\" in $DIR" >&2
+        break
+      fi
+    done
 fi
 
 # TAB-Ergänzung mit Klammern (use_module(library(clpz)), ...): ein
