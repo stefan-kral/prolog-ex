@@ -13,7 +13,10 @@
          labeling(Options, Vars), Solutions)), in derselben Reihenfolge;
          die Teile laufen parallel (concurrent_maplist/3)
 
-   COptions: parts(N) – in etwa so viele Teile. Vorgabe: 16 für
+   COptions: serial(S) – mit min/max: ein Schritt des Branch and Bound
+   darf so viele Sekunden nacheinander laufen, bevor parallel gerechnet
+   wird (Vorgabe 0.1; 0: gleich parallel). parts(N) – in etwa so viele
+   Teile. Vorgabe: 16 für
    concurrent_labelings (concurrent_maplist/3 verteilt sie auf die Kerne);
    für concurrent_labeling so viele wie Kerne (Flag cpu_count): die Teile
    laufen dort alle zugleich – mehr Teile als Kerne teilten die Kerne
@@ -37,8 +40,22 @@
    Lösungen kommen also in derselben Reihenfolge. Gescheiterte Teile fallen
    schon beim Aufteilen weg.
 
-   Noch nicht: die Optionen min(Expr), max(Expr) und upto_in
-   (domain_error(concurrent_labeling_option, O)).
+   Optimierung (min(Expr), max(Expr), auch mehrere: lexikographisch wie
+   labeling/2):
+     concurrent_labeling – genau die Lösung von once(labeling(Options,
+         Vars)): je Kriterium der beste Wert durch Branch and Bound –
+         nacheinander, solange ein Schritt billig ist (0,1 s), dann
+         parallel: jeder Teil sucht unter der bisherigen Schranke für sich
+         weiter, das Beste aller Teile ist das Optimum (den Beweis, dass es
+         nichts Besseres gibt, teilen sich die Kerne). Die Lösung ist die
+         erste mit dem besten Wert in der Reihenfolge der Suche, wie bei
+         labeling/2. Deterministisch, anders als ohne Optimierung
+     concurrent_labelings – alle Lösungen in der Reihenfolge von labeling/2:
+         nach dem Wert gruppiert (min aufsteigend, max absteigend), je Gruppe
+         unter E #= Wert mit den übrigen Kriterien; kostet etwa zwei
+         Durchgänge (erst die vorkommenden Werte, dann je Wert)
+
+   Noch nicht: upto_in (domain_error(concurrent_labeling_option, upto_in)).
 
    Lohnend, wenn die Suche deutlich länger dauert als das Aufsetzen des
    Modells (jedes Kind setzt es neu auf).
@@ -51,44 +68,213 @@
 :- use_module(library(concurrent)).
 :- use_module(library(lists)).
 :- use_module(library(error)).
+:- use_module(library(time)).
 
 concurrent_labeling(Options, Vars) :-
     concurrent_labeling(Options, Vars, []).
 
 concurrent_labeling(Options, Vars, COptions) :-
-    current_prolog_flag(cpu_count, Cores),
-    prepare(Options, Vars, COptions, Cores, Parts, Vs, Gs),
-    Parts \== [],
-    first_goals(Parts, Gs, Vs, Options, Sol, Goals),
-    first_solution(Sol, Goals, [on_fail(continue)]),
-    Vars = Sol.
+    check(Options, Vars, COptions, Spec, Whats, Parts0),
+    (   Whats == []
+    ->  current_prolog_flag(cpu_count, Cores),
+        parts(Parts0, Cores, N),
+        race_first(Spec, Vars, N)
+    ;   parts(Parts0, 16, N),
+        serial_limit(COptions, Limit),
+        optimise_first(Whats, Spec, Vars, N, Limit)
+    ).
 
-% je Teil ein Ziel; alle mit demselben Sol (findall/3 kopierte es)
-first_goals([], _, _, _, _, []).
-first_goals([Ds|Dss], Gs, Vs, Options, Sol, [part_first(Gs, Vs, Options, Ds, Sol)|Goals]) :-
-    first_goals(Dss, Gs, Vs, Options, Sol, Goals).
+% serial(Sekunden): wie lange ein Schritt des Branch and Bound nacheinander
+% laufen darf, bevor parallel gerechnet wird (0: gleich parallel)
+serial_limit(COptions, Limit) :-
+    (   memberchk(serial(Limit), COptions)
+    ->  (   var(Limit) -> instantiation_error(Limit)
+        ;   \+ number(Limit) -> type_error(number, Limit)
+        ;   Limit < 0 -> domain_error(not_less_than_zero, Limit)
+        ;   true
+        )
+    ;   Limit = 0.1
+    ).
 
 concurrent_labelings(Options, Vars, Solutions) :-
     concurrent_labelings(Options, Vars, Solutions, []).
 
 concurrent_labelings(Options, Vars, Solutions, COptions) :-
-    prepare(Options, Vars, COptions, 16, Parts, Vs, Gs),
-    concurrent_maplist(part_all(Gs, Vs, Options), Parts, Sols),
-    append(Sols, Solutions).
+    check(Options, Vars, COptions, Spec, Whats, Parts0),
+    parts(Parts0, 16, N),
+    optimise_all(Whats, Spec, Vars, N, Solutions).
+
+parts(none, Default, Default) :- !.
+parts(N, _, N).
+
+% --- eine Lösung ---------------------------------------------------------------
+
+% ohne Optimierung: die Teile gegeneinander, die erste gefundene gilt
+race_first(Spec, Vars, N) :-
+    pieces(Spec, Vars, N, Parts, Vs, Gs),
+    Parts \== [],
+    base(Spec, Base),
+    first_goals(Parts, Gs, Vs, Base, Sol, Goals),
+    first_solution(Sol, Goals, [on_fail(continue)]),
+    Vars = Sol.
+
+% je Teil ein Ziel; alle mit demselben Sol (findall/3 kopierte es)
+first_goals([], _, _, _, _, []).
+first_goals([Ds|Dss], Gs, Vs, Base, Sol, [part_first(Gs, Vs, Base, Ds, Sol)|Goals]) :-
+    first_goals(Dss, Gs, Vs, Base, Sol, Goals).
+
+% mit min(E)/max(E), wie once(labeling(Options, Vars)): je Kriterium der
+% Reihe nach den besten Wert bestimmen und festhalten (E #= Wert); die
+% Lösung ist die, mit der das letzte Kriterium sein Optimum fand – die
+% erste mit diesem Wert in der Reihenfolge der Suche (siehe optimum/6)
+optimise_first([W|Ws], Spec, Vars, N, Limit) :-
+    optimum(W, Spec, Vars, N, Limit, Val-Sol),
+    (   Ws == []
+    ->  Vars = Sol
+    ;   arg(1, W, E),
+        E #= Val,
+        optimise_first(Ws, Spec, Vars, N, Limit)
+    ).
+
+% Branch and Bound in zwei Phasen. Erst nacheinander im Aufrufer, wie
+% labeling/2: eine Lösung unter der bisherigen Schranke suchen (E #< Best
+% bzw. E #> Best), ihr Wert ist die neue Schranke – solange ein Schritt
+% billig ist (Frist 0,1 s). Braucht ein Schritt länger (gegen Ende: die
+% Lösungen werden selten, zuletzt muss bewiesen werden, dass es keine
+% bessere gibt), dann parallel: die Teile unter der Schranke, jeder sucht
+% für sich weiter, bis er in seinem Teil keine bessere mehr findet
+% (concurrent_maplist/3 verteilt die Teile auf die Kerne); das Beste aller
+% Teile ist das Optimum. Den Beweis teilen sich so die Kerne. (Runden mit
+% gemeinsamer Schranke nach jedem Fund kosteten je Runde Aufteilen und
+% Aufsetzen des Modells in jedem Kind – mehr, als sie sparten.)
+%
+% Ergebnis Wert-Lösung. Die Lösung ist die erste mit dem besten Wert in der
+% Reihenfolge der Suche, wie bei labeling/2: der letzte Schritt fand die
+% erste Lösung (des Teils) mit E besser als die vorige Schranke – eine
+% frühere mit dem besten Wert wäre auch besser gewesen. Unter den Teilen
+% gilt bei gleichem Wert der vorderste; die davor haben nichts so Gutes
+optimum(W, Spec, Vars, N, Limit, Best) :-
+    optimum_(W, Spec, Vars, N, Limit, none, Best).
+
+optimum_(W, Spec, Vars, N, Limit, Best0, Best) :-
+    (   serial_step(W, Spec, Vars, Best0, Limit, Found)
+    ->  (   Found == none
+        ->  Best0 \== none, Best = Best0
+        ;   optimum_(W, Spec, Vars, N, Limit, Found, Best)
+        )
+    ;   parallel_best(W, Spec, Vars, N, Best0, Best),
+        Best \== none
+    ).
+
+% ein Schritt nacheinander: Found ist Wert-Lösung der ersten Lösung unter
+% der Schranke oder none; scheitert, wenn die Frist abläuft
+serial_step(W, Spec, Vars, Bound, Limit, Found) :-
+    W =.. [Dir, E],
+    base(Spec, Base),
+    bound_value(Bound, B),
+    serial_try(Limit, V-Vars, ( bound(Dir, E, B), once(labeling(Base, Vars)), value(E, V) ), Vs),
+    ( Vs = [Found] -> true ; Found = none ).
+
+bound_value(none, none).
+bound_value(V-_, V).
+
+% findall(T, Goal, R) höchstens Limit Sekunden (ohne Bindungen im
+% Aufrufer); scheitert, wenn die Frist abläuft
+serial_try(Limit, T, Goal, R) :-
+    Limit > 0,
+    catch(call_with_time_limit(Limit, findall(T, Goal, R)), time_limit_exceeded, fail).
+
+% das Beste über alle Teile unter der Schranke (Bound, wenn keiner besser)
+parallel_best(W, Spec, Vars, N, Bound, Best) :-
+    W =.. [Dir, E],
+    bound_value(Bound, B),
+    (   findall(P-Vs-EV-Gs,
+                ( bound(Dir, E, B), pieces_t(Spec, Vars-E, Vars, N, P, Vs-EV, Gs) ),
+                [Parts-Vs-EV-Gs])
+    ->  base(Spec, Base),
+        concurrent_maplist(part_best(Gs, Vs, Base, EV, Dir, B), Parts, Bests),
+        foldl(better(Dir), Bests, Bound, Best)
+    ;   Best = Bound
+    ).
+
+% nur ein echt besserer ersetzt: bei gleichem Wert bleibt der vordere Teil
+better(_, none, B, B) :- !.
+better(_, P, none, P) :- !.
+better(min, V-S, B0-S0, B) :- ( V < B0 -> B = V-S ; B = B0-S0 ).
+better(max, V-S, B0-S0, B) :- ( V > B0 -> B = V-S ; B = B0-S0 ).
+
+bound(_, _, none) :- !.
+bound(min, E, B) :- E #< B.
+bound(max, E, B) :- E #> B.
+
+% --- alle Lösungen ---------------------------------------------------------------
+
+% ohne Optimierung: alle Teile, hintereinander. Mit min(E)/max(E) wie
+% labeling/2: gruppiert nach dem Wert von E (aufsteigend bzw. absteigend),
+% je Gruppe die Lösungen unter E #= Wert mit den übrigen Kriterien – erst
+% alle vorkommenden Werte (ein Durchgang), dann je Wert einer
+optimise_all([], Spec, Vars, N, Sols) :-
+    pieces(Spec, Vars, N, Parts, Vs, Gs),
+    base(Spec, Base),
+    concurrent_maplist(part_all(Gs, Vs, Base), Parts, Sols0),
+    append(Sols0, Sols).
+optimise_all([W|Ws], Spec, Vars, N, Sols) :-
+    W =.. [Dir, E],
+    pieces_t(Spec, Vars-E, Vars, N, Parts, Vs-EV, Gs),
+    base(Spec, Base),
+    concurrent_maplist(part_values(Gs, Vs, Base, EV), Parts, Vals0),
+    append(Vals0, Vals1),
+    sort(Vals1, Asc),
+    ( Dir == min -> Vals = Asc ; reverse(Asc, Vals) ),
+    findall(S, ( member(V, Vals),
+                 findall(S0, ( E #= V, optimise_all(Ws, Spec, Vars, N, S0) ), [S]) ),
+            Groups),
+    append(Groups, Sols).
 
 % --- in den Kindern --------------------------------------------------------------
 
-part_first(Gs, Vs, Options, Ds, Vs) :-
+% (Base: die Optionen ohne min/max, [Auswahl, Reihenfolge, Verzweigung])
+part_first(Gs, Vs, Base, Ds, Vs) :-
     call(Gs),
     decide(Ds, Vs, Pre),
-    once(( pre_label(Pre), labeling(Options, Vs) )).
+    once(( pre_label(Pre), labeling(Base, Vs) )).
 
-part_all(Gs, Vs, Options, Ds, Sols) :-
+part_all(Gs, Vs, Base, Ds, Sols) :-
     call(Gs),
     (   decide(Ds, Vs, Pre)
-    ->  findall(Vs, ( pre_label(Pre), labeling(Options, Vs) ), Sols)
+    ->  findall(Vs, ( pre_label(Pre), labeling(Base, Vs) ), Sols)
     ;   Sols = []
     ).
+
+% das Beste des Teils unter der Schranke (none, wenn keins): Branch and
+% Bound wie labeling/2 mit min/max, nur im Teil (ohne assert – das Kind
+% darf keine Seiteneffekte haben)
+part_best(Gs, Vs, Base, EV, Dir, Bound, Ds, Best) :-
+    (   call(Gs), decide(Ds, Vs, Pre)
+    ->  local_best(Pre, Vs, Base, EV, Dir, Bound, none, Best)
+    ;   Best = none
+    ).
+
+% (Ergebnis Wert-Lösung oder none)
+local_best(Pre, Vs, Base, EV, Dir, Bound, Best0, Best) :-
+    (   findall(V-Vs, ( bound(Dir, EV, Bound), pre_label(Pre), once(labeling(Base, Vs)), value(EV, V) ),
+                [V1-S1])
+    ->  local_best(Pre, Vs, Base, EV, Dir, V1, V1-S1, Best)
+    ;   Best = Best0
+    ).
+
+% die Werte von E über alle Lösungen des Teils
+part_values(Gs, Vs, Base, EV, Ds, Vals) :-
+    call(Gs),
+    (   decide(Ds, Vs, Pre)
+    ->  findall(V, ( pre_label(Pre), labeling(Base, Vs), value(EV, V) ), Vals)
+    ;   Vals = []
+    ).
+
+% wie labeling/2: nach dem Labeling muss E feststehen
+value(EV, V) :-
+    V #= EV,
+    (   integer(V) -> true ; instantiation_error(EV) ).
 
 % Entscheidungen setzen; Pre: none oder bei einem Abschnitt von enum
 % pre(O, X): erst X in Reihenfolge O, dann der Rest – wie enum
@@ -111,20 +297,32 @@ decision(range(I, L, H, O), Vs, _, pre(O, X)) :- nth1(I, Vs, X), X in L..H.
 
 % --- im Aufrufer: prüfen und aufteilen ----------------------------------------------
 
-prepare(Options, Vars, COptions, Default, Parts, Vs, Gs) :-
+% Prüfen wie labeling/2; Spec: spec(Auswahl, Reihenfolge, Verzweigung),
+% Whats: die min/max-Kriterien in ihrer Reihenfolge; Parts: parts(N) oder
+% none
+check(Options, Vars, COptions, Spec, Whats, Parts) :-
     Goal = labeling(Options, Vars),
     must_be(list, Options),
     must_be(list, COptions),
     clpz:fd_must_be_list(Vars, Goal-2),
     maplist(clpz:finite_domain(Goal, 2), Vars),
-    options(Options, Options, default(leftmost), default(up), default(step), Spec),
+    options(Options, Options, default(leftmost), default(up), default(step), Whats, Spec),
     (   memberchk(parts(N), COptions)
     ->  must_be(integer, N),
-        ( N >= 1 -> true ; type_error(positive_integer, N) )
-    ;   N = Default
-    ),
+        ( N >= 1 -> true ; type_error(positive_integer, N) ),
+        Parts = N
+    ;   Parts = none
+    ).
+
+base(spec(S, O, C), [S, O, C]).
+
+% Teile und die Kopie: Term wird kopiert (Vars oder Vars-E), Vars geteilt
+pieces(Spec, Vars, N, Parts, Vs, Gs) :-
+    pieces_t(Spec, Vars, Vars, N, Parts, Vs, Gs).
+
+pieces_t(Spec, Term, Vars, N, Parts, Copy, Gs) :-
     split(Spec, Vars, N, Parts),
-    copy_term(Vars, Vs, Gs0),
+    copy_term(Term, Copy, Gs0),
     goal_conj(Gs0, Gs).
 
 % copy_term/3 gibt die Ziele je nach Import als Liste (iso_ext, wie Scryer)
@@ -133,16 +331,16 @@ goal_conj([], true) :- !.
 goal_conj([G|Gs], (G, C)) :- !, goal_conj(Gs, C).
 goal_conj(G, G).
 
-options([], _, S, O, C, spec(S1, O1, C1)) :-
+options([], _, S, O, C, [], spec(S1, O1, C1)) :-
     maplist(arg(1), [S, O, C], [S1, O1, C1]).
-options([X|Xs], Options, S, O, C, Spec) :-
+options([X|Xs], Options, S, O, C, Ws, Spec) :-
     (   var(X) -> instantiation_error(X)
-    ;   clpz:override(selection, S, X, Options, S1) -> options(Xs, Options, S1, O, C, Spec)
-    ;   clpz:override(order, O, X, Options, O1) -> options(Xs, Options, S, O1, C, Spec)
-    ;   clpz:override(choice, C, X, Options, C1) -> options(Xs, Options, S, O, C1, Spec)
-    ;   X == upto_ground -> options(Xs, Options, S, O, C, Spec)
-    ;   ( clpz:optimisation(X) ; clpz:consistency(X, _) )
-    ->  domain_error(concurrent_labeling_option, X)
+    ;   clpz:override(selection, S, X, Options, S1) -> options(Xs, Options, S1, O, C, Ws, Spec)
+    ;   clpz:override(order, O, X, Options, O1) -> options(Xs, Options, S, O1, C, Ws, Spec)
+    ;   clpz:override(choice, C, X, Options, C1) -> options(Xs, Options, S, O, C1, Ws, Spec)
+    ;   X == upto_ground -> options(Xs, Options, S, O, C, Ws, Spec)
+    ;   clpz:optimisation(X) -> Ws = [X|Ws1], options(Xs, Options, S, O, C, Ws1, Spec)
+    ;   clpz:consistency(X, _) -> domain_error(concurrent_labeling_option, X)
     ;   domain_error(labeling_option, X)
     ).
 

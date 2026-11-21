@@ -4167,7 +4167,7 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
 | Prädikat | Bedeutung |
 |---|---|
 | `concurrent_labelings(Opts, Vars, Sols[, [parts(N)]])` | alle Lösungen als Liste von Wertelisten, genau wie `findall(Vars, labeling(Opts, Vars), Sols)` – **auch in derselben Reihenfolge** –, die Teile parallel (Vorgabe 16 Teile; `concurrent_maplist/3` verteilt sie) |
-| `concurrent_labeling(Opts, Vars[, [parts(N)]])` | eine Lösung (det): die Teile laufen gegeneinander, die erste gefundene gilt; welche, hängt von der Zeit ab. Vorgabe so viele Teile wie Kerne (Flag `cpu_count`) |
+| `concurrent_labeling(Opts, Vars[, [parts(N), serial(S)]])` | eine Lösung (det): die Teile laufen gegeneinander, die erste gefundene gilt; welche, hängt von der Zeit ab. Vorgabe so viele Teile wie Kerne (Flag `cpu_count`). Mit `min(E)`/`max(E)`: genau die Lösung von `once(labeling(Opts, Vars))` (unten) |
 
 * **Aufteilen:** Der Aufrufer trifft die ersten Entscheidungen, die
   `labeling/2` selbst träfe – dieselbe Variablenwahl (`leftmost`, `ff`,
@@ -4191,8 +4191,27 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
 * Jedes Kind setzt das ganze Modell neu auf: lohnend, wenn die Suche
   deutlich länger dauert als der Aufbau (30 Damen mit `ff` finden sich
   nacheinander in 40 ms, parallel braucht schon das Aufteilen mehr).
-* Fehler wie `labeling/2`. Noch nicht: `min(Expr)`, `max(Expr)`, `upto_in`
-  (`domain_error(concurrent_labeling_option, O)`).
+* **Optimieren** mit `min(E)`/`max(E)` (auch mehrere, lexikographisch wie
+  `labeling/2`). `concurrent_labeling` gibt genau die Lösung von
+  `once(labeling(Opts, Vars))`: Branch and Bound erst nacheinander im
+  Aufrufer – eine Lösung unter der bisherigen Schranke suchen, ihr Wert ist
+  die neue –, solange ein Schritt billig ist (`serial(S)`, Vorgabe 0,1 s);
+  braucht einer länger (gegen Ende werden bessere Lösungen selten, zuletzt
+  muss bewiesen werden, dass es keine gibt), dann parallel: jeder Teil sucht
+  unter der Schranke für sich weiter, bis er nichts Besseres mehr findet,
+  das Beste aller Teile ist das Optimum. Die Lösung ist die erste mit dem
+  besten Wert in der Reihenfolge der Suche: der letzte Schritt fand die
+  erste Lösung, die besser war als die vorige Schranke, und bei gleichem
+  Wert gilt der vordere Teil. `concurrent_labelings` gibt alle Lösungen in
+  der Reihenfolge von `labeling/2`: nach dem Wert gruppiert, je Gruppe
+  unter `E #= Wert` mit den übrigen Kriterien (etwa zwei Durchgänge).
+  Gemessen (2 Kerne, je dasselbe Ergebnis wie nacheinander): Rucksack mit
+  16 Gegenständen 5,4 → 2,9 s, mit 20 Gegenständen 41 → 22 s; 9 Damen mit
+  `[ff, min(Σ i·Qᵢ)]` 3,7 → 1,5 s, 8 Damen 0,8 → 0,7 s. Runden mit
+  gemeinsamer Schranke nach jedem Fund waren langsamer als nacheinander:
+  jede Runde teilt neu auf und setzt das Modell in jedem Kind neu auf.
+* Fehler wie `labeling/2`. Noch nicht: `upto_in`
+  (`domain_error(concurrent_labeling_option, upto_in)`).
 * Nebenbei behoben: `copy_term/3` mit mehr als 255 Restzielen von clpz
   (schon 16 Damen) warf `representation_error(max_arity)` – das Lesbarmachen
   der Restziele legte sie als Term mit einem Argument je Ziel ab.

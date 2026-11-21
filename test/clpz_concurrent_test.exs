@@ -15,6 +15,24 @@ defmodule PrologEx.ClpzConcurrentTest do
   % gemischtes Modell: Summen, Reifikation, große Bereiche (enum in Abschnitten)
   mixed([X, Y, Z, B]) :- X in 0..200, Y in 0..9, Z in -5..5, B in 0..1,
       X mod 7 #= 3, X + Y #> 50, (Y #> Z) #<==> B, X #< 120 + Z.
+  % zum Optimieren: viele gleich gute Lösungen (es zählt, welche zuerst)
+  small([X, Y, Z]) :- [X, Y, Z] ins 0..9, X + Y #>= Z, X #\= Y, Z #\= 3.
+  opt(1, [X, _, _], [min(X)]).
+  opt(2, [X, Y, _], [max(X + Y)]).
+  opt(3, [X, _, Z], [min(Z), max(X)]).
+  opt(4, [X, Y, Z], [ff, max(X * Y - Z)]).
+  opt(5, [X, Y, _], [down, min(abs(X - Y))]).
+  opt(6, [_, _, Z], [enum, min(Z)]).
+  opt(7, [_, Y, _], [bisect, max(Y)]).
+  opt(8, [X, Y, Z], [max(X), min(Y), max(Z)]).
+  opt(9, [X, Y, Z], [ffc, down, min(X + Y + Z)]).
+  % eine Lösung mit Optimierung: dieselbe wie once(labeling/2)
+  same_first(K, COpts, R) :- small(L), opt(K, L, O), ( once(labeling(O, L)) -> F1 = L ; F1 = none ),
+      small(L2), opt(K, L2, O2), ( concurrent_labeling(O2, L2, COpts) -> F2 = L2 ; F2 = none ),
+      ( F1 == F2 -> R = gleich ; R = verschieden(F1, F2) ).
+  same_all(K, R) :- small(L), opt(K, L, O), findall(L, labeling(O, L), S1),
+      small(L2), opt(K, L2, O2), concurrent_labelings(O2, L2, S2),
+      ( S1 == S2 -> R = gleich ; R = verschieden ).
   % das Modell zweimal aufbauen: einmal labeling/2, einmal parallel
   same(Model, Opts, R) :- call(Model, L), findall(L, labeling(Opts, L), S1),
       call(Model, L2), concurrent_labelings(Opts, L2, S2),
@@ -127,15 +145,47 @@ defmodule PrologEx.ClpzConcurrentTest do
     end
   end
 
-  test "Optimierung und upto_in (noch) nicht; parts(N) geprüft", c do
-    assert err(c, "X in 1..3, concurrent_labelings([min(X)], [X], _)") |> hd() =~
-             "domain_error(concurrent_labeling_option,min("
+  for k <- 1..9 do
+    test "min/max #{k}: alle Lösungen wie labeling/2; eine wie once(labeling/2), auch gleich parallel",
+         c do
+      k = unquote(k)
+      assert ask(c, "same_all(#{k}, R), R == gleich") != []
+      # nacheinander (Vorgabe: kleine Schritte), gleich parallel in 1, 3, 8 Teilen
+      for copts <- [
+            "[]",
+            "[serial(0), parts(1)]",
+            "[serial(0), parts(3)]",
+            "[serial(0), parts(8)]"
+          ] do
+        assert ask(c, "same_first(#{k}, #{copts}, R), R == gleich") != [], "#{k} #{copts}"
+      end
+    end
+  end
 
+  test "min/max ohne Lösung; Ausdruck mit fremder Variable wie labeling/2", c do
+    # keine Lösung, die Propagation sieht es aber nicht (drei paarweise
+    # verschiedene in 1..2)
+    nosol = "Vs = [X, Y, Z], Vs ins 1..2, X #\\= Y, Y #\\= Z, X #\\= Z"
+    assert ask(c, "#{nosol}, concurrent_labeling([min(X)], Vs)") == []
+    assert ask(c, "#{nosol}, concurrent_labeling([min(X)], Vs, [serial(0)])") == []
+    assert ask(c, "#{nosol}, concurrent_labelings([max(X + Y)], Vs, S), S == []") != []
+
+    assert err(c, "X in 1..3, Y in 1..3, concurrent_labeling([min(X + Y)], [X], [serial(0)])") ==
+             err(c, "X in 1..3, Y in 1..3, labeling([min(X + Y)], [X])")
+  end
+
+  test "upto_in (noch) nicht; parts(N), serial(S) geprüft", c do
     assert err(c, "X in 1..3, concurrent_labelings([upto_in], [X], _)") |> hd() =~
              "domain_error(concurrent_labeling_option,upto_in)"
 
     assert err(c, "X in 1..3, concurrent_labelings([], [X], _, [parts(0)])") |> hd() =~
              "type_error(positive_integer,0)"
+
+    assert err(c, "X in 1..3, concurrent_labeling([min(X)], [X], [serial(-1)])") |> hd() =~
+             "domain_error(not_less_than_zero,-1)"
+
+    assert err(c, "X in 1..3, concurrent_labeling([min(X)], [X], [serial(bald)])") |> hd() =~
+             "type_error(number,bald)"
   end
 
   test "copy_term/3 mit mehr als 255 Restzielen (16 Damen; vorher max_arity)", c do
