@@ -545,18 +545,17 @@ mix compile                          # einmal, und nach jeder Änderung
     seine Zeile bekommt das nächste Lesen. Eine angefangene Zeile behält
     rlwrap (Ctrl-U löscht sie). Beenden also mit `halt.` oder Ctrl-D, nicht
     mit `kill` (das wirkt dann wie Ctrl-C; `kill -KILL` beendet).
-  * **Speicher:** `start_ex` setzt `ERL_FLAGS="+MMmcs 0"` (eine schon
-    gesetzte `ERL_FLAGS` bleibt dahinter erhalten). Sonst behält die BEAM
-    bis zu zehn freigegebene Heap-Blöcke für später, und nach einem großen
-    Lauf bleiben hunderte MB belegt, obwohl die VM sie nicht mehr braucht:
-    `findall/3` über 10⁶ Werte +155 → +68 MB über dem leeren Lauf (SWI
-    +60, Scryer +91, Trealla +113), `length(L, 1000000)` 1046 → 287 MB (mit
-    dem Antwortaufbau ohne Kopie, s. u.: 171 MB).
-    Preis nur bei großen Heaps (ab einigen MB lebendiger Daten in einem
-    Prozess): frischer Speicher muss erst berührt werden, `findall` über
-    10⁵–10⁶ Werte etwa 10–25 % langsamer; Programme mit kleinen Daten
-    (Generatoren, clpz, JIT-Schleifen) unverändert. Mit `mix prolog` gilt
-    das nur, wenn man es selbst setzt: `ERL_FLAGS="+MMmcs 0" mix prolog`.
+  * **Speicher:** die BEAM behält bis zu zehn freigegebene Heap-Blöcke für
+    später (Erlang-Vorgabe); nach einem großen Lauf bleibt darum mehr
+    belegt, als die VM noch braucht: `findall/3` über 10⁶ Werte +155 MB
+    über dem leeren Lauf, `length(L, 1000000)` 1046 MB (mit dem
+    Antwortaufbau ohne Kopie, s. u.: 171 MB). `ERL_FLAGS="+MMmcs 0"
+    ./start_ex` gibt sie gleich zurück (+68 MB; SWI +60, Scryer +91,
+    Trealla +113) – das war hier die Vorgabe, kostet aber bei großen Heaps
+    viel Zeit: jede Speicherbereinigung holt neue Blöcke vom System. Lange
+    Rechnungen im Toplevel wurden so bis fast doppelt so langsam (Primzahlen
+    bis 200000 mit `jit=false` nacheinander: 15,8 statt 9,0 s;
+    `findall/3` über 10⁵–10⁶ Werte 10–25 %).
 
 Ohne rlwrap:
 

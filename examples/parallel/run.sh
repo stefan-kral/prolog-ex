@@ -115,8 +115,13 @@ for d in $DEMOS; do
       r=$((r + 1))
       echo "  $d: Lauf $r ($k Kerne) ..." >&2
       if [ "$k" = max ]; then flags=$ERL_FLAGS; else flags="+S $k:$k${ERL_FLAGS:+ $ERL_FLAGS}"; fi
+      # jede fertige Zeile gleich auf stderr (lange Läufe sehen sonst aus,
+      # als hingen sie), die @@-Zeilen für die Tabelle
       ERL_FLAGS=$flags "$PX" -q "$f" -g csv -g "main($SIZE)" -g halt </dev/null |
-        grep '^@@' | sed "s/^/$r;/"
+        awk -F';' -v r="$r" '
+          $1 == "@@zeile" { printf "    %s: %.2f s nacheinander, %.2f s parallel\n", $2, $3 / 1000, $4 / 1000 > "/dev/stderr"; fflush() }
+          /^@@/ { print r ";" $0; fflush() }'
+
     done | table
   fi
 done

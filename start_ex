@@ -13,11 +13,12 @@
 
 DIR=$(cd "$(dirname "$0")" && pwd)
 
-# +MMmcs 0: freigegebene Heap-Blöcke gehen an das System zurück, statt im
-# Segment-Cache der BEAM zu bleiben (sonst hält ein großer Lauf hunderte MB
-# fest: findall über 10^6 Werte +155 statt +68 MB). Kostet nur bei großen
-# Heaps Zeit (etwa 10-25 %). Gesetzte ERL_FLAGS bleiben erhalten.
-export ERL_FLAGS="+MMmcs 0${ERL_FLAGS:+ $ERL_FLAGS}"
+# Speicher: die BEAM behält freigegebene Heap-Blöcke im Segment-Cache
+# (Vorgabe). Früher hier +MMmcs 0 (sofort ans System zurück, nach einem
+# großen Lauf weniger belegt) – das kostete aber bei jeder
+# Speicherbereinigung eines großen Heaps neue Blöcke vom System: lange
+# Rechnungen im Toplevel wurden bis fast doppelt so langsam (Primzahlen bis
+# 200000: 15,8 statt 9,0 s). Wer es will: ERL_FLAGS="+MMmcs 0" ./start_ex
 
 # Der Build. Fehlt er, Hinweis und Ende; sind Quellen neuer als die
 # letzte Übersetzung, nur ein Hinweis (es läuft der alte Stand)
