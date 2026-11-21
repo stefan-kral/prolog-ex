@@ -3,26 +3,26 @@
 
      concurrent_labeling(+Options, +Vars)
      concurrent_labeling(+Options, +Vars, +COptions)
-         wie labeling(Options, Vars), aber eine Lösung (det): die Teile des
-         Suchraums laufen gegeneinander, die erste gefundene gilt – welche
-         das ist, hängt von der Zeit ab (wie first_solution/3). Scheitert,
-         wenn es keine gibt
+         wie once(labeling(Options, Vars)): dieselbe Lösung – die erste in
+         der Reihenfolge der Suche –, die Suche parallel (siehe unten);
+         scheitert, wenn es keine gibt
      concurrent_labelings(+Options, +Vars, -Solutions)
      concurrent_labelings(+Options, +Vars, -Solutions, +COptions)
          alle Lösungen als Liste von Wertelisten (wie findall(Vars,
          labeling(Options, Vars), Solutions)), in derselben Reihenfolge;
          die Teile laufen parallel (concurrent_maplist/3)
 
-   COptions: serial(S) – mit min/max: ein Schritt des Branch and Bound
-   darf so viele Sekunden nacheinander laufen, bevor parallel gerechnet
-   wird (Vorgabe 0.1; 0: gleich parallel). parts(N) – in etwa so viele
-   Teile. Vorgabe: 16 für
-   concurrent_labelings (concurrent_maplist/3 verteilt sie auf die Kerne);
-   für concurrent_labeling so viele wie Kerne (Flag cpu_count): die Teile
-   laufen dort alle zugleich – mehr Teile als Kerne teilten die Kerne
-   auch dem Teil, der die Lösung bald fände, und die Suche würde langsamer
-   als nacheinander (24 Damen ohne ff: 8 Teile auf 2 Kernen 138 s statt
-   41 s).
+   COptions: serial(S) – concurrent_labeling: so viele Sekunden erst
+   nacheinander (die Suche bzw. ein Schritt des Branch and Bound), bevor
+   parallel gerechnet wird (Vorgabe 0.1; 0: gleich parallel); kleine
+   Aufgaben sparen so das Aufsetzen der Kinder. parts(N) – in etwa so
+   viele Teile: Vorgabe 16 für concurrent_labelings und mit min/max
+   (concurrent_maplist/3 verteilt sie auf die Kerne); für concurrent_labeling
+   ohne min/max die Zahl der Arbeiter, Vorgabe so viele wie Kerne (Flag
+   cpu_count). solution(first) (Vorgabe) oder solution(any) –
+   concurrent_labeling ohne min/max: any lässt feste Teile gegeneinander
+   laufen, die erste gefundene Lösung gilt (welche, hängt von der Zeit ab,
+   wie first_solution/3). steal(S) – siehe unten (Vorgabe 0.02).
 
    Variablen mit Constraints dürfen nicht in die Kinder von
    library(concurrent) (representation_error(concurrent_attributed_variable)).
@@ -39,6 +39,20 @@
    die Teile hintereinander sind genau die Suche von labeling/2, die
    Lösungen kommen also in derselben Reihenfolge. Gescheiterte Teile fallen
    schon beim Aufteilen weg.
+
+   Eine Lösung (concurrent_labeling ohne min/max): Work Stealing in der
+   Reihenfolge der Suche. Ein Kind beginnt mit dem ganzen Raum; es sucht
+   Entscheidung für Entscheidung wie labeling/2 (part_steal/5). Ist ein
+   Arbeiter frei, bittet library(concurrent) das am weitesten links
+   laufende Kind um Arbeit, und es gibt den rechten Zweig seines tiefsten
+   offenen Knotens ab, der schon S Sekunden läuft (steal(S)): je tiefer,
+   desto eher käme die Suche nacheinander dorthin; je älter, desto mehr
+   Arbeit verspricht er. Die Teile bleiben in der Reihenfolge der Suche
+   geordnet; hat ein Teil eine Lösung, fällt alles rechts davon weg, und
+   sie gilt, sobald alles links davon gescheitert ist – also genau die
+   Lösung von once(labeling/2). Gewinn: was links der Lösung liegt (die
+   gescheiterten Teilbäume), rechnen die Kerne gemeinsam; Arbeit rechts
+   davon ist vergeblich. Darum zwischen nichts und der Zahl der Kerne.
 
    Optimierung (min(Expr), max(Expr), auch mehrere: lexikographisch wie
    labeling/2):
@@ -78,22 +92,51 @@ concurrent_labeling(Options, Vars, COptions) :-
     (   Whats == []
     ->  current_prolog_flag(cpu_count, Cores),
         parts(Parts0, Cores, N),
-        race_first(Spec, Vars, N)
+        solution_mode(COptions, Mode),
+        (   Mode == any
+        ->  race_first(Spec, Vars, N)
+        ;   serial_limit(COptions, Limit),
+            steal_age(COptions, Age),
+            ordered_first(Spec, Vars, N, Limit, Age)
+        )
     ;   parts(Parts0, 16, N),
         serial_limit(COptions, Limit),
         optimise_first(Whats, Spec, Vars, N, Limit)
     ).
 
-% serial(Sekunden): wie lange ein Schritt des Branch and Bound nacheinander
-% laufen darf, bevor parallel gerechnet wird (0: gleich parallel)
+% serial(Sekunden): wie lange die Suche (ein Schritt des Branch and Bound)
+% nacheinander laufen darf, bevor parallel gerechnet wird (0: gleich
+% parallel)
 serial_limit(COptions, Limit) :-
-    (   memberchk(serial(Limit), COptions)
-    ->  (   var(Limit) -> instantiation_error(Limit)
-        ;   \+ number(Limit) -> type_error(number, Limit)
-        ;   Limit < 0 -> domain_error(not_less_than_zero, Limit)
+    seconds(serial, COptions, 0.1, Limit).
+
+% steal(Sekunden): so alt muss ein Knoten sein, dessen rechter Zweig ein
+% Kind abgibt; in µs
+steal_age(COptions, Age) :-
+    seconds(steal, COptions, 0.02, S),
+    (   integer(S) -> Age is S * 1000000 ; Age is round(S * 1000000) ).
+
+seconds(Name, COptions, Default, S) :-
+    functor(O, Name, 1),
+    (   memberchk(O, COptions)
+    ->  arg(1, O, S),
+        (   var(S) -> instantiation_error(S)
+        ;   \+ number(S) -> type_error(number, S)
+        ;   S < 0 -> domain_error(not_less_than_zero, S)
         ;   true
         )
-    ;   Limit = 0.1
+    ;   S = Default
+    ).
+
+% solution(first | any)
+solution_mode(COptions, Mode) :-
+    (   memberchk(solution(Mode), COptions)
+    ->  (   var(Mode) -> instantiation_error(Mode)
+        ;   Mode == first -> true
+        ;   Mode == any -> true
+        ;   domain_error(solution, Mode)
+        )
+    ;   Mode = first
     ).
 
 concurrent_labelings(Options, Vars, Solutions) :-
@@ -117,6 +160,23 @@ race_first(Spec, Vars, N) :-
     first_goals(Parts, Gs, Vs, Base, Sol, Goals),
     first_solution(Sol, Goals, [on_fail(continue)]),
     Vars = Sol.
+
+% die erste Lösung in der Reihenfolge der Suche: erst nacheinander (bis
+% Limit), dann parallel – ein Teil am Anfang, die Kinder geben auf Bitte
+% Teile ab (part_steal/5, '$conc_run'/7 mit split)
+ordered_first(Spec, Vars, W, Limit, Age) :-
+    base(Spec, Base),
+    (   serial_try(Limit, Vars, once(labeling(Base, Vars)), Sols)
+    ->  Sols = [Vars]
+    ;   split_first(Base, Vars, W, Age)
+    ).
+
+split_first(Base, Vars, W, Age) :-
+    copy_term(Vars, Vs, Gs0),
+    goal_conj(Gs0, Gs),
+    '$conc_limits'(D, B, M),
+    '$conc_run'([Vs-(clpz_concurrent:part_steal(Gs, Vs, Base, Age))], split, W, D, B, M, R),
+    R = ok([Vars]).
 
 % je Teil ein Ziel; alle mit demselben Sol (findall/3 kopierte es)
 first_goals([], _, _, _, _, []).
@@ -238,6 +298,209 @@ part_first(Gs, Vs, Base, Ds, Vs) :-
     call(Gs),
     decide(Ds, Vs, Pre),
     once(( pre_label(Pre), labeling(Base, Vs) )).
+
+% --- im Kind: Labeling, das Teile abgibt ---------------------------------------
+%
+% part_steal(Gs, Vs, Base, Age, Ds): wie once(labeling(Base, Vs)) im Teil Ds,
+% Entscheidung für Entscheidung wie labeling/2 (step mit
+% '$clpz_label_step'/4, sonst die Auswahl von label/5 und die Wahl von
+% choice_order_variable/7) – jede Wahl ist ein Knoten (links ; rechts).
+% An jedem Knoten: bittet der Elternprozess um Arbeit, gibt das Kind den
+% obersten noch offenen rechten Zweig ab – als Entscheidungen Ds ++ Pfad
+% bis dorthin ++ [rechts] – und überspringt ihn später selbst. Der
+% abgegebene Teil liegt in der Reihenfolge der Suche rechts von allem,
+% was das Kind noch tut, und links von dem, was es früher abgab.
+%
+% Pfad P (tiefster vorn): o(Tiefe, Links, Rechts) für einen Knoten, in
+% dessen linkem Zweig die Suche ist, sonst die getroffene Entscheidung.
+% Entscheidungen mit dem Index der Variablen (gebundene erkennt man nicht
+% wieder); ein Rest von enum ist range(I, L, H, O): X erst in Reihenfolge
+% O, wie enum (decide/3, pre_label/1)
+part_steal(Gs, Vs, Base, Age, Ds) :-
+    call(Gs),
+    decide(Ds, Vs, Pre),
+    Base = [S, O, C],
+    E = env(Vs, Ds, S, O, C, Age),
+    catch(once(steal_pre(Pre, E)), '$conc_steal_stop', fail).
+
+steal_pre(none, E) :-
+    arg(1, E, Vs),
+    slabel(Vs, E, [], 0).
+steal_pre(pre(O, X), E) :-
+    spre(X, O, E, [], 0).
+
+% wie labeling([O], [X]), dann labeling(Base, Vs)
+spre(X, O, E, P, D) :-
+    (   integer(X)
+    ->  arg(1, E, Vs),
+        slabel(Vs, E, P, D)
+    ;   clpz:fd_get(X, Dom, _),
+        clpz:order_dom_next(O, Dom, V),
+        arg(1, E, Vs),
+        '$conc_var_index'(Vs, X, I),
+        steal_poll(E, P, D, T),
+        D1 is D + 1,
+        (   X = V,
+            spre(X, O, E, [o(D1, eq(I, V), neq(I, V), T)|P], D1)
+        ;   kept(D1),
+            clpz:neq_num(X, V),
+            spre(X, O, E, [neq(I, V)|P], D1)
+        )
+    ).
+
+slabel(Vars, E, P, D) :-
+    arg(5, E, C),
+    (   C == step
+    ->  sstep(Vars, E, P, D)
+    ;   arg(3, E, S),
+        spick(Vars, S, X, RVars, Vars0)
+    ->  (   C == enum
+        ->  senum(X, RVars, E, P, D)
+        ;   sbisect(X, Vars0, E, P, D)
+        )
+    ;   true
+    ).
+
+% label/5 mit step (wie label_step/3)
+sstep(Vars, E, P, D) :-
+    arg(3, E, S),
+    arg(4, E, O),
+    '$clpz_label_step'(Vars, S, O, Step),
+    (   Step == done
+    ->  true
+    ;   Step = step(X, V, RVars, Vars0),
+        arg(1, E, Vs),
+        '$conc_var_index'(Vs, X, I),
+        steal_poll(E, P, D, T),
+        D1 is D + 1,
+        (   X = V,
+            sstep(RVars, E, [o(D1, eq(I, V), neq(I, V), T)|P], D1)
+        ;   kept(D1),
+            clpz:neq_num(X, V),
+            sstep(Vars0, E, [neq(I, V)|P], D1)
+        )
+    ).
+
+% die Auswahl von label_ref/5: X, der Rest ohne X und die Liste, aus der
+% gewählt wurde; scheitert, wenn alle gebunden sind
+spick([V|Vs], S, X, RVars, Vars0) :-
+    (   nonvar(V)
+    ->  spick(Vs, S, X, RVars, Vars0)
+    ;   clpz:select_var(S, [V|Vs], X0, R0),
+        (   var(X0)
+        ->  X = X0, RVars = R0, Vars0 = [V|Vs]
+        ;   spick(R0, S, X, RVars, Vars0)
+        )
+    ).
+
+% enum: die Werte der Domäne in Reihenfolge O (domain_direction_element/3),
+% je Wert ein Knoten; rechts der Rest als range(I, L, H, O)
+senum(X, RVars, E, P, D) :-
+    arg(4, E, O),
+    clpz:fd_get(X, Dom, _),
+    clpz:domain_intervals(Dom, Is0),
+    Is0 = [Inf-_|_],
+    last(Is0, _-Sup),
+    (   O == up -> Is = Is0, Lim = Sup ; reverse(Is0, Is), Lim = Inf ),
+    arg(1, E, Vs),
+    '$conc_var_index'(Vs, X, I),
+    D1 is D + 1,
+    senum_(Is, O, Lim, X, I, RVars, E, P, D1).
+
+senum_([F-U|Is], O, Lim, X, I, RVars, E, P, D) :-
+    integer(F), integer(U),
+    (   O == up -> V = F ; V = U ),
+    (   F =:= U -> Rest = Is
+    ;   O == up -> F1 is F + 1, Rest = [F1-U|Is]
+    ;   U1 is U - 1, Rest = [F-U1|Is]
+    ),
+    (   Rest == []
+    ->  X = V,
+        slabel(RVars, E, [eq(I, V)|P], D)
+    ;   (   O == up -> Rest = [L1-_|_], R = range(I, L1, Lim, up)
+        ;   Rest = [_-H1|_], R = range(I, Lim, H1, down)
+        ),
+        steal_poll(E, P, D, T),
+        (   X = V,
+            slabel(RVars, E, [o(D, eq(I, V), R, T)|P], D)
+        ;   kept(D),
+            senum_(Rest, O, Lim, X, I, RVars, E, P, D)
+        )
+    ).
+
+% bisect wie choice_order_variable/7
+sbisect(X, Vars0, E, P, D) :-
+    clpz:fd_get(X, Dom, _),
+    clpz:domain_infimum(Dom, L), integer(L),
+    clpz:domain_supremum(Dom, H), integer(H),
+    M0 is (L + H) // 2,
+    (   M0 =:= H -> M is M0 - 1 ; M = M0 ),
+    arg(1, E, Vs),
+    '$conc_var_index'(Vs, X, I),
+    arg(4, E, O),
+    (   O == up -> A = le(I, M), B = gt(I, M) ; A = gt(I, M), B = le(I, M) ),
+    steal_poll(E, P, D, T),
+    D1 is D + 1,
+    (   bisect_side(A, X),
+        slabel(Vars0, E, [o(D1, A, B, T)|P], D1)
+    ;   kept(D1),
+        bisect_side(B, X),
+        slabel(Vars0, E, [B|P], D1)
+    ).
+
+bisect_side(le(_, M), X) :- X #=< M.
+bisect_side(gt(_, M), X) :- X #> M.
+
+% je Knoten: T die Zeit (µs; außerhalb eines teilenden Kinds 0). Bittet
+% der Elternprozess um Arbeit: den tiefsten offenen, noch nicht
+% abgegebenen rechten Zweig, dessen Knoten schon Age µs läuft (je
+% tiefer, desto eher käme die Suche nacheinander dorthin; je älter der
+% Knoten, desto mehr Arbeit verspricht sein rechter Zweig), sonst none
+steal_poll(E, P, Depth, T) :-
+    '$conc_steal_node'(T, Req),
+    (   Req == no
+    ->  true
+    ;   Req == stop
+    ->  throw('$conc_steal_stop')
+    ;   arg(6, E, A),
+        Old is T - A,
+        Min is Depth // 2,
+        (   give(P, Old, Min, D, Above, R)
+        ->  arg(2, E, Ds0),
+            reverse(Above, Ds1),
+            append(Ds0, Ds1, Ds2),
+            append(Ds2, [R], Ds),
+            '$conc_steal_give'(D, Ds)
+        ;   '$conc_steal_offer'(none)
+        )
+    ).
+
+% P tiefster vorn; Above: die Entscheidungen darüber (tiefste vorn)
+give([N|Ns], Old, Min, D, Above, R) :-
+    (   N = o(D0, _, R0, T0)
+    ->  D0 >= Min,
+        (   T0 =< Old,
+            \+ '$conc_steal_marked'(D0)
+        ->  D = D0, R = R0, path_decisions(Ns, Above)
+        ;   give(Ns, Old, Min, D, Above, R)
+        )
+    ;   give(Ns, Old, Min, D, Above, R)
+    ).
+
+path_decisions([], []).
+path_decisions([N|Ns], [X|Xs]) :-
+    (   N = o(_, L, _, _) -> X = L ; X = N ),
+    path_decisions(Ns, Xs).
+
+% der rechte Zweig der Tiefe D ist nicht abgegeben; ist er abgegeben und
+% hat (oder enthält) er eine Lösung, liegt alles Weitere rechts davon:
+% aufhören (part_steal/5 scheitert dann)
+kept(D) :-
+    (   '$conc_steal_taken'(D, R)
+    ->  R == cut,
+        throw('$conc_steal_stop')
+    ;   true
+    ).
 
 part_all(Gs, Vs, Base, Ds, Sols) :-
     call(Gs),

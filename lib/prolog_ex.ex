@@ -5460,12 +5460,15 @@ defmodule PrologEx do
   defp timer_set?(st), do: Map.has_key?(timers(), st.qref)
 
   # nach einer Unter-Maschine (findall, \+, ...): hat sie set_timer/1
-  # gerufen, muss auch diese Maschine wieder prüfen
+  # gerufen, muss auch diese Maschine wieder prüfen. Den eigenen Prüfpunkt
+  # dabei nie nach hinten schieben: sonst rückte eine Schleife mit kurzen
+  # Unter-Maschinen (\+ G in clpz bei jedem Constraint) ihn jedes Mal um
+  # @tcheck weiter, und eine Zeitgrenze griffe nie
   defp resync(st) do
     case Process.get(@timers_key) do
       nil -> st
       m when map_size(m) == 0 -> st
-      _ -> rearm(st)
+      _ -> %{st | ilimit: min_limit(st.ilimit, rearm(st).ilimit)}
     end
   end
 

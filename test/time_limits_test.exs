@@ -127,7 +127,7 @@ defmodule PrologEx.TimeLimitsTest do
   setup_all do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
-    {:ok, reader: r, db: TableCase.db(r, ~w(time lists iso_ext between))}
+    {:ok, reader: r, db: TableCase.db(r, ~w(time lists iso_ext between clpz))}
   end
 
   setup c do
@@ -152,7 +152,11 @@ defmodule PrologEx.TimeLimitsTest do
           "call_with_timeout(#{@loop}, 0.1, [on_timeout(true)])",
           "call_with_timeout((repeat, length(_, 50), fail), 0.1, [on_timeout(true)])",
           "call_with_timeout(sleep(5), 0.1, [on_timeout(true)])",
-          "catch((set_timer(0.1), #{@loop}), _, true)"
+          "catch((set_timer(0.1), #{@loop}), _, true)",
+          # kurze Unter-Maschinen (\\+) schoben den Prüfpunkt jedes Mal
+          # weiter, sobald eine Variable Attribute hatte: die Grenze griff
+          # nie (labeling([bisect], ...) in clpz lief so 16 s statt 0,1 s)
+          "call_with_timeout((clpz:in(X, '..'(1, 9)), repeat, \\+ fail, fail), 0.1, [on_timeout(true)])"
         ] do
       {t, {_, {:answers, ["true"]}}} = ms(c, q)
       assert t in 100..1000, "#{q}: #{t} ms"

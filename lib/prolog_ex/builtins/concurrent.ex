@@ -14,6 +14,10 @@ defmodule PrologEx.Builtins.Concurrent do
     * Mode `first(OnFail)`: wer zuerst eine Lösung hat, gewinnt (R =
       `ok([T])`); OnFail `stop`: das erste Scheitern beendet alles (R =
       `fail`), `continue`: erst wenn alle gescheitert sind.
+    * Mode `split` (für `library(clpz_concurrent)`): Jobs = `[T-C]`, die
+      Kinder teilen die Suche untereinander auf (Work Stealing); R =
+      `ok([T])` mit der ersten Lösung in der Reihenfolge der Suche oder
+      `fail` (siehe run_split/3).
 
   Eine Ausnahme in einem Kind (auch der Seiteneffekt-Fehler) beendet alle
   anderen sofort und wird hier geworfen – welche, wenn mehrere werfen,
@@ -63,6 +67,157 @@ defmodule PrologEx.Builtins.Concurrent do
       {:rat, _, _} -> true
       {:bytes, _} -> true
       _ -> if PrologEx.term_attvars(t, s) == [], do: true, else: Error.throw!(attv_error())
+    end
+  end
+
+  # --- im Kind beim Teilen (Mode split, siehe run_split/3) ---------------------
+  #
+  # Ein erlaubter Kanal zum Elternprozess (kein Seiteneffekt für das
+  # Programm). '$conc_steal_node'(T, Req) je Knoten der Suche: T die Zeit in
+  # µs; Req yes, wenn der Elternprozess um einen Teil bittet, stop, wenn
+  # alles ab hier vergeblich ist (rechts einer bekannten Lösung), sonst no
+  # (außerhalb eines solchen Kinds T = 0, Req = no – billig). Die Antwort
+  # auf eine Bitte: '$conc_steal_give'(D, Ds) (der rechte Zweig des Knotens
+  # der Tiefe D) oder '$conc_steal_offer'(none). Die Suche überspringt einen
+  # abgegebenen Zweig später ('$conc_steal_taken'/2).
+  #
+  # Marken: Tiefe -> {G, Schnitt?}, G die Nummer des abgegebenen Teils in
+  # diesem Kind. Hat der Teil G (oder einer darin) eine Lösung, meldet der
+  # Elternprozess {:conc_steal_cut, ref, i, G}: wer G überspringt, kann
+  # aufhören – alles danach liegt rechts der Lösung.
+  defbuiltin "$conc_steal_node", [t, req] do
+    case Process.get(:conc_steal) do
+      nil ->
+        {:unify, [{t, 0}, {req, a("no")}]}
+
+      {_parent, ref, i} ->
+        r = steal_msgs(ref, i, "no")
+        r = if Process.get(:conc_steal_stop), do: "stop", else: r
+
+        {:unify, [{t, System.monotonic_time(:microsecond)}, {req, a(r)}]}
+    end
+  end
+
+  defbuiltin "$conc_steal_offer", [ds] do
+    case Process.get(:conc_steal) do
+      nil ->
+        true
+
+      {parent, ref, i} ->
+        send(parent, {:conc_offer, ref, i, PrologEx.resolve(ds, subst()), 0, 0})
+        true
+    end
+  end
+
+  # '$conc_steal_give'(D, Ds): den rechten Zweig des Knotens der Tiefe D
+  # als Teil Ds abgeben. Seine Stelle unter den Teilen, die dieser Teil
+  # abgegeben hat (links zuerst): erst die schon übersprungenen, dann die
+  # noch offenen von tief nach flach – also Rang = übersprungene + offene
+  # tiefer als D
+  defbuiltin "$conc_steal_give", [d, ds] do
+    d = PrologEx.Store.walk(d, subst())
+    marks = Process.get(:conc_steal_marks, %{})
+    rank = Process.get(:conc_steal_skipped, 0) + Enum.count(marks, fn {k, _} -> k > d end)
+    g = Process.get(:conc_steal_given, 0) + 1
+    Process.put(:conc_steal_given, g)
+    Process.put(:conc_steal_marks, Map.put(marks, d, {g, false}))
+
+    case Process.get(:conc_steal) do
+      nil ->
+        true
+
+      {parent, ref, i} ->
+        send(parent, {:conc_offer, ref, i, PrologEx.resolve(ds, subst()), rank, g})
+    end
+
+    true
+  end
+
+  defbuiltin "$conc_steal_marked", [d] do
+    is_map_key(Process.get(:conc_steal_marks, %{}), PrologEx.Store.walk(d, subst())) || :fail
+  end
+
+  # '$conc_steal_taken'(D, R): der Zweig der Tiefe D ist abgegeben – Marke
+  # weg, einer mehr übersprungen; R = cut, wenn er (oder einer darin) eine
+  # Lösung hat (dann ist alles danach vergeblich), sonst given. Scheitert,
+  # wenn nicht abgegeben
+  defbuiltin "$conc_steal_taken", [d, r] do
+    marks = Process.get(:conc_steal_marks, %{})
+    d = PrologEx.Store.walk(d, subst())
+
+    case marks do
+      %{^d => {g, cut}} ->
+        Process.put(:conc_steal_marks, Map.delete(marks, d))
+        Process.put(:conc_steal_skipped, Process.get(:conc_steal_skipped, 0) + 1)
+
+        Process.put(
+          :conc_steal_passed,
+          MapSet.put(Process.get(:conc_steal_passed, MapSet.new()), g)
+        )
+
+        {:unify, [{r, a(if cut, do: "cut", else: "given")}]}
+
+      _ ->
+        :fail
+    end
+  end
+
+  # '$conc_var_index'(+Vs, +X, -I): I ist die Stelle (1-basiert) der
+  # Variablen X in Vs (==); scheitert, wenn X keine Variable ist oder fehlt
+  defbuiltin "$conc_var_index", [vs, x, i] do
+    s = subst()
+
+    with {:var, _} = xv <- PrologEx.Store.walk(x, s),
+         n when is_integer(n) <- vindex(vs, xv, 1, s) do
+      {:unify, [{i, n}]}
+    else
+      _ -> :fail
+    end
+  end
+
+  defp vindex(l, xv, n, s) do
+    case PrologEx.Store.walk(l, s) do
+      [h | t] -> if PrologEx.Store.walk(h, s) == xv, do: n, else: vindex(t, xv, n + 1, s)
+      _ -> nil
+    end
+  end
+
+  # Nachrichten für diesen Teil: Bitten (r = "yes") und Schnitte (die
+  # Marke des Teils G bekommt den Schnitt; schon übersprungen: alles ab
+  # hier vergeblich, :conc_steal_stop). Ältere, für frühere Teile desselben
+  # Arbeiters: weg
+  defp steal_msgs(ref, i, r) do
+    receive do
+      {:conc_steal_req, ^ref, ^i} ->
+        steal_msgs(ref, i, "yes")
+
+      {:conc_steal_cut, ^ref, ^i, g} ->
+        steal_cut(g)
+        steal_msgs(ref, i, r)
+
+      {:conc_steal_req, ^ref, _} ->
+        steal_msgs(ref, i, r)
+
+      {:conc_steal_cut, ^ref, _, _} ->
+        steal_msgs(ref, i, r)
+    after
+      0 -> r
+    end
+  end
+
+  defp steal_cut(g) do
+    if MapSet.member?(Process.get(:conc_steal_passed, MapSet.new()), g) do
+      Process.put(:conc_steal_stop, true)
+    else
+      marks = Process.get(:conc_steal_marks, %{})
+
+      marks =
+        Map.new(marks, fn
+          {d, {^g, _}} -> {d, {g, true}}
+          kv -> kv
+        end)
+
+      Process.put(:conc_steal_marks, marks)
     end
   end
 
@@ -130,6 +285,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp mode!({:atom, "once"}), do: :once
   defp mode!({:atom, "findall"}), do: :findall
+  defp mode!({:atom, "split"}), do: :split
 
   defp mode!({:struct, "first", [{:atom, on_fail}, {:atom, output}, {:atom, on_error}]}),
     do: {:first, on_fail, output, on_error}
@@ -138,6 +294,8 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run([], {:first, _, _, _}, _max, _limits), do: a("fail")
   defp run([], _mode, _max, _limits), do: mk("ok", [[]])
+
+  defp run(jobs, :split, {max, _chunk}, limits), do: run_split(jobs, max, limits)
 
   defp run(jobs, mode, {max, chunk}, {deadline, _, _} = limits) do
     ref = make_ref()
@@ -305,6 +463,298 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp outcome({:struct, "error", [e]}, _mode), do: {:error, e}
 
+  # --- Teilen: die erste Lösung in der Reihenfolge der Suche -------------------
+  #
+  # Mode split, Jobs = [T-C]: ein Teil ist call(C, Ds) mit einer Liste von
+  # Entscheidungen Ds, der erste Ds = []; sein Ergebnis T. Freie Arbeiter
+  # bekommen den linkesten wartenden Teil; wartet keiner, bittet der
+  # Elternprozess laufende Teile (von links) um Arbeit, und das Kind gibt
+  # einen Teil ab (oder none: frühestens nach @split_retry ms wieder).
+  #
+  # Reihenfolge: die Teile bilden einen Baum. Ein Teil P mit den
+  # abgegebenen Teilen G1, ..., Gm (links zuerst) liegt in der Suche als
+  # S0 G1 S1 ... Gm Sm, die Si die eigene Arbeit von P. Das Kind meldet zu
+  # jedem abgegebenen Teil dessen Rang unter G1.., zu seiner Lösung, wie
+  # viele Gi es schon übersprungen hatte (die Lösung liegt in Sk). Ist ein
+  # Teil fertig (Lösung oder Ausnahme), fällt alles rechts davon weg; das
+  # Ergebnis steht fest, sobald links davon alles gescheitert ist: dieselbe
+  # Lösung wie nacheinander (die erste in der Reihenfolge der Suche),
+  # dieselbe Ausnahme, oder fail. Ausgaben der Kinder werden verworfen.
+  @split_retry 2
+
+  defp run_split([{:struct, "-", [t, c]}], w, {deadline, _, _} = limits) do
+    ref = make_ref()
+    state = {:prolog_ex_conc_state, ref}
+    :persistent_term.put(state, child_state())
+
+    try do
+      idle = for _ <- 1..w, do: spawn_worker(ref, :split, limits, state)
+
+      split_loop(%{
+        ref: ref,
+        t: t,
+        c: c,
+        limits: limits,
+        state: state,
+        deadline: deadline,
+        # Id -> %{st: :pending | :running | :failed | :pruned | {:ok, T, K}
+        # | {:error, E, K}, ds: Ds, givens: [Id], up: Id | nil, cut: Id | nil}
+        # (cut: rechts von diesem abgegebenen Teil ist alles weggefallen)
+        parts: %{0 => %{st: :pending, ds: [], givens: [], up: nil, cut: nil, g: 0}},
+        next: 1,
+        idle: idle,
+        # Id -> Arbeiter
+        run: %{},
+        # Id, um Arbeit gebeten (Antwort offen)
+        asked: %{},
+        # Id -> Zeit (ms) seines letzten none
+        none: %{}
+      })
+    after
+      kill_all(ref)
+      :persistent_term.erase(state)
+    end
+  end
+
+  defp split_loop(sp) do
+    case sdecide(sp.parts, 0) do
+      :empty ->
+        a("fail")
+
+      {:found, {:ok, t}} ->
+        mk("ok", [[t]])
+
+      {:found, {:error, ball}} ->
+        Error.throw!(ball)
+
+      :undecided ->
+        {sp, wait} = split_dispatch(sp)
+        ref = sp.ref
+        dl = if sp.deadline, do: max(div(sp.deadline - now_us(), 1000), 0), else: :infinity
+        timeout = if wait == :infinity, do: dl, else: min(wait, dl)
+        mons = Process.get({:conc_mon, ref}, %{})
+
+        receive do
+          {:conc_split, ^ref, pid, i, res, k} ->
+            sp |> split_result(pid, i, outcome(res, :once), k) |> split_loop()
+
+          {:conc_offer, ^ref, i, ds, rank, g} ->
+            sp |> split_offer(i, ds, rank, g) |> split_loop()
+
+          {:DOWN, _mon, :process, pid, reason} when is_map_key(mons, pid) ->
+            Error.throw!(
+              mk("error", [
+                mk("system_error", [mk("concurrent_child", [a(inspect(reason, limit: 5))])]),
+                fresh_var()
+              ])
+            )
+        after
+          timeout ->
+            if sp.deadline && now_us() >= sp.deadline,
+              do: Error.throw!(a("time_limit_exceeded")),
+              else: split_loop(sp)
+        end
+    end
+  end
+
+  # das Ergebnis ab Teil id (ihn und seine abgegebenen Teile in der
+  # Reihenfolge der Suche): :empty (keine Lösung), :undecided oder
+  # {:found, {:ok, T} | {:error, E}}
+  defp sdecide(parts, id) do
+    p = parts[id]
+
+    case p.st do
+      :failed -> sdecide_list(parts, p.givens)
+      :pruned -> :empty
+      {:ok, t, k} -> sdecide_found(parts, Enum.take(p.givens, k), {:ok, t})
+      {:error, e, k} -> sdecide_found(parts, Enum.take(p.givens, k), {:error, e})
+      _ -> :undecided
+    end
+  end
+
+  defp sdecide_found(parts, before, res) do
+    case sdecide_list(parts, before) do
+      :empty -> {:found, res}
+      r -> r
+    end
+  end
+
+  defp sdecide_list(_parts, []), do: :empty
+
+  defp sdecide_list(parts, [g | gs]) do
+    case sdecide(parts, g) do
+      :empty -> sdecide_list(parts, gs)
+      r -> r
+    end
+  end
+
+  # die Teile in der Reihenfolge der Suche (ein Teil vor seinen abgegebenen)
+  defp sorder(parts, id) do
+    p = parts[id]
+    if p.st == :pruned, do: [], else: [{id, p.st} | Enum.flat_map(p.givens, &sorder(parts, &1))]
+  end
+
+  # wartende Teile an freie Arbeiter (von links); bleiben welche frei: um
+  # Arbeit bitten. wait: wann wieder bitten (ms) oder :infinity
+  defp split_dispatch(sp) do
+    order = sorder(sp.parts, 0)
+
+    sp =
+      Enum.reduce(order, sp, fn
+        {id, :pending}, %{idle: [pid | idle]} = sp ->
+          ds = sp.parts[id].ds
+          send(pid, {:jobs, sp.ref, [{id, sp.t, mk("call", [sp.c, ds])}]})
+
+          sp = put_in(sp.parts[id].st, :running)
+          %{sp | idle: idle, run: Map.put(sp.run, id, pid)}
+
+        _, sp ->
+          sp
+      end)
+
+    free = length(sp.idle) - map_size(sp.asked)
+
+    if free > 0 do
+      now = System.monotonic_time(:millisecond)
+
+      {asks, later} =
+        for {id, _} <- order,
+            sp.parts[id].st == :running,
+            not is_map_key(sp.asked, id),
+            reduce: {[], false} do
+          {asks, later} ->
+            case sp.none do
+              %{^id => t} when now - t < @split_retry -> {asks, true}
+              _ -> {[id | asks], later}
+            end
+        end
+
+      asks = asks |> Enum.reverse() |> Enum.take(free)
+      for id <- asks, do: send(Map.fetch!(sp.run, id), {:conc_steal_req, sp.ref, id})
+      asked = Enum.reduce(asks, sp.asked, &Map.put(&2, &1, true))
+      {%{sp | asked: asked}, if(later, do: @split_retry, else: :infinity)}
+    else
+      {sp, :infinity}
+    end
+  end
+
+  # ein Teil ist fertig (Ergebnisse weggefallener Teile: übergehen); k:
+  # so viele seiner abgegebenen Teile lagen vor seiner Lösung
+  defp split_result(sp, pid, i, oc, k) do
+    case sp.run do
+      %{^i => ^pid} ->
+        sp = split_free(sp, i)
+        sp = %{sp | idle: [pid | sp.idle]}
+
+        case oc do
+          :fail -> put_in(sp.parts[i].st, :failed)
+          {:ok, t} -> split_settle(sp, i, {:ok, t, k}, k)
+          {:error, e} -> split_settle(sp, i, {:error, e, k}, k)
+        end
+
+      _ ->
+        sp
+    end
+  end
+
+  defp split_free(sp, i) do
+    %{
+      sp
+      | run: Map.delete(sp.run, i),
+        asked: Map.delete(sp.asked, i),
+        none: Map.delete(sp.none, i)
+    }
+  end
+
+  # Teil i hat eine Lösung oder Ausnahme in seinem Abschnitt k: seine
+  # abgegebenen Teile ab k und alles rechts von ihm fällt weg
+  defp split_settle(sp, i, st, k) do
+    sp = put_in(sp.parts[i].st, st)
+    sp = Enum.reduce(Enum.drop(sp.parts[i].givens, k), sp, &split_prune(&2, &1))
+    split_cut(sp, i)
+  end
+
+  # rechts von Teil i (in seinen Vorfahren) alles weg
+  defp split_cut(sp, i) do
+    case sp.parts[i].up do
+      nil ->
+        sp
+
+      up ->
+        givens = sp.parts[up].givens
+        right = givens |> Enum.drop_while(&(&1 != i)) |> tl()
+        sp = put_in(sp.parts[up].cut, i)
+
+        # läuft up noch: überspringt es i, kann es aufhören
+        if pid = sp.run[up], do: send(pid, {:conc_steal_cut, sp.ref, up, sp.parts[i].g})
+
+        sp = Enum.reduce(right, sp, &split_prune(&2, &1))
+        split_cut(sp, up)
+    end
+  end
+
+  # Teil id und seine abgegebenen fallen weg (laufende Arbeiter: beenden,
+  # ersetzen)
+  defp split_prune(sp, id) do
+    p = sp.parts[id]
+
+    sp =
+      case p.st do
+        :running ->
+          split_kill(sp.ref, Map.fetch!(sp.run, id))
+          pid = spawn_worker(sp.ref, :split, sp.limits, sp.state)
+          sp = split_free(sp, id)
+          %{sp | idle: [pid | sp.idle]}
+
+        _ ->
+          sp
+      end
+
+    sp = put_in(sp.parts[id].st, :pruned)
+    Enum.reduce(p.givens, sp, &split_prune(&2, &1))
+  end
+
+  defp split_kill(ref, pid) do
+    Process.unlink(pid)
+    mons = Process.get({:conc_mon, ref}, %{})
+    if mon = mons[pid], do: Process.demonitor(mon, [:flush])
+    Process.exit(pid, :kill)
+    Process.put({:conc_mon, ref}, Map.delete(mons, pid))
+    Process.put({:conc_pids, ref}, List.delete(Process.get({:conc_pids, ref}, []), pid))
+  end
+
+  # Antwort auf eine Bitte: ein neuer Teil an Stelle rank unter den
+  # abgegebenen von i (rechts von dessen cut: gleich weggefallen), oder none
+  defp split_offer(sp, i, ds, rank, g) do
+    if is_map_key(sp.run, i) do
+      sp = %{sp | asked: Map.delete(sp.asked, i)}
+
+      case ds do
+        {:atom, "none"} ->
+          %{sp | none: Map.put(sp.none, i, System.monotonic_time(:millisecond))}
+
+        _ ->
+          p = sp.parts[i]
+          id = sp.next
+          givens = List.insert_at(p.givens, rank, id)
+
+          st =
+            if p.cut && rank > Enum.find_index(givens, &(&1 == p.cut)),
+              do: :pruned,
+              else: :pending
+
+          parts =
+            sp.parts
+            |> Map.put(i, %{p | givens: givens})
+            |> Map.put(id, %{st: st, ds: ds, givens: [], up: i, cut: nil, g: g})
+
+          %{sp | parts: parts, next: id + 1, none: Map.delete(sp.none, i)}
+      end
+    else
+      sp
+    end
+  end
+
   # --- gepufferte Ausgabe ------------------------------------------------------
   #
   # Jedes Kind schreibt in einen eigenen Speicher-Stream. Ausgegeben wird
@@ -453,8 +903,24 @@ defmodule PrologEx.Builtins.Concurrent do
     receive do
       {:jobs, ^ref, jobs} ->
         for {i, t, g} <- jobs do
+          # beim Teilen: der Kanal zum Elternprozess, je Teil frische Marken
+          if mode == :split do
+            Process.put(:conc_steal, {parent, ref, i})
+            Process.put(:conc_steal_marks, %{})
+            Process.put(:conc_steal_skipped, 0)
+            Process.put(:conc_steal_given, 0)
+            Process.put(:conc_steal_passed, MapSet.new())
+            Process.delete(:conc_steal_stop)
+          end
+
           res_text = job(st, base, total, outer, i, t, g, mode, limits)
-          send(parent, {:conc, ref, self(), i, elem(res_text, 0), elem(res_text, 1)})
+
+          if mode == :split do
+            skipped = Process.get(:conc_steal_skipped, 0)
+            send(parent, {:conc_split, ref, self(), i, elem(res_text, 0), skipped})
+          else
+            send(parent, {:conc, ref, self(), i, elem(res_text, 0), elem(res_text, 1)})
+          end
         end
 
         worker(parent, ref, st, base, total, outer, mode, limits)

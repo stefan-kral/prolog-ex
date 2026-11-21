@@ -2,7 +2,8 @@ defmodule PrologEx.ClpzConcurrentTest do
   # library(clpz_concurrent): concurrent_labelings/3 gibt genau, was
   # findall(Vs, labeling(Opts, Vs), L) gibt – auch die Reihenfolge –, für
   # alle Arten der Variablenwahl, Reihenfolge und Verzweigung; Fehler wie
-  # labeling/2. concurrent_labeling/2 gibt eine der Lösungen.
+  # labeling/2. concurrent_labeling/2,3 gibt die Lösung von
+  # once(labeling/2) (mit solution(any) eine der Lösungen).
   use ExUnit.Case, async: true
   alias PrologEx.Reader
 
@@ -33,6 +34,13 @@ defmodule PrologEx.ClpzConcurrentTest do
   same_all(K, R) :- small(L), opt(K, L, O), findall(L, labeling(O, L), S1),
       small(L2), opt(K, L2, O2), concurrent_labelings(O2, L2, S2),
       ( S1 == S2 -> R = gleich ; R = verschieden ).
+  % ohne Lösung (die Propagation sieht es nicht); mit Lösungen weit rechts
+  ph(N, Vs) :- N1 is N + 1, length(Vs, N1), Vs ins 1..N, all_different(Vs).
+  qr(N, Qs) :- queens(N, Qs), Qs = [A, B|_], A #> N // 2, B #< 3.
+  % eine Lösung: dieselbe wie once(labeling/2)
+  first(Model, Opts, COpts, R) :- call(Model, L), ( once(labeling(Opts, L)) -> F1 = L ; F1 = none ),
+      call(Model, L2), ( concurrent_labeling(Opts, L2, COpts) -> F2 = L2 ; F2 = none ),
+      ( F1 == F2 -> R = gleich ; R = verschieden(F1, F2) ).
   % das Modell zweimal aufbauen: einmal labeling/2, einmal parallel
   same(Model, Opts, R) :- call(Model, L), findall(L, labeling(Opts, L), S1),
       call(Model, L2), concurrent_labelings(Opts, L2, S2),
@@ -43,7 +51,7 @@ defmodule PrologEx.ClpzConcurrentTest do
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
     # erst die Bibliotheken (ihre Operatoren), dann das Programm lesen
-    db = PrologEx.TableCase.db(r, ~w(clpz clpz_concurrent lists))
+    db = PrologEx.TableCase.db(r, ~w(clpz clpz_concurrent lists time))
     {db, []} = PrologEx.Consult.load(db, Reader.read_terms(r, @prog))
     {:ok, reader: r, db: db, ops: Process.get(:prolog_ex_ops)}
   end
@@ -87,6 +95,40 @@ defmodule PrologEx.ClpzConcurrentTest do
       assert ask(c, "same(queens(6), #{unquote(o)}, R), R == gleich") != []
       assert ask(c, "same(mixed, #{unquote(o)}, R), R == gleich") != []
     end
+  end
+
+  for o <- @options do
+    test "concurrent_labeling #{o}: dieselbe Lösung wie once(labeling/2)", c do
+      # gleich parallel, jeder Knoten darf abgegeben werden (viele kleine
+      # Teile); und mit den Vorgaben
+      for copts <- ["[serial(0), steal(0), parts(3)]", "[]"],
+          model <- ["queens(8)", "mixed", "qr(9)"] do
+        assert ask(c, "first(#{model}, #{unquote(o)}, #{copts}, R), R == gleich") != [],
+               "#{model} #{copts}"
+      end
+    end
+  end
+
+  test "concurrent_labeling: viele Teile, ohne Lösung, Zeitgrenze, solution(any)", c do
+    for copts <- [
+          "[serial(0), steal(0), parts(4)]",
+          "[serial(0), steal(0.001), parts(2)]",
+          "[serial(0), parts(1)]"
+        ],
+        model <- ["qr(11)", "ph(5)"],
+        opts <- ["[]", "[ff, down]", "[enum]", "[bisect]"] do
+      assert ask(c, "first(#{model}, #{opts}, #{copts}, R), R == gleich") != [],
+             "#{model} #{opts} #{copts}"
+    end
+
+    # die Zeitgrenze des Aufrufers gilt (und beendet die Arbeiter)
+    assert ask(
+             c,
+             "catch(call_with_time_limit(0.3, (queens(40, Qs), concurrent_labeling([], Qs, [serial(0)]))), E, true), E == time_limit_exceeded"
+           ) != []
+
+    assert ask(c, "queens(8, Qs), concurrent_labeling([], Qs, [solution(any)]), ground(Qs)") !=
+             []
   end
 
   test "Lösungen zählen wie labeling: 7 Damen, alle Teile", c do
@@ -174,7 +216,7 @@ defmodule PrologEx.ClpzConcurrentTest do
              err(c, "X in 1..3, Y in 1..3, labeling([min(X + Y)], [X])")
   end
 
-  test "upto_in (noch) nicht; parts(N), serial(S) geprüft", c do
+  test "upto_in (noch) nicht; parts(N), serial(S), solution(M), steal(S) geprüft", c do
     assert err(c, "X in 1..3, concurrent_labelings([upto_in], [X], _)") |> hd() =~
              "domain_error(concurrent_labeling_option,upto_in)"
 
@@ -186,6 +228,12 @@ defmodule PrologEx.ClpzConcurrentTest do
 
     assert err(c, "X in 1..3, concurrent_labeling([min(X)], [X], [serial(bald)])") |> hd() =~
              "type_error(number,bald)"
+
+    assert err(c, "X in 1..3, concurrent_labeling([], [X], [solution(eine)])") |> hd() =~
+             "domain_error(solution,eine)"
+
+    assert err(c, "X in 1..3, concurrent_labeling([], [X], [steal(-1)])") |> hd() =~
+             "domain_error(not_less_than_zero,-1)"
   end
 
   test "copy_term/3 mit mehr als 255 Restzielen (16 Damen; vorher max_arity)", c do

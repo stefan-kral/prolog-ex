@@ -4167,7 +4167,7 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
 | Prädikat | Bedeutung |
 |---|---|
 | `concurrent_labelings(Opts, Vars, Sols[, [parts(N)]])` | alle Lösungen als Liste von Wertelisten, genau wie `findall(Vars, labeling(Opts, Vars), Sols)` – **auch in derselben Reihenfolge** –, die Teile parallel (Vorgabe 16 Teile; `concurrent_maplist/3` verteilt sie) |
-| `concurrent_labeling(Opts, Vars[, [parts(N), serial(S)]])` | eine Lösung (det): die Teile laufen gegeneinander, die erste gefundene gilt; welche, hängt von der Zeit ab. Vorgabe so viele Teile wie Kerne (Flag `cpu_count`). Mit `min(E)`/`max(E)`: genau die Lösung von `once(labeling(Opts, Vars))` (unten) |
+| `concurrent_labeling(Opts, Vars[, COpts])` | eine Lösung (det), **genau die von `once(labeling(Opts, Vars))`** – die erste in der Reihenfolge der Suche, auch mit `min(E)`/`max(E)` (unten). COpts: `serial(S)` (erst S Sekunden nacheinander, Vorgabe 0,1), `parts(N)` (Arbeiter, Vorgabe Flag `cpu_count`), `steal(S)` (unten), `solution(any)` (die erste gefundene, wer zuerst kommt) |
 
 * **Aufteilen:** Der Aufrufer trifft die ersten Entscheidungen, die
   `labeling/2` selbst träfe – dieselbe Variablenwahl (`leftmost`, `ff`,
@@ -4182,12 +4182,52 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   (`test/clpz_concurrent_test.exs` vergleicht für 13 Kombinationen der
   Optionen auf zwei Modellen).
 * **Gemessen** (2 Kerne): 10 Damen, alle 724 Lösungen mit `ff`: 1,9 s
-  nacheinander, 0,9 s parallel; 9 Damen 0,45 → 0,3 s. Eine Lösung ist ein
-  Glücksspiel: mit der Vorgabe (so viele Teile wie Kerne) nie spürbar
-  langsamer als nacheinander (Damen ohne `ff`: 20 Damen 22 s nacheinander,
-  20 s parallel; 24 und 26 je 44 s wie nacheinander); mit `parts(8)` 20 Damen 12 s, aber 24 Damen
-  138 s statt 41 s – mehr Teile als Kerne teilen die Kerne auch dem Teil zu,
-  der die Lösung bald gefunden hätte.
+  nacheinander, 0,9 s parallel; 9 Damen 0,45 → 0,3 s.
+* **Eine Lösung: Work Stealing in der Reihenfolge der Suche.** Feste Teile
+  helfen hier nicht: die Suche bis zur ersten Lösung steckt fast ganz links
+  und tief im Baum (20 Damen ohne `ff`: bei 16, 64 oder 256 Teilen liegt
+  die Lösung in Teil 1, und der braucht 19–21 von 21 s); Teile mit
+  Zeitgrenze neu zu teilen war langsamer als nacheinander (die abgebrochene
+  Arbeit ist verloren). Darum: ein Kind beginnt mit dem ganzen Raum und
+  sucht Entscheidung für Entscheidung wie `labeling/2`; ist ein Arbeiter
+  frei, bittet `library(concurrent)` das am weitesten links laufende Kind
+  um Arbeit, und es gibt den rechten Zweig eines offenen Knotens ab (den es
+  dann selbst überspringt). Welchen: den tiefsten, der schon `steal(S)`
+  läuft (Vorgabe 0,02 s), und nur aus der unteren Hälfte des Pfads – tief
+  heißt, die Suche nacheinander käme bald dorthin; alt heißt, der Teil
+  lohnt das Aufsetzen. Ein flacher Zweig dagegen enthält meist selbst
+  Lösungen, die nacheinander nie drankämen (erst so verbrachte der zweite
+  Kern 12 s rechts der Lösung). Die Teile bleiben geordnet: ein Kind meldet
+  zu jedem abgegebenen Teil, wo er unter seinen früheren liegt, und zu
+  seiner Lösung, wie viele davon links von ihr lagen. Hat ein Teil eine
+  Lösung, fällt alles rechts davon weg – laufende Kinder dort werden
+  beendet, und wer einen solchen Teil überspringt, hört auf (er ist dann
+  rechts der Lösung). Die Lösung gilt, sobald links davon alles gescheitert
+  ist: genau die von `once(labeling/2)`, auch dieselbe Ausnahme. Rechnen die
+  Kerne gemeinsam links der Lösung, gewinnt man bis zur Zahl der Kerne; was
+  rechts der Lösung gerechnet wurde, war vergeblich.
+
+  | 2 Kerne, je dieselbe Lösung | nacheinander | `concurrent_labeling` |
+  |---|---|---|
+  | 18 Damen | 4,1 s | 2,4–3,5 s |
+  | 20 Damen | 20,9 s | 11,2–16,3 s |
+  | 22 Damen, `Q1 #> 11`, `Q2 #< 3` | 11,5 s | 6,6 s |
+  | ebenso mit `[bisect]` | 16,2 s | 9,1 s |
+  | ebenso mit `[enum]` | 11,8–13,0 s | 6,8–9,5 s |
+  | ebenso mit `[down]` | 0,5 s | 0,7 s |
+
+  Wie viel es bringt, hängt davon ab, welche Teile wann abgegeben werden –
+  daher die Spannen. Die eigene Schleife kostet nacheinander etwa 7 %
+  (`step`) bis 25 % (`enum`) gegenüber `labeling/2`; dazu kommen
+  `copy_term/3` (22 Damen: 0,2–0,5 s) und das Aufsetzen je Teil. Kleine
+  Aufgaben löst darum `serial(S)` ohne Kinder (8 Damen 34 statt 23 ms).
+  Die alte Art – feste Teile gegeneinander, die erste gefundene Lösung gilt
+  – gibt es mit `solution(any)`.
+* Nebenbei behoben: eine Zeitgrenze griff nicht, solange eine Schleife
+  immer wieder kurze Unter-Maschinen (`\+ G`, `findall/3`) aufrief und es
+  Variablen mit Attributen gab – jede schob den Prüfpunkt der Maschine
+  weiter. `labeling([bisect], …)` in clpz (dort `\+ acyclic_term(X)` bei
+  jedem Constraint) lief unter `call_with_time_limit(0.1, …)` 16 s.
 * Jedes Kind setzt das ganze Modell neu auf: lohnend, wenn die Suche
   deutlich länger dauert als der Aufbau (30 Damen mit `ff` finden sich
   nacheinander in 40 ms, parallel braucht schon das Aufteilen mehr).
