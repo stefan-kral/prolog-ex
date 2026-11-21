@@ -16,10 +16,9 @@
    nacheinander (die Suche bzw. ein Schritt des Branch and Bound), bevor
    parallel gerechnet wird (Vorgabe 0.1; 0: gleich parallel); kleine
    Aufgaben sparen so das Aufsetzen der Kinder. parts(N) – in etwa so
-   viele Teile: Vorgabe 16 für concurrent_labelings und mit min/max
-   (concurrent_maplist/3 verteilt sie auf die Kerne); für concurrent_labeling
-   ohne min/max die Zahl der Arbeiter, Vorgabe so viele wie Kerne (Flag
-   cpu_count). concurrent_labelings: serial(S) ebenso (alle Lösungen
+   viele Teile: Vorgabe 16 für concurrent_labelings (concurrent_maplist/3
+   verteilt sie auf die Kerne); für concurrent_labeling die Zahl der
+   Arbeiter, Vorgabe so viele wie Kerne (Flag cpu_count). concurrent_labelings: serial(S) ebenso (alle Lösungen
    nacheinander); weniger als 4 feste Teile je Kern: Work Stealing dazu
    (siehe optimise_all/6). solution(first) (Vorgabe) oder solution(any) –
    concurrent_labeling ohne min/max: any lässt feste Teile gegeneinander
@@ -61,11 +60,10 @@
      concurrent_labeling – genau die Lösung von once(labeling(Options,
          Vars)): je Kriterium der beste Wert durch Branch and Bound –
          nacheinander, solange ein Schritt billig ist (0,1 s), dann
-         parallel: jeder Teil sucht unter der bisherigen Schranke für sich
-         weiter, das Beste aller Teile ist das Optimum (den Beweis, dass es
-         nichts Besseres gibt, teilen sich die Kerne). Die Lösung ist die
-         erste mit dem besten Wert in der Reihenfolge der Suche, wie bei
-         labeling/2. Deterministisch, anders als ohne Optimierung
+         parallel mit Work Stealing und gemeinsamer Schranke: jede bessere
+         Lösung schränkt sofort alle Teile ein (optimum/5). Die Lösung ist
+         die erste mit dem besten Wert in der Reihenfolge der Suche, wie
+         bei labeling/2
      concurrent_labelings – alle Lösungen in der Reihenfolge von labeling/2:
          nach dem Wert gruppiert (min aufsteigend, max absteigend), je Gruppe
          unter E #= Wert mit den übrigen Kriterien; kostet etwa zwei
@@ -101,9 +99,11 @@ concurrent_labeling(Options, Vars, COptions) :-
             steal_age(COptions, Age),
             ordered_first(Spec, Vars, N, Limit, Age)
         )
-    ;   parts(Parts0, 16, N),
+    ;   current_prolog_flag(cpu_count, Cores),
+        parts(Parts0, Cores, N),
         serial_limit(COptions, Limit),
-        optimise_first(Whats, Spec, Vars, N, Limit)
+        steal_age(COptions, Age),
+        optimise_first(Whats, Spec, Vars, opt(N, Limit, Age))
     ).
 
 % serial(Sekunden): wie lange die Suche (ein Schritt des Branch and Bound)
@@ -192,42 +192,44 @@ first_goals([Ds|Dss], Gs, Vs, Base, Sol, [part_first(Gs, Vs, Base, Ds, Sol)|Goal
 % Reihe nach den besten Wert bestimmen und festhalten (E #= Wert); die
 % Lösung ist die, mit der das letzte Kriterium sein Optimum fand – die
 % erste mit diesem Wert in der Reihenfolge der Suche (siehe optimum/6)
-optimise_first([W|Ws], Spec, Vars, N, Limit) :-
-    optimum(W, Spec, Vars, N, Limit, Val-Sol),
+optimise_first([W|Ws], Spec, Vars, How) :-
+    optimum(W, Spec, Vars, How, Val-Sol),
     (   Ws == []
     ->  Vars = Sol
     ;   arg(1, W, E),
         E #= Val,
-        optimise_first(Ws, Spec, Vars, N, Limit)
+        optimise_first(Ws, Spec, Vars, How)
     ).
 
-% Branch and Bound in zwei Phasen. Erst nacheinander im Aufrufer, wie
-% labeling/2: eine Lösung unter der bisherigen Schranke suchen (E #< Best
-% bzw. E #> Best), ihr Wert ist die neue Schranke – solange ein Schritt
-% billig ist (Frist 0,1 s). Braucht ein Schritt länger (gegen Ende: die
-% Lösungen werden selten, zuletzt muss bewiesen werden, dass es keine
-% bessere gibt), dann parallel: die Teile unter der Schranke, jeder sucht
-% für sich weiter, bis er in seinem Teil keine bessere mehr findet
-% (concurrent_maplist/3 verteilt die Teile auf die Kerne); das Beste aller
-% Teile ist das Optimum. Den Beweis teilen sich so die Kerne. (Runden mit
-% gemeinsamer Schranke nach jedem Fund kosteten je Runde Aufteilen und
-% Aufsetzen des Modells in jedem Kind – mehr, als sie sparten.)
+% Branch and Bound wie labeling/2: eine Lösung unter der bisherigen
+% Schranke suchen (E #< Best bzw. E #> Best), ihr Wert ist die neue
+% Schranke, bis es keine mehr gibt. Erst nacheinander im Aufrufer, solange
+% ein Schritt billig ist (Frist Limit, Vorgabe 0,1 s); braucht einer länger
+% (gegen Ende: die Lösungen werden selten, zuletzt muss bewiesen werden,
+% dass es keine bessere gibt), dann der Rest parallel (steal_best/7): W
+% Arbeiter, Work Stealing, eine gemeinsame Schranke – jede bessere Lösung
+% eines Teils schränkt sofort alle anderen ein. Jeder Teil sucht ohne
+% Neustart weiter (part_steal_best/8); sein Ergebnis ist die erste beste
+% Lösung in ihm, und von allen gilt die beste, bei gleichem Wert die erste
+% in der Reihenfolge der Suche. (Erst probiert: je Schritt die erste Lösung
+% unter der Schranke parallel suchen – das Aufsetzen je Schritt fraß den
+% Gewinn: 9 Damen 5,6 statt 3,5 s nacheinander.)
 %
 % Ergebnis Wert-Lösung. Die Lösung ist die erste mit dem besten Wert in der
 % Reihenfolge der Suche, wie bei labeling/2: der letzte Schritt fand die
-% erste Lösung (des Teils) mit E besser als die vorige Schranke – eine
-% frühere mit dem besten Wert wäre auch besser gewesen. Unter den Teilen
-% gilt bei gleichem Wert der vorderste; die davor haben nichts so Gutes
-optimum(W, Spec, Vars, N, Limit, Best) :-
-    optimum_(W, Spec, Vars, N, Limit, none, Best).
+% erste Lösung, die besser war als die vorige Schranke – jede mit dem
+% besten Wert ist besser, also keine davor. Scheitert ohne Lösung.
+optimum(W, Spec, Vars, How, Best) :-
+    optimum_(W, Spec, Vars, How, none, Best).
 
-optimum_(W, Spec, Vars, N, Limit, Best0, Best) :-
+optimum_(W, Spec, Vars, How, Best0, Best) :-
+    How = opt(N, Limit, Age),
     (   serial_step(W, Spec, Vars, Best0, Limit, Found)
     ->  (   Found == none
         ->  Best0 \== none, Best = Best0
-        ;   optimum_(W, Spec, Vars, N, Limit, Found, Best)
+        ;   optimum_(W, Spec, Vars, How, Found, Best)
         )
-    ;   parallel_best(W, Spec, Vars, N, Best0, Best),
+    ;   steal_best(W, Spec, Vars, Best0, N, Age, Best),
         Best \== none
     ).
 
@@ -240,6 +242,23 @@ serial_step(W, Spec, Vars, Bound, Limit, Found) :-
     serial_try(Limit, V-Vars, ( bound(Dir, E, B), once(labeling(Base, Vars)), value(E, V) ), Vs),
     ( Vs = [Found] -> true ; Found = none ).
 
+% der Rest parallel: Branch and Bound mit Work Stealing und gemeinsamer
+% Schranke (part_steal_best/8); Best: Wert-Lösung oder Bound
+steal_best(W, Spec, Vars, Bound, N, Age, Best) :-
+    W =.. [Dir, E],
+    base(Spec, Base),
+    bound_value(Bound, B),
+    findall(Sol,
+            ( Ev #= E,
+              copy_term(Vars-Ev, Vs-EvC, Gs0),
+              goal_conj(Gs0, Gs),
+              '$conc_limits'(D, Bu, M),
+              '$conc_run'([x-(clpz_concurrent:part_steal_best(Gs, Vs-EvC, Base, Age, Dir, B))],
+                          split_best(Dir), N, D, Bu, M, R),
+              R = ok([Sol]) ),
+            Sols),
+    (   Sols = [V-S] -> Best = V-S ; Best = Bound ).
+
 bound_value(none, none).
 bound_value(V-_, V).
 
@@ -248,25 +267,6 @@ bound_value(V-_, V).
 serial_try(Limit, T, Goal, R) :-
     Limit > 0,
     catch(call_with_time_limit(Limit, findall(T, Goal, R)), time_limit_exceeded, fail).
-
-% das Beste über alle Teile unter der Schranke (Bound, wenn keiner besser)
-parallel_best(W, Spec, Vars, N, Bound, Best) :-
-    W =.. [Dir, E],
-    bound_value(Bound, B),
-    (   findall(P-Vs-EV-Gs,
-                ( bound(Dir, E, B), pieces_t(Spec, Vars-E, Vars, N, P, Vs-EV, Gs) ),
-                [Parts-Vs-EV-Gs])
-    ->  base(Spec, Base),
-        concurrent_maplist(part_best(Gs, Vs, Base, EV, Dir, B), Parts, Bests),
-        foldl(better(Dir), Bests, Bound, Best)
-    ;   Best = Bound
-    ).
-
-% nur ein echt besserer ersetzt: bei gleichem Wert bleibt der vordere Teil
-better(_, none, B, B) :- !.
-better(_, P, none, P) :- !.
-better(min, V-S, B0-S0, B) :- ( V < B0 -> B = V-S ; B = B0-S0 ).
-better(max, V-S, B0-S0, B) :- ( V > B0 -> B = V-S ; B = B0-S0 ).
 
 bound(_, _, none) :- !.
 bound(min, E, B) :- E #< B.
@@ -321,6 +321,40 @@ part_first(Gs, Vs, Base, Ds, Vs) :-
     decide(Ds, Vs, Pre),
     once(( pre_label(Pre), labeling(Base, Vs) )).
 
+% part_steal_best(Gs, Vs-Ev, Base, Age, Dir, B0, Ds, Res): Branch and
+% Bound in Teil Ds ohne Neustart: die Suche läuft weiter, jede bessere
+% Lösung wird die eigene Schranke (echt besser), und an jedem Knoten gilt
+% die engste aus ihr, B0 (die Schranke vor dieser Phase, echt) und der
+% besten anderer Teile ('$conc_bound', einschließlich: bei gleichem Wert
+% entscheidet die Reihenfolge der Teile). Das ergibt dieselbe Lösung wie
+% Neustarts: rechts der letzten Lösung sucht auch ein Neustart nur dort.
+% Res: none oder best(Wert, Lösung, K) – die erste beste dieses Teils, K
+% abgegebene Teile lagen davor (zusammengesetzt von '$conc_run'/7 mit
+% split_best)
+part_steal_best(Gs, Vs-Ev, Base, Age, Dir, B0, Ds, Res) :-
+    call(Gs),
+    '$conc_best_init'(Dir, B0),
+    (   decide(Ds, Vs, Pre)
+    ->  Base = [S, O, C],
+        E = env(Vs, Ds, S, O, C, Age, all, best(Ev, Dir)),
+        (   steal_pre(Pre, E),
+            best_leaf(Ev, Dir, Vs),
+            fail
+        ;   true
+        )
+    ;   true
+    ),
+    '$conc_best_result'(Res).
+
+best_leaf(Ev, Dir, Vs) :-
+    (   integer(Ev) -> true ; instantiation_error(Ev) ),
+    '$conc_best_limit'(L),
+    (   L == none -> true
+    ;   Dir == min -> Ev =< L
+    ;   Ev >= L
+    ),
+    '$conc_best_put'(Ev, Vs).
+
 part_all(Gs, Vs, Base, Ds, Sols) :-
     call(Gs),
     (   decide(Ds, Vs, Pre)
@@ -349,7 +383,7 @@ part_steal(Gs, Vs, Base, Age, Ds) :-
     call(Gs),
     decide(Ds, Vs, Pre),
     Base = [S, O, C],
-    E = env(Vs, Ds, S, O, C, Age, first),
+    E = env(Vs, Ds, S, O, C, Age, first, none),
     catch(once(steal_pre(Pre, E)), '$conc_steal_stop', fail).
 
 % part_steal_all(Gs, Vs, Base, Age, Ds, Sols): alle Lösungen des Teils Ds
@@ -362,7 +396,7 @@ part_steal_all(Gs, Vs, Base, Age, Ds, Sols) :-
     call(Gs),
     (   decide(Ds, Vs, Pre)
     ->  Base = [S, O, C],
-        E = env(Vs, Ds, S, O, C, Age, all),
+        E = env(Vs, Ds, S, O, C, Age, all, none),
         findall(K-Vs, ( steal_pre(Pre, E), '$conc_steal_skipped'(K) ), Sols)
     ;   Sols = []
     ).
@@ -502,6 +536,12 @@ bisect_side(gt(_, M), X) :- X #> M.
 % Knoten, desto mehr Arbeit verspricht sein rechter Zweig), sonst none
 steal_poll(E, P, Depth, T) :-
     '$conc_steal_node'(T, Req),
+    (   best_check(E)
+    ->  true
+    ;   % der Knoten fällt weg (Schranke): eine Bitte noch beantworten
+        ( Req == yes -> '$conc_steal_offer'(none) ; true ),
+        fail
+    ),
     (   Req == no
     ->  true
     ;   Req == stop
@@ -515,6 +555,25 @@ steal_poll(E, P, Depth, T) :-
             append(Ds2, [R], Ds),
             '$conc_steal_give'(D, Ds)
         ;   '$conc_steal_offer'(none)
+        )
+    ).
+
+% Branch and Bound (part_steal_best/8): hält E die Schranke nicht mehr ein,
+% fällt der Knoten weg; sonst wird sie hier für den Teilbaum gesetzt
+% ('$conc_best_limit'/1: die engste der Schranken, einschließlich)
+best_check(E) :-
+    arg(8, E, Best),
+    (   Best == none
+    ->  true
+    ;   Best = best(Ev, Dir),
+        '$conc_best_limit'(L),
+        (   L == none
+        ->  true
+        ;   Dir == min
+        ->  fd_inf(Ev, I), I =< L,
+            ( fd_sup(Ev, S), S > L -> Ev #=< L ; true )
+        ;   fd_sup(Ev, S), S >= L,
+            ( fd_inf(Ev, I), I < L -> Ev #>= L ; true )
         )
     ).
 
@@ -567,23 +626,6 @@ kept(D) :-
     ->  R == cut,
         throw('$conc_steal_stop')
     ;   true
-    ).
-
-% das Beste des Teils unter der Schranke (none, wenn keins): Branch and
-% Bound wie labeling/2 mit min/max, nur im Teil (ohne assert – das Kind
-% darf keine Seiteneffekte haben)
-part_best(Gs, Vs, Base, EV, Dir, Bound, Ds, Best) :-
-    (   call(Gs), decide(Ds, Vs, Pre)
-    ->  local_best(Pre, Vs, Base, EV, Dir, Bound, none, Best)
-    ;   Best = none
-    ).
-
-% (Ergebnis Wert-Lösung oder none)
-local_best(Pre, Vs, Base, EV, Dir, Bound, Best0, Best) :-
-    (   findall(V-Vs, ( bound(Dir, EV, Bound), pre_label(Pre), once(labeling(Base, Vs)), value(EV, V) ),
-                [V1-S1])
-    ->  local_best(Pre, Vs, Base, EV, Dir, V1, V1-S1, Best)
-    ;   Best = Best0
     ).
 
 % die Werte von E über alle Lösungen des Teils

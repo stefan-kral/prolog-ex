@@ -140,6 +140,83 @@ defmodule PrologEx.Builtins.Concurrent do
     {:unify, [{k, Process.get(:conc_steal_skipped, 0)}]}
   end
 
+  # --- Branch and Bound im Kind (split_best, part_steal_best/8) ----------------
+  #
+  # :conc_best = %{dir, strict, glob, own, sol, k}: strict die Schranke vor
+  # der Phase (echt), glob die beste anderer Teile (einschließlich: bei
+  # gleichem Wert entscheidet die Reihenfolge), own der beste eigene Wert
+  # (echt), sol die Lösung dazu, k: so viele abgegebene Teile lagen davor
+
+  defbuiltin "$conc_best_init", [dir, b0] do
+    s = subst()
+    {:atom, d} = PrologEx.Store.walk(dir, s)
+
+    strict =
+      case PrologEx.Store.walk(b0, s) do
+        n when is_integer(n) -> n
+        _ -> nil
+      end
+
+    Process.put(:conc_best, %{dir: d, strict: strict, glob: nil, own: nil, sol: nil, k: 0})
+    true
+  end
+
+  # '$conc_best_limit'(L): die engste Schranke, einschließlich (min: E =< L,
+  # max: E >= L), oder none
+  defbuiltin "$conc_best_limit", [l] do
+    b = Process.get(:conc_best)
+
+    lim =
+      case b.dir do
+        "min" -> [b.strict && b.strict - 1, b.glob, b.own && b.own - 1]
+        "max" -> [b.strict && b.strict + 1, b.glob, b.own && b.own + 1]
+      end
+      |> Enum.reject(&is_nil/1)
+
+    v =
+      cond do
+        lim == [] -> a("none")
+        b.dir == "min" -> Enum.min(lim)
+        true -> Enum.max(lim)
+      end
+
+    {:unify, [{l, v}]}
+  end
+
+  # '$conc_best_put'(V, Sol): eine bessere eigene Lösung; dem Elternprozess
+  # melden (er gibt den Wert an die anderen weiter)
+  defbuiltin "$conc_best_put", [v, sol] do
+    s = subst()
+    v = PrologEx.Store.walk(v, s)
+    b = Process.get(:conc_best)
+    k = Process.get(:conc_steal_skipped, 0)
+    Process.put(:conc_best, %{b | own: v, sol: PrologEx.resolve(sol, s), k: k})
+
+    case Process.get(:conc_steal) do
+      {parent, ref, i} -> send(parent, {:conc_improve, ref, i, v})
+      nil -> :ok
+    end
+
+    true
+  end
+
+  defbuiltin "$conc_best_result", [r] do
+    b = Process.get(:conc_best)
+    res = if b.own == nil, do: a("none"), else: mk("best", [b.own, b.sol, b.k])
+    {:unify, [{r, res}]}
+  end
+
+  defp best_glob(v) do
+    case Process.get(:conc_best) do
+      %{glob: g, dir: d} = b ->
+        if g == nil or (d == "min" and v < g) or (d == "max" and v > g),
+          do: Process.put(:conc_best, %{b | glob: v})
+
+      _ ->
+        :ok
+    end
+  end
+
   defbuiltin "$conc_steal_marked", [d] do
     is_map_key(Process.get(:conc_steal_marks, %{}), PrologEx.Store.walk(d, subst())) || :fail
   end
@@ -206,6 +283,10 @@ defmodule PrologEx.Builtins.Concurrent do
         steal_msgs(ref, i, r)
 
       {:conc_steal_cut, ^ref, _, _} ->
+        steal_msgs(ref, i, r)
+
+      {:conc_bound, ^ref, v} ->
+        best_glob(v)
         steal_msgs(ref, i, r)
     after
       0 -> r
@@ -295,6 +376,9 @@ defmodule PrologEx.Builtins.Concurrent do
   defp mode!({:atom, "split"}), do: :split
   defp mode!({:atom, "split_all"}), do: :split_all
 
+  defp mode!({:struct, "split_best", [{:atom, dir}]}) when dir in ["min", "max"],
+    do: {:split_best, dir}
+
   defp mode!({:struct, "first", [{:atom, on_fail}, {:atom, output}, {:atom, on_error}]}),
     do: {:first, on_fail, output, on_error}
 
@@ -305,6 +389,9 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run(jobs, :split, {max, _chunk}, limits), do: run_split(jobs, max, limits, :first)
   defp run(jobs, :split_all, {max, _chunk}, limits), do: run_split(jobs, max, limits, :all)
+
+  defp run(jobs, {:split_best, dir}, {max, _chunk}, limits),
+    do: run_split(jobs, max, limits, {:best, dir})
 
   defp run(jobs, mode, {max, chunk}, {deadline, _, _} = limits) do
     ref = make_ref()
@@ -499,6 +586,13 @@ defmodule PrologEx.Builtins.Concurrent do
   # Ergebnis ok(Lösungen) in der Reihenfolge der Suche: S0, dann G1
   # (rekursiv), S1, ... Eine Ausnahme in einem Teil beendet alles und kommt
   # hier an.
+  #
+  # Mode split_best(min | max) (Branch and Bound): Jobs = [_-C], ein Teil ist
+  # call(C, Ds, Res), Res none oder best(Wert, Lösung, K). Meldet ein Kind
+  # einen besseren Wert ({:conc_improve, ...}), geht er als gemeinsame
+  # Schranke an alle laufenden Kinder (und an jedes neue). Sind alle Teile
+  # fertig: ok([Wert-Lösung]) mit dem besten Wert, bei gleichem der erste
+  # in der Reihenfolge der Suche, sonst fail.
   @split_retry 2
 
   defp run_split([{:struct, "-", [t, c]} | fixed], w, {deadline, _, _} = limits, mode) do
@@ -552,7 +646,14 @@ defmodule PrologEx.Builtins.Concurrent do
   end
 
   defp split_loop(sp) do
-    case if(sp.mode == :all, do: sall(sp.parts), else: sdecide(sp.parts, 0)) do
+    decided =
+      case sp.mode do
+        :all -> sall(sp.parts)
+        {:best, dir} -> sbest(sp.parts, dir)
+        :first -> sdecide(sp.parts, 0)
+      end
+
+    case decided do
       :empty ->
         a("fail")
 
@@ -561,6 +662,9 @@ defmodule PrologEx.Builtins.Concurrent do
 
       {:found, {:all, sols}} ->
         mk("ok", [sols])
+
+      {:found, {:best, v, sol}} ->
+        mk("ok", [[mk("-", [v, sol])]])
 
       {:found, {:error, ball}} ->
         Error.throw!(ball)
@@ -578,6 +682,9 @@ defmodule PrologEx.Builtins.Concurrent do
 
           {:conc_offer, ^ref, i, ds, rank, g} ->
             sp |> split_offer(i, ds, rank, g) |> split_loop()
+
+          {:conc_improve, ^ref, _i, v} ->
+            sp |> split_improve(v) |> split_loop()
 
           {:DOWN, _mon, :process, pid, reason} when is_map_key(mons, pid) ->
             Error.throw!(
@@ -643,6 +750,63 @@ defmodule PrologEx.Builtins.Concurrent do
     end
   end
 
+  # Branch and Bound: wie sall/1, dann der beste Wert, bei gleichem der
+  # erste in der Reihenfolge der Suche; :empty ohne Lösung
+  defp sbest(parts, dir) do
+    order = sorder(parts, 0)
+
+    cond do
+      e = Enum.find_value(order, fn {_, st} -> match?({:error, _, _}, st) && elem(st, 1) end) ->
+        {:found, {:error, e}}
+
+      Enum.any?(order, fn {_, st} -> st in [:pending, :running] end) ->
+        :undecided
+
+      true ->
+        case sbest_list(parts, 0) do
+          [] ->
+            :empty
+
+          cands ->
+            vals = Enum.map(cands, &elem(&1, 0))
+            best = if dir == "min", do: Enum.min(vals), else: Enum.max(vals)
+            {v, sol} = Enum.find(cands, fn {v, _} -> v == best end)
+            {:found, {:best, v, sol}}
+        end
+    end
+  end
+
+  # die Bestwerte der Teile in der Reihenfolge der Suche: der des Teils an
+  # der Stelle K unter seinen abgegebenen
+  defp sbest_list(parts, id) do
+    %{st: {:best, res}, givens: gs} = parts[id]
+
+    {own, k} =
+      case PrologEx.unmark(res) do
+        {:struct, "best", [v, sol, k]} -> {[{v, sol}], k}
+        _ -> {[], 0}
+      end
+
+    {before, rest} = Enum.split(gs, k)
+
+    Enum.flat_map(before, &sbest_list(parts, &1)) ++
+      own ++ Enum.flat_map(rest, &sbest_list(parts, &1))
+  end
+
+  # ein besserer Wert: die gemeinsame Schranke, an alle laufenden Kinder
+  defp split_improve(%{mode: {:best, dir}} = sp, v) do
+    gb = Map.get(sp, :bound)
+
+    if gb == nil or (dir == "min" and v < gb) or (dir == "max" and v > gb) do
+      for pid <- Map.values(sp.run), do: send(pid, {:conc_bound, sp.ref, v})
+      Map.put(sp, :bound, v)
+    else
+      sp
+    end
+  end
+
+  defp split_improve(sp, _v), do: sp
+
   # S0, G1, S1, ..., Gm, Sm: die Lösungen des Teils nach K, dazwischen die
   # seiner abgegebenen Teile
   defp sassemble(parts, id) do
@@ -677,15 +841,18 @@ defmodule PrologEx.Builtins.Concurrent do
           ds = sp.parts[id].ds
 
           job =
-            if sp.mode == :all,
-              do:
+            if sp.mode == :first,
+              do: {id, sp.t, mk("call", [sp.c, ds])},
+              else:
                 (
                   r = fresh_var()
                   {id, r, mk("call", [sp.c, ds, r])}
-                ),
-              else: {id, sp.t, mk("call", [sp.c, ds])}
+                )
 
           send(pid, {:jobs, sp.ref, [job]})
+
+          # die gemeinsame Schranke gleich mit (Branch and Bound)
+          if gb = Map.get(sp, :bound), do: send(pid, {:conc_bound, sp.ref, gb})
 
           sp = put_in(sp.parts[id].st, :running)
           %{sp | idle: idle, run: Map.put(sp.run, id, pid)}
@@ -729,6 +896,9 @@ defmodule PrologEx.Builtins.Concurrent do
         sp = %{sp | idle: [pid | sp.idle]}
 
         case {sp.mode, oc} do
+          {{:best, _}, {:ok, t}} -> put_in(sp.parts[i].st, {:best, t})
+          {{:best, _}, :fail} -> put_in(sp.parts[i].st, {:best, a("none")})
+          {{:best, _}, {:error, e}} -> put_in(sp.parts[i].st, {:error, e, k})
           {:all, :fail} -> put_in(sp.parts[i].st, {:all, []})
           {:all, {:ok, t}} -> put_in(sp.parts[i].st, {:all, t})
           {:all, {:error, e}} -> put_in(sp.parts[i].st, {:error, e, k})

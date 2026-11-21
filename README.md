@@ -4275,19 +4275,31 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   Aufrufer – eine Lösung unter der bisherigen Schranke suchen, ihr Wert ist
   die neue –, solange ein Schritt billig ist (`serial(S)`, Vorgabe 0,1 s);
   braucht einer länger (gegen Ende werden bessere Lösungen selten, zuletzt
-  muss bewiesen werden, dass es keine gibt), dann parallel: jeder Teil sucht
-  unter der Schranke für sich weiter, bis er nichts Besseres mehr findet,
-  das Beste aller Teile ist das Optimum. Die Lösung ist die erste mit dem
-  besten Wert in der Reihenfolge der Suche: der letzte Schritt fand die
-  erste Lösung, die besser war als die vorige Schranke, und bei gleichem
-  Wert gilt der vordere Teil. `concurrent_labelings` gibt alle Lösungen in
+  muss bewiesen werden, dass es keine gibt), dann der Rest parallel mit
+  Work Stealing und **gemeinsamer Schranke**: jeder Teil sucht ohne
+  Neustart weiter, jede bessere Lösung wird sofort allen laufenden Teilen
+  gemeldet und schränkt sie ein (an jedem Knoten: fällt E aus der
+  Schranke, ist der Teilbaum erledigt, sonst wird sie dort gesetzt).
+  Dieselbe Lösung wie nacheinander: in jedem Teil gilt die erste beste
+  (eigene Schranke echt), die der anderen Teile nur einschließlich (bei
+  gleichem Wert entscheidet die Reihenfolge), und am Ende die beste, bei
+  gleichem Wert die erste in der Reihenfolge der Suche (wie bei einer
+  Lösung zusammengesetzt). `concurrent_labelings` gibt alle Lösungen in
   der Reihenfolge von `labeling/2`: nach dem Wert gruppiert, je Gruppe
   unter `E #= Wert` mit den übrigen Kriterien (etwa zwei Durchgänge).
-  Gemessen (2 Kerne, je dasselbe Ergebnis wie nacheinander): Rucksack mit
-  16 Gegenständen 5,4 → 2,9 s, mit 20 Gegenständen 41 → 22 s; 9 Damen mit
-  `[ff, min(Σ i·Qᵢ)]` 3,7 → 1,5 s, 8 Damen 0,8 → 0,7 s. Runden mit
-  gemeinsamer Schranke nach jedem Fund waren langsamer als nacheinander:
-  jede Runde teilt neu auf und setzt das Modell in jedem Kind neu auf.
+
+  | 2 Kerne, dasselbe Ergebnis | nacheinander | feste Teile, je eigene Schranke (bisher) | Work Stealing, gemeinsame Schranke |
+  |---|---|---|---|
+  | Rucksack, 16 Gegenstände | 5,6 s | 2,9 s | 1,8 s |
+  | Rucksack, 20 Gegenstände | 46,9 s | 22 s | 10,7 s |
+  | 9 Damen, `[ff, min(Σ i·Qᵢ)]` | 4,4 s | 1,5 s | 1,2 s |
+  | 8 Damen, ebenso | 0,8 s | 0,7 s | 0,7 s |
+
+  Mehr als die Zahl der Kerne: die gemeinsame Schranke schneidet früher
+  ab, und die Teile laufen in frischen Prozessen. Erst probiert: jeden
+  Schritt („die erste Lösung unter der Schranke“) einzeln parallel suchen
+  wie `concurrent_labeling` ohne min/max – das Aufsetzen je Schritt fraß
+  den Gewinn (9 Damen 5,6 s).
 * Fehler wie `labeling/2`. Noch nicht: `upto_in`
   (`domain_error(concurrent_labeling_option, upto_in)`).
 * Nebenbei behoben: `copy_term/3` mit mehr als 255 Restzielen von clpz

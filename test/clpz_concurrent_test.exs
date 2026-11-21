@@ -205,7 +205,9 @@ defmodule PrologEx.ClpzConcurrentTest do
             "[]",
             "[serial(0), parts(1)]",
             "[serial(0), parts(3)]",
-            "[serial(0), parts(8)]"
+            "[serial(0), parts(8)]",
+            "[serial(0), steal(0), parts(2)]",
+            "[serial(0), steal(0), parts(4)]"
           ] do
         assert ask(c, "same_first(#{k}, #{copts}, R), R == gleich") != [], "#{k} #{copts}"
       end
