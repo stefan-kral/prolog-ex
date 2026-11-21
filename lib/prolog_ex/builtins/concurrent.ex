@@ -252,26 +252,30 @@ defmodule PrologEx.Builtins.Concurrent do
   # (wie '$conc_var_index'/3), T und Req wie '$conc_steal_node'/2 – in
   # einem Aufruf (jeder Aufruf je Knoten kostet)
   defbuiltin "$conc_node", [vs, x, i, t, req] do
-    s = subst()
+    case node_info(vs, x, subst()) do
+      {:ok, n, tt, r} -> {:unify, [{i, n}, {t, tt}, {req, a(r)}]}
+      :error -> :fail
+    end
+  end
 
-    n =
-      case PrologEx.Store.walk(x, s) do
-        {:var, _} = xv -> vindex(vs, xv, 1, s)
-        _ -> nil
-      end
-
-    if is_integer(n) do
+  @doc false
+  # für '$conc_node'/5 und '$clpz_conc_step'/5 (ClpzPrims): {:ok, Stelle von X
+  # in Vs, Zeit in µs (0 außerhalb eines teilenden Kinds), "no" | "yes" |
+  # "stop"} oder :error
+  def node_info(vs, x, s) do
+    with {:var, _} = xv <- PrologEx.Store.walk(x, s),
+         n when is_integer(n) <- vindex(vs, xv, 1, s) do
       case Process.get(:conc_steal) do
         nil ->
-          {:unify, [{i, n}, {t, 0}, {req, a("no")}]}
+          {:ok, n, 0, "no"}
 
         {_parent, ref, j} ->
           r = steal_msgs(ref, j, "no")
           r = if Process.get(:conc_steal_stop), do: "stop", else: r
-          {:unify, [{i, n}, {t, System.monotonic_time(:microsecond)}, {req, a(r)}]}
+          {:ok, n, System.monotonic_time(:microsecond), r}
       end
     else
-      :fail
+      _ -> :error
     end
   end
 

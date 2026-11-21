@@ -3285,6 +3285,46 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end)
   end
 
+  # '$clpz_conc_step'(Vars, Sel, Order, Vs, Step) für die Suchschleife von
+  # clpz_concurrent (sstep/7): '$clpz_label_step'/4 und '$conc_node'/5 in
+  # einem Aufruf – Step = done oder step(X, V, RVars, Vars0, I, T, Req),
+  # I die Stelle von X in Vs, T und Req wie bei '$conc_node'/5. Anderes:
+  # clpz_concurrent:conc_step_ref/5 (die beiden einzeln)
+  defbuiltin "$clpz_conc_step", [vars, sel, order, vs, step] do
+    s = subst()
+    Process.put(:clpz_prims_subst, s)
+
+    try do
+      up =
+        case w(order) do
+          {:atom, "up"} -> true
+          {:atom, "down"} -> false
+          _ -> throw(:fallback)
+        end
+
+      case label_step(vars, w(sel), up, s) do
+        :done ->
+          {:unify, [{step, a("done")}]}
+
+        :fail ->
+          :fail
+
+        {var, next, rvars, vars0} ->
+          case PrologEx.Builtins.Concurrent.node_info(vs, var, s) do
+            {:ok, i, t, req} ->
+              {:unify, [{step, mk("step", [var, next, rvars, vars0, i, t, a(req)])}]}
+
+            :error ->
+              throw(:fallback)
+          end
+      end
+    catch
+      :fallback ->
+        {:call,
+         mk(":", [a("clpz_concurrent"), mk("conc_step_ref", [vars, sel, order, vs, step])])}
+    end
+  end
+
   defp label_step(vars, sel, up, s) do
     case cell(vars, s) do
       nil ->

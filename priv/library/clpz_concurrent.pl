@@ -443,20 +443,33 @@ slabel(Vars, E, P, D) :-
 sstep(Vars, E, P, D) :-
     arg(3, E, S),
     arg(4, E, O),
-    '$clpz_label_step'(Vars, S, O, Step),
+    arg(1, E, Vs),
+    sstep(Vars, S, O, Vs, E, P, D).
+
+% je Knoten ein Builtin für Wahl, Stelle und Nachfrage ('$clpz_conc_step'/5)
+sstep(Vars, S, O, Vs, E, P, D) :-
+    '$clpz_conc_step'(Vars, S, O, Vs, Step),
     (   Step == done
     ->  true
-    ;   Step = step(X, V, RVars, Vars0),
-        arg(1, E, Vs),
-        '$conc_node'(Vs, X, I, T, Req),
+    ;   Step = step(X, V, RVars, Vars0, I, T, Req),
         steal_poll(Req, E, P, D, T),
         D1 is D + 1,
         (   X = V,
-            sstep(RVars, E, [o(D1, eq(I, V), neq(I, V), T)|P], D1)
+            sstep(RVars, S, O, Vs, E, [o(D1, eq(I, V), neq(I, V), T)|P], D1)
         ;   '$conc_kept'(D1),
             clpz:neq_num(X, V),
-            sstep(Vars0, E, [neq(I, V)|P], D1)
+            sstep(Vars0, S, O, Vs, E, [neq(I, V)|P], D1)
         )
+    ).
+
+% was '$clpz_conc_step'/5 nicht selbst kann
+conc_step_ref(Vars, S, O, Vs, Step) :-
+    '$clpz_label_step'(Vars, S, O, Step0),
+    (   Step0 == done
+    ->  Step = done
+    ;   Step0 = step(X, V, RVars, Vars0),
+        '$conc_node'(Vs, X, I, T, Req),
+        Step = step(X, V, RVars, Vars0, I, T, Req)
     ).
 
 % die Auswahl von label_ref/5: X, der Rest ohne X und die Liste, aus der
