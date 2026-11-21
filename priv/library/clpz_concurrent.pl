@@ -19,7 +19,9 @@
    viele Teile: Vorgabe 16 für concurrent_labelings und mit min/max
    (concurrent_maplist/3 verteilt sie auf die Kerne); für concurrent_labeling
    ohne min/max die Zahl der Arbeiter, Vorgabe so viele wie Kerne (Flag
-   cpu_count). solution(first) (Vorgabe) oder solution(any) –
+   cpu_count). concurrent_labelings: serial(S) ebenso (alle Lösungen
+   nacheinander); weniger als 4 feste Teile je Kern: Work Stealing dazu
+   (siehe optimise_all/6). solution(first) (Vorgabe) oder solution(any) –
    concurrent_labeling ohne min/max: any lässt feste Teile gegeneinander
    laufen, die erste gefundene Lösung gilt (welche, hängt von der Zeit ab,
    wie first_solution/3). steal(S) – siehe unten (Vorgabe 0.02).
@@ -145,7 +147,10 @@ concurrent_labelings(Options, Vars, Solutions) :-
 concurrent_labelings(Options, Vars, Solutions, COptions) :-
     check(Options, Vars, COptions, Spec, Whats, Parts0),
     parts(Parts0, 16, N),
-    optimise_all(Whats, Spec, Vars, N, Solutions).
+    current_prolog_flag(cpu_count, W),
+    serial_limit(COptions, Limit),
+    steal_age(COptions, Age),
+    optimise_all(Whats, Spec, Vars, N, all(W, Limit, Age), Solutions).
 
 parts(none, Default, Default) :- !.
 parts(N, _, N).
@@ -273,12 +278,29 @@ bound(max, E, B) :- E #> B.
 % labeling/2: gruppiert nach dem Wert von E (aufsteigend bzw. absteigend),
 % je Gruppe die Lösungen unter E #= Wert mit den übrigen Kriterien – erst
 % alle vorkommenden Werte (ein Durchgang), dann je Wert einer
-optimise_all([], Spec, Vars, N, Sols) :-
-    pieces(Spec, Vars, N, Parts, Vs, Gs),
+% ohne min/max: erst nacheinander (bis Limit), dann parallel in N festen
+% Teilen für W Arbeiter. Sind es mindestens 4 je Arbeiter, gleicht
+% concurrent_maplist/3 sie aus (jeder mit labeling/2, part_all/5);
+% sonst (viele Kerne) wartete am Ende jeder auf den größten: dann holen
+% sich freie Arbeiter, wenn kein fester Teil mehr wartet, Arbeit aus den
+% laufenden (Work Stealing, part_steal_all/6). Das kostet die eigene
+% Schleife (7–25 % gegenüber labeling/2), darum nicht immer
+optimise_all([], Spec, Vars, N, all(W, Limit, Age), Sols) :-
     base(Spec, Base),
-    concurrent_maplist(part_all(Gs, Vs, Base), Parts, Sols0),
-    append(Sols0, Sols).
-optimise_all([W|Ws], Spec, Vars, N, Sols) :-
+    (   serial_try(Limit, Vars, labeling(Base, Vars), Sols0)
+    ->  Sols = Sols0
+    ;   pieces(Spec, Vars, N, Parts, Vs, Gs),
+        length(Parts, NP),
+        (   NP >= 4 * W
+        ->  concurrent_maplist(part_all(Gs, Vs, Base), Parts, Sols1),
+            append(Sols1, Sols)
+        ;   '$conc_limits'(D, B, M),
+            '$conc_run'([Vs-(clpz_concurrent:part_steal_all(Gs, Vs, Base, Age))|Parts],
+                        split_all, W, D, B, M, R),
+            R = ok(Sols)
+        )
+    ).
+optimise_all([W|Ws], Spec, Vars, N, How, Sols) :-
     W =.. [Dir, E],
     pieces_t(Spec, Vars-E, Vars, N, Parts, Vs-EV, Gs),
     base(Spec, Base),
@@ -287,7 +309,7 @@ optimise_all([W|Ws], Spec, Vars, N, Sols) :-
     sort(Vals1, Asc),
     ( Dir == min -> Vals = Asc ; reverse(Asc, Vals) ),
     findall(S, ( member(V, Vals),
-                 findall(S0, ( E #= V, optimise_all(Ws, Spec, Vars, N, S0) ), [S]) ),
+                 findall(S0, ( E #= V, optimise_all(Ws, Spec, Vars, N, How, S0) ), [S]) ),
             Groups),
     append(Groups, Sols).
 
@@ -298,6 +320,13 @@ part_first(Gs, Vs, Base, Ds, Vs) :-
     call(Gs),
     decide(Ds, Vs, Pre),
     once(( pre_label(Pre), labeling(Base, Vs) )).
+
+part_all(Gs, Vs, Base, Ds, Sols) :-
+    call(Gs),
+    (   decide(Ds, Vs, Pre)
+    ->  findall(Vs, ( pre_label(Pre), labeling(Base, Vs) ), Sols)
+    ;   Sols = []
+    ).
 
 % --- im Kind: Labeling, das Teile abgibt ---------------------------------------
 %
@@ -320,8 +349,23 @@ part_steal(Gs, Vs, Base, Age, Ds) :-
     call(Gs),
     decide(Ds, Vs, Pre),
     Base = [S, O, C],
-    E = env(Vs, Ds, S, O, C, Age),
+    E = env(Vs, Ds, S, O, C, Age, first),
     catch(once(steal_pre(Pre, E)), '$conc_steal_stop', fail).
+
+% part_steal_all(Gs, Vs, Base, Age, Ds, Sols): alle Lösungen des Teils Ds
+% wie findall(Vs, labeling(Base, Vs), _), je als K-Lösung: K abgegebene
+% Teile lagen davor ('$conc_steal_skipped'/1; '$conc_run'/7 mit split_all
+% fügt sie in der Reihenfolge der Suche zusammen). Abgegeben wird hier der
+% oberste offene Zweig (der größte: alle Arbeit zählt, je weniger Teile,
+% desto weniger Aufsetzen)
+part_steal_all(Gs, Vs, Base, Age, Ds, Sols) :-
+    call(Gs),
+    (   decide(Ds, Vs, Pre)
+    ->  Base = [S, O, C],
+        E = env(Vs, Ds, S, O, C, Age, all),
+        findall(K-Vs, ( steal_pre(Pre, E), '$conc_steal_skipped'(K) ), Sols)
+    ;   Sols = []
+    ).
 
 steal_pre(none, E) :-
     arg(1, E, Vs),
@@ -464,15 +508,38 @@ steal_poll(E, P, Depth, T) :-
     ->  throw('$conc_steal_stop')
     ;   arg(6, E, A),
         Old is T - A,
-        Min is Depth // 2,
-        (   give(P, Old, Min, D, Above, R)
+        arg(7, E, Pick),
+        (   steal_pick(Pick, P, Depth, Old, D, Ds1, R)
         ->  arg(2, E, Ds0),
-            reverse(Above, Ds1),
             append(Ds0, Ds1, Ds2),
             append(Ds2, [R], Ds),
             '$conc_steal_give'(D, Ds)
         ;   '$conc_steal_offer'(none)
         )
+    ).
+
+% der abzugebende Knoten der Tiefe D: R sein rechter Zweig, Ds1 die
+% Entscheidungen darüber (oberste zuerst). first: der tiefste alte aus der
+% unteren Hälfte des Pfads; all: der oberste alte
+steal_pick(first, P, Depth, Old, D, Ds1, R) :-
+    Min is Depth // 2,
+    give(P, Old, Min, D, Above, R),
+    reverse(Above, Ds1).
+steal_pick(all, P, _, Old, D, Ds1, R) :-
+    reverse(P, Ps),
+    give_top(Ps, Old, D, Ds1, R).
+
+% Ps oberster vorn
+give_top([N|Ns], Old, D, Above, R) :-
+    (   N = o(D0, L, R0, T0)
+    ->  (   T0 =< Old,
+            \+ '$conc_steal_marked'(D0)
+        ->  D = D0, R = R0, Above = []
+        ;   Above = [L|Above1],
+            give_top(Ns, Old, D, Above1, R)
+        )
+    ;   Above = [N|Above1],
+        give_top(Ns, Old, D, Above1, R)
     ).
 
 % P tiefster vorn; Above: die Entscheidungen darüber (tiefste vorn)
@@ -500,13 +567,6 @@ kept(D) :-
     ->  R == cut,
         throw('$conc_steal_stop')
     ;   true
-    ).
-
-part_all(Gs, Vs, Base, Ds, Sols) :-
-    call(Gs),
-    (   decide(Ds, Vs, Pre)
-    ->  findall(Vs, ( pre_label(Pre), labeling(Base, Vs) ), Sols)
-    ;   Sols = []
     ).
 
 % das Beste des Teils unter der Schranke (none, wenn keins): Branch and

@@ -133,6 +133,13 @@ defmodule PrologEx.Builtins.Concurrent do
     true
   end
 
+  # '$conc_steal_skipped'(K): so viele abgegebene Zweige hat die Suche
+  # dieses Teils bisher übersprungen (eine Lösung jetzt liegt in SK, siehe
+  # run_split/4)
+  defbuiltin "$conc_steal_skipped", [k] do
+    {:unify, [{k, Process.get(:conc_steal_skipped, 0)}]}
+  end
+
   defbuiltin "$conc_steal_marked", [d] do
     is_map_key(Process.get(:conc_steal_marks, %{}), PrologEx.Store.walk(d, subst())) || :fail
   end
@@ -286,6 +293,7 @@ defmodule PrologEx.Builtins.Concurrent do
   defp mode!({:atom, "once"}), do: :once
   defp mode!({:atom, "findall"}), do: :findall
   defp mode!({:atom, "split"}), do: :split
+  defp mode!({:atom, "split_all"}), do: :split_all
 
   defp mode!({:struct, "first", [{:atom, on_fail}, {:atom, output}, {:atom, on_error}]}),
     do: {:first, on_fail, output, on_error}
@@ -295,7 +303,8 @@ defmodule PrologEx.Builtins.Concurrent do
   defp run([], {:first, _, _, _}, _max, _limits), do: a("fail")
   defp run([], _mode, _max, _limits), do: mk("ok", [[]])
 
-  defp run(jobs, :split, {max, _chunk}, limits), do: run_split(jobs, max, limits)
+  defp run(jobs, :split, {max, _chunk}, limits), do: run_split(jobs, max, limits, :first)
+  defp run(jobs, :split_all, {max, _chunk}, limits), do: run_split(jobs, max, limits, :all)
 
   defp run(jobs, mode, {max, chunk}, {deadline, _, _} = limits) do
     ref = make_ref()
@@ -480,9 +489,19 @@ defmodule PrologEx.Builtins.Concurrent do
   # Ergebnis steht fest, sobald links davon alles gescheitert ist: dieselbe
   # Lösung wie nacheinander (die erste in der Reihenfolge der Suche),
   # dieselbe Ausnahme, oder fail. Ausgaben der Kinder werden verworfen.
+  #
+  # Mode split_all (alle Lösungen): Jobs = [T-C, Ds1, ..., Dsn], die Dsi
+  # feste Teile in der Reihenfolge der Suche (ohne: ein Teil []); ein Teil
+  # ist call(C, Ds, L), L die Liste seiner Lösungen als K-Lösung (K wie
+  # oben: sie liegt in SK). Die festen Teile hängen an einer Wurzel ohne
+  # eigene Lösungen. Erst wenn keiner mehr wartet, bitten freie Arbeiter
+  # laufende um Arbeit. Nichts fällt weg; sind alle Teile fertig, ist das
+  # Ergebnis ok(Lösungen) in der Reihenfolge der Suche: S0, dann G1
+  # (rekursiv), S1, ... Eine Ausnahme in einem Teil beendet alles und kommt
+  # hier an.
   @split_retry 2
 
-  defp run_split([{:struct, "-", [t, c]}], w, {deadline, _, _} = limits) do
+  defp run_split([{:struct, "-", [t, c]} | fixed], w, {deadline, _, _} = limits, mode) do
     ref = make_ref()
     state = {:prolog_ex_conc_state, ref}
     :persistent_term.put(state, child_state())
@@ -491,6 +510,7 @@ defmodule PrologEx.Builtins.Concurrent do
       idle = for _ <- 1..w, do: spawn_worker(ref, :split, limits, state)
 
       split_loop(%{
+        mode: mode,
         ref: ref,
         t: t,
         c: c,
@@ -500,8 +520,8 @@ defmodule PrologEx.Builtins.Concurrent do
         # Id -> %{st: :pending | :running | :failed | :pruned | {:ok, T, K}
         # | {:error, E, K}, ds: Ds, givens: [Id], up: Id | nil, cut: Id | nil}
         # (cut: rechts von diesem abgegebenen Teil ist alles weggefallen)
-        parts: %{0 => %{st: :pending, ds: [], givens: [], up: nil, cut: nil, g: 0}},
-        next: 1,
+        parts: split_roots(fixed),
+        next: length(fixed) + 1,
         idle: idle,
         # Id -> Arbeiter
         run: %{},
@@ -516,13 +536,31 @@ defmodule PrologEx.Builtins.Concurrent do
     end
   end
 
+  # ohne feste Teile: einer mit Ds = []; sonst eine fertige Wurzel (keine
+  # eigenen Lösungen) mit ihnen als abgegebenen Teilen 1..n
+  defp split_roots([]), do: %{0 => %{st: :pending, ds: [], givens: [], up: nil, cut: nil, g: 0}}
+
+  defp split_roots(fixed) do
+    ids = Enum.to_list(1..length(fixed))
+
+    fixed
+    |> Enum.zip(ids)
+    |> Map.new(fn {ds, id} ->
+      {id, %{st: :pending, ds: ds, givens: [], up: 0, cut: nil, g: id}}
+    end)
+    |> Map.put(0, %{st: {:all, []}, ds: [], givens: ids, up: nil, cut: nil, g: 0})
+  end
+
   defp split_loop(sp) do
-    case sdecide(sp.parts, 0) do
+    case if(sp.mode == :all, do: sall(sp.parts), else: sdecide(sp.parts, 0)) do
       :empty ->
         a("fail")
 
       {:found, {:ok, t}} ->
         mk("ok", [[t]])
+
+      {:found, {:all, sols}} ->
+        mk("ok", [sols])
 
       {:found, {:error, ball}} ->
         Error.throw!(ball)
@@ -588,6 +626,40 @@ defmodule PrologEx.Builtins.Concurrent do
     end
   end
 
+  # alle Lösungen: :undecided, solange ein Teil wartet oder läuft; eine
+  # Ausnahme gleich (die erste in der Reihenfolge der Suche)
+  defp sall(parts) do
+    order = sorder(parts, 0)
+
+    cond do
+      e = Enum.find_value(order, fn {_, st} -> match?({:error, _, _}, st) && elem(st, 1) end) ->
+        {:found, {:error, e}}
+
+      Enum.any?(order, fn {_, st} -> st in [:pending, :running] end) ->
+        :undecided
+
+      true ->
+        {:found, {:all, sassemble(parts, 0)}}
+    end
+  end
+
+  # S0, G1, S1, ..., Gm, Sm: die Lösungen des Teils nach K, dazwischen die
+  # seiner abgegebenen Teile
+  defp sassemble(parts, id) do
+    %{st: {:all, sols}, givens: gs} = parts[id]
+
+    by_k =
+      sols
+      |> PrologEx.unmark()
+      |> Enum.group_by(fn {:struct, "-", [k, _]} -> k end, fn {:struct, "-", [_, v]} -> v end)
+
+    m = length(gs)
+
+    Enum.flat_map(0..m, fn k ->
+      Map.get(by_k, k, []) ++ if(k < m, do: sassemble(parts, Enum.at(gs, k)), else: [])
+    end)
+  end
+
   # die Teile in der Reihenfolge der Suche (ein Teil vor seinen abgegebenen)
   defp sorder(parts, id) do
     p = parts[id]
@@ -603,7 +675,17 @@ defmodule PrologEx.Builtins.Concurrent do
       Enum.reduce(order, sp, fn
         {id, :pending}, %{idle: [pid | idle]} = sp ->
           ds = sp.parts[id].ds
-          send(pid, {:jobs, sp.ref, [{id, sp.t, mk("call", [sp.c, ds])}]})
+
+          job =
+            if sp.mode == :all,
+              do:
+                (
+                  r = fresh_var()
+                  {id, r, mk("call", [sp.c, ds, r])}
+                ),
+              else: {id, sp.t, mk("call", [sp.c, ds])}
+
+          send(pid, {:jobs, sp.ref, [job]})
 
           sp = put_in(sp.parts[id].st, :running)
           %{sp | idle: idle, run: Map.put(sp.run, id, pid)}
@@ -614,7 +696,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
     free = length(sp.idle) - map_size(sp.asked)
 
-    if free > 0 do
+    if free > 0 and not Enum.any?(order, &match?({_, :pending}, &1)) do
       now = System.monotonic_time(:millisecond)
 
       {asks, later} =
@@ -646,10 +728,13 @@ defmodule PrologEx.Builtins.Concurrent do
         sp = split_free(sp, i)
         sp = %{sp | idle: [pid | sp.idle]}
 
-        case oc do
-          :fail -> put_in(sp.parts[i].st, :failed)
-          {:ok, t} -> split_settle(sp, i, {:ok, t, k}, k)
-          {:error, e} -> split_settle(sp, i, {:error, e, k}, k)
+        case {sp.mode, oc} do
+          {:all, :fail} -> put_in(sp.parts[i].st, {:all, []})
+          {:all, {:ok, t}} -> put_in(sp.parts[i].st, {:all, t})
+          {:all, {:error, e}} -> put_in(sp.parts[i].st, {:error, e, k})
+          {_, :fail} -> put_in(sp.parts[i].st, :failed)
+          {_, {:ok, t}} -> split_settle(sp, i, {:ok, t, k}, k)
+          {_, {:error, e}} -> split_settle(sp, i, {:error, e, k}, k)
         end
 
       _ ->

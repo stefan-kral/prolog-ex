@@ -31,8 +31,9 @@ defmodule PrologEx.ClpzConcurrentTest do
   same_first(K, COpts, R) :- small(L), opt(K, L, O), ( once(labeling(O, L)) -> F1 = L ; F1 = none ),
       small(L2), opt(K, L2, O2), ( concurrent_labeling(O2, L2, COpts) -> F2 = L2 ; F2 = none ),
       ( F1 == F2 -> R = gleich ; R = verschieden(F1, F2) ).
-  same_all(K, R) :- small(L), opt(K, L, O), findall(L, labeling(O, L), S1),
-      small(L2), opt(K, L2, O2), concurrent_labelings(O2, L2, S2),
+  same_all(K, R) :- same_all(K, [], R).
+  same_all(K, COpts, R) :- small(L), opt(K, L, O), findall(L, labeling(O, L), S1),
+      small(L2), opt(K, L2, O2), concurrent_labelings(O2, L2, S2, COpts),
       ( S1 == S2 -> R = gleich ; R = verschieden ).
   % ohne Lösung (die Propagation sieht es nicht); mit Lösungen weit rechts
   ph(N, Vs) :- N1 is N + 1, length(Vs, N1), Vs ins 1..N, all_different(Vs).
@@ -42,8 +43,9 @@ defmodule PrologEx.ClpzConcurrentTest do
       call(Model, L2), ( concurrent_labeling(Opts, L2, COpts) -> F2 = L2 ; F2 = none ),
       ( F1 == F2 -> R = gleich ; R = verschieden(F1, F2) ).
   % das Modell zweimal aufbauen: einmal labeling/2, einmal parallel
-  same(Model, Opts, R) :- call(Model, L), findall(L, labeling(Opts, L), S1),
-      call(Model, L2), concurrent_labelings(Opts, L2, S2),
+  same(Model, Opts, R) :- same(Model, Opts, [], R).
+  same(Model, Opts, COpts, R) :- call(Model, L), findall(L, labeling(Opts, L), S1),
+      call(Model, L2), concurrent_labelings(Opts, L2, S2, COpts),
       ( S1 == S2 -> R = gleich ; R = verschieden(S1, S2) ).
   """
 
@@ -92,8 +94,13 @@ defmodule PrologEx.ClpzConcurrentTest do
 
   for o <- @options do
     test "concurrent_labelings #{o}: wie labeling/2, gleiche Reihenfolge", c do
-      assert ask(c, "same(queens(6), #{unquote(o)}, R), R == gleich") != []
-      assert ask(c, "same(mixed, #{unquote(o)}, R), R == gleich") != []
+      # mit den Vorgaben (kleine Aufgaben nacheinander) und gleich parallel,
+      # jeder Knoten darf abgegeben werden (viele Teile)
+      for copts <- ["[]", "[serial(0), steal(0)]", "[serial(0), steal(0), parts(3)]"],
+          model <- ["queens(6)", "mixed", "qr(8)"] do
+        assert ask(c, "same(#{model}, #{unquote(o)}, #{copts}, R), R == gleich") != [],
+               "#{model} #{copts}"
+      end
     end
   end
 
@@ -192,6 +199,7 @@ defmodule PrologEx.ClpzConcurrentTest do
          c do
       k = unquote(k)
       assert ask(c, "same_all(#{k}, R), R == gleich") != []
+      assert ask(c, "same_all(#{k}, [serial(0), steal(0), parts(2)], R), R == gleich") != []
       # nacheinander (Vorgabe: kleine Schritte), gleich parallel in 1, 3, 8 Teilen
       for copts <- [
             "[]",

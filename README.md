@@ -4191,7 +4191,7 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
 
 | Prädikat | Bedeutung |
 |---|---|
-| `concurrent_labelings(Opts, Vars, Sols[, [parts(N)]])` | alle Lösungen als Liste von Wertelisten, genau wie `findall(Vars, labeling(Opts, Vars), Sols)` – **auch in derselben Reihenfolge** –, die Teile parallel (Vorgabe 16 Teile; `concurrent_maplist/3` verteilt sie) |
+| `concurrent_labelings(Opts, Vars, Sols[, COpts])` | alle Lösungen als Liste von Wertelisten, genau wie `findall(Vars, labeling(Opts, Vars), Sols)` – **auch in derselben Reihenfolge** –, die Teile parallel (`parts(N)`, Vorgabe 16 Teile; `concurrent_maplist/3` verteilt sie, bei weniger als 4 je Kern mit Work Stealing, unten); erst `serial(S)` nacheinander |
 | `concurrent_labeling(Opts, Vars[, COpts])` | eine Lösung (det), **genau die von `once(labeling(Opts, Vars))`** – die erste in der Reihenfolge der Suche, auch mit `min(E)`/`max(E)` (unten). COpts: `serial(S)` (erst S Sekunden nacheinander, Vorgabe 0,1), `parts(N)` (Arbeiter, Vorgabe Flag `cpu_count`), `steal(S)` (unten), `solution(any)` (die erste gefundene, wer zuerst kommt) |
 
 * **Aufteilen:** Der Aufrufer trifft die ersten Entscheidungen, die
@@ -4208,6 +4208,19 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   Optionen auf zwei Modellen).
 * **Gemessen** (2 Kerne): 10 Damen, alle 724 Lösungen mit `ff`: 1,9 s
   nacheinander, 0,9 s parallel; 9 Damen 0,45 → 0,3 s.
+* **Alle Lösungen mit vielen Kernen:** 16 feste Teile reichen, solange es
+  mindestens 4 je Kern sind (`concurrent_maplist/3` gleicht aus). Bei
+  mehr Kernen wartet am Ende jeder auf den größten Teil; dann holen sich
+  freie Arbeiter, sobald kein fester Teil mehr wartet, Arbeit aus den
+  laufenden – wie bei einer Lösung (unten), nur den obersten offenen Zweig
+  (den größten: alle Arbeit zählt). Jede Lösung trägt mit, wie viele der
+  abgegebenen Teile vor ihr lagen; daraus setzt `library(concurrent)` die
+  Reihenfolge der Suche wieder zusammen. Nicht immer, weil die eigene
+  Schleife 7–25 % kostet: auf 2 Kernen mit 16 Teilen ist `labeling/2` in
+  den Teilen schneller. Ein Kern je Teil (auf 2 Kernen `parts(2)`, wie 16
+  Kerne mit der Vorgabe): 13 Damen mit `Q1 #> 6`, `Q2 #< 3` (5921
+  Lösungen) 28 s nacheinander, 21,5 s mit festen Teilen, 13,4 s mit Work
+  Stealing; 10 Damen (724) 2,2 → 1,7 → 1,2 s.
 * **Eine Lösung: Work Stealing in der Reihenfolge der Suche.** Feste Teile
   helfen hier nicht: die Suche bis zur ersten Lösung steckt fast ganz links
   und tief im Baum (20 Damen ohne `ff`: bei 16, 64 oder 256 Teilen liegt
