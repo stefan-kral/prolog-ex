@@ -50,6 +50,5 @@ tauben(N, Vs, []) :- N1 is N + 1, length(Vs, N1), Vs ins 1..N, all_different(Vs)
 vergleich_any(Name, N) :-
     damen(N, Q1), ms(once(labeling([], Q1)), T1),
     damen(N, Q2), ms(concurrent_labeling([], Q2, [solution(any)]), T2),
-    F is T1 / max(T2, 1),
     ( Q1 == Q2 -> W = 'dieselbe' ; W = 'eine andere (erlaubt)' ),
-    format("~w~t~44|~t~d ms~14+~t~d ms~10+~t~2f x~9+  ~w~n", [Name, T1, T2, F, W]).
+    zeile(Name, T1, T2, W, true).

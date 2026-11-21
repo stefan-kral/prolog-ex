@@ -4,7 +4,21 @@
 examples/parallel/run.sh                      # alle vier Demos, Größe klein
 examples/parallel/run.sh mittel eine alle     # Größe mittel, nur zwei Demos
 examples/parallel/run.sh -k 4 gross           # mit höchstens 4 Kernen
+examples/parallel/run.sh -t "1 2 4 8 max" > tabellen.md   # Tabellen (Markdown)
 ```
+
+Mit `-t` läuft jede Demo einmal je Kernzahl (`max`: ohne Grenze), und
+`run.sh` setzt daraus je Demo eine Markdown-Tabelle zusammen – die
+Fortschrittszeilen gehen auf stderr:
+
+| Aufgabe | nacheinander | parallel, 1 Kern | parallel, 2 Kerne |
+|---|---:|---:|---:|
+| maplist fib(18), 16 mal | 1,48 s | 1,15 s (1,3×) | 0,76 s (2,0×) |
+| Primzahlen bis 100000, Blöcke zu 10000 | 5,91 s | 3,55 s (1,7×) | 2,16 s (2,7×) |
+
+„nacheinander“ ist die schnellste Messung aus allen Läufen, der Faktor
+bezieht sich darauf. Mehr Kerne als der Rechner hat lassen sich angeben
+(`+S` startet dann einfach mehr Scheduler), bringen aber nichts.
 
 Braucht einen Build (`mix compile` im Projekt). Jede Zeile zeigt die Zeit
 nacheinander, die parallele Zeit, den Faktor und das Ergebnis; die

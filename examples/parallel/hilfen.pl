@@ -7,10 +7,29 @@
 % es zweimal auf – einmal für labeling/2 nacheinander, einmal parallel –,
 % misst beides und prüft, ob dasselbe herauskommt.
 
+% Ausgabe: lesbar (Vorgabe) oder, nach csv/0, je Zeile @@... für run.sh -t
+% (das Skript baut daraus eine Tabelle über mehrere Kernzahlen)
+:- dynamic(ausgabe/1).
+
+csv :- assertz(ausgabe(csv)).
+
 titel(T) :-
     current_prolog_flag(cpu_count, K),
-    format("~n=== ~w (Kerne: ~d) ===~n", [T, K]),
-    format("~w~t~44|~t~w~14+~t~w~10+~t~w~9+~n", ['', nacheinander, parallel, faktor]).
+    (   ausgabe(csv)
+    ->  format("@@titel;~w;~d~n", [T, K])
+    ;   format("~n=== ~w (Kerne: ~d) ===~n", [T, K]),
+        format("~w~t~44|~t~w~14+~t~w~10+~t~w~9+~n", ['', nacheinander, parallel, faktor])
+    ).
+
+% eine Zeile: Name, Zeit nacheinander und parallel (ms), Ergebnis, gleich?
+zeile(Name, T1, T2, Text, Gleich) :-
+    (   ausgabe(csv)
+    ->  ( Gleich == true -> G = gleich ; G = anders ),
+        format("@@zeile;~w;~d;~d;~w~n", [Name, T1, T2, G])
+    ;   ( Gleich == true -> Gl = '' ; Gl = '  VERSCHIEDEN!' ),
+        F is T1 / max(T2, 1),
+        format("~w~t~44|~t~d ms~14+~t~d ms~10+~t~2f x~9+  ~w~w~n", [Name, T1, T2, F, Text, Gl])
+    ).
 
 ms(G, T) :-
     statistics(walltime, [T0|_]), call(G), statistics(walltime, [T1|_]),
@@ -24,10 +43,9 @@ vergleich(Name, Art, Modell, COpts) :-
     ms(seriell(Art, O1, V1, R1), T1),
     call(Modell, V2, O2),
     ms(parallel(Art, O2, V2, COpts, R2), T2),
-    (   R1 == R2 -> Gl = '' ; Gl = '  VERSCHIEDEN!' ),
-    F is T1 / max(T2, 1),
+    ( R1 == R2 -> Gleich = true ; Gleich = false ),
     ergebnis(Art, R1, Text),
-    format("~w~t~44|~t~d ms~14+~t~d ms~10+~t~2f x~9+  ~w~w~n", [Name, T1, T2, F, Text, Gl]).
+    zeile(Name, T1, T2, Text, Gleich).
 
 seriell(eine, O, V, R) :- ( once(labeling(O, V)) -> R = V ; R = keine ).
 seriell(alle, O, V, S) :- findall(V, labeling(O, V), S).

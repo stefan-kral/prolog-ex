@@ -22,16 +22,15 @@ main :- main(klein).
 
 main(G) :-
     titel('library(concurrent)'),
-    current_prolog_flag(cpu_count, K),
-    groesse(G, 20, 22, 24, F),
-    Anzahl is 2 * K,
+    groesse(G, 18, 20, 22, F),
+    Anzahl = 16,
     length(Ns, Anzahl), maplist(=(F), Ns),
     format(atom(A), "maplist fib(~d), ~d mal", [F, Anzahl]),
     zeit(A, maplist(fib, Ns, _), concurrent_maplist(fib, Ns, _)),
     groesse(G, 100000, 300000, 1000000, P),
     format(atom(B), "Primzahlen bis ~d, Blöcke zu 10000", [P]),
     zeit(B, primzahlen_seriell(P, N1), primzahlen_parallel(P, N2)),
-    format("~t~44|  ~d bzw. ~d Primzahlen~n", [N1, N2]),
+    ( ausgabe(csv) -> true ; format("~t~44|  ~d bzw. ~d Primzahlen~n", [N1, N2]) ),
     F4 is F + 4,
     zeige_ergebnis('first_solution: das schnellere Ziel gewinnt',
                    first_solution(X, [(fib(F4, _), X = langsam), (fib(F, _), X = schnell)], []), X),
@@ -58,9 +57,10 @@ primzahlen_parallel(P, N) :- bloecke(P, Bs), concurrent_maplist(block, Bs, Ns), 
 paar(A, B) :- between(0, 10, A), between(0, 10, B).
 
 zeit(Name, G1, G2) :-
-    ms(G1, T1), ms(G2, T2), F is T1 / max(T2, 1),
-    format("~w~t~44|~t~d ms~14+~t~d ms~10+~t~2f x~9+~n", [Name, T1, T2, F]).
+    ms(G1, T1), ms(G2, T2),
+    zeile(Name, T1, T2, '', true).
 
+% (ohne Zeiten: nicht in der Tabelle von run.sh -t)
 zeige_ergebnis(Name, G, X) :-
     ( call(G) -> true ; X = gescheitert ),
-    format("~w~t~44|  ~q~n", [Name, X]).
+    ( ausgabe(csv) -> true ; format("~w~t~44|  ~q~n", [Name, X]) ).
