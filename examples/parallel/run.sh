@@ -10,18 +10,42 @@
 #               cpu_count und damit die Zahl der Arbeiter folgen
 #   -t "2 4 max"  je Demo eine Tabelle (Markdown): nacheinander und parallel
 #               mit 2, 4, ... Kernen, max: ohne Grenze; jede Spalte ist ein
-#               eigener Lauf, "nacheinander" die schnellste der Messungen
+#               eigener Lauf, "nacheinander" die schnellste der Messungen.
+#               Die Kernzahlen in Anführungszeichen (oder 2,4,max); die
+#               Größe kommt danach:  run.sh -t "2 4 8 max" mittel
 # Braucht einen Build (mix compile im Projekt).
 
 DIR=$(cd "$(dirname "$0")" && pwd)
 PX="$DIR/../../start_ex"
 TABLE=
 
+usage() {
+  [ -n "$1" ] && echo "run.sh: $1" >&2
+  sed -n '2,17p' "$0" >&2
+  exit 2
+}
+
+# eine Kernzahl: ganze Zahl ab 1 (bei -t auch max)
+cores_ok() {
+  case $1 in
+    max) [ "$2" = max ] ;;
+    '' | 0 | *[!0-9]*) false ;;
+    *) true ;;
+  esac
+}
+
 while getopts k:t: opt; do
   case $opt in
-    k) export ERL_FLAGS="+S $OPTARG:$OPTARG${ERL_FLAGS:+ $ERL_FLAGS}" ;;
-    t) TABLE=$OPTARG ;;
-    *) sed -n '2,15p' "$0" >&2; exit 2 ;;
+    k) cores_ok "$OPTARG" ||
+         usage "-k erwartet eine Zahl von Kernen, nicht \"$OPTARG\" (die Größe kommt danach: run.sh -k 4 mittel)"
+       export ERL_FLAGS="+S $OPTARG:$OPTARG${ERL_FLAGS:+ $ERL_FLAGS}" ;;
+    t) TABLE=$(echo "$OPTARG" | tr ',' ' ')
+       for k in $TABLE; do
+         cores_ok "$k" max ||
+           usage "-t erwartet Kernzahlen oder max, nicht \"$k\" (in Anführungszeichen, die Größe danach: run.sh -t \"2 4 max\" mittel)"
+       done
+       [ -n "$TABLE" ] || usage "-t ohne Kernzahlen" ;;
+    *) usage ;;
   esac
 done
 shift $((OPTIND - 1))
@@ -29,6 +53,14 @@ shift $((OPTIND - 1))
 SIZE=klein
 case "$1" in klein|mittel|gross) SIZE=$1; shift ;; esac
 DEMOS=${*:-grundlagen eine alle optimieren}
+for d in $DEMOS; do
+  case $d in
+    grundlagen|eine|alle|optimieren) ;;
+    max | *[0-9]*) usage "\"$d\" ist keine Demo – die Kernzahlen bei -t in Anführungszeichen: -t \"2 4 max\"" ;;
+    klein|mittel|gross) usage "die Größe \"$d\" gehört vor die Demos" ;;
+    *) usage "unbekannte Demo: $d" ;;
+  esac
+done
 
 file() {
   case $1 in
