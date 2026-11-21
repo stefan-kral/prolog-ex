@@ -81,7 +81,9 @@ defmodule PrologEx.TimeLimitsTest do
      ["X = 1", "X = 2", "X = t"]},
     {"call_with_timeout((member(X, [1,2,3,4]), sleep(0.05)), 0.2, " <>
        "[mode(per_answer), on_timeout(X = t)])", ["X = 1", "X = 2", "X = 3", "X = 4"]},
-    {"call_with_timeout((member(X, [1,2]), sleep(0.03)), 0.05, [mode(cumulative), " <>
+    # (je Lösung 0,1 s unter 0,18 s, zusammen darüber; mit Luft für eine
+    # ausgelastete Maschine – 0,03 unter 0,05 s schlug dann fehl)
+    {"call_with_timeout((member(X, [1,2]), sleep(0.1)), 0.18, [mode(cumulative), " <>
        "mode(per_answer), on_timeout(X = t)])", ["X = 1", "X = 2"]},
     # nach Fehlschlag oder Ausgang von G ist die Grenze weg; die Zeit
     # außerhalb von G (zwischen den Lösungen) zählt nicht
