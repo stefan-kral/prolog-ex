@@ -279,8 +279,9 @@ bound(max, E, B) :- E #> B.
 % je Gruppe die Lösungen unter E #= Wert mit den übrigen Kriterien – erst
 % alle vorkommenden Werte (ein Durchgang), dann je Wert einer
 % ohne min/max: erst nacheinander (bis Limit), dann parallel in N festen
-% Teilen für W Arbeiter. Sind es mindestens 4 je Arbeiter, gleicht
-% concurrent_maplist/3 sie aus (jeder mit labeling/2, part_all/5);
+% Teilen für W Arbeiter (part_loop/3: das Modell einmal je Arbeiter). Sind
+% es mindestens 4 je Arbeiter, gleicht die Verteilung sie aus (jeder mit
+% labeling/2, fixed);
 % sonst (viele Kerne) wartete am Ende jeder auf den größten: dann holen
 % sich freie Arbeiter, wenn kein fester Teil mehr wartet, Arbeit aus den
 % laufenden (Work Stealing, part_steal_all/5). Das kostet die eigene
@@ -292,13 +293,13 @@ optimise_all([], Spec, Vars, N, all(W, Limit, Age), Sols) :-
     ;   pieces(Spec, Vars, N, Parts, Vs, Gs),
         length(Parts, NP),
         (   NP >= 4 * W
-        ->  concurrent_maplist(part_all(Gs, Vs, Base), Parts, Sols1),
-            append(Sols1, Sols)
-        ;   '$conc_limits'(D, B, M),
-            '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, all(Base, Age)))|Parts],
-                        split_all, W, D, B, M, R),
-            R = ok(Sols)
-        )
+        ->  Kind = fixed(Base)
+        ;   Kind = all(Base, Age)
+        ),
+        '$conc_limits'(D, B, M),
+        '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, Kind))|Parts],
+                    split_all, W, D, B, M, R),
+        R = ok(Sols)
     ).
 optimise_all([W|Ws], Spec, Vars, N, How, Sols) :-
     W =.. [Dir, E],
@@ -329,7 +330,8 @@ part_first(Gs, Vs, Base, Ds, Vs) :-
 % darin unter \+ \+ – danach steht das Modell wieder wie vorher, ohne es
 % neu aufzubauen (das kostete je Teil 10–50 ms). Das Ergebnis je Teil geht
 % an den Elternprozess ('$conc_part_done'/2): ok(T), fail oder error(E).
-% Kind: first(Base, Age), all(Base, Age) oder best(Base, Age, Dir, B0, Ev).
+% Kind: first(Base, Age), all(Base, Age), fixed(Base) (alle Lösungen mit
+% labeling/2, ohne abzugeben) oder best(Base, Age, Dir, B0, Ev).
 part_loop(Gs, Vs, Kind) :-
     catch(( call(Gs) -> M = ok ; M = fail ), E, M = error(E)),
     part_loop_(M, Vs, Kind).
@@ -354,12 +356,18 @@ part_one(M, Kind, Vs, Ds, Id) :-
 % das Modell ist widersprüchlich: kein Teil hat eine Lösung
 part_empty(first(_, _), fail).
 part_empty(all(_, _), ok([])).
+part_empty(fixed(_), ok([])).
 part_empty(best(_, _, _, _, _), ok(none)).
 
 part_body(first(Base, Age), Vs, Ds, R) :-
     ( part_steal(Vs, Base, Age, Ds) -> R = ok(Vs) ; R = fail ).
 part_body(all(Base, Age), Vs, Ds, ok(Sols)) :-
     part_steal_all(Vs, Base, Age, Ds, Sols).
+part_body(fixed(Base), Vs, Ds, ok(Sols)) :-
+    (   decide(Ds, Vs, Pre)
+    ->  findall(0-Vs, ( pre_label(Pre), labeling(Base, Vs) ), Sols)
+    ;   Sols = []
+    ).
 part_body(best(Base, Age, Dir, B0, Ev), Vs, Ds, ok(Res)) :-
     part_steal_best(Vs-Ev, Base, Age, Dir, B0, Ds, Res).
 
@@ -395,13 +403,6 @@ best_leaf(Ev, Dir, Vs) :-
     ;   Ev >= L
     ),
     '$conc_best_put'(Ev, Vs).
-
-part_all(Gs, Vs, Base, Ds, Sols) :-
-    call(Gs),
-    (   decide(Ds, Vs, Pre)
-    ->  findall(Vs, ( pre_label(Pre), labeling(Base, Vs) ), Sols)
-    ;   Sols = []
-    ).
 
 % --- im Kind: Labeling, das Teile abgibt ---------------------------------------
 %
@@ -800,14 +801,23 @@ log_size([V|Vs], S0, S) :-
     (   var(V) -> fd_size(V, N), S1 is S0 + log(N) ; S1 = S0 ),
     log_size(Vs, S1, S).
 
+% die Kinder gleich mit ihrer Größe, solange die Entscheidungen des Knotens
+% gelten (nicht je Kind wieder von der Wurzel an)
 expand(node(_, _, Ds), Spec, Vars, Children) :-
-    findall(B, ( reverse(Ds, Ds1), decide(Ds1, Vars, _), branch(Spec, Vars, B) ), Bs),
+    findall(B-Ns, ( reverse(Ds, Ds1), decide(Ds1, Vars, _), branch(Spec, Vars, B),
+                    expand_(B, Ds, Vars, Ns) ), Bs),
     (   Bs = [] -> Children = []
-    ;   Bs = [done] -> Children = [node(final, 0, Ds)]
-    ;   Bs = [B],
-        children(B, Ds, Cs),
-        findall(Nd, ( member(Kind-Ds1, Cs), node(Ds1, Vars, Kind, Nd) ), Children)
+    ;   Bs = [done-_] -> Children = [node(final, 0, Ds)]
+    ;   Bs = [_-Children]
     ).
+
+expand_(done, _, _, []) :- !.
+expand_(B, Ds, Vars, Ns) :-
+    children(B, Ds, Cs),
+    findall(Nd, ( member(Kind-[D|_], Cs), child_node(D, Kind, Ds, Vars, Nd) ), Ns).
+
+child_node(D, Kind, Ds, Vars, node(Kind, S, [D|Ds])) :-
+    findall(S0, ( decide([D], Vars, _), log_size(Vars, 0, S0) ), [S]).
 
 children(step(I, V), Ds, [open-[eq(I, V)|Ds], open-[neq(I, V)|Ds]]).
 children(enum(I, Vals), Ds, Cs) :-

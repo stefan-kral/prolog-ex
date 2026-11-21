@@ -479,11 +479,8 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run(jobs, mode, {max, chunk}, {deadline, _, _} = limits) do
     ref = make_ref()
-    # der Zustand einmal je Aufruf als persistent_term: die Arbeiter lesen
-    # ihn, ohne ihn in ihren Heap zu kopieren (eine Kopie je Kind kostete bei
-    # 2 MiB Datenbank rund 2 ms, so sind es ~30 µs); am Ende gelöscht
-    state = {:prolog_ex_conc_state, ref}
-    :persistent_term.put(state, child_state())
+    # der Zustand für die Arbeiter (die Datenbank als Literal, child_state/0)
+    state = child_state()
     waiting = Enum.with_index(jobs)
     n = length(jobs)
     # first: jedes Ziel ein eigener Arbeiter (sie laufen gegeneinander)
@@ -499,11 +496,8 @@ defmodule PrologEx.Builtins.Concurrent do
 
       loop(ref, running, {waiting, sched}, mode, limits, state, deadline, %{})
     after
-      # alle noch laufenden beenden (auch bei Ausnahmen hier), dann den
-      # geteilten Zustand freigeben (die Arbeiter sind entkoppelt: einer,
-      # der ihn noch zu lesen versucht, stirbt allein)
+      # alle noch laufenden beenden (auch bei Ausnahmen hier)
       kill_all(ref)
-      :persistent_term.erase(state)
     end
   end
 
@@ -684,8 +678,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run_split([{:struct, "-", [t, c]} | fixed], w, {deadline, _, _} = limits, mode) do
     ref = make_ref()
-    state = {:prolog_ex_conc_state, ref}
-    :persistent_term.put(state, child_state())
+    state = child_state()
 
     try do
       sp = %{
@@ -714,7 +707,6 @@ defmodule PrologEx.Builtins.Concurrent do
       split_loop(%{sp | idle: idle})
     after
       kill_all(ref)
-      :persistent_term.erase(state)
     end
   end
 
@@ -1223,11 +1215,41 @@ defmodule PrologEx.Builtins.Concurrent do
 
   # der Zustand des Interpreters (Datenbank, Flags, Streams, ...) für die
   # Kinder; ohne Timer und Speichergrenzen dieses Prozesses (die Kinder
-  # bekommen eigene)
+  # bekommen eigene). Die großen Teile (Datenbank, Operatoren) als
+  # persistent_term, über Aufrufe hinweg (shared/2): die Arbeiter bekommen
+  # sie ohne Kopie (eine Kopie je Kind kostete bei 2 MiB Datenbank rund
+  # 2 ms; sie je Aufruf als persistent_term abzulegen bei 15 MiB 15 ms)
   defp child_state do
     PrologEx.Toplevel.state_snapshot()
     |> Enum.reject(fn {k, _} -> k == :prolog_ex_timers end)
+    |> Enum.map(fn {k, v} -> {k, shared(k, v)} end)
   end
+
+  # je Schlüssel ein persistent_term, für alle Prozesse: gleich dem Wert
+  # hier – weiter; sonst ersetzt (das Alte löscht das Laufzeitsystem, wer
+  # es noch hält, bekommt eine Kopie). Der Aufrufer hält danach selbst das
+  # Literal: beim nächsten Aufruf ist der Vergleich sofort entschieden
+  # (dieselbe Stelle), nach einer Änderung (assert/1) betrifft er nur die
+  # geänderten Teile – die übrigen teilt der neue Wert mit dem Literal.
+  @shared [:prolog_ex_db, :prolog_ex_ops]
+  defp shared(k, v) when k in @shared do
+    pk = {:prolog_ex_conc_shared, k}
+
+    lit =
+      case :persistent_term.get(pk, nil) do
+        c when c === v ->
+          c
+
+        _ ->
+          :persistent_term.put(pk, v)
+          :persistent_term.get(pk)
+      end
+
+    Process.put(k, lit)
+    lit
+  end
+
+  defp shared(_k, v), do: v
 
   # ein Arbeiter: holt sich den Zustand (ohne Kopie) und bearbeitet Pakete
   # von Elementen nacheinander, jedes auf einem frischen Zustand – für das
@@ -1243,8 +1265,7 @@ defmodule PrologEx.Builtins.Concurrent do
     pid =
       spawn_link(fn ->
         Process.put(:conc_depth, depth)
-        st = :persistent_term.get(state)
-        worker(parent, ref, st, base, total, outer, mode, limits)
+        worker(parent, ref, state, base, total, outer, mode, limits)
       end)
 
     mon = Process.monitor(pid)

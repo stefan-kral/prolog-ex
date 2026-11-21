@@ -4070,10 +4070,15 @@ jedes Kind läuft mit einer Kopie des Interpreter-Zustands, super-strikt ohne
 Seiteneffekte. Darum ist die Reihenfolge egal, und ein Kind kann jederzeit
 beendet werden, ohne etwas halb getan zu haben.
 
-Kosten: Der Zustand (vor allem die Klauseldatenbank samt Bibliotheken, leicht
-einige MiB) liegt je Aufruf einmal als `persistent_term`; die Arbeiter lesen
-ihn, ohne ihn in ihren Heap zu kopieren (die BEAM kopiert sonst alles, was
-ein Prozess einem anderen gibt). **Blockung** wie `schedule(dynamic)` bei
+Kosten: Der Zustand (vor allem die Klauseldatenbank samt Bibliotheken, mit
+clpz rund 15 MiB) liegt als `persistent_term`; die Arbeiter lesen ihn, ohne
+ihn in ihren Heap zu kopieren (die BEAM kopiert sonst alles, was ein Prozess
+einem anderen gibt). Er bleibt **über Aufrufe hinweg** liegen und wird nur
+ersetzt, wenn sich etwas geändert hat (`assertz/1`, `op/3`, ...); der
+Aufrufer hält danach selbst diese Fassung, so ist der Vergleich beim
+nächsten Aufruf sofort entschieden. Früher wurde er je Aufruf abgelegt und
+gelöscht: 15 ms je Aufruf – `concurrent_maplist/2` mit zwei kleinen Zielen
+dauerte 22,5 ms, jetzt 0,2 ms. **Blockung** wie `schedule(dynamic)` bei
 OpenMP mit guided-Paketen: höchstens so viele Arbeiter wie Scheduler (bzw.
 `threads(N)`), jeder bekommt ein Paket von Elementen – Rest / (2·Arbeiter),
 mindestens eines, oder `chunk(K)` – und holt sich danach das nächste. Jedes
@@ -4271,6 +4276,11 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   abgegebene) den ganzen Aufbau, 10–50 ms. Gemessen (2 Kerne, je bestes von
   3): 9 Damen mit `min` 1,16 → 0,89 s, Rucksack mit 20 Teilen 8,9 → 8,2 s,
   10 Damen alle 1,23 → 1,11 s; die erste Lösung (wenige Teile) wie vorher.
+  Auch die festen Teile für alle Lösungen laufen so (früher
+  `concurrent_maplist/3`, ein Aufbau je Teil). Das Aufteilen selbst (der
+  Baum der Teile im Aufrufer) rechnet die Kinder eines Knotens, solange
+  dessen Entscheidungen gelten, statt je Kind wieder von der Wurzel an:
+  16 Teile für 6 Damen 16 → 10 ms.
   Lohnend bleibt es, wenn die Suche deutlich länger dauert als der Aufbau
   (30 Damen mit `ff` finden sich nacheinander in 40 ms, parallel braucht
   schon das Aufteilen mehr).

@@ -72,6 +72,17 @@ defmodule PrologEx.ConcurrentTest do
     |> Enum.map(&PrologEx.format_answer(&1, PrologEx.query_var_names(g)))
   end
 
+  # die Datenbank geht über Aufrufe hinweg geteilt an die Kinder (ein
+  # persistent_term je Schlüssel): Änderungen dazwischen müssen sie sehen
+  test "Änderungen der Datenbank zwischen zwei Aufrufen sehen die Kinder", c do
+    assert ask(
+             c,
+             ~S"assertz(f(1)), concurrent_maplist(f, [1]), retract(f(1)), assertz(f(2)), " <>
+               ~S"\+ concurrent_maplist(f, [1]), concurrent_maplist(f, [2]), " <>
+               ~S"op(700, xfx, ===>), concurrent_maplist(\O^current_op(700, xfx, O), [===>])"
+           ) == ["true"]
+  end
+
   test "concurrent_maplist/2,3,4: Ergebnisse in der Reihenfolge der Elemente", c do
     assert ask(c, "concurrent_maplist(sq, [1, 2, 3, 4], Ys)") == ["Ys = [1,4,9,16]"]
     assert ask(c, ~S"concurrent_maplist(\X^(X > 0), [1, 2, 3])") == ["true"]
