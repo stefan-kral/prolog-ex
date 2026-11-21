@@ -133,6 +133,57 @@ defmodule PrologEx.Builtins.Concurrent do
     true
   end
 
+  # --- im Kind: ein Arbeiter, viele Teile (part_loop/3, clpz_concurrent) ----
+  #
+  # Ein Arbeiter beim Teilen läuft als eine Anfrage: das Modell einmal
+  # aufbauen, dann Teil für Teil. '$conc_next_part'(Id, Ds) wartet auf den
+  # nächsten Teil ({:conc_part, ref, id, ds}) und stellt den Kanal für ihn
+  # ein (Id = stop: Ende); '$conc_part_done'(Id, R) meldet sein Ergebnis,
+  # R = ok(T) | fail | error(E).
+  defbuiltin "$conc_next_part", [id, ds] do
+    case Process.get(:conc_loop) do
+      nil ->
+        {:unify, [{id, a("stop")}]}
+
+      {parent, ref} ->
+        receive do
+          {:conc_part, ^ref, i, d} ->
+            Process.put(:conc_steal, {parent, ref, i})
+            Process.put(:conc_steal_marks, %{})
+            Process.put(:conc_steal_skipped, 0)
+            Process.put(:conc_steal_given, 0)
+            Process.put(:conc_steal_passed, MapSet.new())
+            Process.delete(:conc_steal_stop)
+            {:unify, [{id, i}, {ds, d}]}
+
+          {:stop, ^ref} ->
+            Process.put(:conc_loop_stopped, true)
+            {:unify, [{id, a("stop")}]}
+        end
+    end
+  end
+
+  defbuiltin "$conc_part_done", [id, r] do
+    case Process.get(:conc_loop) do
+      nil ->
+        true
+
+      {parent, ref} ->
+        s = subst()
+        i = PrologEx.Store.walk(id, s)
+
+        oc =
+          case PrologEx.resolve(r, s) do
+            {:struct, "ok", [t]} -> if attvars?(t), do: {:error, attv_error()}, else: {:ok, t}
+            {:struct, "error", [e]} -> {:error, e}
+            _ -> :fail
+          end
+
+        send(parent, {:conc_split, ref, self(), i, oc, Process.get(:conc_steal_skipped, 0)})
+        true
+    end
+  end
+
   # '$conc_steal_skipped'(K): so viele abgegebene Zweige hat die Suche
   # dieses Teils bisher übersprungen (eine Lösung jetzt liegt in SK, siehe
   # run_split/4)
@@ -594,8 +645,11 @@ defmodule PrologEx.Builtins.Concurrent do
 
   # --- Teilen: die erste Lösung in der Reihenfolge der Suche -------------------
   #
-  # Mode split, Jobs = [T-C]: ein Teil ist call(C, Ds) mit einer Liste von
-  # Entscheidungen Ds, der erste Ds = []; sein Ergebnis T. Freie Arbeiter
+  # Mode split, Jobs = [_-C]: jeder Arbeiter führt C einmal aus (part_loop/3
+  # in clpz_concurrent: das Modell aufbauen, dann Teil für Teil); ein Teil
+  # ist eine Liste von Entscheidungen Ds ({:conc_part, ref, id, Ds}, siehe
+  # '$conc_next_part'/2), der erste Ds = []; sein Ergebnis ok(T), fail oder
+  # error(E) ('$conc_part_done'/2). Freie Arbeiter
   # bekommen den linkesten wartenden Teil; wartet keiner, bittet der
   # Elternprozess laufende Teile (von links) um Arbeit, und das Kind gibt
   # einen Teil ab (oder none: frühestens nach @split_retry ms wieder).
@@ -611,8 +665,8 @@ defmodule PrologEx.Builtins.Concurrent do
   # dieselbe Ausnahme, oder fail. Ausgaben der Kinder werden verworfen.
   #
   # Mode split_all (alle Lösungen): Jobs = [T-C, Ds1, ..., Dsn], die Dsi
-  # feste Teile in der Reihenfolge der Suche (ohne: ein Teil []); ein Teil
-  # ist call(C, Ds, L), L die Liste seiner Lösungen als K-Lösung (K wie
+  # feste Teile in der Reihenfolge der Suche (ohne: ein Teil []); das
+  # Ergebnis eines Teils ist ok(L), L die Liste seiner Lösungen als K-Lösung (K wie
   # oben: sie liegt in SK). Die festen Teile hängen an einer Wurzel ohne
   # eigene Lösungen. Erst wenn keiner mehr wartet, bitten freie Arbeiter
   # laufende um Arbeit. Nichts fällt weg; sind alle Teile fertig, ist das
@@ -620,8 +674,8 @@ defmodule PrologEx.Builtins.Concurrent do
   # (rekursiv), S1, ... Eine Ausnahme in einem Teil beendet alles und kommt
   # hier an.
   #
-  # Mode split_best(min | max) (Branch and Bound): Jobs = [_-C], ein Teil ist
-  # call(C, Ds, Res), Res none oder best(Wert, Lösung, K). Meldet ein Kind
+  # Mode split_best(min | max) (Branch and Bound): Jobs = [_-C], das Ergebnis
+  # eines Teils ok(Res), Res none oder best(Wert, Lösung, K). Meldet ein Kind
   # einen besseren Wert ({:conc_improve, ...}), geht er als gemeinsame
   # Schranke an alle laufenden Kinder (und an jedes neue). Sind alle Teile
   # fertig: ok([Wert-Lösung]) mit dem besten Wert, bei gleichem der erste
@@ -634,9 +688,7 @@ defmodule PrologEx.Builtins.Concurrent do
     :persistent_term.put(state, child_state())
 
     try do
-      idle = for _ <- 1..w, do: spawn_worker(ref, :split, limits, state)
-
-      split_loop(%{
+      sp = %{
         mode: mode,
         ref: ref,
         t: t,
@@ -649,18 +701,28 @@ defmodule PrologEx.Builtins.Concurrent do
         # (cut: rechts von diesem abgegebenen Teil ist alles weggefallen)
         parts: split_roots(fixed),
         next: length(fixed) + 1,
-        idle: idle,
+        idle: [],
         # Id -> Arbeiter
         run: %{},
         # Id, um Arbeit gebeten (Antwort offen)
         asked: %{},
         # Id -> Zeit (ms) seines letzten none
         none: %{}
-      })
+      }
+
+      idle = for _ <- 1..w, do: split_spawn(sp)
+      split_loop(%{sp | idle: idle})
     after
       kill_all(ref)
       :persistent_term.erase(state)
     end
+  end
+
+  # ein Arbeiter: eine Anfrage C (part_loop/3), die Teil für Teil abarbeitet
+  defp split_spawn(sp) do
+    pid = spawn_worker(sp.ref, :split, sp.limits, sp.state)
+    send(pid, {:jobs, sp.ref, [{0, a("true"), sp.c}]})
+    pid
   end
 
   # ohne feste Teile: einer mit Ds = []; sonst eine fertige Wurzel (keine
@@ -710,8 +772,23 @@ defmodule PrologEx.Builtins.Concurrent do
         mons = Process.get({:conc_mon, ref}, %{})
 
         receive do
-          {:conc_split, ^ref, pid, i, res, k} ->
-            sp |> split_result(pid, i, outcome(res, :once), k) |> split_loop()
+          {:conc_split, ^ref, pid, i, oc, k} ->
+            sp |> split_result(pid, i, oc, k) |> split_loop()
+
+          # ein Arbeiter ist unerwartet fertig (seine Anfrage endet sonst nie)
+          {:conc_loop_end, ^ref, _pid, res} ->
+            case res do
+              {:struct, "error", [e]} ->
+                Error.throw!(e)
+
+              _ ->
+                Error.throw!(
+                  mk("error", [
+                    mk("system_error", [mk("concurrent_child", [a("split_worker_ended")])]),
+                    fresh_var()
+                  ])
+                )
+            end
 
           {:conc_offer, ^ref, i, ds, rank, g} ->
             sp |> split_offer(i, ds, rank, g) |> split_loop()
@@ -871,18 +948,7 @@ defmodule PrologEx.Builtins.Concurrent do
     sp =
       Enum.reduce(order, sp, fn
         {id, :pending}, %{idle: [pid | idle]} = sp ->
-          ds = sp.parts[id].ds
-
-          job =
-            if sp.mode == :first,
-              do: {id, sp.t, mk("call", [sp.c, ds])},
-              else:
-                (
-                  r = fresh_var()
-                  {id, r, mk("call", [sp.c, ds, r])}
-                )
-
-          send(pid, {:jobs, sp.ref, [job]})
+          send(pid, {:conc_part, sp.ref, id, sp.parts[id].ds})
 
           # die gemeinsame Schranke gleich mit (Branch and Bound)
           if gb = Map.get(sp, :bound), do: send(pid, {:conc_bound, sp.ref, gb})
@@ -990,7 +1056,7 @@ defmodule PrologEx.Builtins.Concurrent do
       case p.st do
         :running ->
           split_kill(sp.ref, Map.fetch!(sp.run, id))
-          pid = spawn_worker(sp.ref, :split, sp.limits, sp.state)
+          pid = split_spawn(sp)
           sp = split_free(sp, id)
           %{sp | idle: [pid | sp.idle]}
 
@@ -1147,7 +1213,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp flush(ref) do
     receive do
-      {:conc, ^ref, _, _, _, _} -> flush(ref)
+      msg when is_tuple(msg) and tuple_size(msg) >= 2 and elem(msg, 1) == ref -> flush(ref)
     after
       0 -> :ok
     end
@@ -1191,21 +1257,14 @@ defmodule PrologEx.Builtins.Concurrent do
     receive do
       {:jobs, ^ref, jobs} ->
         for {i, t, g} <- jobs do
-          # beim Teilen: der Kanal zum Elternprozess, je Teil frische Marken
-          if mode == :split do
-            Process.put(:conc_steal, {parent, ref, i})
-            Process.put(:conc_steal_marks, %{})
-            Process.put(:conc_steal_skipped, 0)
-            Process.put(:conc_steal_given, 0)
-            Process.put(:conc_steal_passed, MapSet.new())
-            Process.delete(:conc_steal_stop)
-          end
+          # beim Teilen: eine Anfrage für alle Teile ('$conc_next_part'/2)
+          if mode == :split, do: Process.put(:conc_loop, {parent, ref})
 
           res_text = job(st, base, total, outer, i, t, g, mode, limits)
 
           if mode == :split do
-            skipped = Process.get(:conc_steal_skipped, 0)
-            send(parent, {:conc_split, ref, self(), i, elem(res_text, 0), skipped})
+            unless Process.get(:conc_loop_stopped),
+              do: send(parent, {:conc_loop_end, ref, self(), elem(res_text, 0)})
           else
             send(parent, {:conc, ref, self(), i, elem(res_text, 0), elem(res_text, 1)})
           end

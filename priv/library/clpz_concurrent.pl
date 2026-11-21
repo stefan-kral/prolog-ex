@@ -43,7 +43,7 @@
 
    Eine Lösung (concurrent_labeling ohne min/max): Work Stealing in der
    Reihenfolge der Suche. Ein Kind beginnt mit dem ganzen Raum; es sucht
-   Entscheidung für Entscheidung wie labeling/2 (part_steal/5). Ist ein
+   Entscheidung für Entscheidung wie labeling/2 (part_steal/4). Ist ein
    Arbeiter frei, bittet library(concurrent) das am weitesten links
    laufende Kind um Arbeit, und es gibt den rechten Zweig seines tiefsten
    offenen Knotens ab, der schon S Sekunden läuft (steal(S)): je tiefer,
@@ -168,7 +168,7 @@ race_first(Spec, Vars, N) :-
 
 % die erste Lösung in der Reihenfolge der Suche: erst nacheinander (bis
 % Limit), dann parallel – ein Teil am Anfang, die Kinder geben auf Bitte
-% Teile ab (part_steal/5, '$conc_run'/7 mit split)
+% Teile ab (part_steal/4, '$conc_run'/7 mit split)
 ordered_first(Spec, Vars, W, Limit, Age) :-
     base(Spec, Base),
     (   serial_try(Limit, Vars, once(labeling(Base, Vars)), Sols)
@@ -180,7 +180,7 @@ split_first(Base, Vars, W, Age) :-
     copy_term(Vars, Vs, Gs0),
     goal_conj(Gs0, Gs),
     '$conc_limits'(D, B, M),
-    '$conc_run'([Vs-(clpz_concurrent:part_steal(Gs, Vs, Base, Age))], split, W, D, B, M, R),
+    '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, first(Base, Age)))], split, W, D, B, M, R),
     R = ok([Vars]).
 
 % je Teil ein Ziel; alle mit demselben Sol (findall/3 kopierte es)
@@ -209,7 +209,7 @@ optimise_first([W|Ws], Spec, Vars, How) :-
 % dass es keine bessere gibt), dann der Rest parallel (steal_best/7): W
 % Arbeiter, Work Stealing, eine gemeinsame Schranke – jede bessere Lösung
 % eines Teils schränkt sofort alle anderen ein. Jeder Teil sucht ohne
-% Neustart weiter (part_steal_best/8); sein Ergebnis ist die erste beste
+% Neustart weiter (part_steal_best/7); sein Ergebnis ist die erste beste
 % Lösung in ihm, und von allen gilt die beste, bei gleichem Wert die erste
 % in der Reihenfolge der Suche. (Erst probiert: je Schritt die erste Lösung
 % unter der Schranke parallel suchen – das Aufsetzen je Schritt fraß den
@@ -243,7 +243,7 @@ serial_step(W, Spec, Vars, Bound, Limit, Found) :-
     ( Vs = [Found] -> true ; Found = none ).
 
 % der Rest parallel: Branch and Bound mit Work Stealing und gemeinsamer
-% Schranke (part_steal_best/8); Best: Wert-Lösung oder Bound
+% Schranke (part_steal_best/7); Best: Wert-Lösung oder Bound
 steal_best(W, Spec, Vars, Bound, N, Age, Best) :-
     W =.. [Dir, E],
     base(Spec, Base),
@@ -253,7 +253,7 @@ steal_best(W, Spec, Vars, Bound, N, Age, Best) :-
               copy_term(Vars-Ev, Vs-EvC, Gs0),
               goal_conj(Gs0, Gs),
               '$conc_limits'(D, Bu, M),
-              '$conc_run'([x-(clpz_concurrent:part_steal_best(Gs, Vs-EvC, Base, Age, Dir, B))],
+              '$conc_run'([x-(clpz_concurrent:part_loop(Gs, Vs, best(Base, Age, Dir, B, EvC)))],
                           split_best(Dir), N, D, Bu, M, R),
               R = ok([Sol]) ),
             Sols),
@@ -283,7 +283,7 @@ bound(max, E, B) :- E #> B.
 % concurrent_maplist/3 sie aus (jeder mit labeling/2, part_all/5);
 % sonst (viele Kerne) wartete am Ende jeder auf den größten: dann holen
 % sich freie Arbeiter, wenn kein fester Teil mehr wartet, Arbeit aus den
-% laufenden (Work Stealing, part_steal_all/6). Das kostet die eigene
+% laufenden (Work Stealing, part_steal_all/5). Das kostet die eigene
 % Schleife (7–25 % gegenüber labeling/2), darum nicht immer
 optimise_all([], Spec, Vars, N, all(W, Limit, Age), Sols) :-
     base(Spec, Base),
@@ -295,7 +295,7 @@ optimise_all([], Spec, Vars, N, all(W, Limit, Age), Sols) :-
         ->  concurrent_maplist(part_all(Gs, Vs, Base), Parts, Sols1),
             append(Sols1, Sols)
         ;   '$conc_limits'(D, B, M),
-            '$conc_run'([Vs-(clpz_concurrent:part_steal_all(Gs, Vs, Base, Age))|Parts],
+            '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, all(Base, Age)))|Parts],
                         split_all, W, D, B, M, R),
             R = ok(Sols)
         )
@@ -321,7 +321,49 @@ part_first(Gs, Vs, Base, Ds, Vs) :-
     decide(Ds, Vs, Pre),
     once(( pre_label(Pre), labeling(Base, Vs) )).
 
-% part_steal_best(Gs, Vs-Ev, Base, Age, Dir, B0, Ds, Res): Branch and
+% --- im Kind: das Modell einmal, dann Teil für Teil -------------------------
+%
+% part_loop(Gs, Vs, Kind) läuft je Arbeiter einmal ('$conc_run'/7 mit split,
+% split_all, split_best): stellt das Modell auf (Gs), dann je Teil Ds, den
+% der Elternprozess schickt ('$conc_next_part'/2, Id stop: Ende), die Suche
+% darin unter \+ \+ – danach steht das Modell wieder wie vorher, ohne es
+% neu aufzubauen (das kostete je Teil 10–50 ms). Das Ergebnis je Teil geht
+% an den Elternprozess ('$conc_part_done'/2): ok(T), fail oder error(E).
+% Kind: first(Base, Age), all(Base, Age) oder best(Base, Age, Dir, B0, Ev).
+part_loop(Gs, Vs, Kind) :-
+    catch(( call(Gs) -> M = ok ; M = fail ), E, M = error(E)),
+    part_loop_(M, Vs, Kind).
+
+part_loop_(M, Vs, Kind) :-
+    '$conc_next_part'(Id, Ds),
+    (   Id == stop
+    ->  true
+    ;   \+ \+ part_one(M, Kind, Vs, Ds, Id),
+        part_loop_(M, Vs, Kind)
+    ).
+
+part_one(M, Kind, Vs, Ds, Id) :-
+    (   M == ok
+    ->  catch(part_body(Kind, Vs, Ds, R), E, R = error(E))
+    ;   M = error(E)
+    ->  R = error(E)
+    ;   part_empty(Kind, R)
+    ),
+    '$conc_part_done'(Id, R).
+
+% das Modell ist widersprüchlich: kein Teil hat eine Lösung
+part_empty(first(_, _), fail).
+part_empty(all(_, _), ok([])).
+part_empty(best(_, _, _, _, _), ok(none)).
+
+part_body(first(Base, Age), Vs, Ds, R) :-
+    ( part_steal(Vs, Base, Age, Ds) -> R = ok(Vs) ; R = fail ).
+part_body(all(Base, Age), Vs, Ds, ok(Sols)) :-
+    part_steal_all(Vs, Base, Age, Ds, Sols).
+part_body(best(Base, Age, Dir, B0, Ev), Vs, Ds, ok(Res)) :-
+    part_steal_best(Vs-Ev, Base, Age, Dir, B0, Ds, Res).
+
+% part_steal_best(Vs-Ev, Base, Age, Dir, B0, Ds, Res): Branch and
 % Bound in Teil Ds ohne Neustart: die Suche läuft weiter, jede bessere
 % Lösung wird die eigene Schranke (echt besser), und an jedem Knoten gilt
 % die engste aus ihr, B0 (die Schranke vor dieser Phase, echt) und der
@@ -331,8 +373,7 @@ part_first(Gs, Vs, Base, Ds, Vs) :-
 % Res: none oder best(Wert, Lösung, K) – die erste beste dieses Teils, K
 % abgegebene Teile lagen davor (zusammengesetzt von '$conc_run'/7 mit
 % split_best)
-part_steal_best(Gs, Vs-Ev, Base, Age, Dir, B0, Ds, Res) :-
-    call(Gs),
+part_steal_best(Vs-Ev, Base, Age, Dir, B0, Ds, Res) :-
     '$conc_best_init'(Dir, B0),
     (   decide(Ds, Vs, Pre)
     ->  Base = [S, O, C],
@@ -364,7 +405,7 @@ part_all(Gs, Vs, Base, Ds, Sols) :-
 
 % --- im Kind: Labeling, das Teile abgibt ---------------------------------------
 %
-% part_steal(Gs, Vs, Base, Age, Ds): wie once(labeling(Base, Vs)) im Teil Ds,
+% part_steal(Vs, Base, Age, Ds): wie once(labeling(Base, Vs)) im Teil Ds,
 % Entscheidung für Entscheidung wie labeling/2 (step mit
 % '$clpz_label_step'/4, sonst die Auswahl von label/5 und die Wahl von
 % choice_order_variable/7) – jede Wahl ist ein Knoten (links ; rechts).
@@ -379,21 +420,19 @@ part_all(Gs, Vs, Base, Ds, Sols) :-
 % Entscheidungen mit dem Index der Variablen (gebundene erkennt man nicht
 % wieder); ein Rest von enum ist range(I, L, H, O): X erst in Reihenfolge
 % O, wie enum (decide/3, pre_label/1)
-part_steal(Gs, Vs, Base, Age, Ds) :-
-    call(Gs),
+part_steal(Vs, Base, Age, Ds) :-
     decide(Ds, Vs, Pre),
     Base = [S, O, C],
     E = env(Vs, Ds, S, O, C, Age, first, none),
     catch(once(steal_pre(Pre, E)), '$conc_steal_stop', fail).
 
-% part_steal_all(Gs, Vs, Base, Age, Ds, Sols): alle Lösungen des Teils Ds
+% part_steal_all(Vs, Base, Age, Ds, Sols): alle Lösungen des Teils Ds
 % wie findall(Vs, labeling(Base, Vs), _), je als K-Lösung: K abgegebene
 % Teile lagen davor ('$conc_steal_skipped'/1; '$conc_run'/7 mit split_all
 % fügt sie in der Reihenfolge der Suche zusammen). Abgegeben wird hier der
 % oberste offene Zweig (der größte: alle Arbeit zählt, je weniger Teile,
 % desto weniger Aufsetzen)
-part_steal_all(Gs, Vs, Base, Age, Ds, Sols) :-
-    call(Gs),
+part_steal_all(Vs, Base, Age, Ds, Sols) :-
     (   decide(Ds, Vs, Pre)
     ->  Base = [S, O, C],
         E = env(Vs, Ds, S, O, C, Age, all, none),
@@ -575,7 +614,7 @@ steal_poll(Req, E, P, Depth, T) :-
         )
     ).
 
-% Branch and Bound (part_steal_best/8): hält E die Schranke nicht mehr ein,
+% Branch and Bound (part_steal_best/7): hält E die Schranke nicht mehr ein,
 % fällt der Knoten weg; sonst wird sie hier für den Teilbaum gesetzt
 % ('$conc_best_limit'/1: die engste der Schranken, einschließlich)
 best_check(E) :-

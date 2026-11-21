@@ -4256,7 +4256,7 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   Wie viel es bringt, hängt davon ab, welche Teile wann abgegeben werden –
   daher die Spannen. Die eigene Schleife kostet nacheinander etwa 7 %
   (`step`) bis 25 % (`enum`) gegenüber `labeling/2`; dazu kommen
-  `copy_term/3` (22 Damen: 50 ms) und das Aufsetzen je Teil. Kleine
+  `copy_term/3` (22 Damen: 50 ms) und das Aufsetzen je Arbeiter. Kleine
   Aufgaben löst darum `serial(S)` ohne Kinder (8 Damen 34 statt 23 ms).
   Die alte Art – feste Teile gegeneinander, die erste gefundene Lösung gilt
   – gibt es mit `solution(any)`.
@@ -4265,9 +4265,15 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   Variablen mit Attributen gab – jede schob den Prüfpunkt der Maschine
   weiter. `labeling([bisect], …)` in clpz (dort `\+ acyclic_term(X)` bei
   jedem Constraint) lief unter `call_with_time_limit(0.1, …)` 16 s.
-* Jedes Kind setzt das ganze Modell neu auf: lohnend, wenn die Suche
-  deutlich länger dauert als der Aufbau (30 Damen mit `ff` finden sich
-  nacheinander in 40 ms, parallel braucht schon das Aufteilen mehr).
+* **Das Modell bleibt im Arbeiter:** jeder Arbeiter baut das Modell einmal
+  auf und arbeitet dann Teil für Teil ab – jeder Teil unter `\+ \+`, danach
+  steht das Modell wieder wie vorher. Früher kostete jeder Teil (auch jeder
+  abgegebene) den ganzen Aufbau, 10–50 ms. Gemessen (2 Kerne, je bestes von
+  3): 9 Damen mit `min` 1,16 → 0,89 s, Rucksack mit 20 Teilen 8,9 → 8,2 s,
+  10 Damen alle 1,23 → 1,11 s; die erste Lösung (wenige Teile) wie vorher.
+  Lohnend bleibt es, wenn die Suche deutlich länger dauert als der Aufbau
+  (30 Damen mit `ff` finden sich nacheinander in 40 ms, parallel braucht
+  schon das Aufteilen mehr).
 * **Optimieren** mit `min(E)`/`max(E)` (auch mehrere, lexikographisch wie
   `labeling/2`). `concurrent_labeling` gibt genau die Lösung von
   `once(labeling(Opts, Vars))`: Branch and Bound erst nacheinander im
