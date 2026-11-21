@@ -63,9 +63,14 @@ else
   FILTER=
 fi
 
+# Wörter: -b – nur diese Zeichen (und Leerraum) trennen, also sind auch
+# =:= =.. \== Wörter (rlwrap trennt sonst an = + - : . usw.); "X=:" ohne
+# Leerzeichen zerlegt der Filter selbst. -b muss vor -f stehen (so wird
+# auch .rlwrap_completions gelesen)
+#
 # Alle Argumente nach dem Wrapper unverändert an PrologEx (wie "mix prolog
 # --no-edit"; "--" beendet die Optionen von elixir). Prolog läuft im
 # Aufrufverzeichnis: Dateien, consult/1, working_directory/2 relativ dazu
-exec rlwrap -A -a -I -e '' -f "$DIR/.rlwrap_completions" ${FILTER:+-z "$FILTER"} \
+exec rlwrap -A -a -I -e '' -b "(){}[],;|!'\"%" -f "$DIR/.rlwrap_completions" ${FILTER:+-z "$FILTER"} \
   elixir -pa "$APP/consolidated" -pa "$APP/ebin" \
   -e 'System.halt(PrologEx.Toplevel.main(System.argv()))' -- --no-edit "$@"

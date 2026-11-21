@@ -485,8 +485,15 @@ mix compile                          # einmal, und nach jeder Änderung
     `library(cl` → `clpz)`, `use_module(library(si)` → `)` – `use_module(`
     bleibt offen, danach kann noch die Importliste kommen. Prädikate
     nur mit Argumenten gleich mit Klammer (`mem` → `member(`,
-    `forall(fin` → `forall(findall(`), mit und ohne beides (`halt`,
-    `halt(`). Flags: `current_prolog_flag(dia` → `dialect,`,
+    `forall(fin` → `forall(findall(`); gibt es sie auch ohne, nur ohne
+    (`halt`, `repeat`); Operatoren ohne (`is`, `=..`, `\+`). Auch
+    symbolische Wörter: `X =:` → `X =:=`, ebenso ohne Leerzeichen (`X=:` →
+    `X=:=`, `lists:app` → `lists:append(`) – start_ex ruft rlwrap mit
+    `-b "(){}[],;|!'\"%"`, also trennen nur diese Zeichen und Leerraum
+    Wörter (sonst auch `=`, `:`, `.`, `+` …); das letzte Prolog-Token
+    (Buchstaben/Ziffern/`_` oder Symbolzeichen) sucht der Filter selbst.
+    In einem Ausdruck gilt ein Symbol als Operator (`X is 3*` → die
+    Funktionen). Flags: `current_prolog_flag(dia` → `dialect,`,
     `set_prolog_flag(` → nur die schreibbaren, `set_prolog_flag(occurs_check,`
     → `false)`, `true)`, `error)`. Operatoren: `current_op(` → die
     Prioritäten, `current_op(700, ` → die Typen dazu, `current_op(P, T, `

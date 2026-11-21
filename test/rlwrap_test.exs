@@ -36,7 +36,8 @@ defmodule PrologEx.RlwrapTest do
   spec = importlib.util.spec_from_file_location("flt", sys.argv[1])
   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
   data = m.load()
-  words = ["use_module", "member", "findall", "halt", "true", "lists"]
+  words = ["use_module", "member", "findall", "halt", "true", "lists", "=:=", "=..", "==",
+           "is", "repeat", "\\\\+", "append"]
   c = lambda line, prefix: m.complete(line, prefix, words, data)
   assert c("use_mod", "use_mod") == ["use_module("]
   assert not [x for x in c("", "") if "library" in x]
@@ -45,7 +46,10 @@ defmodule PrologEx.RlwrapTest do
   assert "library(lists)" in c("use_module(", "")
   assert c("forall(mem", "mem") == ["member("], c("forall(mem", "mem")
   assert c("fin", "fin") == ["findall("]
-  assert c("hal", "hal") == ["halt", "halt("]
+  assert c("hal", "hal") == ["halt"]
+  assert c("rep", "rep") == ["repeat"]
+  assert c("X i", "i") == ["is"]
+  assert c("\\\\", "\\\\") == ["\\\\+"]
   assert c("tr", "tr") == ["true"]
   assert c("lis", "lis") == ["lists"]
   assert c("foo", "foo") == []
@@ -67,6 +71,14 @@ defmodule PrologEx.RlwrapTest do
   assert c("current_op(1200, T,", "") == ["-->)", ":-)", "?-)"]
   assert c("current_op(P, T, dyn", "dyn") == ["dynamic)"]
   assert c("current_op(P, T, =.", "") == [".)"]
+  assert c("current_op(P, T, =.", "=.") == ["=..)"]
+  # symbolische Wörter (rlwrap -b: = : . usw. trennen nicht)
+  assert c("X =:", "=:") == ["=:="]
+  assert c("X =", "=") == ["=:=", "=..", "=="], c("X =", "=")
+  assert c("X=:", "X=:") == ["X=:="]
+  assert c("lists:app", "lists:app") == ["lists:append("]
+  assert c("X is 3*", "3*")[:2] == ["3*(", "3*abs("], c("X is 3*", "3*")
+  assert c("X is 1+ab", "1+ab") == ["1+abs("]
   assert c("X is ma", "ma") == ["max(", "max_tagged_integer"]
   assert "abs(" in c("X is ", "") and "mod" not in c("X is ", "")
   assert c("X is A ", "") == ["div", "mod", "rdiv", "rem", "xor"]

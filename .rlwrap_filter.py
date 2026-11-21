@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rlwrap-Filter für PrologEx (start_ex): TAB-Ergänzung mit Klammern.
+r"""rlwrap-Filter für PrologEx (start_ex): TAB-Ergänzung mit Klammern.
 
 rlwrap trennt Wörter an ( ) [ ] , usw.; ein Eintrag in
 .rlwrap_completions kann deshalb keine Klammer enthalten. Dieser Filter
@@ -28,10 +28,19 @@ nach Stelle:
                              den Funktionen von clpz: abs max min sign ...)
   char_type(C, <TAB>         alnum), ..., upper( (die Klassen von charsio;
   code_type(C, <TAB>         alnum), ..., digit(  code_type: die von swi)
+  X =:<TAB>                  =:=                 (symbolische Wörter: =.. \==
+                             @< ...; auch ohne Leerzeichen: X=:<TAB>)
   sonst                      die Wörter aus .rlwrap_completions; ein
                              Prädikat nur mit Argumenten gleich mit
-                             Klammer (mem<TAB> member(), mit und ohne
-                             Argumente beides (halt, halt()
+                             Klammer (mem<TAB> member(), auch ohne
+                             Argumente nur ohne (halt, repeat); Operatoren
+                             ohne (is, =.., \+)
+
+Wörter: start_ex ruft rlwrap mit -b "(){}[],;|!'\"%" – nur diese Zeichen
+(und Leerraum) trennen, also auch "=:=" ist ein Wort. Was rlwrap als Wort
+übergibt ("X=:" ohne Leerzeichen), zerlegt der Filter selbst wie Prolog:
+ergänzt wird das letzte Token (eine Folge aus Buchstaben, Ziffern und _
+oder eine aus Symbolzeichen), der Rest bleibt davor stehen.
 
 Die Bibliotheken stehen in .rlwrap_libraries (eine Auswahl, ein Name je
 Zeile), die Stelligkeiten aller Prädikate in .rlwrap_predicates ("name
@@ -130,9 +139,20 @@ def read_char_types(path=os.path.join(HERE, ".rlwrap_char_types")):
         return {}
 
 
+def read_words(path=os.path.join(HERE, ".rlwrap_completions")):
+    """Die Wörter aus .rlwrap_completions (rlwrap gibt dem Filter nur die,
+    die schon zu seinem Wort passen – bei X=:<TAB> keines)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [w for l in f for w in l.split()]
+    except OSError:
+        return []
+
+
 def load():
     """Alle Daten des Filters (die Dateien neben ihm)."""
     return {
+        "words": read_words(),
         "libraries": read_libraries(),
         "predicates": read_predicates(),
         "flags": read_flags(),
@@ -201,23 +221,65 @@ def complete_arith(before, prefix, data):
     return [c for c in cands if c.startswith(prefix)]
 
 
-def with_paren(words, predicates):
-    """Wörter als Ergänzungen: Prädikate mit Argumenten mit Klammer."""
+def with_paren(words, predicates, bare=frozenset()):
+    """Wörter als Ergänzungen: Prädikate nur mit Argumenten mit Klammer;
+    gibt es sie auch ohne (halt, repeat), nur ohne; ebenso symbolische
+    Namen und die in bare (Infix-Operatoren wie is)."""
     out = []
     for w in words:
         ars = predicates.get(w)
-        if ars and min(ars) > 0:
+        if ars and min(ars) > 0 and w not in bare and not is_symbolic(w):
             out.append(w + "(")
-        elif ars and max(ars) > 0:
-            out += [w, w + "("]
         else:
             out.append(w)
     return out
 
 
+SYMBOL_CHARS = set("+-*/\\^<>=~:.?@#&$")
+
+
+def is_symbolic(w):
+    return w != "" and all(ch in SYMBOL_CHARS for ch in w)
+
+
+def split_token(prefix):
+    """(davor, Token): das letzte Prolog-Token des Worts von rlwrap – eine
+    Folge aus Buchstaben, Ziffern und _ oder eine aus Symbolzeichen."""
+    if prefix == "":
+        return "", ""
+    if prefix[-1] in SYMBOL_CHARS:
+        part = lambda ch: ch in SYMBOL_CHARS
+    else:
+        part = lambda ch: ch.isalnum() or ch == "_"
+    i = len(prefix)
+    while i > 0 and part(prefix[i - 1]):
+        i -= 1
+    return prefix[:i], prefix[i:]
+
+
 def complete(line, prefix, words, data):
     """Ergänzungen für das angefangene Wort prefix am Ende von line (data:
-    load())."""
+    load()). rlwrap ersetzt das ganze Wort: ergänzt wird dessen letztes
+    Token, der Teil davor kommt wieder davor. Ein symbolisches Token in
+    einem Ausdruck, oder eines, zu dem nichts passt, gilt als fertig: dann
+    wie nach einem Trennzeichen (leeres Token)."""
+    lead, tok = split_token(prefix)
+    if is_symbolic(tok) and arith_tail(line[: len(line) - len(tok)]) is not None:
+        # in einem Ausdruck ist ein Symbol ein Operator: weiter mit dem
+        # Operanden (X is 3*<TAB>)
+        lead, tok = prefix, ""
+    if lead:
+        # rlwrap hat nur die Wörter, die zu seinem ganzen Wort passen
+        words = list(words) + data.get("words", [])
+    r = complete_token(line, tok, words, data)
+    if not r and is_symbolic(tok):
+        lead, tok = prefix, ""
+        r = complete_token(line, tok, words, data)
+    return [lead + c for c in r]
+
+
+def complete_token(line, prefix, words, data):
+    """Ergänzungen für das Token prefix am Ende von line."""
     before = line[: len(line) - len(prefix)] if line.endswith(prefix) else line
     flags, libraries = data["flags"], data["libraries"]
     r = complete_op(before + prefix, prefix, data["ops"])
@@ -253,7 +315,8 @@ def complete(line, prefix, words, data):
     elif before.endswith("use_module("):
         cands = ["library(%s)" % n for n in libraries]
     else:
-        cands = with_paren(words, data["predicates"])
+        infix = {n for _, t, n in data["ops"] if t in ("xfx", "xfy", "yfx")}
+        cands = with_paren(words, data["predicates"], infix)
     seen = set()
     out = []
     for c in cands:
