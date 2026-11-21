@@ -48,6 +48,7 @@ tauben(N, Vs, []) :- N1 is N + 1, length(Vs, N1), Vs ins 1..N, all_different(Vs)
 
 % solution(any): feste Teile gegeneinander, die erste gefundene gilt
 vergleich_any(Name, N) :-
+    start(Name),
     damen(N, Q1), ms(once(labeling([], Q1)), T1),
     damen(N, Q2), ms(concurrent_labeling([], Q2, [solution(any)]), T2),
     ( Q1 == Q2 -> W = 'dieselbe' ; W = 'eine andere (erlaubt)' ),

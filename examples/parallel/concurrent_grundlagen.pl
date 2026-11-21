@@ -27,7 +27,7 @@ main(G) :-
     length(Ns, Anzahl), maplist(=(F), Ns),
     format(atom(A), "maplist fib(~d), ~d mal", [F, Anzahl]),
     zeit(A, maplist(fib, Ns, _), concurrent_maplist(fib, Ns, _)),
-    groesse(G, 100000, 300000, 1000000, P),
+    groesse(G, 100000, 200000, 500000, P),
     format(atom(B), "Primzahlen bis ~d, Blöcke zu 10000", [P]),
     zeit(B, primzahlen_seriell(P, N1), primzahlen_parallel(P, N2)),
     ( ausgabe(csv) -> true ; format("~t~44|  ~d bzw. ~d Primzahlen~n", [N1, N2]) ),
@@ -57,6 +57,7 @@ primzahlen_parallel(P, N) :- bloecke(P, Bs), concurrent_maplist(block, Bs, Ns), 
 paar(A, B) :- between(0, 10, A), between(0, 10, B).
 
 zeit(Name, G1, G2) :-
+    start(Name),
     ms(G1, T1), ms(G2, T2),
     zeile(Name, T1, T2, '', true).
 

@@ -119,7 +119,8 @@ for d in $DEMOS; do
       # als hingen sie), die @@-Zeilen für die Tabelle
       ERL_FLAGS=$flags "$PX" -q "$f" -g csv -g "main($SIZE)" -g halt </dev/null |
         awk -F';' -v r="$r" '
-          $1 == "@@zeile" { printf "    %s: %.2f s nacheinander, %.2f s parallel\n", $2, $3 / 1000, $4 / 1000 > "/dev/stderr"; fflush() }
+          $1 == "@@start" { printf "    %s ...\n", $2 > "/dev/stderr"; fflush() }
+          $1 == "@@zeile" { printf "      %.2f s nacheinander, %.2f s parallel\n", $3 / 1000, $4 / 1000 > "/dev/stderr"; fflush() }
           /^@@/ { print r ";" $0; fflush() }'
 
     done | table

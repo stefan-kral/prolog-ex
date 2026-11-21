@@ -21,6 +21,10 @@ titel(T) :-
         format("~w~t~44|~t~w~14+~t~w~10+~t~w~9+~n", ['', nacheinander, parallel, faktor])
     ).
 
+% vor einer Messung: im csv-Modus melden, was jetzt läuft (run.sh zeigt es)
+start(Name) :-
+    ( ausgabe(csv) -> format("@@start;~w~n", [Name]), flush_output ; true ).
+
 % eine Zeile: Name, Zeit nacheinander und parallel (ms), Ergebnis, gleich?
 zeile(Name, T1, T2, Text, Gleich) :-
     (   ausgabe(csv)
@@ -39,6 +43,7 @@ ms(G, T) :-
 % concurrent_labeling/3) oder alle (findall mit labeling/2 gegen
 % concurrent_labelings/4)
 vergleich(Name, Art, Modell, COpts) :-
+    start(Name),
     call(Modell, V1, O1),
     ms(seriell(Art, O1, V1, R1), T1),
     call(Modell, V2, O2),
