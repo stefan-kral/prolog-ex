@@ -4154,6 +4154,47 @@ also ab etwa 0,1 ms Arbeit je Element.
 
 Zum Ausprobieren: `mix prolog examples/concurrent.pl -g main -q -g halt`.
 
+### clpz parallel: `library(clpz_concurrent)`
+
+Variablen mit Constraints dürfen nicht in die Kinder (siehe oben). Die
+Brücke: `copy_term/3` macht aus ihnen frische Variablen und Ziele, die die
+Constraints wieder aufsetzen (`X in 1..9`, `abs(X-Y) #\= 2`, …) –
+gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
+`labeling/2` auf:
+
+| Prädikat | Bedeutung |
+|---|---|
+| `concurrent_labelings(Opts, Vars, Sols[, [parts(N)]])` | alle Lösungen als Liste von Wertelisten, genau wie `findall(Vars, labeling(Opts, Vars), Sols)` – **auch in derselben Reihenfolge** –, die Teile parallel (Vorgabe 16 Teile; `concurrent_maplist/3` verteilt sie) |
+| `concurrent_labeling(Opts, Vars[, [parts(N)]])` | eine Lösung (det): die Teile laufen gegeneinander, die erste gefundene gilt; welche, hängt von der Zeit ab. Vorgabe so viele Teile wie Kerne (Flag `cpu_count`) |
+
+* **Aufteilen:** Der Aufrufer trifft die ersten Entscheidungen, die
+  `labeling/2` selbst träfe – dieselbe Variablenwahl (`leftmost`, `ff`,
+  `ffc`, `min`, `max`), dieselbe Reihenfolge (`up`, `down`), dieselbe
+  Verzweigung (`step`: `X = V` oder `X #\= V`; `enum`: je Wert, bei mehr als
+  64 Werten Abschnitte; `bisect`: `X #=< M` oder `X #> M`), mit Propagation.
+  Er teilt immer den größten offenen Teil (Summe der `log(fd_size)`), bis es
+  genug sind; schon gescheiterte Teile fallen weg. Jedes Kind setzt die
+  Constraints und die Entscheidungen seines Teils auf und ruft
+  `labeling(Opts, Vs)`. Die Teile hintereinander sind genau die Suche von
+  `labeling/2` – daher dieselben Lösungen in derselben Reihenfolge
+  (`test/clpz_concurrent_test.exs` vergleicht für 13 Kombinationen der
+  Optionen auf zwei Modellen).
+* **Gemessen** (2 Kerne): 10 Damen, alle 724 Lösungen mit `ff`: 1,9 s
+  nacheinander, 0,9 s parallel; 9 Damen 0,45 → 0,3 s. Eine Lösung ist ein
+  Glücksspiel: mit der Vorgabe (so viele Teile wie Kerne) nie spürbar
+  langsamer als nacheinander (Damen ohne `ff`: 20 Damen 22 s nacheinander,
+  20 s parallel; 24 und 26 je 44 s wie nacheinander); mit `parts(8)` 20 Damen 12 s, aber 24 Damen
+  138 s statt 41 s – mehr Teile als Kerne teilen die Kerne auch dem Teil zu,
+  der die Lösung bald gefunden hätte.
+* Jedes Kind setzt das ganze Modell neu auf: lohnend, wenn die Suche
+  deutlich länger dauert als der Aufbau (30 Damen mit `ff` finden sich
+  nacheinander in 40 ms, parallel braucht schon das Aufteilen mehr).
+* Fehler wie `labeling/2`. Noch nicht: `min(Expr)`, `max(Expr)`, `upto_in`
+  (`domain_error(concurrent_labeling_option, O)`).
+* Nebenbei behoben: `copy_term/3` mit mehr als 255 Restzielen von clpz
+  (schon 16 Damen) warf `representation_error(max_arity)` – das Lesbarmachen
+  der Restziele legte sie als Term mit einem Argument je Ziel ab.
+
 ## Tupelraum: `library(linda)`
 
 Linda wie bei SICStus (`library(linda/server)`, `library(linda/client)` – unter
@@ -4759,7 +4800,9 @@ Ergebnisvariable über eine freie Variable gebunden wird; `keysort/2` prüft
 die Elemente des Ergebnisses (`type_error(pair, E)`), `findall/4` den Rest;
 `atom_concat(A, A, Z)` ist deterministisch; bei `open/4` gilt von
 wiederholten Optionen die letzte; `set_stream_position/2` auch auf
-Schreibströmen; Flag `version_data` (`prolog_ex(0,1,0,[])`, wie SWI).
+Schreibströmen; Flag `version_data` (`prolog_ex(0,1,0,[])`, wie SWI);
+Flag `cpu_count` (nur lesbar, wie SWI: die Scheduler der BEAM, so viele
+Arbeiter nimmt `library(concurrent)`).
 
 ## Scryers eigene Tests
 

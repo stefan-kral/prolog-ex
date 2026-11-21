@@ -8068,8 +8068,7 @@ compact_sp_leq(L, R, L #=< R).
 % Hilfsvariablen, und Ketten von Einsetzungen dürfen nicht im Kreis laufen
 % (sonst verschwänden beide Ziele: A in B's Definition, B in A's).
 eliminate_aux(Gs0, Vis, Gs) :-
-        Arr =.. [g|Gs0],
-        functor(Arr, _, N),
+        goals_array(Gs0, Arr, N),
         idx_list(1, N, Is),
         foldl(goal_occ(Arr), Is, Ps0, []),
         keysort(Ps0, Ps1),
@@ -8093,8 +8092,23 @@ idx_list(I, N, L) :-
         ;   L = [I|L1], I1 is I + 1, idx_list(I1, N, L1)
         ).
 
+% Ziele nach Nummer: bis 255 als Term (arg/3), darüber als assoc – mehr
+% Argumente erlaubt max_arity nicht (copy_term/3 von 16 Damen hat schon
+% über 255 Restziele)
+goals_array(Gs, Arr, N) :-
+        length(Gs, N),
+        (   N =< 255 -> T =.. [g|Gs], Arr = t(T)
+        ;   idx_list(1, N, Is),
+            pairs_keys_values(Ps, Is, Gs),
+            list_to_assoc(Ps, A),
+            Arr = a(A)
+        ).
+
+goal_at(t(T), I, G) :- arg(I, T, G).
+goal_at(a(A), I, G) :- get_assoc(I, A, G).
+
 goal_occ(Arr, I, Ps0, Ps) :-
-        arg(I, Arr, G),
+        goal_at(Arr, I, G),
         term_variables(G, Vs),
         foldl(var_idx(I), Vs, Ps0, Ps).
 
@@ -8132,7 +8146,7 @@ aux_candidate(Arr, VisA, A-Is, Cs0, Cs) :-
 
 simple_expr(E) :- linear_split(E, V, _), var(V).
 
-idx_goal(Arr, I, I-G) :- arg(I, Arr, G).
+idx_goal(Arr, I, I-G) :- goal_at(Arr, I, G).
 
 is_clpz_ig(_-(clpz:_)).
 
@@ -8183,7 +8197,7 @@ no_cycle_(Own, Defs, U) :-
 % nur Definitionen, Domänen und Verwendungen enthalten Hilfsvariablen;
 % eine Verwendung kann zugleich Definition einer weiteren sein (fällt weg)
 transform_goal(Arr, DefsA, SigA, DomA, UseA, I, [G1|T], T) :-
-        arg(I, Arr, G),
+        goal_at(Arr, I, G),
         (   get_assoc(I, DefsA, _) -> G1 = []
         ;   get_assoc(I, DomA, A) -> get_assoc(A, SigA, E), dom_goal(G, A, E, SigA, G1)
         ;   \+ get_assoc(I, UseA, _) -> G1 = [G]

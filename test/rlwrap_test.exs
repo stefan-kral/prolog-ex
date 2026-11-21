@@ -40,7 +40,7 @@ defmodule PrologEx.RlwrapTest do
   c = lambda line, prefix: m.complete(line, prefix, words, data)
   assert c("use_mod", "use_mod") == ["use_module("]
   assert not [x for x in c("", "") if "library" in x]
-  assert c("use_module(library(cl", "cl") == ["clpb)", "clpz)"], c("use_module(library(cl", "cl")
+  assert c("use_module(library(cl", "cl") == ["clpb)", "clpz)", "clpz_concurrent)"], c("use_module(library(cl", "cl")
   assert c("X = library(betw", "betw") == ["between)"]
   assert "library(lists)" in c("use_module(", "")
   assert c("forall(mem", "mem") == ["member("], c("forall(mem", "mem")

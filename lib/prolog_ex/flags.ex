@@ -73,6 +73,9 @@ defmodule PrologEx.Flags do
     # Heap der Anfrage um mehr, resource_error(memory); unlimited: keine
     "stack_limit" => {1_073_741_824, [:positive_integer, :unlimited]},
     "version" => {1, :read_only},
+    # wie SWI: Zahl der Kerne – hier die der Scheduler der BEAM (so viele
+    # Arbeiter nimmt library(concurrent)); der Wert wird beim Lesen bestimmt
+    "cpu_count" => {0, :read_only},
     # wie SWI (swi(9, 3, 0, [])): Funktor = Dialekt, dann Major, Minor,
     # Patch, Extra
     "version_data" => {{:struct, "prolog_ex", [0, 1, 0, []]}, :read_only}
@@ -98,7 +101,7 @@ defmodule PrologEx.Flags do
     current = Process.get(@key, %{})
 
     @defaults
-    |> Enum.map(fn {name, default} -> {name, Map.get(current, name, default)} end)
+    |> Enum.map(fn {name, default} -> {name, runtime(name, Map.get(current, name, default))} end)
     |> Enum.sort()
   end
 
@@ -113,10 +116,14 @@ defmodule PrologEx.Flags do
   @doc "Wert eines Flags (Prolog-Term) oder nil"
   def get(name) do
     case Map.fetch(@defaults, name) do
-      {:ok, default} -> Map.get(Process.get(@key, %{}), name, default)
+      {:ok, default} -> runtime(name, Map.get(Process.get(@key, %{}), name, default))
       :error -> nil
     end
   end
+
+  # Flags, deren Wert erst beim Lesen feststeht
+  defp runtime("cpu_count", _), do: System.schedulers_online()
+  defp runtime(_, v), do: v
 
   @doc "Der gesetzte Wert eines Flags, nil wenn es nicht gesetzt wurde"
   def explicit(name), do: Map.get(Process.get(@key, %{}), name)

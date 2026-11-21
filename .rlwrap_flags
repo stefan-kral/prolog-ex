@@ -6,6 +6,7 @@ clause_jit = false true sync
 clause_jit_threshold =
 clpz_residuals = compact scryer
 color_term = false true
+cpu_count
 debug = off on
 dialect
 double_quotes = chars codes atom

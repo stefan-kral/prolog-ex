@@ -9,6 +9,7 @@ bytes
 charsio
 clpb
 clpz
+clpz_concurrent
 commalist
 concurrent
 cont

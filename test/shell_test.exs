@@ -54,7 +54,9 @@ defmodule PrologEx.ShellTest do
     assert ~c"sum_list/2" in shown
     # nur mit Argumenten: gleich die Klammer
     assert expand("subtra") == {:yes, ~c"ct(", []}
-    assert expand("library(clpz") == {:yes, ~c")", []}
+    assert expand("library(betwe") == {:yes, ~c"en)", []}
+    # clpz ist zugleich Anfang von clpz_concurrent: beide zeigen
+    assert expand("library(clpz") == {:no, [], [~c"clpz", ~c"clpz_concurrent"]}
     assert expand("['mix.e") == {:yes, ~c"xs'", []}
     assert {:no, [], files} = expand("['lib/prolog_ex/sh")
     assert ~c"shell/" in files

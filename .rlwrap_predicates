@@ -143,6 +143,8 @@ concurrent_child 1
 concurrent_child_stack 1
 concurrent_findall 3
 concurrent_forall 2 3
+concurrent_labeling 2 3
+concurrent_labelings 3 4
 concurrent_maplist 2 3 4
 cond_t 3
 connect_ugraph 3
