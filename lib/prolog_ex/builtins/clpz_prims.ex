@@ -3099,6 +3099,139 @@ defmodule PrologEx.Builtins.ClpzPrims do
     end
   end
 
+  # --- Restziele: unwrap_with/3 ----------------------------------------------
+  #
+  # '$clpz_residuals'(Mode, Gs0, Gs): je Ziel G0 aus Gs0 clpz:G (Restziele
+  # von attribute_goals//1; das Original: maplist(unwrap_with(...)) und
+  # maplist(with_clpz)). G ist G0 mit jedem #(V0) bei Mode plain durch V0
+  # ersetzt (unwrap_with(=)), bei bare durch V0, wenn V0 eine ganze Zahl
+  # ist, sonst bleibt es (unwrap_with(bare_integer)); in V0 hinein nicht.
+  # Das Original zerlegte jeden Teilterm mit =.. – bei 1000 Restzielen gut
+  # 70 ms
+
+  defbuiltin "$clpz_residuals", [mode, gs0, gs] do
+    s = subst()
+    bare = PrologEx.Store.walk(mode, s) == {:atom, "bare"}
+
+    out =
+      for g <- PrologEx.Builtins.Lists.items(gs0, s),
+          do: mk(":", [a("clpz"), unwrap(PrologEx.resolve(g, s), bare)])
+
+    {:unify, [{gs, PrologEx.list(out)}]}
+  end
+
+  defp unwrap({:struct, "#", [x]} = h, bare),
+    do: if(bare and not is_integer(x), do: h, else: x)
+
+  defp unwrap({:struct, f, args}, bare), do: {:struct, f, Enum.map(args, &unwrap(&1, bare))}
+  defp unwrap([h | t], bare), do: [unwrap(h, bare) | unwrap(t, bare)]
+  defp unwrap(t, _bare), do: t
+
+  # '$clpz_attr_goals'(Ps, Mode, Compact, Items): attributes_goals//2 für
+  # die Propagatoren Ps einer Variablen in einem Schritt. Ein Propagator mit
+  # gebundenem Zustand ist schon erledigt (fällt weg); für die häufigen
+  # (Tabelle unten, wie attribute_goal_//1) gleich die Ziele clpz:G, wie
+  # '$clpz_residuals'/3 ausgepackt (Mode), und der Zustand wird wie im
+  # Original erledigt: del_attr(State, clpz_aux), State = processed. Die
+  # übrigen bleiben als p(propagator(P, State)) für Prolog (in der
+  # Reihenfolge). Compact: Wert des Flags clpz_residuals (x_leq_y_plus_c:
+  # residual_leq/4)
+  defbuiltin "$clpz_attr_goals", [ps, mode, compact, items] do
+    s = subst()
+    bare = PrologEx.Store.walk(mode, s) == {:atom, "bare"}
+    compact = PrologEx.Store.walk(compact, s) == {:atom, "compact"}
+
+    {out, s} =
+      Enum.reduce(PrologEx.Builtins.Lists.items(ps, s), {[], s}, fn p, {out, s} ->
+        attr_item(p, bare, compact, out, s)
+      end)
+
+    case PrologEx.unify(items, PrologEx.list(Enum.reverse(out)), s) do
+      {:ok, s} -> {:subst, s}
+      :error -> :fail
+    end
+  end
+
+  defp attr_item(p, bare, compact, out, s) do
+    fallback = {[mk("p", [p]) | out], s}
+
+    with {:struct, "propagator", [prop, st]} <- ws(p, s),
+         {:state, {:var, _} = st} <- {:state, PrologEx.Store.walk(st, s)},
+         {:struct, f, args} <- ws(prop, s),
+         {:ok, gs} <- attr_goal(f, Enum.map(args, &PrologEx.Store.walk(&1, s)), compact),
+         s = del_att(s, st, "clpz_aux", 1),
+         {:ok, s} <- PrologEx.unify(st, a("processed"), s) do
+      gs = for g <- gs, do: mk(":", [a("clpz"), unwrap(PrologEx.resolve(g, s), bare)])
+      {Enum.reverse(gs, out), s}
+    else
+      # Zustand gebunden (dead, processed): wie ground(State); sonst Prolog
+      {:state, {:atom, _}} -> {out, s}
+      _ -> fallback
+    end
+  end
+
+  defp h(x), do: mk("#", [x])
+
+  # attribute_goal_//1 des Originals (Auswahl): {:ok, Ziele} oder :no
+  defp attr_goal("pgeq", [x, y], _), do: {:ok, [mk("#>=", [h(x), h(y)])]}
+  defp attr_goal("pplus", [x, y, z, _], _), do: {:ok, [mk("#=", [mk("+", [h(x), h(y)]), h(z)])]}
+  defp attr_goal("pneq", [x, y], _), do: {:ok, [mk("#\\=", [h(x), h(y)])]}
+  defp attr_goal("ptimes", [x, y, z, _], _), do: {:ok, [mk("#=", [mk("*", [h(x), h(y)]), h(z)])]}
+
+  defp attr_goal("absdiff_neq", [x, y, c], _),
+    do: {:ok, [mk("#\\=", [mk("abs", [mk("-", [h(x), h(y)])]), c])]}
+
+  defp attr_goal("x_eq_abs_plus_v", [x, v], _),
+    do: {:ok, [mk("#=", [h(x), mk("+", [mk("abs", [h(x)]), h(v)])])]}
+
+  defp attr_goal("x_neq_y_plus_z", [x, y, z], _),
+    do: {:ok, [mk("#\\=", [h(x), mk("+", [h(y), h(z)])])]}
+
+  defp attr_goal("ptzdiv", [x, y, z, _], _), do: {:ok, [mk("#=", [mk("//", [h(x), h(y)]), h(z)])]}
+  defp attr_goal("pexp", [x, y, z, _], _), do: {:ok, [mk("#=", [mk("^", [h(x), h(y)]), h(z)])]}
+  defp attr_goal("psign", [x, y], _), do: {:ok, [mk("#=", [h(y), mk("sign", [h(x)])])]}
+  defp attr_goal("pabs", [x, y], _), do: {:ok, [mk("#=", [h(y), mk("abs", [h(x)])])]}
+  defp attr_goal("pmod", [x, m, k], _), do: {:ok, [mk("#=", [mk("mod", [h(x), h(m)]), h(k)])]}
+  defp attr_goal("prem", [x, y, z], _), do: {:ok, [mk("#=", [mk("rem", [h(x), h(y)]), h(z)])]}
+  defp attr_goal("pmax", [x, y, z], _), do: {:ok, [mk("#=", [h(z), mk("max", [h(x), h(y)])])]}
+  defp attr_goal("pmin", [x, y, z], _), do: {:ok, [mk("#=", [h(z), mk("min", [h(x), h(y)])])]}
+  defp attr_goal("pxor", [x, y, z], _), do: {:ok, [mk("#=", [h(z), mk("xor", [h(x), h(y)])])]}
+  defp attr_goal("ppopcount", [x, y], _), do: {:ok, [mk("#=", [h(y), mk("popcount", [h(x)])])]}
+
+  defp attr_goal("x_leq_y_plus_c", [x, y, c], compact) when is_integer(c),
+    do: {:ok, [residual_leq(x, y, c, compact)]}
+
+  defp attr_goal("reified_and", [x, _, y, _, b], _),
+    do: {:ok, [mk("#<==>", [mk("#/\\", [h(x), h(y)]), h(b)])]}
+
+  defp attr_goal("reified_or", [x, _, y, _, b], _),
+    do: {:ok, [mk("#<==>", [mk("#\\/", [h(x), h(y)]), h(b)])]}
+
+  defp attr_goal("reified_not", [x, y], _),
+    do: {:ok, [mk("#<==>", [mk("#\\", [h(x)]), h(y)])]}
+
+  defp attr_goal("pimpl", [x, y, _], _), do: {:ok, [mk("#==>", [h(x), h(y)])]}
+
+  defp attr_goal("reified_fd", [v, b], _),
+    do: {:ok, [mk("#<==>", [mk("finite_domain", [v]), h(b)])]}
+
+  defp attr_goal(_, _, _), do: :no
+
+  # residual_leq/4: X #=< Y + C lesbar (siehe clpz.pl)
+  defp residual_leq(x, y, c, true) do
+    c1 = c + 1
+
+    if abs(c1) < abs(c),
+      do: mk("#<", [h(x), plus_const(h(y), c1)]),
+      else: mk("#=<", [h(x), plus_const(h(y), c)])
+  end
+
+  defp residual_leq(x, y, c, false), do: mk("#=<", [h(x), mk("+", [h(y), c])])
+
+  defp plus_const(y, 0), do: y
+  defp plus_const(y, c) when c < 0, do: mk("-", [y, -c])
+  defp plus_const(y, c), do: mk("+", [y, c])
+
   # --- Labeling: select_var/4 -------------------------------------------------
   #
   # '$clpz_select_var'(Selection, Vars, Var, RVars) wie select_var/4 des

@@ -7967,23 +7967,37 @@ attribute_goals(X) -->
         (   { default_domain(Dom), \+ all_dead_(Ps) } -> []
         ;   { residual_in(X, Drep, G) }, [clpz:G]
         ),
-        attributes_goals(Ps),
+        { (   monotonic -> M = bare ; M = plain ) },
+        attributes_goals(Ps, M),
         { del_attr(X, clpz) }.
 
-attributes_goals([]) --> [].
-attributes_goals([propagator(P, State)|As]) -->
+% PrologEx: monotonic einmal je Variable statt je Propagator; die häufigen
+% Propagatoren in einem Schritt in Elixir ('$clpz_attr_goals'/4: fertige
+% Ziele clpz:G, Zustand erledigt), die übrigen hier wie im Original
+% (attr_prop//3); das Auspacken der #-Hüllen und clpz: davor dort in
+% '$clpz_residuals'/3 (wie maplist(unwrap_with(...)) und
+% maplist(with_clpz)). Mit dem übrigen (README): copy_term/3 von 32 Damen
+% (1000 Restziele) 91 statt 297 ms
+attributes_goals(Ps, M) -->
+        { (   compact_residuals -> Cp = compact ; Cp = scryer ),
+          '$clpz_attr_goals'(Ps, M, Cp, Items) },
+        attr_items(Items, M).
+
+attr_items([], _) --> [].
+attr_items([I|Is], M) -->
+        (   { I = p(propagator(P, State)) } -> attr_prop(P, State, M)
+        ;   [I]
+        ),
+        attr_items(Is, M).
+
+attr_prop(P, State, M) -->
         (   { ground(State) } -> []
         ;   { phrase(attribute_goal_(P), Gs) } ->
             { del_attr(State, clpz_aux), State = processed,
-              (   monotonic ->
-                  maplist(unwrap_with(bare_integer), Gs, Gs1)
-              ;   maplist(unwrap_with(=), Gs, Gs1)
-              ),
-              maplist(with_clpz, Gs1, Gs2) },
+              '$clpz_residuals'(M, Gs, Gs2) },
             seq(Gs2)
         ;   [P] % possibly user-defined constraint
-        ),
-        attributes_goals(As).
+        ).
 
 with_clpz(G, clpz:G).
 
@@ -8068,6 +8082,28 @@ compact_sp_leq(L, R, L #=< R).
 % Hilfsvariablen, und Ketten von Einsetzungen dürfen nicht im Kreis laufen
 % (sonst verschwänden beide Ziele: A in B's Definition, B in A's).
 eliminate_aux(Gs0, Vis, Gs) :-
+        (   no_aux_vars(Gs0, Vis) -> Gs = Gs0
+        ;   eliminate_aux_(Gs0, Vis, Gs)
+        ).
+
+% Schnellweg: kommt in den Zielen keine unsichtbare Variable vor (Damen:
+% nur die Variablen der Anfrage), gibt es nichts einzusetzen
+no_aux_vars(Gs, Vis) :-
+        term_variables(Gs, GVs0),
+        term_variables(Vis, VVs0),
+        sort(GVs0, GVs),
+        sort(VVs0, VVs),
+        vars_within(GVs, VVs).
+
+% beide sortiert: jede aus der ersten auch in der zweiten
+vars_within([], _).
+vars_within([V|Vs], [W|Ws]) :-
+        compare(O, V, W),
+        (   O == (=) -> vars_within(Vs, Ws)
+        ;   O == (>) -> vars_within([V|Vs], Ws)
+        ).
+
+eliminate_aux_(Gs0, Vis, Gs) :-
         goals_array(Gs0, Arr, N),
         idx_list(1, N, Is),
         foldl(goal_occ(Arr), Is, Ps0, []),
@@ -8351,8 +8387,16 @@ norm_reif_top(G0, G) :-
 reif_conn(G) :-
         compound(G),
         functor(G, F, N),
-        memberchk(F/N, [(#<==>)/2, (#==>)/2, (#<==)/2, (#/\)/2, (#\/)/2,
-                        (#\)/2, (#\)/1]).
+        reif_functor(F, N).
+
+% (Index über das Atom statt memberchk/2 über eine Liste)
+reif_functor((#<==>), 2).
+reif_functor((#==>), 2).
+reif_functor((#<==), 2).
+reif_functor((#/\), 2).
+reif_functor((#\/), 2).
+reif_functor((#\), 2).
+reif_functor((#\), 1).
 
 norm_reif(G0, G) :-
         (   var(G0) -> G = G0
@@ -8398,9 +8442,17 @@ cmp_const(#>, V, K, G)  :- L is K + 1, compact_in(L..sup, V, G).
 cmp_const(#=<, V, K, G) :- compact_in(inf..K, V, G).
 cmp_const(#<, V, K, G)  :- U is K - 1, compact_in(inf..U, V, G).
 
-% Duplikate (==) weg, die erste Stelle bleibt
+% Duplikate (==) weg, die erste Stelle bleibt. Meist gibt es keine: dann
+% reicht ein sort/2 zum Nachsehen
 uniq_goals(Gs0, Gs) :-
-        length(Gs0, N), idx_list(1, N, Is),
+        sort(Gs0, Ss),
+        length(Gs0, N),
+        (   length(Ss, N) -> Gs = Gs0
+        ;   uniq_goals_(Gs0, N, Gs)
+        ).
+
+uniq_goals_(Gs0, N, Gs) :-
+        idx_list(1, N, Is),
         pairs_keys_values(Ps0, Gs0, Is),
         keysort(Ps0, Ps1),
         first_of_runs(Ps1, Ps2),
@@ -8416,6 +8468,7 @@ first_of_runs([G-I|Ps0], [G-I|Ps]) :-
 drop_same([H-_|Ps0], G, Ps) :- H == G, !, drop_same(Ps0, G, Ps).
 drop_same(Ps, _, Ps).
 
+% das Original; jetzt '$clpz_residuals'/3 (attributes_goals//2)
 unwrap_with(_, V, V)           :- var(V), !.
 unwrap_with(Goal, #V0, V)    :- !, call(Goal, V0, V).
 unwrap_with(Goal, Term0, Term) :-

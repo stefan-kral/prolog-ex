@@ -2827,6 +2827,24 @@ Verwendungen eines zusammengesetzten Ausdrucks), bleibt mit `_A` stehen.
 Der Nachlauf zählt die Vorkommen einmal sortiert und setzt alles in
 einem Durchgang ein (4000 Restziele: gut eine Sekunde).
 
+Schneller (`copy_term/3` eines n-Damen-Modells, Mittel über 20 Läufe:
+8 Damen 23 → 6 ms, 16 Damen 83 → 38 ms, 22 Damen 133 → 50 ms, 32 Damen mit
+1000 Restzielen 297 → 91 ms; die Ziele sind dieselben):
+
+* die häufigen Propagatoren (`#\=`, `abs(X-Y) #\= C`, `X #=< Y + C`,
+  `+`, `*`, `mod`, `max`, Reifikationen, …) gibt `'$clpz_attr_goals'/4`
+  in einem Schritt als fertige Ziele aus und erledigt ihren Zustand wie
+  das Original; die übrigen laufen wie bisher über `attribute_goal_//1`;
+* die `#`-Hüllen packt ein Builtin aus statt `unwrap_with/3` (das jeden
+  Teilterm mit `=..` zerlegte), `clpz:` kommt gleich davor, `monotonic`
+  wird einmal je Variable gefragt statt je Propagator;
+* der Nachlauf sieht erst nach, ob es überhaupt unsichtbare Variablen
+  gibt (bei den Damen nicht) und ob es Duplikate gibt (ein `sort/2`), und
+  spart sich sonst die Arbeit;
+* `term_attvars/2` liefert auch die Zustandsvariablen der Propagatoren
+  (32 Damen: über 1000); die Restziele fragen jetzt nur die Attributmodule,
+  von denen eine Variable ein Attribut hat (siehe unten).
+
 Andere Domänen (`X in 1..3`, `X in 1..3\/7..sup`) und alles mit
 `clpz:monotonic` bleiben wie bei Scryer; `set_prolog_flag(clpz_residuals,
 scryer)` stellt die Form Scryers ganz her (damit vergleicht
@@ -4219,7 +4237,7 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   Wie viel es bringt, hängt davon ab, welche Teile wann abgegeben werden –
   daher die Spannen. Die eigene Schleife kostet nacheinander etwa 7 %
   (`step`) bis 25 % (`enum`) gegenüber `labeling/2`; dazu kommen
-  `copy_term/3` (22 Damen: 0,2–0,5 s) und das Aufsetzen je Teil. Kleine
+  `copy_term/3` (22 Damen: 50 ms) und das Aufsetzen je Teil. Kleine
   Aufgaben löst darum `serial(S)` ohne Kinder (8 Damen 34 statt 23 ms).
   Die alte Art – feste Teile gegeneinander, die erste gefundene Lösung gilt
   – gibt es mit `solution(any)`.
@@ -4543,7 +4561,8 @@ macht oder dem Durchprobieren widerspricht; Scryers `domain_error` bei
 bekannt.
 
 Wie Scryer und SWI gibt es auch die Hooks `attribute_goals//1` (Restziele
-als DCG; Ziele ohne Modul bekommen `M:` davor) und
+als DCG; Ziele ohne Modul bekommen `M:` davor; wie bei SWI nur für die
+Module, von denen die Variable ein Attribut hat) und
 `project_attributes(QueryVars, AttrVars)`, den der Toplevel vor den
 Restzielen aufruft (etwa damit `library(clpb)` Hilfsvariablen
 herausrechnet). Danach ruft PrologEx `M:'$post_residuals'(Vis, Gs0, Gs)`

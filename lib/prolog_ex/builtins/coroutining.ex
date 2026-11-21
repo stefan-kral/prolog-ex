@@ -110,18 +110,46 @@ defmodule PrologEx.Builtins.Coroutining do
 
   # Restziele der eingebauten Bedingungen an Variable V (freeze, dif, when)
   defbuiltin "$susp_goals", [v, l] do
-    goals =
-      case deref(v) do
-        {:var, _} = var ->
-          excluded = for c <- excluded(var, subst()), do: mk("dif", [var, c])
+    {:unify, [{l, list(susp_goals(deref(v), subst()))}]}
+  end
 
-          excluded ++ for s <- PrologEx.suspensions(var, subst()), do: residual(s, var)
+  defp susp_goals({:var, _} = var, s) do
+    excluded = for c <- excluded(var, s), do: mk("dif", [var, c])
+    excluded ++ for susp <- PrologEx.suspensions(var, s), do: residual(susp, var)
+  end
 
-        _ ->
-          []
-      end
+  defp susp_goals(_, _s), do: []
 
-    {:unify, [{l, list(goals)}]}
+  # '$res_targets'(Vs, Ms, Ts): je Variable aus Vs, die Restziele haben
+  # kann, t(V, Susp, VMs) – Susp die Ziele der eingebauten Bedingungen,
+  # VMs die Attributmodule aus Ms (wie '$attr_goal_modules'/1), von denen V
+  # ein Attribut hat (wie SWI: M:attribute_goals//1 nur für die eigenen).
+  # Variablen ohne beides fallen weg – term_attvars/2 liefert auch die
+  # Hilfsvariablen in Attributen (clpz: eine je Propagator, 32 Damen über
+  # 1000), und jede durch die Module zu schicken kostete mehr als die
+  # Restziele selbst
+  defbuiltin "$res_targets", [vs, ms, ts] do
+    s = subst()
+    ms = for m <- Lists.items(ms, s), do: {PrologEx.resolve(m, s), res_module(m, s)}
+
+    out =
+      for v0 <- Lists.items(vs, s),
+          v = Store.walk(v0, s),
+          match?({:var, _}, v),
+          goals = susp_goals(v, s),
+          attrs = PrologEx.get_attrs(v, s),
+          vms = for({m, name} <- ms, is_map_key(attrs, name), do: m),
+          goals != [] or vms != [],
+          do: mk("t", [v, list(goals), list(vms)])
+
+    {:unify, [{ts, list(out)}]}
+  end
+
+  defp res_module(m, s) do
+    case PrologEx.unmark_top(Store.walk(m, s)) do
+      {:atom, name} -> name
+      {:struct, "dcg", [x]} -> x |> Store.walk(s) |> elem(1)
+    end
   end
 
   # Attributmodule mit Restzielen, in Deklarationsreihenfolge: M mit
@@ -393,8 +421,8 @@ defmodule PrologEx.Builtins.Coroutining do
     import PrologEx, only: [s: 2, v: 1, a: 1, rule: 2, fact: 1]
     g = v("G")
 
-    [vs, v1, ms, m, g0, g1, g2, ag, l, t, cp, b, h, r, m0, x, xs, q, qs, avs] =
-      Enum.map(~w(Vs V Ms M G0 G1 G2 AG L T Copy Body H R M0 X Xs Q QVs AVs), &v/1)
+    [vs, v1, ms, m, g0, g1, g2, ag, l, t, cp, b, h, r, m0, x, xs, q, qs, avs, ts] =
+      Enum.map(~w(Vs V Ms M G0 G1 G2 AG L T Copy Body H R M0 X Xs Q QVs AVs Ts), &v/1)
 
     w = v("_")
 
@@ -411,7 +439,8 @@ defmodule PrologEx.Builtins.Coroutining do
       # M:attribute_goal/2 aller Attributmodule (wie SICStus)
       rule(s("$residuals", [vs, g]), [
         s("$attr_goal_modules", [ms]),
-        s("$res_vars", [vs, ms, g, []])
+        s("$res_targets", [vs, ms, ts]),
+        s("$res_vars", [ts, g, []])
       ]),
       # Restziele mit den sichtbaren Variablen Vis (Anfrage bzw. kopierter
       # Term): danach M:'$post_residuals'(Vis, G0, G) der Attributmodule,
@@ -429,12 +458,11 @@ defmodule PrologEx.Builtins.Coroutining do
         ]),
         s("$res_post", [ms, q, g1, g])
       ]),
-      fact(s("$res_vars", [[], w, g, g])),
-      rule(s("$res_vars", [[v1 | vs], ms, g0, g]), [
-        s("$susp_goals", [v1, l]),
+      fact(s("$res_vars", [[], g, g])),
+      rule(s("$res_vars", [[s("t", [v1, l, ms]) | ts], g0, g]), [
         s("$res_app", [l, g0, g1]),
         s("$res_mods", [ms, v1, g1, g2]),
-        s("$res_vars", [vs, ms, g2, g])
+        s("$res_vars", [ts, g2, g])
       ]),
       fact(s("$res_mods", [[], w, g, g])),
       rule(s("$res_mods", [[m0 | ms], v1, g0, g]), [
