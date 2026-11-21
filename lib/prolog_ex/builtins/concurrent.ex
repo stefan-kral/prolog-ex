@@ -221,28 +221,57 @@ defmodule PrologEx.Builtins.Concurrent do
     is_map_key(Process.get(:conc_steal_marks, %{}), PrologEx.Store.walk(d, subst())) || :fail
   end
 
-  # '$conc_steal_taken'(D, R): der Zweig der Tiefe D ist abgegeben – Marke
-  # weg, einer mehr übersprungen; R = cut, wenn er (oder einer darin) eine
-  # Lösung hat (dann ist alles danach vergeblich), sonst given. Scheitert,
-  # wenn nicht abgegeben
-  defbuiltin "$conc_steal_taken", [d, r] do
-    marks = Process.get(:conc_steal_marks, %{})
-    d = PrologEx.Store.walk(d, subst())
+  # '$conc_kept'(D): der rechte Zweig des Knotens der Tiefe D ist nicht
+  # abgegeben (gelingt). Ist er abgegeben: Marke weg, einer mehr
+  # übersprungen, scheitern – oder, hat er (oder einer darin) eine Lösung,
+  # aufhören: alles danach liegt rechts davon ('$conc_steal_stop', fängt
+  # part_steal/5)
+  defbuiltin "$conc_kept", [d] do
+    case Process.get(:conc_steal_marks) do
+      marks when is_map(marks) and map_size(marks) > 0 ->
+        d = PrologEx.Store.walk(d, subst())
 
-    case marks do
-      %{^d => {g, cut}} ->
-        Process.put(:conc_steal_marks, Map.delete(marks, d))
-        Process.put(:conc_steal_skipped, Process.get(:conc_steal_skipped, 0) + 1)
+        case marks do
+          %{^d => {g, cut}} ->
+            Process.put(:conc_steal_marks, Map.delete(marks, d))
+            Process.put(:conc_steal_skipped, Process.get(:conc_steal_skipped, 0) + 1)
+            passed = MapSet.put(Process.get(:conc_steal_passed, MapSet.new()), g)
+            Process.put(:conc_steal_passed, passed)
+            if cut, do: Error.throw!(a("$conc_steal_stop")), else: :fail
 
-        Process.put(
-          :conc_steal_passed,
-          MapSet.put(Process.get(:conc_steal_passed, MapSet.new()), g)
-        )
-
-        {:unify, [{r, a(if cut, do: "cut", else: "given")}]}
+          _ ->
+            true
+        end
 
       _ ->
-        :fail
+        true
+    end
+  end
+
+  # '$conc_node'(+Vs, +X, -I, -T, -Req) je Knoten: I die Stelle von X in Vs
+  # (wie '$conc_var_index'/3), T und Req wie '$conc_steal_node'/2 – in
+  # einem Aufruf (jeder Aufruf je Knoten kostet)
+  defbuiltin "$conc_node", [vs, x, i, t, req] do
+    s = subst()
+
+    n =
+      case PrologEx.Store.walk(x, s) do
+        {:var, _} = xv -> vindex(vs, xv, 1, s)
+        _ -> nil
+      end
+
+    if is_integer(n) do
+      case Process.get(:conc_steal) do
+        nil ->
+          {:unify, [{i, n}, {t, 0}, {req, a("no")}]}
+
+        {_parent, ref, j} ->
+          r = steal_msgs(ref, j, "no")
+          r = if Process.get(:conc_steal_stop), do: "stop", else: r
+          {:unify, [{i, n}, {t, System.monotonic_time(:microsecond)}, {req, a(r)}]}
+      end
+    else
+      :fail
     end
   end
 

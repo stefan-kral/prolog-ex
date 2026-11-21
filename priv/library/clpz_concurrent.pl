@@ -415,12 +415,12 @@ spre(X, O, E, P, D) :-
     ;   clpz:fd_get(X, Dom, _),
         clpz:order_dom_next(O, Dom, V),
         arg(1, E, Vs),
-        '$conc_var_index'(Vs, X, I),
-        steal_poll(E, P, D, T),
+        '$conc_node'(Vs, X, I, T, Req),
+        steal_poll(Req, E, P, D, T),
         D1 is D + 1,
         (   X = V,
             spre(X, O, E, [o(D1, eq(I, V), neq(I, V), T)|P], D1)
-        ;   kept(D1),
+        ;   '$conc_kept'(D1),
             clpz:neq_num(X, V),
             spre(X, O, E, [neq(I, V)|P], D1)
         )
@@ -448,12 +448,12 @@ sstep(Vars, E, P, D) :-
     ->  true
     ;   Step = step(X, V, RVars, Vars0),
         arg(1, E, Vs),
-        '$conc_var_index'(Vs, X, I),
-        steal_poll(E, P, D, T),
+        '$conc_node'(Vs, X, I, T, Req),
+        steal_poll(Req, E, P, D, T),
         D1 is D + 1,
         (   X = V,
             sstep(RVars, E, [o(D1, eq(I, V), neq(I, V), T)|P], D1)
-        ;   kept(D1),
+        ;   '$conc_kept'(D1),
             clpz:neq_num(X, V),
             sstep(Vars0, E, [neq(I, V)|P], D1)
         )
@@ -498,10 +498,11 @@ senum_([F-U|Is], O, Lim, X, I, RVars, E, P, D) :-
     ;   (   O == up -> Rest = [L1-_|_], R = range(I, L1, Lim, up)
         ;   Rest = [_-H1|_], R = range(I, Lim, H1, down)
         ),
-        steal_poll(E, P, D, T),
+        '$conc_steal_node'(T, Req),
+        steal_poll(Req, E, P, D, T),
         (   X = V,
             slabel(RVars, E, [o(D, eq(I, V), R, T)|P], D)
-        ;   kept(D),
+        ;   '$conc_kept'(D),
             senum_(Rest, O, Lim, X, I, RVars, E, P, D)
         )
     ).
@@ -514,14 +515,14 @@ sbisect(X, Vars0, E, P, D) :-
     M0 is (L + H) // 2,
     (   M0 =:= H -> M is M0 - 1 ; M = M0 ),
     arg(1, E, Vs),
-    '$conc_var_index'(Vs, X, I),
+    '$conc_node'(Vs, X, I, T, Req),
     arg(4, E, O),
     (   O == up -> A = le(I, M), B = gt(I, M) ; A = gt(I, M), B = le(I, M) ),
-    steal_poll(E, P, D, T),
+    steal_poll(Req, E, P, D, T),
     D1 is D + 1,
     (   bisect_side(A, X),
         slabel(Vars0, E, [o(D1, A, B, T)|P], D1)
-    ;   kept(D1),
+    ;   '$conc_kept'(D1),
         bisect_side(B, X),
         slabel(Vars0, E, [B|P], D1)
     ).
@@ -534,8 +535,11 @@ bisect_side(gt(_, M), X) :- X #> M.
 % abgegebenen rechten Zweig, dessen Knoten schon Age µs läuft (je
 % tiefer, desto eher käme die Suche nacheinander dorthin; je älter der
 % Knoten, desto mehr Arbeit verspricht sein rechter Zweig), sonst none
-steal_poll(E, P, Depth, T) :-
-    '$conc_steal_node'(T, Req),
+% (Schnellweg: keine Bitte, kein Branch and Bound)
+steal_poll(no, E, _, _, _) :-
+    arg(8, E, none),
+    !.
+steal_poll(Req, E, P, Depth, T) :-
     (   best_check(E)
     ->  true
     ;   % der Knoten fällt weg (Schranke): eine Bitte noch beantworten
@@ -617,16 +621,6 @@ path_decisions([], []).
 path_decisions([N|Ns], [X|Xs]) :-
     (   N = o(_, L, _, _) -> X = L ; X = N ),
     path_decisions(Ns, Xs).
-
-% der rechte Zweig der Tiefe D ist nicht abgegeben; ist er abgegeben und
-% hat (oder enthält) er eine Lösung, liegt alles Weitere rechts davon:
-% aufhören (part_steal/5 scheitert dann)
-kept(D) :-
-    (   '$conc_steal_taken'(D, R)
-    ->  R == cut,
-        throw('$conc_steal_stop')
-    ;   true
-    ).
 
 % die Werte von E über alle Lösungen des Teils
 part_values(Gs, Vs, Base, EV, Ds, Vals) :-

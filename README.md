@@ -4179,7 +4179,7 @@ also ab etwa 0,1 ms Arbeit je Element.
   in den Kindern wie im Bereich ohne Seiteneffekte.
 * Unbenutzt kostet die Bibliothek nichts (nichts in der Maschine ändert sich).
 
-Zum Ausprobieren: `mix prolog examples/concurrent.pl -g main -q -g halt`.
+Zum Ausprobieren: `mix prolog examples/concurrent.pl -g main -q -g halt`. Demos mit Zeiten (nacheinander gegen parallel) zu `library(concurrent)` und `library(clpz_concurrent)`: `examples/parallel/run.sh [-k Kerne] [klein|mittel|gross]` (siehe `examples/parallel/README.md`; dort auch, wie man die Kerne begrenzt: `ERL_FLAGS="+S 4:4" ./start_ex`).
 
 ### clpz parallel: `library(clpz_concurrent)`
 
