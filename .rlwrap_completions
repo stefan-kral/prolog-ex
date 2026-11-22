@@ -1,4 +1,3 @@
--->
 ->
 ;
 ?=
@@ -93,7 +92,6 @@ open
 permutation
 phrase
 predicate_property
-print
 rational
 read
 read_term
