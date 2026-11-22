@@ -73,6 +73,15 @@ defmodule PrologEx.BuiltinSolutionsTest do
         {"freeze(X, write(X)), findall(X, f(X), _)", {:out, "12.0ag(1)g(2)[x]3"}},
         {"freeze(X, atom(X)), findall(X, f(X), L)", ["L = [a], freeze(X,atom(X))"]},
         {"findall(X, (f(X), integer(X)), L)", ["L = [1,3]"]},
+        # findall/3 ohne Kopie, wo das Ergebnis sicher ground ist; sonst
+        # kopiert (frische Variablen, Zyklen)
+        {"findall(X-Y, (member(X, [1, 2]), Y is X * 2), L), L == [1-2, 2-4]", :succeeds},
+        {"findall([X|Y], (member(X, [a]), Y = b), L)", ["L = [[a|b]]"]},
+        {"findall(X-Y, member(X, [1, 2]), L), L = [_-A, _-B], A \\== B", :succeeds},
+        {"findall(f(X, g(Y)), (X = 1, Y = 2), L)", ["L = [f(1,g(2))]"]},
+        {"findall(X, (X = f(X)), [Y]), Y = f(Z), Z == Y", :succeeds},
+        {"findall(X-1, (X = f(X)), [P]), P = Y-1, Y = f(Z), Z == Y", :succeeds},
+        {"G = g(_), findall(G-X, member(X, [1]), [C-1]), C = g(V), var(V), G \\== C", :succeeds},
         # zurücksetzen: die Bindung der vorigen Lösung ist weg
         {"findall(X-Y, (between(1, 3, X), (X =:= 2 -> Y = zwei ; Y = sonst)), L)",
          ["L = [1-sonst,2-zwei,3-sonst]"]}

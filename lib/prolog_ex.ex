@@ -6249,9 +6249,22 @@ defmodule PrologEx do
     [{_, t}] = s.answer
 
     {acc, eqs} =
-      case copy_cyclic(t, s.subst) do
-        {c, []} -> {[c | acc], eqs}
-        {c, e} -> {[c | acc], e ++ eqs}
+      case Store.walk(t, s.subst) do
+        # sicher ground: nichts zu kopieren
+        w when is_known_ground(w) ->
+          {[w | acc], eqs}
+
+        w ->
+          case shallow_ground(w, s.subst) do
+            {:ok, c} ->
+              {[c | acc], eqs}
+
+            :no ->
+              case copy_cyclic(t, s.subst) do
+                {c, []} -> {[c | acc], eqs}
+                {c, e} -> {[c | acc], e ++ eqs}
+              end
+          end
       end
 
     k = k + 1
@@ -6259,6 +6272,36 @@ defmodule PrologEx do
     if n != :infinity and k >= n,
       do: {Enum.reverse(acc), {:more, s}, eqs},
       else: collect(backtrack(s), n, acc, k, eqs)
+  end
+
+  # Ergebnis einer Lösung ohne Kopie (findall/3): eine Struktur bzw.
+  # Listenzelle, deren Argumente atomar oder markiert sind (X-Y mit zwei
+  # Zahlen) – neu gebaut, ground markiert; sonst :no (kopieren)
+  defp shallow_ground({:struct, f, args}, s) do
+    case shallow_args(args, s, []) do
+      {:ok, as} -> {:ok, {:gstruct, f, as}}
+      :no -> :no
+    end
+  end
+
+  defp shallow_ground([h | t], s) do
+    with h when is_known_ground(h) <- Store.walk(h, s),
+         t when is_known_ground(t) <- Store.walk(t, s) do
+      {:ok, cons(h, t)}
+    else
+      _ -> :no
+    end
+  end
+
+  defp shallow_ground(_w, _s), do: :no
+
+  defp shallow_args([], _s, acc), do: {:ok, :lists.reverse(acc)}
+
+  defp shallow_args([a | as], s, acc) do
+    case Store.walk(a, s) do
+      w when is_known_ground(w) -> shallow_args(as, s, [w | acc])
+      _ -> :no
+    end
   end
 
   defp fold(:done, _spec, acc), do: acc

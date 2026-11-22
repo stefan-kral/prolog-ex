@@ -380,7 +380,13 @@ Ein Prolog-Kern in Elixir:
   `between/3` 4,9 → 2,4 Mio. (39 → 29–38 ms), `repeat/1` 4,3 → 1,5 Mio.
   (51 → 26–32 ms), `findall/3` über `between/3` 8,0 → 5,5 Mio. Für
   `member/2` brachte ein Zeiger in die Liste nichts (der Schritt durch
-  die Liste kostet so viel wie die lazy Liste) – es bleibt bei ihr
+  die Liste kostet so viel wie die lazy Liste) – es bleibt bei ihr.
+  `findall/3` kopiert eine Lösung nicht, wenn sie sicher ground ist:
+  atomar, schon markiert, oder eine Struktur bzw. Listenzelle mit solchen
+  Argumenten (`X-Y` mit zwei Zahlen: neu gebaut, ground markiert);
+  sonst wie bisher (frische Variablen, Zyklen). Reduktionen:
+  `findall(X, between(1, 300000, X), _)` 5,6 → 4,0 Mio., über `X-Y`
+  20,5 → 13,7 Mio. (Zeit −10 bis −15 %), über `member/2` 10,1 → 8,7 Mio.
 - Index auf weitere Argumente, bei Bedarf: Ist beim Aufruf das erste
   Argument ungebunden, ein anderes aber gebunden, und hat das Prädikat
   wenigstens 8 Klauseln, nimmt der Aufruf nur die Klauseln, deren Kopf
