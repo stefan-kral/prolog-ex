@@ -141,11 +141,15 @@ concurrent 3
 concurrent_and 2 3
 concurrent_child 1
 concurrent_child_stack 1
+concurrent_exclude 3
 concurrent_findall 3
+concurrent_foldl 4
 concurrent_forall 2 3
+concurrent_include 3
 concurrent_labeling 2 3
 concurrent_labelings 3 4
 concurrent_maplist 2 3 4
+concurrent_partition 4 5
 concurrent_statistics 2
 cond_t 3
 connect_ugraph 3

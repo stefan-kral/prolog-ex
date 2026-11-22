@@ -4249,6 +4249,8 @@ also ab etwa 0,1 ms Arbeit je Element.
 | Prädikat | Bedeutung |
 |---|---|
 | `concurrent_maplist/2,3,4` | wie `maplist`, je Element ein Prozess (`once`) |
+| `concurrent_include(G, L, In)`, `concurrent_exclude(G, L, Out)`, `concurrent_partition(G, L, In, Out)`, `concurrent_partition(G, L, Less, Equal, Greater)` | wie `include/3`, `exclude/3`, `partition/4,5`: die Prüfungen parallel (je Element `once`); Bindungen der Elemente und Fehler wie nacheinander |
+| `concurrent_foldl(G, L, V0, V)` | wie `foldl/4` (`call(G, X, A0, A)`), als Map-Reduce: die Liste in Abschnitten (bis zu 4 je Kern), jedes Kind faltet seinen zu `X1 ⊕ … ⊕ Xk`, der Aufrufer dann `V0 ⊕ R1 ⊕ R2 ⊕ …`. Dasselbe wie `foldl/4`, wenn `A = A0 ⊕ X` **assoziativ** ist (Elemente und Werte gleicher Art; kommutativ muss sie nicht sein: `append/3` auf Listen geht). Deterministisch |
 | `concurrent(N, Goals, Opts)` | alle Ziele, höchstens N gleichzeitig; Bindungen werden zusammengeführt |
 | `concurrent_forall(Cond, Action[, [threads(N), chunk(K)]])` | `Action` je Lösung von `Cond` (im Aufrufer berechnet) |
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |

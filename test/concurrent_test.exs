@@ -140,7 +140,7 @@ defmodule PrologEx.ConcurrentTest do
     assert Process.get(:conc_stats) == nil
     # ohne parallelen Lauf: nur die Zeit
     [a] = ask(c, "concurrent_statistics(true, S)")
-    assert %{"runs" => 0, "busy" => 0.0, "utilization" => 0} = stats(a)
+    assert %{"runs" => 0, "busy" => +0.0, "utilization" => 0} = stats(a)
   end
 
   test "Option stats(S): concurrent/3, concurrent_forall/3, concurrent_and/3, first_solution/3",
@@ -160,6 +160,61 @@ defmodule PrologEx.ConcurrentTest do
 
     assert ask(c, "catch(concurrent(1, [true], foo), error(E, _), true)") ==
              ["E = type_error(list,foo)"]
+  end
+
+  test "concurrent_include/3, concurrent_exclude/3, concurrent_partition/4,5", c do
+    assert ask(c, ~S"concurrent_include(\X^(X > 1), [1, 2, 3, 0, 5], I)") == ["I = [2,3,5]"]
+    assert ask(c, ~S"concurrent_exclude(\X^(X > 1), [1, 2, 3, 0, 5], I)") == ["I = [1,0]"]
+
+    assert ask(c, ~S"concurrent_partition(\X^(X > 1), [1, 2, 3, 0], I, E)") ==
+             ["E = [1,0], I = [2,3]"]
+
+    assert ask(c, ~S"concurrent_partition(\X^D^compare(D, X, 2), [1, 2, 3, 2], L, E, G)") ==
+             ["E = [2,2], G = [3], L = [1]"]
+
+    # wie nacheinander: Bindungen der Elemente, Fehler, deterministisch
+    assert ask(c, ~S"concurrent_include(\X^(X = a), [Y, Z, b], I)") ==
+             ["I = \"aa\", Y = a, Z = a"]
+
+    assert ask(c, ~S"concurrent_include(\X^(X > 1), [], I)") == ["I = []"]
+
+    assert ask(c, ~S"call_cleanup(concurrent_exclude(\X^(X > 1), [1, 2], I), Det = true)") ==
+             ["Det = true, I = [1]"]
+
+    for {g, e} <- [
+          {~S"concurrent_include(\X^(X > 1), _, _)", "instantiation_error"},
+          {~S"concurrent_include(\X^(X > a), [1], _)", "type_error(evaluable,a/0)"},
+          {~S"concurrent_partition(\_^D^(D = foo), [1], _, _, _)", "domain_error(order,foo)"},
+          {~S"concurrent_partition(\_^_^true, [1], _, _, _)", "instantiation_error"}
+        ] do
+      assert ask(c, "catch(#{g}, error(E, _), true)") == ["E = #{e}"], g
+    end
+
+    assert ask(c, ~S"concurrent_partition(\_^_^fail, [1], _, _, _)") == []
+    # alle zugleich (mehr Elemente als Scheduler)
+    assert ask(c, ~S"numlist(1, 50, L), concurrent_include(\X^(X mod 7 =:= 0), L, I)") |> hd() =~
+             "I = [7,14,21,28,35,42,49]"
+  end
+
+  test "concurrent_foldl/4: Map-Reduce mit assoziativer Verknüpfung", c do
+    assert ask(c, ~S"numlist(1, 1000, L), concurrent_foldl(\X^A^B^(B is A + X), L, 0, S)")
+           |> hd() =~ "S = 500500"
+
+    assert ask(c, ~S"concurrent_foldl(\X^A^B^(B is A + X), [], 7, S)") == ["S = 7"]
+    assert ask(c, ~S"concurrent_foldl(\X^A^B^(B is A + X), [3], 7, S)") == ["S = 10"]
+
+    # nicht kommutativ: die Reihenfolge bleibt (wie foldl/4)
+    assert ask(
+             c,
+             ~S"numlist(1, 200, L), maplist(\X^[X]^true, L, Ls), " <>
+               ~S"concurrent_foldl(\X^A^B^append(A, X, B), Ls, [0], S), " <>
+               ~S"foldl(\X^A^B^append(A, X, B), Ls, [0], S2), S == S2, " <>
+               ~S"call_cleanup(concurrent_foldl(\X^A^B^(B is A * X), [1, 2], 1, P), Det = true)"
+           )
+           |> hd() =~ "Det = true, L = "
+
+    assert ask(c, "catch(concurrent_foldl(_, [1|_], 0, _), error(E, _), true)") ==
+             ["E = instantiation_error"]
   end
 
   test "concurrent_maplist/2,3,4: Ergebnisse in der Reihenfolge der Elemente", c do

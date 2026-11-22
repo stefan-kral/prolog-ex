@@ -12,6 +12,16 @@
      concurrent_maplist(:G, ?L1), concurrent_maplist(:G, ?L1, ?L2),
      concurrent_maplist(:G, ?L1, ?L2, ?L3)
          wie maplist/2,3,4, je Element ein Prozess (once)
+     concurrent_include(:G, +L, -In), concurrent_exclude(:G, +L, -Out),
+     concurrent_partition(:G, +L, -In, -Out),
+     concurrent_partition(:G, +L, -Less, -Equal, -Greater)
+         wie include/3, exclude/3, partition/4,5: die Prüfungen parallel
+         (je Element once), die Bindungen der Elemente wie nacheinander
+     concurrent_foldl(:G, +L, +V0, -V)
+         wie foldl/4 (call(G, X, A0, A)), aber in Abschnitten parallel
+         (Map-Reduce): G muss eine assoziative Verknüpfung sein – A = A0 ⊕ X
+         mit (A ⊕ X) ⊕ Y = A ⊕ (X ⊕ Y), Elemente und Werte von derselben
+         Art; kommutativ muss sie nicht sein
      concurrent_forall(:Cond, :Action), concurrent_forall(:Cond, :Action, +Options)
          für jede Lösung von Cond (im Aufrufer berechnet) Action parallel;
          gelingt, wenn jede gelingt
@@ -83,6 +93,11 @@
                        concurrent_maplist/2,
                        concurrent_maplist/3,
                        concurrent_maplist/4,
+                       concurrent_include/3,
+                       concurrent_exclude/3,
+                       concurrent_partition/4,
+                       concurrent_partition/5,
+                       concurrent_foldl/4,
                        concurrent_forall/2,
                        concurrent_forall/3,
                        concurrent_findall/3,
@@ -120,6 +135,11 @@ concurrent_child_stack(Stack) :-
 :- meta_predicate(concurrent_maplist(1, ?)).
 :- meta_predicate(concurrent_maplist(2, ?, ?)).
 :- meta_predicate(concurrent_maplist(3, ?, ?, ?)).
+:- meta_predicate(concurrent_include(1, +, -)).
+:- meta_predicate(concurrent_exclude(1, +, -)).
+:- meta_predicate(concurrent_partition(1, +, -, -)).
+:- meta_predicate(concurrent_partition(2, +, -, -, -)).
+:- meta_predicate(concurrent_foldl(3, +, +, -)).
 :- meta_predicate(concurrent_forall(0, 0)).
 :- meta_predicate(concurrent_forall(0, 0, +)).
 :- meta_predicate(concurrent_and(0, 0)).
@@ -183,6 +203,112 @@ pairs2([X|Xs], [Y|Ys], [X-Y|Rs]) :-
 pairs3([], [], [], []).
 pairs3([X|Xs], [Y|Ys], [Z|Zs], [t(X, Y, Z)|Rs]) :-
     pairs3(Xs, Ys, Zs, Rs).
+
+% --- filtern: je Element eine Prüfung im Kind ---------------------------------
+%
+% Je Element X ein Ziel once(call(G, X)) mit allen Lösungen (findall):
+% [] (gescheitert) oder [X'], X' das Element danach; X = X' übernimmt die
+% Bindungen wie nacheinander (include/3 behält sie, exclude/3 ebenso).
+concurrent_include(G, L, In) :-
+    filter(L, G, Bags),
+    split_bags(L, Bags, In, _).
+
+concurrent_exclude(G, L, Out) :-
+    filter(L, G, Bags),
+    split_bags(L, Bags, _, Out).
+
+concurrent_partition(G, L, In, Out) :-
+    filter(L, G, Bags),
+    split_bags(L, Bags, In, Out).
+
+filter(L, G, Bags) :-
+    must_be(list, L),
+    filter_jobs(L, G, Jobs),
+    workers(W),
+    run(Jobs, findall, W, ok(Bags)).
+
+filter_jobs([], _, []).
+filter_jobs([X|Xs], G, [X-once(call(G, X))|Js]) :-
+    filter_jobs(Xs, G, Js).
+
+split_bags([], [], [], []).
+split_bags([X|Xs], [B|Bs], In, Out) :-
+    (   B == []
+    ->  In = In1, Out = [X|Out1]
+    ;   B = [X],
+        In = [X|In1], Out = Out1
+    ),
+    split_bags(Xs, Bs, In1, Out1).
+
+% partition/5: je Element once(call(G, X, Ord)), Ord eines von <, =, >;
+% scheitert eine Prüfung, scheitert alles (wie nacheinander)
+concurrent_partition(G, L, Less, Equal, Greater) :-
+    must_be(list, L),
+    order_jobs(L, G, Jobs),
+    workers(W),
+    run(Jobs, once, W, ok(Rs)),
+    order_split(Rs, L, Less, Equal, Greater).
+
+order_jobs([], _, []).
+order_jobs([X|Xs], G, [(X-O)-call(G, X, O)|Js]) :-
+    order_jobs(Xs, G, Js).
+
+order_split([], [], [], [], []).
+order_split([X-O|XOs], [X|Xs], Ls, Es, Gs) :-
+    order_split_(O, X, Ls, Es, Gs, Ls1, Es1, Gs1),
+    order_split(XOs, Xs, Ls1, Es1, Gs1).
+
+order_split_(O, _, _, _, _, _, _, _) :-
+    var(O), !,
+    instantiation_error(O).
+order_split_(<, X, [X|Ls], Es, Gs, Ls, Es, Gs) :- !.
+order_split_(=, X, Ls, [X|Es], Gs, Ls, Es, Gs) :- !.
+order_split_(>, X, Ls, Es, [X|Gs], Ls, Es, Gs) :- !.
+order_split_(O, _, _, _, _, _, _, _) :-
+    domain_error(order, O).
+
+% --- falten: Map-Reduce -------------------------------------------------------
+%
+% Die Liste in Abschnitte (bis zu 4 je Kern, damit die Blockung ausgleichen
+% kann); jedes Kind faltet seinen Abschnitt X1, ..., Xk zu
+% X1 ⊕ X2 ⊕ ... ⊕ Xk (call(G, X2, X1, A1), ...), der Aufrufer dann
+% V0 ⊕ R1 ⊕ R2 ⊕ ... in der Reihenfolge der Abschnitte. Bei einer
+% assoziativen Verknüpfung dasselbe wie foldl/4. Deterministisch (je
+% Schritt die erste Lösung).
+concurrent_foldl(G, L, V0, V) :-
+    must_be(list, L),
+    length(L, N),
+    current_prolog_flag(cpu_count, C),
+    K is max(1, (N + 4*C - 1) // (4*C)),
+    chunks(L, K, Cs),
+    fold_jobs(Cs, G, Jobs),
+    workers(W),
+    run(Jobs, once, W, ok(Rs)),
+    fold_(Rs, G, V0, V1),
+    V = V1.
+
+chunks([], _, []) :- !.
+chunks(L, K, [C|Cs]) :-
+    take(K, L, C, Rest),
+    chunks(Rest, K, Cs).
+
+take(0, L, [], L) :- !.
+take(_, [], [], []) :- !.
+take(K, [X|Xs], [X|C], Rest) :-
+    K1 is K - 1,
+    take(K1, Xs, C, Rest).
+
+fold_jobs([], _, []).
+fold_jobs([[X|Xs]|Cs], G, [R-'$fold_chunk'(Xs, G, X, R)|Js]) :-
+    fold_jobs(Cs, G, Js).
+
+'$fold_chunk'(Xs, G, A0, A) :-
+    fold_(Xs, G, A0, A).
+
+fold_([], _, A, A).
+fold_([X|Xs], G, A0, A) :-
+    once(call(G, X, A0, A1)),
+    fold_(Xs, G, A1, A).
 
 % wie maplist: Listen gleicher Länge (eine darf offen sein, wenn die andere
 % fertig ist)
