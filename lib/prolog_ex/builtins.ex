@@ -99,7 +99,8 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Edinburgh,
     PrologEx.Builtins.SwiTerms,
     PrologEx.Builtins.Sockets,
-    PrologEx.Builtins.IsoExt
+    PrologEx.Builtins.IsoExt,
+    PrologEx.Builtins.Trace
   ]
 
   # Steuerkonstrukte und schnelle Builtins, die die Maschine selbst
@@ -109,7 +110,7 @@ defmodule PrologEx.Builtins do
              call/7 call/8 call_nth/2 findall/3 findall/4 catch/3 throw/1
              findnsols/4 findnsols/5 countall/2 not/1 \\+/1 =/2 is/2 </2 >/2 >=/2 =</2 =:=/2 =\\=/2 time/1
              *->/2 if/3 call_with_inference_limit/3 call_with_depth_limit/3 setup_call_cleanup/3
-             reset/3 shift/1)
+             reset/3 shift/1 trace/0 notrace/0 nodebug/0)
           |> Enum.map(fn s ->
             [n, a] = Regex.run(~r{^(.*)/(\d+)$}, s, capture: :all_but_first)
             {n, String.to_integer(a)}

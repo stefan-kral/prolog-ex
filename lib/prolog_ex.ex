@@ -3654,7 +3654,112 @@ defmodule PrologEx do
   defp step({:"$nth", ref, n, h}, _cutb, _mod, rest, st), do: nth_exit(ref, n, h, rest, st)
 
   # Benutzerprädikate zuerst; nur bei Fehltreffer die Builtin-Tabelle
+  # --- Tracer (PrologEx.Trace) --------------------------------------------
+  #
+  # trace/0 schaltet den Trace-Modus ein: rearm/1 setzt den Prüfpunkt dann
+  # auf jeden gezählten Schritt, limit_timers/5 kommt zu trace_or_step/5.
+  # Ohne Trace-Modus erreicht nichts davon die Maschine.
+  defp step({:atom, "trace"}, _cutb, _mod, rest, st) do
+    PrologEx.Trace.on()
+    run(check_soon(%{st | goals: rest}))
+  end
+
+  defp step({:atom, f}, _cutb, _mod, rest, st) when f in ["notrace", "nodebug"] do
+    PrologEx.Trace.off()
+    run(rearm(%{st | goals: rest}))
+  end
+
+  # Exit: das Ziel hat eine Lösung. Ohne Choice Points über seinem
+  # Fail-Punkt war es deterministisch: der Fail-Punkt geht wieder weg, die
+  # Höhe stimmt wieder (catch/3, setup_call_cleanup/3 sehen dasselbe wie
+  # ohne Tracer); sonst ein Redo-Punkt darüber
+  defp step({:"$port_exit", frame, parent}, _cutb, _mod, rest, st) do
+    PrologEx.Trace.set_stack(parent)
+
+    case PrologEx.Trace.port(:exit, frame, st.subst) do
+      :abort ->
+        throw_ball(@abort_ball, st)
+
+      :fail ->
+        st |> trace_cut(frame) |> backtrack()
+
+      :continue ->
+        hf = PrologEx.Trace.height(frame)
+
+        st =
+          cond do
+            st.height > hf -> push(st, {:trace_redo, frame, [frame | parent]})
+            st.height == hf -> %{st | cps: tl(st.cps), height: hf - 1}
+            # (der Fail-Punkt ist schon abgeschnitten)
+            true -> st
+          end
+
+        run(%{st | goals: rest})
+    end
+  end
+
   defp step(goal, _cutb, mod, rest, st), do: call_pred(goal, mod, rest, st)
+
+  # im Trace-Modus jeder gezählte Schritt: gezeigte Ziele als Box
+  # (übersetzte Arithmetik wie im Quelltext: '$is' als is/2, ...)
+  defp trace_or_step(goal, cutb, mod, rest, st) do
+    with true <- PrologEx.Trace.on?(),
+         view = decompile_goal(goal),
+         true <- PrologEx.Trace.traced?(view, mod) do
+      trace_call(goal, view, cutb, mod, rest, st)
+    else
+      _ -> step(goal, cutb, mod, rest, st)
+    end
+  end
+
+  # Call: Rahmen anlegen (view: das Ziel, wie es gezeigt wird), Fail-Punkt
+  # unter das Ziel, Exit-Marke dahinter.
+  # Der Schnitt im Rumpf schneidet bis zur Höhe beim Aufruf – über dem
+  # Fail-Punkt, der bleibt also
+  defp trace_call(goal, view, cutb, mod, rest, st) do
+    {frame, parent} = PrologEx.Trace.enter(view, mod, st.subst, st.height + 1)
+    st = push(st, {:trace_fail, frame, parent})
+
+    case PrologEx.Trace.port(:call, frame, st.subst) do
+      :abort ->
+        throw_ball(@abort_ball, st)
+
+      :fail ->
+        backtrack(st)
+
+      :continue ->
+        rest = [{{:"$port_exit", frame, parent}, 0, mod} | rest]
+        trace_dispatch(goal, cutb, mod, rest, st)
+    end
+  end
+
+  # übersetzte Prädikate (JIT) im Interpreter: sonst liefen ihre Aufrufe
+  # untereinander am Tracer vorbei (wie '$nojit'/1)
+  defp trace_dispatch(goal, cutb, mod, rest, st) do
+    {name, args} =
+      case goal do
+        {:struct, f, as} -> {f, as}
+        _ -> name_args(goal)
+      end
+
+    case Map.fetch(current_db(), {mod, name, length(args)}) do
+      {:ok, {:pred, _, _, {t, _, _, _, _, _}, _} = pred} when t in [:jit, :jit_nd] ->
+        interp_call(pred, goal, name, args, mod, rest, st)
+
+      _ ->
+        step(goal, cutb, mod, rest, st)
+    end
+  end
+
+  # alles über dem Fail-Punkt des Rahmens weg (f an Exit oder Redo: das Ziel
+  # scheitert, ohne weitere Lösungen)
+  defp trace_cut(st, frame) do
+    hf = PrologEx.Trace.height(frame)
+
+    if st.height > hf,
+      do: %{st | cps: Enum.drop(st.cps, st.height - hf), height: hf},
+      else: st
+  end
 
   # Steuerkonstrukte, die nur nach dem Import ihrer Bibliothek sichtbar sind
   # (PrologEx.Builtins.home/2: iso_ext, swi, ...): die Klausel von step/5
@@ -5443,8 +5548,12 @@ defmodule PrologEx do
 
   defp rearm(st) do
     timed =
-      if st.tlimits != [] or timer_set?(st) or watched?(),
-        do: :atomics.get(st.icount, 1) + @tcheck
+      cond do
+        # Trace-Modus: jeder gezählte Schritt (trace_or_step/5)
+        PrologEx.Trace.on?() -> :atomics.get(st.icount, 1)
+        st.tlimits != [] or timer_set?(st) or watched?() -> :atomics.get(st.icount, 1) + @tcheck
+        true -> nil
+      end
 
     %{st | ilimit: min_limit(min_ilimit(st.ilimits), timed)}
   end
@@ -5497,7 +5606,7 @@ defmodule PrologEx do
         # Speichergrenze: wie Zeitgrenzen nicht verschluckbar – fängt G
         # die Ausnahme selbst, kommt sie am nächsten Prüfpunkt wieder
         case mem_check(0) do
-          nil -> step(goal, cutb, mod, rest, st)
+          nil -> trace_or_step(goal, cutb, mod, rest, st)
           info -> throw_ball(mem_ball(info, st), st)
         end
 
@@ -6270,6 +6379,29 @@ defmodule PrologEx do
           answer: answer
       })
 
+  # Tracer: Fail – der Aufruf hat keine (weitere) Lösung; Redo – zurück in
+  # einen Aufruf, der schon Exit gemeldet hat (trace_call/5)
+  defp backtrack(%{cps: [{:trace_fail, frame, parent} | cps]} = st) do
+    st = %{st | cps: cps, height: st.height - 1}
+    PrologEx.Trace.set_stack(parent)
+
+    case PrologEx.Trace.port(:fail, frame, nil) do
+      :abort -> throw_ball(@abort_ball, st)
+      _ -> backtrack(st)
+    end
+  end
+
+  defp backtrack(%{cps: [{:trace_redo, frame, stack} | cps]} = st) do
+    st = %{st | cps: cps, height: st.height - 1}
+    PrologEx.Trace.set_stack(stack)
+
+    case PrologEx.Trace.port(:redo, frame, nil) do
+      :abort -> throw_ball(@abort_ball, st)
+      :fail -> st |> trace_cut(frame) |> backtrack()
+      :continue -> backtrack(st)
+    end
+  end
+
   defp backtrack(%{cps: [{:solutions_list, more, mod, rest, subst, answer} | cps]} = st),
     do:
       start_solutions(more, mod, rest, %{
@@ -6572,6 +6704,15 @@ defmodule PrologEx do
     end
   end
 
+  # Tracer: der Port Exception für jeden offenen Aufruf, den die Ausnahme
+  # verlässt
+  defp unwind(ball, [{:trace_fail, frame, parent} | below], h, st) do
+    case PrologEx.Trace.exception(frame, parent, ball) do
+      :abort -> unwind(@abort_ball, below, h - 1, st)
+      _ -> unwind(ball, below, h - 1, st)
+    end
+  end
+
   defp unwind(ball, [_ | below], h, st), do: unwind(ball, below, h - 1, st)
 
   # ---------------------------------------------------------------------
@@ -6845,6 +6986,13 @@ defmodule PrologEx do
     {{:"$ilimit_exit", id, n, h, r2}, acc, ch, false}
   end
 
+  # Exit-Marke des Tracers: das Ziel des Rahmens lebt (Exit zeigt es mit
+  # den Bindungen von dann)
+  defp compact3({:"$port_exit", frame, parent}, subst, acc, d) do
+    {g2, acc, ch, _} = compact3(elem(frame, 2), subst, acc, d)
+    {{:"$port_exit", put_elem(frame, 2, g2), parent}, acc, ch, false}
+  end
+
   defp compact3({:"$dlimit_exit", frame, h, r}, subst, acc, d) do
     {r2, acc, ch, _} = compact3(r, subst, acc, d)
     {{:"$dlimit_exit", frame, h, r2}, acc, ch, false}
@@ -7072,7 +7220,8 @@ defmodule PrologEx do
         put_db(st.db)
 
         with_query_limit(q, fn ->
-          st = if q != nil or watched?(), do: rearm(st), else: st
+          PrologEx.Trace.new_query()
+          st = if q != nil or watched?() or PrologEx.Trace.on?(), do: rearm(st), else: st
           st |> run() |> emit() |> query_done(qref)
         end)
 

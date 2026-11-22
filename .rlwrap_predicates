@@ -361,6 +361,7 @@ last 2 3
 lazy_list_character_count 3
 lazy_list_location 3
 lcm 3
+leash 1
 length 2
 lex_chain 1
 limit 2
@@ -441,12 +442,14 @@ neighbours 3
 next_prime 2
 nextto 3
 nl 0 1
+nodebug 0
 nonblank 3
 nonblanks 3
 nonemptylist_to_commalist 2
 nonvar 1
 not 1
 not_si 1
+notrace 0
 nth0 3 4
 nth1 3 4
 number 1 3
@@ -747,6 +750,8 @@ told 0
 top_sort 2 3
 totient 2
 tpartition 4
+trace 0
+tracing 0
 transitive_closure 2
 transitive_reduction 2
 transportation 4

@@ -3860,6 +3860,62 @@ der Check selbst wurde dabei sogar schneller (eigene Rekursion über die
 Argumente statt `Enum.any?`, rund 10 % bei langen Listen). Ohne
 Occurs-Check kostet das Zählen nichts.
 
+## Tracer: `trace/0`
+
+Der klassische Tracer im Procedure-Box-Modell (Byrd): jeder Aufruf ist
+eine Box mit den Ports **Call** (Eintritt), **Exit** (Lösung), **Redo**
+(zurück in einen Aufruf, der schon eine Lösung hatte), **Fail** (keine
+weitere Lösung) und **Exception** (eine Ausnahme verlässt ihn).
+
+```
+?- trace, nrev([1,2], R).
+   Call: (1) nrev([1,2],_21) ?
+   Call: (2) nrev([2],_22) ?
+   Call: (3) nrev([],_23) ?
+   Exit: (3) nrev([],[]) ?
+   ...
+   Exit: (1) nrev([1,2],[2,1]) ?
+R = [2,1].
+
+[trace] ?-
+```
+
+* `trace/0` schaltet den Trace-Modus ein, er bleibt über Anfragen hinweg
+  an (Prompt `[trace] ?-`), bis `notrace/0` oder `nodebug/0`. `tracing/0`
+  gelingt im Trace-Modus.
+* An jedem Port mit `?` wartet der Tracer auf eine Antwort (Zeile, Enter
+  genügt): `c`/Enter creep (weiter), `s` skip (bis zum Exit oder Fail
+  dieses Aufrufs ohne Ausgabe), `l`/`n` leap/nodebug (Trace-Modus aus,
+  weiter ohne Tracer), `f` fail (das Ziel scheitern lassen), `g` goals (die
+  offenen Aufrufe), `a` abort; anderes zeigt die Hilfe. Ohne Eingabe
+  (Datei, Pipe am Ende) läuft er ohne Fragen weiter.
+* `leash/1`: an welchen Ports er fragt – ein Port (`call`, `exit`, `redo`,
+  `fail`, `exception`), eine Liste, `all`/`full`, `half` (call, redo),
+  `none`; `+P`/`-P` nehmen dazu bzw. weg; `leash(L)` mit Variable liefert
+  die aktuellen. An den anderen zeigt er den Port nur (auf `user_error`).
+  `leash(none), trace, G` gibt so ein ganzes Protokoll.
+* Gezeigt wird Benutzer-Code: Aufrufe aus Modulen, die nicht zum System
+  gehören. Ein Bibliotheksprädikat (`append/3`, `format/2`, ...) ist eine
+  Box, ohne hineinzugehen; Steuerkonstrukte (`,`, `;`, `->`, `!`) und
+  interne Ziele (`$...`) erscheinen nicht. Übersetzte Arithmetik zeigt er
+  wie im Quelltext (`_A is N-1`); vom JIT übersetzte Prädikate laufen im
+  Trace-Modus im Interpreter, ihre Aufrufe untereinander sind also zu
+  sehen.
+* Ein deterministischer Aufruf hinterlässt nichts: Beim Exit ohne offene
+  Choice Points nimmt der Tracer seinen Fail-Punkt wieder weg. Darum gibt
+  es danach weder Redo noch Fail – und `catch/3`, `setup_call_cleanup/3`
+  sehen dieselbe Determiniertheit wie ohne Tracer (das Aufräumen kommt zur
+  selben Zeit). Was ein Schnitt abschneidet, meldet kein Fail mehr.
+
+**Kosten:** ohne Trace-Modus keine. Die Maschine prüft vor jedem
+gezählten Schritt ohnehin, ob ein Prüfpunkt für Inferenz- oder
+Zeitgrenzen erreicht ist (ein Vergleich); `trace/0` legt diesen Prüfpunkt
+auf jeden Schritt, und erst dort, im langsamen Pfad, kommt der Tracer
+(`PrologEx.Trace`). Im Trace-Modus legt er je Aufruf eine Exit-Marke auf
+den Zielstapel und einen Choice Point für Fail darunter: Endrekursion
+wächst dann (wie in SWIs Debug-Modus), 100 000 Aufrufe von `cnt/1` mit
+`leash(none)` (400 000 Ports) brauchen 5 s.
+
 ## Ressourcen begrenzen: `call_with_inference_limit/3`, `call_with_depth_limit/3`, `library(rlimit)`
 
 Wie SWI und Scryer (`library(iso_ext)`; `call_with_depth_limit/3`:
