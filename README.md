@@ -3883,17 +3883,35 @@ R = [2,1].
 * `trace/0` schaltet den Trace-Modus ein, er bleibt über Anfragen hinweg
   an (Prompt `[trace] ?-`), bis `notrace/0` oder `nodebug/0`. `tracing/0`
   gelingt im Trace-Modus.
+* **Spypunkte:** `spy(PI)` (`Name/Stelligkeit`, `Name` für alle
+  Stelligkeiten, auch `M:PI` und Listen) setzt einen und schaltet den
+  **Debug-Modus** ein (Prompt `[debug] ?-`): still bis zum ersten Port
+  eines Prädikats mit Spypunkt (`*` vor dem Port), dann Trace-Modus bis zum
+  Ende der Anfrage. `nospy/1`, `nospyall/0` entfernen sie, `debug/0`
+  schaltet den Debug-Modus ohne Spypunkt ein, `debugging/0` zeigt den
+  Zustand. Die Aufrufe über dem ersten Spypunkt verfolgt der Debug-Modus
+  nicht: die Tiefe zählt ab dort, ihre Exit- und Fail-Ports kommen nicht.
+  `notrace/0` geht mit Spypunkten in den Debug-Modus, `nodebug/0` schaltet
+  ganz aus.
 * An jedem Port mit `?` wartet der Tracer auf eine Antwort (Zeile, Enter
   genügt): `c`/Enter creep (weiter), `s` skip (bis zum Exit oder Fail
-  dieses Aufrufs ohne Ausgabe), `l`/`n` leap/nodebug (Trace-Modus aus,
-  weiter ohne Tracer), `f` fail (das Ziel scheitern lassen), `g` goals (die
-  offenen Aufrufe), `a` abort; anderes zeigt die Hilfe. Ohne Eingabe
+  dieses Aufrufs ohne Ausgabe), `l` leap (bis zum nächsten Spypunkt; ohne
+  Spypunkte aus), `n` nodebug, `r` retry (den Aufruf neu beginnen, an
+  Exit, Redo, Fail und Exception), `f` fail (das Ziel scheitern lassen),
+  `g` goals (die offenen Aufrufe), `w`/`p`/`d` die Ziele mit write, print
+  (Vorgabe), display zeigen, `< N` höchstens N tief (Vorgabe 10; `<`
+  allein: unbegrenzt), `a` abort; anderes zeigt die Hilfe. Ohne Eingabe
   (Datei, Pipe am Ende) läuft er ohne Fragen weiter.
+* **retry** setzt Bindungen und Antwort auf den Stand beim Call zurück und
+  beginnt den Aufruf neu. Was über ihm liegt, wird abgeschnitten wie von
+  einem Schnitt – offene `setup_call_cleanup/3` räumen dabei auf. Seiteneffekte
+  (Ausgaben, `assert/1`) bleiben, wie bei SWI.
 * `leash/1`: an welchen Ports er fragt – ein Port (`call`, `exit`, `redo`,
   `fail`, `exception`), eine Liste, `all`/`full`, `half` (call, redo),
   `none`; `+P`/`-P` nehmen dazu bzw. weg; `leash(L)` mit Variable liefert
   die aktuellen. An den anderen zeigt er den Port nur (auf `user_error`).
-  `leash(none), trace, G` gibt so ein ganzes Protokoll.
+  `leash(none), trace, G` gibt so ein ganzes Protokoll. `visible/1` (gleiche
+  Angaben): welche Ports er überhaupt zeigt.
 * Gezeigt wird Benutzer-Code: Aufrufe aus Modulen, die nicht zum System
   gehören. Ein Bibliotheksprädikat (`append/3`, `format/2`, ...) ist eine
   Box, ohne hineinzugehen; Steuerkonstrukte (`,`, `;`, `->`, `!`) und
@@ -3907,14 +3925,18 @@ R = [2,1].
   sehen dieselbe Determiniertheit wie ohne Tracer (das Aufräumen kommt zur
   selben Zeit). Was ein Schnitt abschneidet, meldet kein Fail mehr.
 
-**Kosten:** ohne Trace-Modus keine. Die Maschine prüft vor jedem
-gezählten Schritt ohnehin, ob ein Prüfpunkt für Inferenz- oder
-Zeitgrenzen erreicht ist (ein Vergleich); `trace/0` legt diesen Prüfpunkt
+**Kosten:** ohne Debugger keine. Die Maschine prüft vor jedem gezählten
+Schritt ohnehin, ob ein Prüfpunkt für Inferenz- oder Zeitgrenzen erreicht
+ist (ein Vergleich); `trace/0`, `debug/0`, `spy/1` legen diesen Prüfpunkt
 auf jeden Schritt, und erst dort, im langsamen Pfad, kommt der Tracer
 (`PrologEx.Trace`). Im Trace-Modus legt er je Aufruf eine Exit-Marke auf
-den Zielstapel und einen Choice Point für Fail darunter: Endrekursion
-wächst dann (wie in SWIs Debug-Modus), 100 000 Aufrufe von `cnt/1` mit
-`leash(none)` (400 000 Ports) brauchen 5 s.
+den Zielstapel und einen Choice Point für Fail darunter (mit dem Stand
+beim Call, für retry): Endrekursion wächst dann (wie in SWIs Debug-Modus),
+100 000 Aufrufe von `cnt/1` mit `leash(none)` (400 000 Ports) brauchen
+5 s. Der Debug-Modus vor dem ersten Spypunkt legt nichts an, nimmt aber
+jeden Schritt über den langsamen Pfad, und übersetzte Prädikate laufen im
+Interpreter: 20-mal `nrev/2` einer Liste mit 400 Elementen braucht 2,8 s –
+ohne Debugger 2,3 s mit abgeschaltetem JIT, 0,04 s mit ihm.
 
 ## Ressourcen begrenzen: `call_with_inference_limit/3`, `call_with_depth_limit/3`, `library(rlimit)`
 

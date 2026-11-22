@@ -249,8 +249,13 @@ defmodule PrologEx.Toplevel do
     # TAB-Completion (eigener Editor): die sichtbaren Prädikate
     if PrologEx.Shell.active?(), do: PrologEx.Shell.Complete.publish(st.db)
 
-    # im Trace-Modus (trace/0 bleibt über Anfragen hinweg an) wie SWI
-    prompt = if PrologEx.Trace.on?(), do: "[trace] ?- ", else: "?- "
+    # im Trace- oder Debug-Modus (bleibt über Anfragen hinweg an) wie SWI
+    prompt =
+      case PrologEx.Trace.mode() do
+        :trace -> "[trace] ?- "
+        :debug -> "[debug] ?- "
+        nil -> "?- "
+      end
 
     case read_query(prompt, []) do
       # (der eigene Editor ist schon in der nächsten Zeile)

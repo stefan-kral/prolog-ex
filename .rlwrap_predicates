@@ -196,6 +196,8 @@ curve25519_generator 1
 curve25519_scalar_mult 3
 cyclic_term 1
 dcg_translate_rule 2
+debug 0
+debugging 0
 decreasing_prefix 3 4
 del_assoc 4
 del_edges 3
@@ -447,6 +449,8 @@ nonblank 3
 nonblanks 3
 nonemptylist_to_commalist 2
 nonvar 1
+nospy 1
+nospyall 0
 not 1
 not_si 1
 notrace 0
@@ -693,6 +697,7 @@ somechk 2 3 4
 somechk_queue 2 3
 sort 2 4
 sort_si 2
+spy 1
 standard_error 2
 start_tabling 2
 statistics 0 2
@@ -788,6 +793,7 @@ varnumbers_names 3
 vertices 2
 vertices_edges_to_ugraph 3
 vertices_edges_to_wgraph 3
+visible 1
 weighted_maximum 3
 weighted_mean 3
 weighted_variance 3
