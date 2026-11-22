@@ -50,10 +50,8 @@ compound
 consult
 copy_term
 current_char_conversion
-current_input
 current_module
 current_op
-current_output
 current_predicate
 current_prolog_flag
 dif
@@ -104,8 +102,6 @@ retract
 retractall
 reverse
 select
-set_input
-set_output
 set_prolog_flag
 set_stream_position
 setof
