@@ -166,7 +166,7 @@ defmodule PrologEx.LoadWarningsTest do
              "Fehler (Zeile 4): type_error(callable,(3->a;b))"
            ]
 
-    assert m5 =~ ~r/^Fehler \(Zeile 5\): type_error\(callable,\(3,_\d+=_\d+\)\)$/
+    assert m5 =~ ~r/^Fehler \(Zeile 5\): type_error\(callable,\(3,_A=_B\)\)$/
 
     db = PrologEx.current_db()
     refute Map.has_key?(db, {"user", "p3", 0})

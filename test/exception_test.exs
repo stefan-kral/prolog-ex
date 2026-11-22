@@ -152,6 +152,11 @@ defmodule PrologEx.ExceptionTest do
     assert out =~ "Fehler: type_error(evaluable,foo/0)"
     assert out =~ "Fehler: existence_error(procedure,foo/1)"
 
+    # Variablen im Ball wie in den Antworten: _A, _B, ...
+    out = capture_io(fn -> ask_toplevel("throw(f(X, Y, X)).\natom_length(a, g(_)).\n") end)
+    assert out =~ "Fehler: unbehandelte Ausnahme: f(_A,_B,_A)"
+    assert out =~ "Fehler: type_error(integer,g(_A))"
+
     {_db, msgs} = Consult.load(%{}, Reader.read_terms(c.reader, ":- throw(boom).\n"))
     assert Enum.any?(msgs, &(&1 =~ "boom"))
   end

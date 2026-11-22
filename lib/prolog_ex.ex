@@ -7948,6 +7948,13 @@ defmodule PrologEx do
     for t <- terms, {:var, id} = v <- query_vars(t), n = var_name(id), into: %{}, do: {v, n}
   end
 
+  @doc """
+  Namen _A, _B, ... für die Variablen in `terms` (in Reihenfolge des ersten
+  Auftretens), als Option `variable_names` für PrologEx.Writer – wie in den
+  Antworten des Toplevels (auch für Fehlermeldungen, PrologEx.Error)
+  """
+  def fresh_var_names(terms), do: fresh_names(terms, %{})
+
   # Namen für Variablen, die nicht aus der Anfrage stammen: _A, ..., _Z,
   # _AA, _AB, ... in Reihenfolge des ersten Auftretens; die Namen der
   # Anfrage (named: Variable → Name) bleiben und werden nicht vergeben

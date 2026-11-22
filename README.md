@@ -2077,6 +2077,11 @@ f('A b',1+2*3,(1+2)*3,a mod b,\+ (x,y),[x|T],"ab")
     wie bei SICStus `_A`, `_B`, …, `_Z`, `_AA`, … – je Antwort neu, in
     Reihenfolge des Auftretens, auch in Restzielen; Namen aus der Anfrage
     werden nicht vergeben (`length(As, N)` → `As = [_A,_B], N = 2`).
+    Ebenso Fehlermeldungen für nicht gefangene Ausnahmen (im Toplevel und
+    beim Laden): `throw(f(X, Y, X))` → `Fehler: unbehandelte Ausnahme:
+    f(_A,_B,_A)` – der Ball ist eine Kopie, Namen der Anfrage hat er nicht.
+    Der Tracer (`library(traces)`) zeigt dagegen die Nummern, damit dieselbe
+    Variable über alle Ports hinweg erkennbar bleibt.
     `listing/1` schreibt die Namen des Quelltexts, anonyme `_` wieder als
     `_`.
   * Antworten, `listing` und Fehlermeldungen schreiben Terme kompakt wie

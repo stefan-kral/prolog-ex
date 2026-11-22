@@ -32,8 +32,12 @@ defmodule PrologEx.Error do
     end
   end
 
-  # wie writeq (kompakt, wie die Antworten)
-  defp show(t), do: PrologEx.Writer.format(PrologEx.unmark(t), quoted: true)
+  # wie writeq (kompakt, wie die Antworten), Variablen als _A, _B, ... (der
+  # Ball ist eine Kopie: Namen aus der Anfrage hat er nicht)
+  defp show(t) do
+    t = PrologEx.unmark(t)
+    PrologEx.Writer.format(t, quoted: true, variable_names: PrologEx.fresh_var_names([t]))
+  end
 
   @doc "Ball werfen (ohne error/2-Hülle)"
   def throw!(ball), do: raise(%__MODULE__{term: ball})
