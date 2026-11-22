@@ -7,8 +7,8 @@ defmodule PrologEx.RlwrapTest do
   #
   # Aus PrologEx erzeugt (PrologEx.Shell.Complete.rlwrap_files/0), müssen
   # dazu passen: .rlwrap_predicates (Stelligkeiten: member( mit Klammer),
-  # .rlwrap_flags, .rlwrap_ops, .rlwrap_evaluables, .rlwrap_char_types,
-  # .rlwrap_clpz.
+  # .rlwrap_flags, .rlwrap_ops, .rlwrap_evaluables, .rlwrap_evaluable_terms,
+  # .rlwrap_char_types, .rlwrap_clpz.
   # Alle neu schreiben:
   #
   #   mix run -e 'PrologEx.Shell.Complete.write_rlwrap_files()'
@@ -102,6 +102,15 @@ defmodule PrologEx.RlwrapTest do
   assert c("char_type(C, alpha", "alpha") == ["alpha)", "alphabetic)", "alphanumeric)"]
   assert c("char_type(C, up", "up") == ["upper)", "upper("]
   assert c("code_type(0'a, dig", "dig") == ["digit("]
+  ev = c("evaluable_property(", "")
+  assert ev[:2] == ["_*_,", "_**_,"] and "abs(_)," in ev and "pi," in ev and len(ev) == 76, ev
+  assert c("evaluable_property(ab", "ab") == ["abs(_),"]
+  assert c("evaluable_property(at", "at") == ["atan(_),", "atan(_,_),", "atan2(_,_),", "atanh(_),"]
+  assert c("evaluable_property(_/", "_/")[:2] == ["_/_,", "_//_,"], c("evaluable_property(_/", "_/")
+  assert "member(" not in c("evaluable_property(", "")
+  assert c("predicate_property(", "") == ["_:", "user:"]
+  assert c("predicate_property(u", "u") == ["user:"]
+  assert c("X = 1, predicate_property(_", "_") == ["_:"]
   print("ok")
   """
 

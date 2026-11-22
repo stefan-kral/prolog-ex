@@ -144,7 +144,7 @@ defmodule PrologEx.LgtEdgeTest do
              ["E = existence_error(procedure,atomic_concat/3)"]
   end
 
-  test "evaluable_property/2 (library(iso_ext))", c do
+  test "evaluable_property/2 (eingebaut)", c do
     assert ask(c, "findall(P, evaluable_property(abs(_), P), Ps)") ==
              ["Ps = [built_in,static,template(abs(number),number)]"]
 
@@ -170,7 +170,25 @@ defmodule PrologEx.LgtEdgeTest do
     assert ask(c, "evaluable_property(abs(_), foreign)") == []
     assert ask(c, "evaluable_property(foo(_), built_in)") == []
     assert ask(c, "evaluable_property(abs(_, _), built_in)") == []
-    assert err(c, "evaluable_property(_, _)") == ["E = instantiation_error"]
+    # ungebunden: aufzählen, sortiert, mit frischen Argumenten
+    assert ask(c, "evaluable_property(E, P)") == [
+             "E = _A*_B, P = built_in",
+             "E = _A*_B, P = static",
+             "E = _A*_B, P = template(number*number,number)"
+           ]
+
+    assert ask(
+             c,
+             "findall(N/A, (evaluable_property(E, built_in), functor(E, N, A)), L), " <>
+               "length(L, 76), memberchk(pi/0, L), memberchk(atan2/2, L), memberchk((//)/2, L), !"
+           )
+           |> hd() =~ "L = "
+
+    assert ask(c, "evaluable_property(E, template(E0, float)), E0 = sin(_)") ==
+             ["E = sin(_A), E0 = sin(number)"]
+
+    # ohne Import sichtbar (nicht mehr library(iso_ext))
+    assert ask(c, "evaluable_property(pi, built_in)", "") == ["true"]
     assert err(c, "evaluable_property(1, _)") == ["E = type_error(callable,1)"]
     assert err(c, "evaluable_property(abs(_), 1)") == ["E = domain_error(evaluable_property,1)"]
 

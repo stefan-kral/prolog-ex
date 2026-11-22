@@ -506,7 +506,10 @@ mix compile                          # einmal, und nach jeder Änderung
     Funktionen, die clpz kennt (`abs`, `max`, `min`, `sign`, …; nicht
     nach `#<==>`, `#/\` usw.). Zeichenklassen:
     `char_type(C, ` → die von `library(charsio)`, `code_type(C, ` → die
-    von `library(swi)`.
+    von `library(swi)`. `evaluable_property(` → genau die auswertbaren
+    Funktoren als Terme (`_*_,`, `-_,`, `abs(_),`, `atan2(_,_),`, `pi,` …;
+    `evaluable_property(_` → die Operatoren), `predicate_property(` →
+    `_:` und `user:`.
     Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`). Die Dateien:
 
     | Datei | Inhalt | gepflegt |
@@ -517,6 +520,7 @@ mix compile                          # einmal, und nach jeder Änderung
     | `.rlwrap_flags` | die Flags, bei schreibbaren mit ihren Werten | erzeugt |
     | `.rlwrap_ops` | die Standard-Operatoren (Priorität, Typ, Name) | erzeugt |
     | `.rlwrap_evaluables` | die auswertbaren Funktionen mit Stelligkeiten | erzeugt |
+    | `.rlwrap_evaluable_terms` | die auswertbaren Funktoren als Terme für `evaluable_property(` | erzeugt |
     | `.rlwrap_char_types` | die Typen von `char_type/2` und `code_type/2` | erzeugt |
     | `.rlwrap_clpz` | die Funktionen in clpz-Ausdrücken (aus `clpz.pl`) | erzeugt |
 
@@ -4807,14 +4811,18 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     nur nach `:- use_module(library(lists)).` bzw. `library(apply)` – auch
     im Toplevel. Eigene Definitionen gehen Importen vor.
   * Eingebaut ohne Import ist nur, was ISO vorschreibt oder SICStus
-    eingebaut hat. Alles andere hat eine *Heimat-Bibliothek* (nach Inhalt,
+    eingebaut hat – und `evaluable_property/2` (aus Logtalks „Prolog
+    commons“): `built_in`, `static`, `template(abs(number), number)`,
+    `template(pi, float)` mit den Typen `integer`, `float`, `number`;
+    mit ungebundenem ersten Argument zählt es alle auswertbaren Funktoren
+    auf (sortiert, `E = _A*_B, P = built_in ; ...`). Alles andere hat eine *Heimat-Bibliothek* (nach Inhalt,
     nicht nach Herkunft) und ist erst nach deren Import sichtbar – auch
     die Steuerkonstrukte der Maschine wie `*->/2` oder `not/1`; ohne
     Import gibt es `existence_error(procedure, PI)`:
 
     | Bibliothek | Prädikate |
     |---|---|
-    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer), `partial_string/3`; `call_with_memory_limit/2` (siehe Ressourcen begrenzen), `clausex/2` (wie `clause/2`, scheitert aber statt `permission_error(access, private_procedure, …)`; für Meta-Interpreter, Messung unter „Laufzeit“), `cached_is(X, E)` (rechnet wie `X is E`, wertet aber einen geteilten Teilausdruck nur einmal aus – ein Term wie `X+X` über 60 Stufen kostet 60 Schritte statt 2^60; Fehler wie bei `is/2`; Teile mit `random`, `random_float`, `cputime`, `realtime` werden nicht gemerkt und liefern je Vorkommen einen neuen Wert); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`) und `evaluable_property/2` (`built_in`, `static`, `template(abs(number), number)`, `template(pi, float)`; Typen `integer`, `float`, `number`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
+    | `library(iso_ext)` (wie Scryer) | `forall/2`, `succ/2`, `setup_call_cleanup/3`, `call_nth/2`, `countall/2`, `call_with_inference_limit/3`, `copy_term_nat/2`, `copy_term/3` (Liste, wie Scryer), `partial_string/3`; `call_with_memory_limit/2` (siehe Ressourcen begrenzen), `clausex/2` (wie `clause/2`, scheitert aber statt `permission_error(access, private_procedure, …)`; für Meta-Interpreter, Messung unter „Laufzeit“), `cached_is(X, E)` (rechnet wie `X is E`, wertet aber einen geteilten Teilausdruck nur einmal aus – ein Term wie `X+X` über 60 Stufen kostet 60 Schritte statt 2^60; Fehler wie bei `is/2`; Teile mit `random`, `random_float`, `cputime`, `realtime` werden nicht gemerkt und liefern je Vorkommen einen neuen Wert); dazu aus Logtalks „Prolog commons“ `atomic_concat/3` (`atomic_concat(a, 42, a42)`); weitergegeben: `call_cleanup/2`, `call_residue_vars/2`, `bb_get/2`, `bb_put/2`, `bb_b_put/2` |
     | `library(between)` | `between/3`, `repeat/1` (dazu `numlist/2,3` usw.) |
     | `library(fastrw)` | `fast_read/1,2`, `fast_write/1,2` |
     | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |

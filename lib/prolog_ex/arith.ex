@@ -140,6 +140,9 @@ defmodule PrologEx.Arith do
   # alle auswertbaren Funktoren {Name, Stelligkeit} (TAB-Ergänzung)
   def evaluables, do: Map.keys(@templates)
 
+  @doc "Alle auswertbaren Funktoren mit ihren Signaturen, sortiert"
+  def all_templates, do: Enum.sort(@templates)
+
   @doc "Signaturen eines auswertbaren Funktors (siehe @templates) oder nil"
   def templates(name, arity), do: Map.get(@templates, {name, arity})
 

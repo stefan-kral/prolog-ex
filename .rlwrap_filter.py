@@ -28,6 +28,10 @@ nach Stelle:
                              den Funktionen von clpz: abs max min sign ...)
   char_type(C, <TAB>         alnum), ..., upper( (die Klassen von charsio;
   code_type(C, <TAB>         alnum), ..., digit(  code_type: die von swi)
+  evaluable_property(<TAB>   _*_,, ..., abs(_),, ..., pi,, ... (die
+                             auswertbaren Funktoren; symbolische als
+                             Operator: evaluable_property(_<TAB> _*_, ...)
+  predicate_property(<TAB>   _:  user:           (Modul des Kopfs)
   X =:<TAB>                  =:=                 (symbolische Wörter: =.. \==
                              @< ...; auch ohne Leerzeichen: X=:<TAB>)
   sonst                      die Wörter aus .rlwrap_completions; ein
@@ -47,7 +51,9 @@ Zeile), die Stelligkeiten aller Prädikate in .rlwrap_predicates ("name
 a1 a2 ...", erzeugt), die Flags in .rlwrap_flags ("name" oder "name =
 wert ...", erzeugt), die Standard-Operatoren in .rlwrap_ops ("Priorität
 Typ Name", erzeugt), die auswertbaren Funktionen in .rlwrap_evaluables
-("name a1 a2 ...", erzeugt), die von clpz in .rlwrap_clpz (ebenso), die
+("name a1 a2 ...", erzeugt), Terme dazu für evaluable_property/2 in
+.rlwrap_evaluable_terms (einer je Zeile, erzeugt), die von clpz in
+.rlwrap_clpz (ebenso), die
 Zeichenklassen in .rlwrap_char_types
 ("char_type t1 t2 ...", erzeugt); test/rlwrap_test.exs prüft sie, dort
 auch, wie man die erzeugten neu schreibt.
@@ -149,6 +155,15 @@ def read_words(path=os.path.join(HERE, ".rlwrap_completions")):
         return []
 
 
+def read_lines(path):
+    """Die nicht leeren Zeilen einer Datei (ohne Zeilenende)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [l.rstrip("\n") for l in f if l.strip()]
+    except OSError:
+        return []
+
+
 def load():
     """Alle Daten des Filters (die Dateien neben ihm)."""
     return {
@@ -158,12 +173,17 @@ def load():
         "flags": read_flags(),
         "ops": read_ops(),
         "evaluables": read_predicates(os.path.join(HERE, ".rlwrap_evaluables")),
+        "evaluable_terms": read_lines(os.path.join(HERE, ".rlwrap_evaluable_terms")),
         "char_types": read_char_types(),
         "clpz": read_predicates(os.path.join(HERE, ".rlwrap_clpz")),
     }
 
 
 CHAR_TYPE = re.compile(r"\b(char_type|code_type)\([^,]*,\s*$")
+
+# erstes Argument von evaluable_property/2 bzw. predicate_property/2
+EVAL_PROP = re.compile(r"\bevaluable_property\(\s*$")
+PRED_PROP = re.compile(r"\bpredicate_property\(\s*$")
 
 # in einem arithmetischen Ausdruck: nach is oder einem Vergleich (nicht
 # -> --> >> << @< \= ...); in einem von clpz nach #= #\= #< #> #=< #>=
@@ -263,6 +283,13 @@ def complete(line, prefix, words, data):
     Token, der Teil davor kommt wieder davor. Ein symbolisches Token in
     einem Ausdruck, oder eines, zu dem nichts passt, gilt als fertig: dann
     wie nach einem Trennzeichen (leeres Token)."""
+    # erstes Argument von evaluable_property/2, predicate_property/2: das
+    # ganze Wort (_/ ist der Anfang von _/_, kein Token für sich)
+    whole = line[: len(line) - len(prefix)] if line.endswith(prefix) else line
+    if EVAL_PROP.search(whole):
+        return [t + "," for t in data["evaluable_terms"] if t.startswith(prefix)]
+    if PRED_PROP.search(whole):
+        return [m for m in ("_:", "user:") if m.startswith(prefix)]
     lead, tok = split_token(prefix)
     if is_symbolic(tok) and arith_tail(line[: len(line) - len(tok)]) is not None:
         # in einem Ausdruck ist ein Symbol ein Operator: weiter mit dem

@@ -16,24 +16,17 @@ defmodule PrologEx.Builtins.Terms do
     plus(x, y, z, subst())
   end
 
-  # evaluable_property(E, P) (Logtalks „Prolog commons“, library(iso_ext)):
-  # E ist ein auswertbarer Funktor (abs(_), pi); P ist built_in, static oder
+  # evaluable_property(E, P) (Logtalks „Prolog commons“; eingebaut): E ist
+  # ein auswertbarer Funktor (abs(_), pi); P ist built_in, static oder
   # template(T, R) – etwa template(abs(number), number), template(pi, float),
   # Typen integer, float, number (PrologEx.Arith). Andere gültige
   # Eigenschaften (dynamic, foreign) treffen nie zu; unbekannter Funktor:
-  # scheitert
+  # scheitert. E ungebunden: alle auswertbaren Funktoren (sortiert, mit
+  # frischen Argumenten)
   @eval_props ~w(built_in static dynamic foreign)
 
   defbuiltin "evaluable_property", [e, p], nondet: true do
     s = subst()
-
-    {name, arity} =
-      case PrologEx.unmark_top(Store.walk(e, s)) do
-        {:var, _} -> PrologEx.Error.instantiation!()
-        {:atom, n} -> {n, 0}
-        {:struct, n, args} -> {n, length(args)}
-        other -> PrologEx.Error.type!("callable", PrologEx.resolve(other, s))
-      end
 
     case PrologEx.unmark_top(Store.walk(p, s)) do
       {:var, _} -> :ok
@@ -42,19 +35,39 @@ defmodule PrologEx.Builtins.Terms do
       other -> PrologEx.Error.domain!("evaluable_property", PrologEx.resolve(other, s))
     end
 
-    case PrologEx.Arith.templates(name, arity) do
-      nil ->
-        []
+    case PrologEx.unmark_top(Store.walk(e, s)) do
+      {:var, _} ->
+        for {{name, arity}, ts} <- PrologEx.Arith.all_templates(),
+            t = if(arity == 0, do: a(name), else: mk(name, for(_ <- 1..arity, do: fresh_var()))),
+            prop <- eval_props(name, ts),
+            do: {:unify, [{e, t}, {p, prop}]}
 
-      ts ->
-        templates =
-          for {args, ret} <- ts do
-            t = if args == [], do: a(name), else: mk(name, Enum.map(args, &a(Atom.to_string(&1))))
-            mk("template", [t, a(Atom.to_string(ret))])
-          end
+      {:atom, n} ->
+        eval_alternatives(n, 0, p)
 
-        for prop <- [a("built_in"), a("static") | templates], do: {:unify, [{p, prop}]}
+      {:struct, n, args} ->
+        eval_alternatives(n, length(args), p)
+
+      other ->
+        PrologEx.Error.type!("callable", PrologEx.resolve(other, s))
     end
+  end
+
+  defp eval_alternatives(name, arity, p) do
+    case PrologEx.Arith.templates(name, arity) do
+      nil -> []
+      ts -> for prop <- eval_props(name, ts), do: {:unify, [{p, prop}]}
+    end
+  end
+
+  defp eval_props(name, ts) do
+    templates =
+      for {args, ret} <- ts do
+        t = if args == [], do: a(name), else: mk(name, Enum.map(args, &a(Atom.to_string(&1))))
+        mk("template", [t, a(Atom.to_string(ret))])
+      end
+
+    [a("built_in"), a("static") | templates]
   end
 
   # cached_is(X, E) (library(iso_ext)): wie X is E, geteilte Teilausdrücke

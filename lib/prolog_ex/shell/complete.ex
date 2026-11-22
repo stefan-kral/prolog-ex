@@ -220,6 +220,23 @@ defmodule PrologEx.Shell.Complete do
   end
 
   @doc false
+  # Für die TAB-Ergänzung unter rlwrap: das erste Argument von
+  # evaluable_property/2 – je auswertbarem Funktor ein Term mit _ als
+  # Argumenten, symbolische in Operatorschreibweise (_*_, -_), die aus
+  # Buchstaben in Funktorschreibweise (abs(_), mod(_,_), pi); je Zeile
+  # einer, steht in .rlwrap_evaluable_terms (test/rlwrap_test.exs)
+  def rlwrap_evaluable_terms_text do
+    for {{name, arity}, _} <- PrologEx.Arith.all_templates(), into: "" do
+      args = for i <- 1..arity//1, do: {:var, {:"$completion_arg", i}}
+      t = if args == [], do: {:atom, name}, else: {:struct, name, args}
+      names = Map.new(args, &{&1, "_"})
+
+      PrologEx.Writer.format(t, quoted: true, ignore_ops: plain?(name), variable_names: names) <>
+        "\n"
+    end
+  end
+
+  @doc false
   # Für die TAB-Ergänzung unter rlwrap: die Zeichenklassen, je Zeile das
   # Prädikat und seine Typen (mit Argument: "upper("). char_type/2 aus
   # library(charsio) (ctype/1 in charsio.pl), code_type/2 aus library(swi);
@@ -271,6 +288,7 @@ defmodule PrologEx.Shell.Complete do
       ".rlwrap_flags" => rlwrap_flags_text(),
       ".rlwrap_ops" => rlwrap_ops_text(),
       ".rlwrap_evaluables" => rlwrap_evaluables_text(),
+      ".rlwrap_evaluable_terms" => rlwrap_evaluable_terms_text(),
       ".rlwrap_char_types" => rlwrap_char_types_text(),
       ".rlwrap_clpz" => rlwrap_clpz_text()
     }
