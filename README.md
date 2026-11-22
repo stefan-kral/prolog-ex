@@ -3715,9 +3715,11 @@ Wie SICStus (dort eingebaut, hier nach `use_module`):
   * `bb_put(:Key, +T)`, `bb_get(:Key, ?T)`, `bb_delete(:Key, ?T)`,
     `bb_update(:Key, ?Old, ?New)` – Werte je Modul (Key ein Atom oder eine
     Ganzzahl, auch `M:Key`), als Kopie gespeichert, nicht backtrackbar.
-    `bb_get/2` mit ungebundenem Schlüssel oder Modul zählt auf, sortiert
-    nach Modul und Schlüssel (`bb_get(K, V)`: die des Kontextmoduls,
-    `bb_get(M:K, V)`: alle). `bb_get/2` und `bb_put/2` führt die Maschine selbst aus, wenn der Aufruf
+    `bb_get(M:K, V)` mit ungebundenem Modul oder Schlüssel zählt auf,
+    sortiert nach Modul und Schlüssel (`bb_get(M:K, V)`: alle,
+    `bb_get(user:K, V)`: die von `user`); `bb_get(K, V)` mit ungebundenem
+    `K` ist `instantiation_error` wie bei `predicate_property/2` – ob `K`
+    ein Modul trägt, ist offen. `bb_get/2` und `bb_put/2` führt die Maschine selbst aus, wenn der Aufruf
     sie meint (aus `blackboard` importiert, auch über `iso_ext`, und nicht
     selbst definiert): ohne den Aufrufweg eines Bibliotheks-Builtins,
     atomare und variablenfreie Werte ohne Kopie, eine freie Zielvariable

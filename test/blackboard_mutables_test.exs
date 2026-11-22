@@ -144,7 +144,7 @@ defmodule PrologEx.BlackboardMutablesTest do
     test "bb_get/2 zählt auf", c do
       assert ask(
                c,
-               "bb_put(b, 2), bb_put(a, f(_)), bb_put(m:c, 3), bb_b_put(d, 4), bb_get(K, V)."
+               "bb_put(b, 2), bb_put(a, f(_)), bb_put(m:c, 3), bb_b_put(d, 4), bb_get(user:K, V)."
              )
              |> norm() == ["K = a, V = f(_A)", "K = b, V = 2", "K = d, V = 4"]
 
@@ -158,6 +158,8 @@ defmodule PrologEx.BlackboardMutablesTest do
 
       assert ask(c, "bb_put(m:einzig, 3), bb_get(M:einzig, V).") == ["M = m, V = 3"]
       assert ask(c, "bb_get(nichts:K, V).") == []
+      # ohne M: offen, ob K ein Modul trägt (wie predicate_property/2)
+      assert err(c, "bb_get(K, V).") =~ "instantiation_error"
     end
 
     test "Fehler", c do

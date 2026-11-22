@@ -5,8 +5,10 @@ defmodule PrologEx.Builtins.Blackboard do
 
     * `bb_put(:Key, +Term)`          speichert eine Kopie von Term
     * `bb_get(:Key, ?Term)`          Kopie des Werts; scheitert ohne Wert.
-                                     Key oder Modul ungebunden: zählt die
-                                     Einträge auf (sortiert)
+                                     M:K mit M oder K ungebunden: zählt die
+                                     Einträge auf (sortiert); Key selbst
+                                     ungebunden: instantiation_error (ob
+                                     mit Modul oder ohne, ist offen)
     * `bb_delete(:Key, ?Term)`       wie bb_get, entfernt den Wert dann
     * `bb_update(:Key, ?Old, ?New)`  Old mit dem Wert unifizieren, dann New
                                      (als Kopie) speichern
@@ -86,13 +88,12 @@ defmodule PrologEx.Builtins.Blackboard do
     end
   end
 
-  # Schlüssel oder Modul ungebunden: {Modulterm, Schlüsselterm}, sonst nil
-  # (dann wie gewohnt key!/3, auch mit seinen Fehlern)
-  defp open_key(key, mod, s) do
+  # M:K mit M oder K ungebunden: {Modulterm, Schlüsselterm}, sonst nil (dann
+  # wie gewohnt key!/3, auch mit seinen Fehlern – ein ungebundener Schlüssel
+  # ohne M: ist instantiation_error wie bei predicate_property/2: ob er ein
+  # Modul trägt, ist offen)
+  defp open_key(key, _mod, s) do
     case PrologEx.unmark_top(PrologEx.Store.walk(key, s)) do
-      {:var, _} = k ->
-        {{:atom, mod}, k}
-
       {:struct, ":", [m, k]} ->
         case {PrologEx.Store.walk(m, s), PrologEx.unmark_top(PrologEx.Store.walk(k, s))} do
           {{:var, _} = m, k} -> {m, k}
