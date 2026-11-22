@@ -1302,6 +1302,9 @@ defmodule PrologEx.Builtins.Concurrent do
   defp child_state do
     PrologEx.Toplevel.state_snapshot()
     |> Enum.reject(fn {k, _} -> k == :prolog_ex_timers end)
+    # der Debugger (library(traces)) bleibt beim Aufrufer: in einem Kind ist
+    # er nie an
+    |> PrologEx.Trace.strip()
     |> Enum.map(fn {k, v} -> {k, shared(k, v)} end)
   end
 

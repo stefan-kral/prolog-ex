@@ -203,7 +203,7 @@ defmodule PrologEx.Builtins do
          ensure_loaded/1 use_module/1 use_module/2 meta_predicate/1 $expansion_hooks/0
          $expansion_hooks/2),
     "state" => ~w(b_setval/2 nb_setval/2 char_conversion/2 op/3 set_prolog_flag/2 style_check/1
-         $linda_timeout/2),
+         $linda_timeout/2 leash/1 visible/1),
     "io" => ~w(at_end_of_stream/0 at_end_of_stream/1 close/1 close/2 flush_output/0 flush_output/1
          format/1 format/2 format/3 get_byte/1 get_byte/2 get_char/1 get_char/2 get_code/1
          get_code/2 peek_byte/1 peek_byte/2 peek_char/1 peek_char/2 peek_code/1 peek_code/2
@@ -214,7 +214,7 @@ defmodule PrologEx.Builtins do
          statistics/0 with_output_to/2 fast_read/1 fast_read/2 fast_write/1 fast_write/2
          $get_n_chars/3 $chars_input/2 $lazy_block/5 $lazy_position/4 $lazy_start/2
          $wot_close/3 $wot_open/2 $wot_restore/2 $wot_sink/1 $http_put_byte_chars/2
-         see/1 seen/0 tell/1 told/0 append/1),
+         see/1 seen/0 tell/1 told/0 append/1 debugging/0),
     "external" => ~w(halt/0 halt/1 delete_file/1 $shell/2 $setenv/2 $unsetenv/1 $process_create/8
          $process_kill/1 $process_release/1 $process_wait/3 $http_accept/7 $http_answer/4
          $http_answer/5 $http_listen/5 $http_listen_stop/1 $http_open/7 $http_send_file/4

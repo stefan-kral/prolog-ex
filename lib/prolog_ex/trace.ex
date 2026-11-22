@@ -458,11 +458,18 @@ defmodule PrologEx.Trace do
     S.flush(id)
   end
 
+  @doc """
+  Ein Zustand (PrologEx.Toplevel.state_snapshot/0) ohne den Tracer: für
+  Kinder von library(concurrent) – dort ist der Debugger nie an
+  """
+  def strip(snapshot), do: Enum.reject(snapshot, fn {k, _} -> k in keys() end)
+
+  defp keys, do: [@key, @leash_key, @visible_key, @spy_key, @print_key, :prolog_ex_trace_input]
+
   @doc false
   # für Tests: alles zurück auf die Vorgaben (Debugger aus, keine Spypunkte)
   def reset do
-    for k <- [@key, @leash_key, @visible_key, @spy_key, @print_key, :prolog_ex_trace_input],
-        do: Process.delete(k)
+    for k <- keys(), do: Process.delete(k)
 
     :ok
   end

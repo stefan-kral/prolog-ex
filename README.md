@@ -3926,6 +3926,16 @@ R = [2,1].
   wie im Quelltext (`_A is N-1`); vom JIT übersetzte Prädikate laufen im
   Trace-Modus im Interpreter, ihre Aufrufe untereinander sind also zu
   sehen.
+* **Nicht in Kindern von `library(concurrent)`** (und `clpz_concurrent`):
+  sie erben den Debugger nicht – der Zustand, den sie mitbekommen, ist
+  ohne ihn –, im Trace-Modus ist `concurrent_maplist/2` usw. eine Box,
+  auch Spypunkte auf dem, was die Kinder rufen, greifen dort nicht. Den
+  Debugger ein- oder ausschalten (`trace/0`, `spy/1`, `leash/1`, ...) ist
+  eine Wirkung auf den Zustand: im Kind und unter
+  `call_with_no_side_effects/1` `permission_error(perform, side_effect,
+  ...)`. Auch das Vorausrechnen des Toplevels (die nächste Antwort
+  probeweise in einem eigenen Prozess) läuft nie mit dem Debugger: Ist er
+  an, gibt es keins; schaltet die Anfrage ihn dabei ein, bricht es ab.
 * Ein deterministischer Aufruf hinterlässt nichts: Beim Exit ohne offene
   Choice Points nimmt der Tracer seinen Fail-Punkt wieder weg. Darum gibt
   es danach weder Redo noch Fail – und `catch/3`, `setup_call_cleanup/3`

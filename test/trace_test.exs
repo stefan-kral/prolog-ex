@@ -20,6 +20,7 @@ defmodule PrologEx.TraceTest do
   :- use_module(library(iso_ext)).
   :- use_module(library(between)).
   :- use_module(library(traces)).
+  :- use_module(library(concurrent)).
   app([], L, L).
   app([H|T], L, [H|R]) :- app(T, L, R).
   nrev([], []).
@@ -37,6 +38,7 @@ defmodule PrologEx.TraceTest do
   qa(X) :- X = 'a b'.
   mk(L) :- length(L, 3000), maplist(=(a), L), mk2(L).
   mk2(L) :- length(L, N), N > 0.
+  sw(G, _) :- call(G).
   la(L) :- append([1], [2], L).
   """
 
@@ -207,6 +209,37 @@ defmodule PrologEx.TraceTest do
 
     # ohne Import ein gewöhnlicher Name
     assert run(c, "assertz(debug), debug") == ["true"]
+    assert PrologEx.Trace.mode() == nil
+  end
+
+  # library(concurrent): in einem Kind ist der Debugger nie an – es erbt ihn
+  # nicht, und einschalten kann es ihn nicht (Wirkung auf den Zustand)
+  test "kein Debugger in Kindern von library(concurrent)", c do
+    assert trace(c, "concurrent_maplist(q, [1,2,3])") == [
+             "Call: (1) concurrent_maplist(q,[1,2,3])",
+             "Exit: (1) concurrent_maplist(q,[1,2,3])"
+           ]
+
+    # auch nicht mit einem Spypunkt auf dem, was die Kinder rufen
+    assert quiet(c, "leash(none), spy(q/1), concurrent_maplist(q, [1,2]), nodebug") ==
+             {["true"], ["% Spypunkt auf q/1"]}
+
+    PrologEx.Trace.reset()
+
+    for g <- ~w(trace debug notrace nodebug nospyall) ++ ["spy(q/1)", "nospy(q/1)"] do
+      assert run(c, "catch(concurrent_maplist(sw(#{g}), [1]), error(E, _), true)") == [
+               "E = permission_error(perform,side_effect,#{g})"
+             ]
+    end
+
+    assert run(c, "catch(call_with_no_side_effects(trace), error(E, _), true)") == [
+             "E = permission_error(perform,side_effect,trace)"
+           ]
+
+    assert run(c, "catch(concurrent_maplist(sw(leash(none)), [1]), error(E, _), true)") == [
+             "E = permission_error(perform,side_effect,leash(none))"
+           ]
+
     assert PrologEx.Trace.mode() == nil
   end
 

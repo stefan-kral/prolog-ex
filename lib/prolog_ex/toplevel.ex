@@ -375,7 +375,9 @@ defmodule PrologEx.Toplevel do
       not more? ->
         IO.puts(text <> ".")
 
-      page != nil and not effects? and room?(page, used) ->
+      # (nicht mit dem Debugger: die nächste Antwort sucht er mit dem
+      # Benutzer, nicht probeweise in einem anderen Prozess)
+      page != nil and not effects? and room?(page, used) and not PrologEx.Trace.on?() ->
         case lookahead(cont) do
           {:ok, {{:suspended, _, _}, false} = next} ->
             IO.puts(text <> " ;")
@@ -477,7 +479,7 @@ defmodule PrologEx.Toplevel do
   # nur, wenn dabei nichts passiert ist – sonst verwerfen (die Wirkungen
   # bleiben im anderen Prozess).
   defp lookahead(cont) do
-    state = state_snapshot()
+    state = PrologEx.Trace.strip(state_snapshot())
     parent = self()
 
     {pid, ref} =

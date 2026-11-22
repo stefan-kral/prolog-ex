@@ -3659,7 +3659,10 @@ defmodule PrologEx do
   # Prüfpunkt dann auf jeden gezählten Schritt, limit_timers/5 kommt zu
   # trace_or_step/5. Ohne Debugger erreicht nichts davon die Maschine.
   # (die Prädikate gehören zu library(traces): sichtbar erst nach dem Import,
-  # homed_step/5; die Ausführung bei engine_step/5)
+  # homed_step/5; die Ausführung bei engine_step/5). Sie ändern den Zustand:
+  # nicht in einem Bereich ohne Seiteneffekte – also nie in einem Kind von
+  # library(concurrent) – und nicht im Vorausrechnen des Toplevels
+  # (trace_switch/3)
   defp step({:atom, f} = goal, cutb, mod, rest, st)
        when f in ["trace", "debug", "notrace", "nodebug", "nospyall"],
        do: homed_step(goal, cutb, mod, rest, st)
@@ -3883,52 +3886,66 @@ defmodule PrologEx do
   # Tracer (library(traces), PrologEx.Trace): trace/0, debug/0, spy/1
   # schalten den Debugger ein – rearm/1 setzt den Prüfpunkt dann auf jeden
   # gezählten Schritt, limit_timers/5 kommt zu trace_or_step/5
-  defp engine_step({:atom, "trace"}, _cutb, _mod, rest, st) do
-    PrologEx.Trace.on()
-    run(check_soon(%{st | goals: rest}))
+  defp engine_step({:atom, "trace"} = goal, _cutb, _mod, rest, st) do
+    trace_switch(goal, st, fn ->
+      PrologEx.Trace.on()
+      run(check_soon(%{st | goals: rest}))
+    end)
   end
 
-  defp engine_step({:atom, "debug"}, _cutb, _mod, rest, st) do
-    PrologEx.Trace.debug()
-    run(check_soon(%{st | goals: rest}))
+  defp engine_step({:atom, "debug"} = goal, _cutb, _mod, rest, st) do
+    trace_switch(goal, st, fn ->
+      PrologEx.Trace.debug()
+      run(check_soon(%{st | goals: rest}))
+    end)
   end
 
   # notrace/0: mit Spypunkten weiter im Debug-Modus; nodebug/0: aus
-  defp engine_step({:atom, "notrace"}, _cutb, _mod, rest, st) do
-    PrologEx.Trace.stop_tracing()
-    run(rearm(%{st | goals: rest}))
+  defp engine_step({:atom, "notrace"} = goal, _cutb, _mod, rest, st) do
+    trace_switch(goal, st, fn ->
+      PrologEx.Trace.stop_tracing()
+      run(rearm(%{st | goals: rest}))
+    end)
   end
 
-  defp engine_step({:atom, "nodebug"}, _cutb, _mod, rest, st) do
-    PrologEx.Trace.off()
-    run(rearm(%{st | goals: rest}))
+  defp engine_step({:atom, "nodebug"} = goal, _cutb, _mod, rest, st) do
+    trace_switch(goal, st, fn ->
+      PrologEx.Trace.off()
+      run(rearm(%{st | goals: rest}))
+    end)
   end
 
   # spy/1 schaltet (wie SWI) den Debug-Modus ein, wenn der Debugger aus ist
-  defp engine_step({:struct, "spy", [spec]}, _cutb, _mod, rest, st) do
-    try do
-      PrologEx.Trace.spy(PrologEx.Trace.spy_keys(resolve(spec, st.subst)))
-      if not PrologEx.Trace.on?(), do: PrologEx.Trace.debug()
-    rescue
-      e in PrologEx.Error -> throw_ball(e.term, st)
-    else
-      _ -> run(check_soon(%{st | goals: rest}))
-    end
+  defp engine_step({:struct, "spy", [spec]} = goal, _cutb, _mod, rest, st) do
+    trace_switch(goal, st, fn ->
+      try do
+        PrologEx.Trace.spy(PrologEx.Trace.spy_keys(resolve(spec, st.subst)))
+        if not PrologEx.Trace.on?(), do: PrologEx.Trace.debug()
+      rescue
+        e in PrologEx.Error -> throw_ball(e.term, st)
+      else
+        _ -> run(check_soon(%{st | goals: rest}))
+      end
+    end)
   end
 
-  defp engine_step({:struct, "nospy", [spec]}, _cutb, _mod, rest, st) do
-    try do
-      PrologEx.Trace.nospy(PrologEx.Trace.spy_keys(resolve(spec, st.subst)))
-    rescue
-      e in PrologEx.Error -> throw_ball(e.term, st)
-    else
-      _ -> run(%{st | goals: rest})
-    end
+  defp engine_step({:struct, "nospy", [spec]} = goal, _cutb, _mod, rest, st) do
+    trace_switch(goal, st, fn ->
+      try do
+        PrologEx.Trace.nospy(PrologEx.Trace.spy_keys(resolve(spec, st.subst)))
+      rescue
+        e in PrologEx.Error -> throw_ball(e.term, st)
+      else
+        _ -> run(%{st | goals: rest})
+      end
+    end)
   end
 
-  defp engine_step({:atom, "nospyall"}, _cutb, _mod, rest, st) do
-    PrologEx.Trace.nospy(:all)
-    run(%{st | goals: rest})
+  defp engine_step({:atom, "nospyall"} = goal, _cutb, _mod, rest, st) do
+    trace_switch(goal, st, fn ->
+      PrologEx.Trace.nospy(:all)
+      run(%{st | goals: rest})
+    end)
   end
 
   defp engine_step({:struct, "reset", [g, ball, c]}, _cutb, mod, rest, st) do
@@ -4118,6 +4135,36 @@ defmodule PrologEx do
   end
 
   defp engine_step(goal, _cutb, mod, rest, st), do: call_pred(goal, mod, rest, st)
+
+  # Ein- und Ausschalten des Debuggers ist eine Wirkung auf den Zustand:
+  # im Bereich ohne Seiteneffekte (Kinder von library(concurrent),
+  # call_with_no_side_effects/1) permission_error, im Vorausrechnen des
+  # Toplevels Abbruch (die Antwort kommt dann erst nach ";")
+  defp trace_switch(goal, st, k) do
+    {name, args} =
+      case goal do
+        {:struct, f, as} -> {f, as}
+        {:atom, f} -> {f, []}
+      end
+
+    checked =
+      try do
+        PrologEx.Effects.nse_check!(st.subst, "state", name, length(args), fn ->
+          resolve(goal, st.subst)
+        end)
+      rescue
+        e in PrologEx.Error -> {:error, e.term}
+      end
+
+    case checked do
+      {:error, ball} ->
+        throw_ball(ball, st)
+
+      :ok ->
+        PrologEx.Effects.external!()
+        k.()
+    end
+  end
 
   # das eingebaute time/1 (step/5 für time/1 entscheidet, ob es gilt)
   defp builtin_time(g, mod, rest, st) do
