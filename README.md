@@ -4815,7 +4815,9 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     commons“): `built_in`, `static`, `template(abs(number), number)`,
     `template(pi, float)` mit den Typen `integer`, `float`, `number`;
     mit ungebundenem ersten Argument zählt es alle auswertbaren Funktoren
-    auf (sortiert, `E = _A*_B, P = built_in ; ...`). Alles andere hat eine *Heimat-Bibliothek* (nach Inhalt,
+    auf (sortiert, `E = _A*_B, P = built_in ; ...`) – anders als die
+    „Prolog commons“, die dort `instantiation_error` verlangen (Logtalks
+    Test `commons_evaluable_property_2_01` schlägt darum fehl). Alles andere hat eine *Heimat-Bibliothek* (nach Inhalt,
     nicht nach Herkunft) und ist erst nach deren Import sichtbar – auch
     die Steuerkonstrukte der Maschine wie `*->/2` oder `not/1`; ohne
     Import gibt es `existence_error(procedure, PI)`:
@@ -5041,8 +5043,9 @@ Scryers `library(format)` wandelt bei `~Nf` deshalb vorher in einen
 Float). `max_arity` ist 255 wie in SICStus und Scryer: größere Stelligkeiten bei
 `functor/3`, `=../2`, `abolish/1`, `read_term/2,3` und beim Aufruf (`call/N`) sind
 `representation_error(max_arity)` (beim Laden einer Datei ein
-Syntaxfehler). Gesamt: 4 135 bestanden, 72 fehlgeschlagen,
-205 übersprungen.
+Syntaxfehler). Gesamt: 4 134 bestanden, 73 fehlgeschlagen,
+205 übersprungen (`evaluable_property(_, _)` zählt bewusst auf, statt
+`instantiation_error` wie die „commons“).
 Wo Logtalk Neumerkels ISO-Entwürfen (siehe unten) widerspricht, folgen wir
 den Entwürfen und Scryer: `length/2` scheitert, wenn das erste Argument
 weder Liste noch Teilliste ist (Logtalk: `type_error(list, L)`), und die
