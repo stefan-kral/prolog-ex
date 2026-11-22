@@ -46,6 +46,19 @@ defmodule PrologEx.BuiltinSolutionsTest do
            "set_prolog_flag(occurs_check, false)", ["R = nein"]},
         {"catch((set_prolog_flag(occurs_check, error), member(X, [f(X)])), error(E, _), true), " <>
            "set_prolog_flag(occurs_check, false), E = occurs_check(_, _)", :succeeds},
+        # Zähler im Choice Point (between/3, repeat/1): nach der letzten
+        # Lösung keiner mehr; unendlich; attributierte Variable; schon
+        # gebunden
+        {"findall(X, (between(1, inf, X), (X >= 3, ! ; true)), L)", ["L = [1,2,3]"]},
+        {"call_cleanup(between(3, 3, X), D = det)", ["D = det, X = 3"]},
+        {"findall(D, call_cleanup(between(1, 2, _), D = det), L)", ["L = [_A,det]"]},
+        {"\\+ between(3, 2, _)", :succeeds},
+        {"freeze(X, write(X)), findall(X, between(1, 3, X), _)", {:out, "123"}},
+        {"freeze(X, X > 1), findall(X, between(1, 3, X), L)", ["L = [2,3], freeze(X,X>1)"]},
+        {"findall(x, repeat(4), L)", ["L = [x,x,x,x]"]},
+        {"findall(D, call_cleanup(repeat(2), D = det), L)", ["L = [_A,det]"]},
+        {"catch(repeat(a), error(E, _), true)", ["E = type_error(integer,a)"]},
+        {"findall(N, (between(1, 3, X), N is X * 10), L)", ["L = [10,20,30]"]},
         # zurücksetzen: die Bindung der vorigen Lösung ist weg
         {"findall(X-Y, (between(1, 3, X), (X =:= 2 -> Y = zwei ; Y = sonst)), L)",
          ["L = [1-sonst,2-zwei,3-sonst]"]}

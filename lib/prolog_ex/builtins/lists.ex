@@ -291,7 +291,8 @@ defmodule PrologEx.Builtins.Lists do
 
     case deref(x) do
       n when is_integer(n) -> if n >= l and (h == :inf or n <= h), do: [:ok], else: []
-      {:var, _} -> between_from(l, h, x)
+      # ein Zähler im Choice Point (die Maschine bindet X je Lösung)
+      {:var, _} -> if h != :inf and l > h, do: [], else: {:count, x, l, h}
       other -> PrologEx.Error.type!("integer", other)
     end
   end
@@ -679,11 +680,6 @@ defmodule PrologEx.Builtins.Lists do
   # Restliste für nth/4: Präfix ++ Füllung ++ Rest
   defp rest_pair(nil, _pre, _fill, _tail), do: []
   defp rest_pair(r, pre, fill, tail), do: [{r, PrologEx.list(Enum.reverse(pre, fill), tail)}]
-
-  # between/3: L, L+1, ..., H; bei H = :inf unendlich (Integer < Atom)
-  defp between_from(l, h, _x) when h != :inf and l > h, do: []
-  defp between_from(h, h, x), do: [{:unify, [{x, h}]}]
-  defp between_from(l, h, x), do: [{:unify, [{x, l}]} | fn -> between_from(l + 1, h, x) end]
 
   defp int_arg(n) when is_integer(n), do: n
   defp int_arg({:var, _}), do: PrologEx.Error.instantiation!()

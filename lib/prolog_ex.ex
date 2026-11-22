@@ -5336,6 +5336,48 @@ defmodule PrologEx do
     end
   end
 
+  # eine Zahl des Zählers: x frei (gewöhnlich) direkt gebunden, sonst wie
+  # ein Builtin-Ergebnis (attributierte Variable: wecken)
+  defp count_result(x, n, rest, st) do
+    case count_bind(x, n, st.subst) do
+      {:ok, s} -> run(%{st | goals: rest, subst: s})
+      nil -> apply_unify([{x, n}], rest, st)
+    end
+  end
+
+  @compile {:inline, count_bind: 3}
+  defp count_bind(nil, _n, s), do: {:ok, s}
+
+  defp count_bind(x, n, s) do
+    case Store.walk(x, s) do
+      {:var, {:attv, _}} -> nil
+      {:var, _} = v -> {:ok, :maps.put(v, n, s)}
+      _ -> nil
+    end
+  end
+
+  # eine Lösung, deren Choice Point (cps, schon weitergeschaltet) liegen
+  # bleibt: in einem Update des Zustands, wo es geht
+  defp sol_in_place(r, mod, rest, st, cps, s0, answer) do
+    case r do
+      :ok ->
+        run(%{st | cps: cps, subst: s0, answer: answer, goals: rest})
+
+      {:unify, pairs} ->
+        case quick_pairs(pairs, s0, occurs_mode()) do
+          {:ok, s} ->
+            run(%{st | cps: cps, subst: s, answer: answer, goals: rest})
+
+          # (scheitert sie, nimmt backtrack/1 den Choice Point mit dem Rest)
+          _ ->
+            apply_unify(pairs, rest, %{st | cps: cps, subst: s0, answer: answer})
+        end
+
+      r ->
+        apply_result(r, mod, rest, %{st | cps: cps, subst: s0, answer: answer})
+    end
+  end
+
   # Ergebnis-Paare eines Builtins ohne die allgemeine Unifikation, wo
   # nichts zu prüfen ist: {:ok, s}, :fail oder nil (dann der allgemeine
   # Weg, ab der alten Substitution)
@@ -5419,6 +5461,18 @@ defmodule PrologEx do
   end
 
   defp start_solutions([], _mod, _rest, st), do: backtrack(st)
+
+  # die Zahlen l..h nacheinander (between/3: an x gebunden; repeat/1: x =
+  # nil, nur so oft): ein Zähler im Choice Point statt einer lazy Liste
+  defp start_solutions({:count, x, l, h}, mod, rest, st) do
+    st =
+      if h == l,
+        do: st,
+        else: push(st, {:count, x, l + 1, h, mod, rest, Store.fast_snapshot(st.subst), st.answer})
+
+    count_result(x, l, rest, st)
+  end
+
   defp start_solutions([r], mod, rest, st), do: apply_result(r, mod, rest, st)
 
   defp start_solutions([r | more], mod, rest, st) do
@@ -6657,6 +6711,25 @@ defmodule PrologEx do
     end
   end
 
+  # die nächste Zahl eines Zählers (between/3, repeat/1): der Choice Point
+  # bleibt mit der nächsten liegen, nach der letzten ist er weg
+  defp backtrack(%{cps: [{:count, x, n, h, _mod, rest, subst, answer} = cp | cps]} = st) do
+    {cps, height} =
+      if n == h, do: {cps, st.height - 1}, else: {[put_elem(cp, 2, n + 1) | cps], st.height}
+
+    s0 = Store.fast_restore(subst)
+
+    # (ein Update des Zustands)
+    case count_bind(x, n, s0) do
+      {:ok, s} ->
+        run(%{st | cps: cps, height: height, subst: s, answer: answer, goals: rest})
+
+      nil ->
+        st = %{st | cps: cps, height: height, subst: s0, answer: answer}
+        apply_unify([{x, n}], rest, st)
+    end
+  end
+
   # die nächste Lösung einer lazy Liste: hat sie danach noch weitere,
   # bleibt der Choice Point (mit dem Rest) liegen – Zustand in einem Update
   defp backtrack(%{cps: [{:solutions_list, more, mod, rest, subst, answer} = cp | cps]} = st)
@@ -6664,22 +6737,8 @@ defmodule PrologEx do
     s0 = Store.fast_restore(subst)
 
     case guarded(more) do
-      {:ok, [{:unify, pairs} | more2]} when more2 != [] ->
-        case quick_pairs(pairs, s0, occurs_mode()) do
-          {:ok, s} ->
-            run(%{
-              st
-              | cps: [put_elem(cp, 1, more2) | cps],
-                subst: s,
-                answer: answer,
-                goals: rest
-            })
-
-          # (scheitert sie, nimmt backtrack/1 den Choice Point mit dem Rest)
-          _ ->
-            st = %{st | cps: [put_elem(cp, 1, more2) | cps], subst: s0, answer: answer}
-            apply_unify(pairs, rest, st)
-        end
+      {:ok, [r | more2]} when more2 != [] ->
+        sol_in_place(r, mod, rest, st, [put_elem(cp, 1, more2) | cps], s0, answer)
 
       {:ok, r} ->
         start_solutions(r, mod, rest, %{
@@ -7172,6 +7231,7 @@ defmodule PrologEx do
       {:clauses, _, _, _, _, s, _} when is_map(s) -> map_size(s)
       {:alt, _, _, s, _} when is_map(s) -> map_size(s)
       {:solutions_list, _, _, _, s, _} when is_map(s) -> map_size(s)
+      {:count, _, _, _, _, _, s, _} when is_map(s) -> map_size(s)
       {:solutions, _, _, _, s, _} when is_map(s) -> map_size(s)
       _ -> cp_subst_size(cps, n - 1)
     end

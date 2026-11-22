@@ -31,14 +31,11 @@ defmodule PrologEx.Builtins.Core do
     if is_integer(v), do: {:unify, [{n, v}]}, else: PrologEx.Error.type!("integer", resolve(v))
   end
 
-  # $repeat(N), N >= 1: genau N Lösungen als lazy Liste – der Rest wird
-  # erst beim Backtracking erzeugt, nach der letzten bleibt kein Choice Point
+  # $repeat(N), N >= 1: genau N Lösungen – ein Zähler im Choice Point der
+  # Maschine (wie between/3, ohne Bindung); nach der letzten bleibt keiner
   defbuiltin "$repeat", [n], nondet: true do
-    repeat_n(deref(n))
+    {:count, nil, 1, deref(n)}
   end
-
-  defp repeat_n(1), do: [:ok]
-  defp repeat_n(n), do: [:ok | fn -> repeat_n(n - 1) end]
 
   @doc false
   # repeat(N): Prüfung in Prolog, Aufzählung in Elixir ($repeat/1)

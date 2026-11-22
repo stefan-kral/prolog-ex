@@ -373,7 +373,14 @@ Ein Prolog-Kern in Elixir:
   des Zustands je Lösung. Fehlschlag-Schleifen je 300 000 Lösungen:
   `between/3` 110 → 53 ms, `member/2` über Zahlen 100 → 55 ms, über
   `f(X)` 140 → 100 ms, `nth1/3` 160 → 110 ms; `findall/3` über
-  `between/3` −10 %
+  `between/3` −10 %. `between/3` und `repeat/1` liefern ihre Lösungen
+  ohne lazy Liste: ein Zähler im Choice Point, die Maschine bindet je
+  Lösung direkt (nach der letzten bleibt keiner). Gegenüber dem Stand
+  davor halbe bis gut ein Drittel der Reduktionen: je 300 000 Lösungen
+  `between/3` 4,9 → 2,4 Mio. (39 → 29–38 ms), `repeat/1` 4,3 → 1,5 Mio.
+  (51 → 26–32 ms), `findall/3` über `between/3` 8,0 → 5,5 Mio. Für
+  `member/2` brachte ein Zeiger in die Liste nichts (der Schritt durch
+  die Liste kostet so viel wie die lazy Liste) – es bleibt bei ihr
 - Index auf weitere Argumente, bei Bedarf: Ist beim Aufruf das erste
   Argument ungebunden, ein anderes aber gebunden, und hat das Prädikat
   wenigstens 8 Klauseln, nimmt der Aufruf nur die Klauseln, deren Kopf
