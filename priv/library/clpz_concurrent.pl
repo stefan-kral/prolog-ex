@@ -15,7 +15,10 @@
    COptions: serial(S) – concurrent_labeling: so viele Sekunden erst
    nacheinander (die Suche bzw. ein Schritt des Branch and Bound), bevor
    parallel gerechnet wird (Vorgabe 0.1; 0: gleich parallel); kleine
-   Aufgaben sparen so das Aufsetzen der Kinder. parts(N) – in etwa so
+   Aufgaben sparen so das Aufsetzen der Kinder. Der Anfang läuft mit der
+   eigenen Schleife (serial_search/7): ist die Frist um, geht der Rest der
+   Suche als Teile an den parallelen Lauf, nichts wird doppelt gerechnet.
+   parts(N) – in etwa so
    viele Teile: Vorgabe 16 für concurrent_labelings (concurrent_maplist/3
    verteilt sie auf die Kerne); für concurrent_labeling die Zahl der
    Arbeiter, Vorgabe so viele wie Kerne (Flag cpu_count). concurrent_labelings: serial(S) ebenso (alle Lösungen
@@ -167,20 +170,24 @@ race_first(Spec, Vars, N) :-
     Vars = Sol.
 
 % die erste Lösung in der Reihenfolge der Suche: erst nacheinander (bis
-% Limit), dann parallel – ein Teil am Anfang, die Kinder geben auf Bitte
-% Teile ab (part_steal/4, '$conc_run'/7 mit split)
+% Limit, serial_search/7), dann parallel weiter – mit dem Rest der Suche
+% als festen Teilen; die Kinder geben auf Bitte Teile ab (part_steal/4,
+% '$conc_run'/7 mit split)
 ordered_first(Spec, Vars, W, Limit, Age) :-
     base(Spec, Base),
-    (   serial_try(Limit, Vars, once(labeling(Base, Vars)), Sols)
-    ->  Sols = [Vars]
-    ;   split_first(Base, Vars, W, Age)
+    serial_search(Limit, once, Base, Vars, true, Vars, Rs),
+    (   Rs = [sol(Sol)]
+    ->  Vars = Sol
+    ;   Rs = [stop(Parts)],
+        split_first(Base, Vars, W, Age, Parts)
     ).
 
-split_first(Base, Vars, W, Age) :-
+split_first(Base, Vars, W, Age, Parts) :-
     copy_term(Vars, Vs, Gs0),
     goal_conj(Gs0, Gs),
     '$conc_limits'(D, B, M),
-    '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, first(Base, Age)))], split, W, D, B, M, R),
+    '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, first(Base, Age)))|Parts],
+                split, W, D, B, M, R),
     R = ok([Vars]).
 
 % je Teil ein Ziel; alle mit demselben Sol (findall/3 kopierte es)
@@ -224,27 +231,32 @@ optimum(W, Spec, Vars, How, Best) :-
 
 optimum_(W, Spec, Vars, How, Best0, Best) :-
     How = opt(N, Limit, Age),
-    (   serial_step(W, Spec, Vars, Best0, Limit, Found)
-    ->  (   Found == none
-        ->  Best0 \== none, Best = Best0
-        ;   optimum_(W, Spec, Vars, How, Found, Best)
-        )
-    ;   steal_best(W, Spec, Vars, Best0, N, Age, Best),
+    serial_step(W, Spec, Vars, Best0, Limit, Found),
+    (   Found == none
+    ->  Best0 \== none, Best = Best0
+    ;   Found = stop(Parts)
+    ->  steal_best(W, Spec, Vars, Best0, N, Age, Parts, Best),
         Best \== none
+    ;   optimum_(W, Spec, Vars, How, Found, Best)
     ).
 
 % ein Schritt nacheinander: Found ist Wert-Lösung der ersten Lösung unter
-% der Schranke oder none; scheitert, wenn die Frist abläuft
+% der Schranke, none oder – die Frist lief ab – stop(Parts), der Rest
+% dieses Schritts als Teile
 serial_step(W, Spec, Vars, Bound, Limit, Found) :-
     W =.. [Dir, E],
     base(Spec, Base),
     bound_value(Bound, B),
-    serial_try(Limit, V-Vars, ( bound(Dir, E, B), once(labeling(Base, Vars)), value(E, V) ), Vs),
-    ( Vs = [Found] -> true ; Found = none ).
+    serial_search(Limit, once, Base, Vars, bound(Dir, E, B), V-Vars, Rs, value(E, V)),
+    (   Rs = [sol(Found)] -> true
+    ;   Rs = [Found] -> true
+    ;   Found = none
+    ).
 
 % der Rest parallel: Branch and Bound mit Work Stealing und gemeinsamer
-% Schranke (part_steal_best/7); Best: Wert-Lösung oder Bound
-steal_best(W, Spec, Vars, Bound, N, Age, Best) :-
+% Schranke (part_steal_best/7), Parts der Rest des abgebrochenen Schritts;
+% Best: Wert-Lösung oder Bound
+steal_best(W, Spec, Vars, Bound, N, Age, Parts, Best) :-
     W =.. [Dir, E],
     base(Spec, Base),
     bound_value(Bound, B),
@@ -253,7 +265,7 @@ steal_best(W, Spec, Vars, Bound, N, Age, Best) :-
               copy_term(Vars-Ev, Vs-EvC, Gs0),
               goal_conj(Gs0, Gs),
               '$conc_limits'(D, Bu, M),
-              '$conc_run'([x-(clpz_concurrent:part_loop(Gs, Vs, best(Base, Age, Dir, B, EvC)))],
+              '$conc_run'([x-(clpz_concurrent:part_loop(Gs, Vs, best(Base, Age, Dir, B, EvC)))|Parts],
                           split_best(Dir), N, D, Bu, M, R),
               R = ok([Sol]) ),
             Sols),
@@ -262,11 +274,59 @@ steal_best(W, Spec, Vars, Bound, N, Age, Best) :-
 bound_value(none, none).
 bound_value(V-_, V).
 
-% findall(T, Goal, R) höchstens Limit Sekunden (ohne Bindungen im
-% Aufrufer); scheitert, wenn die Frist abläuft
-serial_try(Limit, T, Goal, R) :-
-    Limit > 0,
-    catch(call_with_time_limit(Limit, findall(T, Goal, R)), time_limit_exceeded, fail).
+% Die Suche zuerst nacheinander im Aufrufer, mit der eigenen Schleife
+% (steal_pre/2, wie labeling(Base, Vars)) und der Frist Limit Sekunden.
+% Läuft sie ab, hält die Schleife an und gibt den Rest der Suche als Teile
+% (serial_stop/2): nichts von dem, was schon getan ist, wird parallel noch
+% einmal gerechnet. Rs (ohne Bindungen im Aufrufer): die Lösungen als
+% sol(T) – bei once nur die erste – und, wenn die Frist ablief, zuletzt
+% stop(Parts). Pre vor der Suche, After je Lösung. Limit 0: gleich
+% [stop([[]])], alles parallel ab der Wurzel.
+serial_search(Limit, How, Base, Vars, Pre, T, Rs) :-
+    serial_search(Limit, How, Base, Vars, Pre, T, Rs, true).
+
+serial_search(Limit, How, Base, Vars, Pre, T, Rs, After) :-
+    (   Limit =:= 0
+    ->  Rs = [stop([[]])]
+    ;   ( integer(Limit) -> Us is Limit * 1000000 ; Us is round(Limit * 1000000) ),
+        Base = [S, O, C],
+        E = env(Vars, [], S, O, C, 0, first, none),
+        (   How == once
+        ->  G = once(( steal_pre(none, E), After ))
+        ;   G = ( steal_pre(none, E), After )
+        ),
+        '$conc_serial_start'(Us),
+        catch(findall(R, ( call(Pre), call(G), R = sol(T)
+                         ; '$conc_serial_parts'(Ps), R = stop(Ps)
+                         ), Rs),
+              Err, true),
+        '$conc_serial_end',
+        ( var(Err) -> true ; throw(Err) )
+    ).
+
+% die Frist ist um: der Rest der Suche als Teile in ihrer Reihenfolge –
+% der Knoten hier (die Entscheidungen bis zu ihm; Self: bei enum der Rest
+% seiner Werte), dann von unten nach oben die offenen rechten Zweige.
+% Scheitert, damit die Schleife endet ('$conc_kept'/1 lässt keinen rechten
+% Zweig mehr zu)
+serial_stop(P, Self) :-
+    path_decisions(P, Above0),
+    reverse(Above0, Above),
+    append(Above, Self, Here),
+    serial_rights(P, Rights),
+    '$conc_serial_stop'([Here|Rights]),
+    fail.
+
+serial_rights([], []).
+serial_rights([N|Ns], Rs) :-
+    (   N = o(_, _, R, _)
+    ->  path_decisions(Ns, Above0),
+        reverse(Above0, Above),
+        append(Above, [R], Ds),
+        Rs = [Ds|Rs1]
+    ;   Rs = Rs1
+    ),
+    serial_rights(Ns, Rs1).
 
 bound(_, _, none) :- !.
 bound(min, E, B) :- E #< B.
@@ -288,19 +348,45 @@ bound(max, E, B) :- E #> B.
 % Schleife (7–25 % gegenüber labeling/2), darum nicht immer
 optimise_all([], Spec, Vars, N, all(W, Limit, Age), Sols) :-
     base(Spec, Base),
-    (   serial_try(Limit, Vars, labeling(Base, Vars), Sols0)
-    ->  Sols = Sols0
-    ;   pieces(Spec, Vars, N, Parts, Vs, Gs),
+    serial_search(Limit, all, Base, Vars, true, Vars, Rs),
+    (   append(Rs0, [stop(Rest)], Rs)
+    ->  sols(Rs0, Sols0),
+        rest_pieces(Rest, Spec, Vars, N, Parts, Vs, Gs),
         length(Parts, NP),
-        (   NP >= 4 * W
-        ->  Kind = fixed(Base)
-        ;   Kind = all(Base, Age)
+        (   NP =:= 0
+        ->  Sols1 = []    % der Rest scheitert schon durch Propagation
+        ;   (   NP >= 4 * W
+            ->  Kind = fixed(Base)
+            ;   Kind = all(Base, Age)
+            ),
+            '$conc_limits'(D, B, M),
+            '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, Kind))|Parts],
+                        split_all, W, D, B, M, R),
+            R = ok(Sols1)
         ),
-        '$conc_limits'(D, B, M),
-        '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, Kind))|Parts],
-                    split_all, W, D, B, M, R),
-        R = ok(Sols)
+        append(Sols0, Sols1, Sols)
+    ;   sols(Rs, Sols)
     ).
+
+sols([], []).
+sols([sol(S)|Rs], [S|Ss]) :- sols(Rs, Ss).
+
+% der Rest der Suche (Rest: Teile in ihrer Reihenfolge) in etwa N + so
+% viele Teile wie er hat: die großen weiter geteilt (grow/6, wie split/4)
+rest_pieces(Rest, Spec, Vars, N, Parts, Vs, Gs) :-
+    findall(Nd, ( member(Ds, Rest), reverse(Ds, RDs), rest_kind(Ds, Kind),
+                  node(RDs, Vars, Kind, Nd) ), Nodes0),
+    length(Nodes0, K),
+    N1 is K + N,
+    MaxSteps is 8 * N,
+    grow_(Nodes0, Spec, Vars, N1, MaxSteps, Nodes),
+    findall(Ds, ( member(node(_, _, Ds0), Nodes), reverse(Ds0, Ds) ), Parts),
+    copy_term(Vars, Vs, Gs0),
+    goal_conj(Gs0, Gs).
+
+% ein Rest von enum (range/4 am Ende) wird nicht weiter geteilt
+rest_kind(Ds, Kind) :-
+    (   last(Ds, range(_, _, _, _)) -> Kind = final ; Kind = open ).
 optimise_all([W|Ws], Spec, Vars, N, How, Sols) :-
     W =.. [Dir, E],
     pieces_t(Spec, Vars-E, Vars, N, Parts, Vs-EV, Gs),
@@ -552,7 +638,11 @@ senum_([F-U|Is], O, Lim, X, I, RVars, E, P, D) :-
         ;   Rest = [_-H1|_], R = range(I, Lim, H1, down)
         ),
         '$conc_steal_node'(T, Req),
-        steal_poll(Req, E, P, D, T),
+        (   Req == serial_stop
+        ->  ( O == up -> Here = range(I, V, Lim, up) ; Here = range(I, Lim, V, down) ),
+            serial_stop(P, [Here])
+        ;   steal_poll(Req, E, P, D, T)
+        ),
         (   X = V,
             slabel(RVars, E, [o(D, eq(I, V), R, T)|P], D)
         ;   '$conc_kept'(D),
@@ -592,6 +682,9 @@ bisect_side(gt(_, M), X) :- X #> M.
 steal_poll(no, E, _, _, _) :-
     arg(8, E, none),
     !.
+steal_poll(serial_stop, _, P, _, _) :-
+    !,
+    serial_stop(P, []).
 steal_poll(Req, E, P, Depth, T) :-
     (   best_check(E)
     ->  true

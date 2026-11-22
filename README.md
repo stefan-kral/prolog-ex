@@ -4284,13 +4284,41 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   Lohnend bleibt es, wenn die Suche deutlich länger dauert als der Aufbau
   (30 Damen mit `ff` finden sich nacheinander in 40 ms, parallel braucht
   schon das Aufteilen mehr).
+* **Der Anfang nacheinander geht nicht verloren.** `serial(S)` lief mit
+  `labeling/2`; war die Frist um, wurde abgebrochen und parallel wieder bei
+  der Wurzel begonnen – die S Sekunden waren verloren. Jetzt läuft auch der
+  Anfang mit der eigenen Schleife (im Aufrufer, ohne Kinder). Ist die Frist
+  um, hält sie an und gibt den Rest der Suche als Teile in ihrer
+  Reihenfolge: den Knoten, an dem sie steht (die Entscheidungen bis dahin,
+  bei `enum` der Rest seiner Werte), dann von unten nach oben jeden offenen
+  rechten Zweig darüber. Der parallele Lauf beginnt mit genau diesen Teilen
+  (eine Lösung, Optimieren: mit Work Stealing; alle Lösungen: die großen
+  noch weiter geteilt wie beim Aufteilen, die bis dahin gefundenen
+  Lösungen kommen davor). Nichts wird doppelt gerechnet, und gleich zu
+  Beginn ist Arbeit für alle da – die tiefsten Teile, die die Suche
+  nacheinander als nächste nähme, zuerst. Dafür kostet der Anfang
+  nacheinander die eigene Schleife statt `labeling/2` (s. o.: einige
+  Prozent, bei Aufgaben unter `serial(S)` höchstens ein paar ms).
+
+  | 2 Kerne, Demo `klein`, Median aus 3 | nacheinander | parallel vorher | parallel jetzt |
+  |---|---|---|---|
+  | 18 Damen, eine Lösung | 2,4–2,6 s | 2,58 s | 1,60 s |
+  | 20 Damen, `Q1 #> 10`, `Q2 #< 3` | 2,7–2,8 s | 2,75 s | 1,59 s |
+  | ebenso mit `[bisect]` | 3,4–3,5 s | 3,52 s | 2,12 s |
+  | 7+1 Tauben (keine Lösung) | 0,29–0,31 s | 0,48 s | 0,34 s |
+  | 9 Damen, `ff`, alle | 0,28–0,31 s | 0,37 s | 0,28 s |
+  | 11 Damen, `Q1 #> 5`, `Q2 #< 3`, alle | 0,77–0,91 s | 0,90 s | 0,61 s |
+  | Rucksack, 16 Gegenstände, `max` | 3,4–3,5 s | 1,47 s | 1,27 s |
+  | 8 Damen, `[ff, min(Σ i·Qᵢ)]` | 0,45 s | 0,59 s | 0,43 s |
+  | Golomb-Lineal, 7 Marken, `min` | 0,33–0,34 s | 0,50 s | 0,33 s |
 * **Optimieren** mit `min(E)`/`max(E)` (auch mehrere, lexikographisch wie
   `labeling/2`). `concurrent_labeling` gibt genau die Lösung von
   `once(labeling(Opts, Vars))`: Branch and Bound erst nacheinander im
   Aufrufer – eine Lösung unter der bisherigen Schranke suchen, ihr Wert ist
   die neue –, solange ein Schritt billig ist (`serial(S)`, Vorgabe 0,1 s);
   braucht einer länger (gegen Ende werden bessere Lösungen selten, zuletzt
-  muss bewiesen werden, dass es keine gibt), dann der Rest parallel mit
+  muss bewiesen werden, dass es keine gibt), dann der Rest dieses Schritts
+  (als Teile, oben) parallel mit
   Work Stealing und **gemeinsamer Schranke**: jeder Teil sucht ohne
   Neustart weiter, jede bessere Lösung wird sofort allen laufenden Teilen
   gemeldet und schränkt sie ein (an jedem Knoten: fällt E aus der

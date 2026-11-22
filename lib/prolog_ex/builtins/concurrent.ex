@@ -88,7 +88,7 @@ defmodule PrologEx.Builtins.Concurrent do
   defbuiltin "$conc_steal_node", [t, req] do
     case Process.get(:conc_steal) do
       nil ->
-        {:unify, [{t, 0}, {req, a("no")}]}
+        {:unify, [{t, 0}, {req, a(serial_req())}]}
 
       {_parent, ref, i} ->
         r = steal_msgs(ref, i, "no")
@@ -295,7 +295,75 @@ defmodule PrologEx.Builtins.Concurrent do
         end
 
       _ ->
+        if Process.get(:conc_serial) == :stopped, do: :fail, else: true
+    end
+  end
+
+  # --- der Anfang nacheinander im Aufrufer (serial_search/7, clpz_concurrent) --
+  #
+  # Die eigene Schleife läuft dort mit einer Frist: '$conc_serial_start'(Us)
+  # setzt sie (µs ab jetzt); danach meldet jeder Knoten serial_stop
+  # (serial_req/0), sobald sie um ist. '$conc_serial_stop'(Parts) hält den
+  # Rest der Suche fest – danach scheitert jeder rechte Zweig
+  # ('$conc_kept'/1), die Schleife endet; '$conc_serial_parts'(Parts) holt
+  # ihn ab, '$conc_serial_end' räumt auf. Ein teilendes Kind, das so etwas
+  # aufruft, behält seinen eigenen Kanal (für die Zeit beiseitegelegt).
+  defbuiltin "$conc_serial_start", [us] do
+    d = System.monotonic_time(:microsecond) + PrologEx.Store.walk(us, subst())
+    saved = {Process.get(:conc_steal), Process.get(:conc_steal_marks), Process.get(:conc_serial)}
+    Process.put(:conc_serial_saved, [saved | Process.get(:conc_serial_saved, [])])
+    Process.delete(:conc_steal)
+    Process.delete(:conc_steal_marks)
+    Process.delete(:conc_serial_parts)
+    Process.put(:conc_serial, d)
+    true
+  end
+
+  defbuiltin "$conc_serial_stop", [parts] do
+    case Process.get(:conc_serial) do
+      d when is_integer(d) ->
+        Process.put(:conc_serial, :stopped)
+        Process.put(:conc_serial_parts, PrologEx.resolve(parts, subst()))
         true
+
+      _ ->
+        :fail
+    end
+  end
+
+  defbuiltin "$conc_serial_parts", [parts] do
+    case Process.delete(:conc_serial_parts) do
+      nil -> :fail
+      ps -> {:unify, [{parts, ps}]}
+    end
+  end
+
+  defbuiltin "$conc_serial_end", [] do
+    {saved, rest} =
+      case Process.get(:conc_serial_saved, []) do
+        [sv | rest] -> {sv, rest}
+        [] -> {{nil, nil, nil}, []}
+      end
+
+    {st, marks, ser} = saved
+    keep(:conc_steal, st)
+    keep(:conc_steal_marks, marks)
+    keep(:conc_serial, ser)
+    Process.put(:conc_serial_saved, rest)
+    Process.delete(:conc_serial_parts)
+    true
+  end
+
+  defp keep(k, nil), do: Process.delete(k)
+  defp keep(k, v), do: Process.put(k, v)
+
+  # außerhalb eines teilenden Kinds: "serial_stop", wenn die Frist des
+  # Anfangs nacheinander um ist (oder er schon angehalten hat), sonst "no"
+  defp serial_req do
+    case Process.get(:conc_serial) do
+      nil -> "no"
+      :stopped -> "serial_stop"
+      d -> if System.monotonic_time(:microsecond) >= d, do: "serial_stop", else: "no"
     end
   end
 
@@ -318,7 +386,7 @@ defmodule PrologEx.Builtins.Concurrent do
          n when is_integer(n) <- vindex(vs, xv, 1, s) do
       case Process.get(:conc_steal) do
         nil ->
-          {:ok, n, 0, "no"}
+          {:ok, n, 0, serial_req()}
 
         {_parent, ref, j} ->
           r = steal_msgs(ref, j, "no")
@@ -639,11 +707,13 @@ defmodule PrologEx.Builtins.Concurrent do
 
   # --- Teilen: die erste Lösung in der Reihenfolge der Suche -------------------
   #
-  # Mode split, Jobs = [_-C]: jeder Arbeiter führt C einmal aus (part_loop/3
-  # in clpz_concurrent: das Modell aufbauen, dann Teil für Teil); ein Teil
-  # ist eine Liste von Entscheidungen Ds ({:conc_part, ref, id, Ds}, siehe
-  # '$conc_next_part'/2), der erste Ds = []; sein Ergebnis ok(T), fail oder
-  # error(E) ('$conc_part_done'/2). Freie Arbeiter
+  # Mode split, Jobs = [_-C, Ds1, ..., Dsn]: jeder Arbeiter führt C einmal
+  # aus (part_loop/3 in clpz_concurrent: das Modell aufbauen, dann Teil für
+  # Teil); ein Teil ist eine Liste von Entscheidungen Ds ({:conc_part, ref,
+  # id, Ds}, siehe '$conc_next_part'/2): die Dsi feste Teile in der
+  # Reihenfolge der Suche (der Rest des Anfangs nacheinander, an einer
+  # Wurzel ohne eigenes Ergebnis), ohne sie einer, Ds = []; sein Ergebnis
+  # ok(T), fail oder error(E) ('$conc_part_done'/2). Freie Arbeiter
   # bekommen den linkesten wartenden Teil; wartet keiner, bittet der
   # Elternprozess laufende Teile (von links) um Arbeit, und das Kind gibt
   # einen Teil ab (oder none: frühestens nach @split_retry ms wieder).
@@ -668,7 +738,8 @@ defmodule PrologEx.Builtins.Concurrent do
   # (rekursiv), S1, ... Eine Ausnahme in einem Teil beendet alles und kommt
   # hier an.
   #
-  # Mode split_best(min | max) (Branch and Bound): Jobs = [_-C], das Ergebnis
+  # Mode split_best(min | max) (Branch and Bound): Jobs = [_-C, Ds1, ...]
+  # (feste Teile wie bei split), das Ergebnis
   # eines Teils ok(Res), Res none oder best(Wert, Lösung, K). Meldet ein Kind
   # einen besseren Wert ({:conc_improve, ...}), geht er als gemeinsame
   # Schranke an alle laufenden Kinder (und an jedes neue). Sind alle Teile
@@ -692,7 +763,7 @@ defmodule PrologEx.Builtins.Concurrent do
         # Id -> %{st: :pending | :running | :failed | :pruned | {:ok, T, K}
         # | {:error, E, K}, ds: Ds, givens: [Id], up: Id | nil, cut: Id | nil}
         # (cut: rechts von diesem abgegebenen Teil ist alles weggefallen)
-        parts: split_roots(fixed),
+        parts: split_roots(fixed, mode),
         next: length(fixed) + 1,
         idle: [],
         # Id -> Arbeiter
@@ -719,9 +790,18 @@ defmodule PrologEx.Builtins.Concurrent do
 
   # ohne feste Teile: einer mit Ds = []; sonst eine fertige Wurzel (keine
   # eigenen Lösungen) mit ihnen als abgegebenen Teilen 1..n
-  defp split_roots([]), do: %{0 => %{st: :pending, ds: [], givens: [], up: nil, cut: nil, g: 0}}
+  defp split_roots([], _mode),
+    do: %{0 => %{st: :pending, ds: [], givens: [], up: nil, cut: nil, g: 0}}
 
-  defp split_roots(fixed) do
+  # feste Teile: unter einer gedachten Wurzel 0 ohne eigenes Ergebnis
+  defp split_roots(fixed, mode) do
+    root =
+      case mode do
+        :first -> :failed
+        :all -> {:all, []}
+        {:best, _} -> {:best, a("none")}
+      end
+
     ids = Enum.to_list(1..length(fixed))
 
     fixed
@@ -729,7 +809,7 @@ defmodule PrologEx.Builtins.Concurrent do
     |> Map.new(fn {ds, id} ->
       {id, %{st: :pending, ds: ds, givens: [], up: 0, cut: nil, g: id}}
     end)
-    |> Map.put(0, %{st: {:all, []}, ds: [], givens: ids, up: nil, cut: nil, g: 0})
+    |> Map.put(0, %{st: root, ds: [], givens: ids, up: nil, cut: nil, g: 0})
   end
 
   defp split_loop(sp) do
