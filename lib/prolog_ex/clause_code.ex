@@ -396,6 +396,9 @@ defmodule PrologEx.ClauseCode do
   # nicht) oder :unknown (erst zur Laufzeit)
   defp tm({:t_slot, i}), do: {slot(i), :unknown}
   defp tm({:t_fresh, j}), do: {tup([a(:var), {:op, 0, :+, v(:Base), int(j)}]), :nonground}
+  # Ausgabe-Slot: der Rumpf hier wird beim Eintritt gebaut, der Slot ist
+  # noch leer – also die frische Variable
+  defp tm({:t_oslot, _k, j}), do: tm({:t_fresh, j})
 
   defp tm({:t_lit, t}),
     do: {lit(t), if(PrologEx.cc_known_ground?(t), do: :ground, else: :nonground)}

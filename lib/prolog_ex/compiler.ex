@@ -36,6 +36,8 @@ defmodule PrologEx.Compiler do
 
       {:t_slot, slot} | {:t_fresh, j} | {:t_lit, term}
       {:t_list, h, t} | {:t_struct, f, [args]}
+      {:t_oslot, slot, j}   Ausgabe-Slot (siehe out_tmpl/2): der Wert im
+                            Slot, leer die frische Variable j
 
   Arithmetik: ein Ziel `X is Ausdruck` oder ein Vergleich (`=:=`, `<`, ...)
   auf oberster Ebene des Rumpfs wird zu
@@ -70,12 +72,18 @@ defmodule PrologEx.Compiler do
     {head, body} = fold_head(head, body)
     body = alias_vars(head, body)
     counts = count_vars(body, count_vars(head, %{}))
-    st = %{slots: %{}, fresh: %{}, counts: counts, voids: 0}
+    st = %{slots: %{}, fresh: %{}, oslots: %{}, prefix: true, counts: counts, voids: 0}
 
     {pats, st} = Enum.map_reduce(args_of(head), st, &head_pat/2)
     goals = flatten_conj(body)
-    {tmpls, st} = Enum.map_reduce(goals, st, &goal_tmpl/2)
-    nslots = map_size(st.slots)
+
+    {tmpls, st} =
+      Enum.map_reduce(goals, st, fn g, st ->
+        {t, st} = goal_tmpl(g, st)
+        {t, %{st | prefix: st.prefix and inline?(t)}}
+      end)
+
+    nslots = map_size(st.slots) + map_size(st.oslots)
     nfresh = map_size(st.fresh)
     key = with :any <- index_key_of(pats), do: guard(head, goals)
 
@@ -331,8 +339,26 @@ defmodule PrologEx.Compiler do
     if trivial?(code) do
       body_tmpl(g, st)
     else
-      {out_t, st1} = body_tmpl(out, st1)
+      {out_t, st1} = out_tmpl(out, st1)
       {{:t_arith, :is, out_t, fold(code), Enum.reverse(leaves)}, st1}
+    end
+  end
+
+  # X = T mit X neu (auch T = X), X nicht in T: X wird Ausgabe-Slot
+  defp goal_tmpl({:struct, "=", [x, y]}, %{prefix: true} = st) do
+    cond do
+      new_var?(x, st) and occ(y, var_name(x)) == 0 ->
+        {tx, st} = out_tmpl(x, st)
+        {ty, st} = body_tmpl(y, st)
+        {{:t_struct, "=", [tx, ty]}, st}
+
+      new_var?(y, st) and occ(x, var_name(y)) == 0 ->
+        {tx, st} = body_tmpl(x, st)
+        {ty, st} = out_tmpl(y, st)
+        {{:t_struct, "=", [tx, ty]}, st}
+
+      true ->
+        body_tmpl({:struct, "=", [x, y]}, st)
     end
   end
 
@@ -340,13 +366,54 @@ defmodule PrologEx.Compiler do
     {ca, acc} = acode(a, {[], st})
     {cb, {leaves, st1}} = acode(b, acc)
 
-    # keine Seite mit Operator: wie bisher (nichts zu gewinnen)
-    if trivial?(ca) and trivial?(cb),
-      do: body_tmpl(g, st),
-      else: {{:t_arith, :cmp, nil, fold({:cmp, op, ca, cb}), Enum.reverse(leaves)}, st1}
+    # auch ohne Operator (X > 0): die Maschine führt den Vergleich am Anfang
+    # des Rumpfs dann direkt aus (inline_body/9), und Ausgabe-Slots danach
+    # bleiben im Präfix
+    _ = g
+    {{:t_arith, :cmp, nil, fold({:cmp, op, ca, cb}), Enum.reverse(leaves)}, st1}
   end
 
   defp goal_tmpl(g, st), do: body_tmpl(g, st)
+
+  # --- Ausgabe-Slots ----------------------------------------------------------
+  #
+  # Eine Rumpfvariable, die zuerst als Ergebnis von `is` oder als Seite von
+  # `=` (die andere ohne sie) im Präfix vorkommt, den die Maschine direkt
+  # ausführt (inline_body/9: Arithmetik, `=`, `==`, `\\==`, Typtests, `!`),
+  # bekommt einen Slot im Umfeld: {:t_oslot, k, j}. Führt die Maschine das
+  # Ziel dort aus, legt sie den Wert in den Slot statt die Variable zu
+  # binden – keine Bindung, also auch nichts, was ein Choice Point danach
+  # festhält. Ist der Slot leer (Ziel als Term gebaut: Prüfpunkt, Wecken,
+  # ClauseCode beim Eintritt), steht er für die frische Variable j wie
+  # {:t_fresh, j}.
+  defp out_tmpl({:var, n} = v, st) do
+    if st.prefix and new_var?(v, st) do
+      {{:t_fresh, j}, st} = new_fresh(n, st)
+      k = map_size(st.slots) + map_size(st.oslots)
+      {{:t_oslot, k, j}, %{st | oslots: Map.put(st.oslots, n, {k, j})}}
+    else
+      body_tmpl(v, st)
+    end
+  end
+
+  defp out_tmpl(t, st), do: body_tmpl(t, st)
+
+  defp new_var?({:var, n}, st),
+    do:
+      n != "_" and not is_map_key(st.slots, n) and not is_map_key(st.fresh, n) and
+        not is_map_key(st.oslots, n)
+
+  defp new_var?(_, _st), do: false
+
+  defp var_name({:var, n}), do: n
+
+  # führt die Maschine das Ziel im Präfix direkt aus? (wie inline_body/9)
+  @inline_tests ~w(var nonvar atom number integer float atomic compound callable)
+  defp inline?({:t_arith, _, _, _, _}), do: true
+  defp inline?({:t_lit, {:atom, "!"}}), do: true
+  defp inline?({:t_struct, f, [_, _]}) when f in ["=", "==", "\\=="], do: true
+  defp inline?({:t_struct, f, [_]}) when f in @inline_tests, do: true
+  defp inline?(_), do: false
 
   defp trivial?({:leaf, _}), do: true
   defp trivial?({:num, _}), do: true
@@ -436,9 +503,15 @@ defmodule PrologEx.Compiler do
         {{:t_slot, i}, st}
 
       :error ->
-        case Map.fetch(st.fresh, n) do
-          {:ok, j} -> {{:t_fresh, j}, st}
-          :error -> new_fresh(n, st)
+        case Map.fetch(st.oslots, n) do
+          {:ok, {k, j}} ->
+            {{:t_oslot, k, j}, st}
+
+          :error ->
+            case Map.fetch(st.fresh, n) do
+              {:ok, j} -> {{:t_fresh, j}, st}
+              :error -> new_fresh(n, st)
+            end
         end
     end
   end

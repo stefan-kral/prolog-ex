@@ -2559,6 +2559,14 @@ defmodule PrologEx do
 
   defp inst({:t_slot, i}, env, _base), do: elem(env, i)
   defp inst({:t_fresh, j}, _env, base), do: {:var, base + j}
+
+  defp inst({:t_oslot, k, j}, env, base) do
+    case elem(env, k) do
+      nil -> {:var, base + j}
+      v -> v
+    end
+  end
+
   defp inst({:t_lit, t}, _env, _base), do: t
   defp inst({:t_list, h, t}, env, base), do: cons(inst(h, env, base), inst(t, env, base))
   defp inst({:t_struct, f, args}, env, base), do: mk_struct(f, inst_args(args, env, base))
@@ -3720,7 +3728,9 @@ defmodule PrologEx do
         step(goal, cutb, mod, rest, st)
 
       m ->
-        view = decompile_goal(goal)
+        # (ein ground Vergleich, zurückübersetzt, ist markiert: der Tracer
+        # sieht ihn wie jedes andere Ziel)
+        view = unmark_top(decompile_goal(goal))
 
         cond do
           not PrologEx.Trace.traced?(view, mod) ->
@@ -6424,6 +6434,10 @@ defmodule PrologEx do
       limit_hit(goal, barrier, mod, rest, st)
     else
       case exec_inline(g, env, nv, s) do
+        # Ausgabe-Slot gefüllt (keine Bindung)
+        {:env, env} ->
+          inline_body(gs, env, nv, barrier, mod, rest, s, st, fr)
+
         {:ok, s1} ->
           case Store.take_wake(s1) do
             :none ->
@@ -6443,7 +6457,25 @@ defmodule PrologEx do
     end
   end
 
-  # {:ok, s} | :fail | {:thrown, ball}
+  # {:ok, s} | {:env, env} | :fail | {:thrown, ball}
+  defp exec_inline({:t_arith, :is, {:t_oslot, k, _}, code, leaves}, env, nv, s)
+       when elem(env, k) == nil do
+    l = List.to_tuple(inst_args(leaves, env, nv))
+
+    case guarded(fn -> PrologEx.Arith.run(code, l, s) end) do
+      {:ok, v} -> {:env, put_elem(env, k, v)}
+      thrown -> thrown
+    end
+  end
+
+  defp exec_inline({:t_struct, "=", [{:t_oslot, k, _}, y]}, env, nv, _s)
+       when elem(env, k) == nil,
+       do: {:env, put_elem(env, k, inst(y, env, nv))}
+
+  defp exec_inline({:t_struct, "=", [x, {:t_oslot, k, _}]}, env, nv, _s)
+       when elem(env, k) == nil,
+       do: {:env, put_elem(env, k, inst(x, env, nv))}
+
   defp exec_inline({:t_arith, :is, out, code, leaves}, env, nv, s) do
     x = inst(out, env, nv)
     l = List.to_tuple(inst_args(leaves, env, nv))

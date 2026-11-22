@@ -303,6 +303,24 @@ Ein Prolog-Kern in Elixir:
   ohne Term, Zielstapel und Schritt-Schleife; Inferenzen, Grenzen,
   Weckziele und Fehler wie sonst. Zählschleifen −8 %, eine DCG −14 %
   (BEAM-Reduktionen; die Zeit schwankt mehr)
+  - Ausgabe-Slots: eine Rumpfvariable, die dort zuerst als Ergebnis von
+    `is` oder als Seite von `=` vorkommt (`N1 is N - 1`, `X = f(A, B)`,
+    die andere Seite ohne sie), bekommt einen Slot im Umfeld der Klausel.
+    Die Maschine legt den Wert in den Slot, statt die Variable zu binden;
+    die folgenden Ziele werden mit dem Wert gebaut. Wird das Ziel doch als
+    Term gebaut (Prüfpunkt, Wecken, Tracer), steht der leere Slot für die
+    Variable wie bisher. Gewinn vor allem bei Choice Points: jeder hält
+    die Substitution von damals, und jede Bindung danach kopiert in der
+    persistenten Map einen Pfad (rund 40 Wörter), den nur noch er
+    festhält. Je Choice Point (ohne JIT gemessen): `d(N) :- N > 0, N1 is
+    N - 1, d(N1). d(_).` 52 → 12 Wörter, mit Rückgabewert 87 → 39, das
+    nichtdeterministische `fib/2` 140 → 104; `d(300000)` 203 → 39 MB und
+    1,7 → 0,44 s, `fib(24, _)` 117 → 81 MB und 1,3 → 0,8 s. Auch
+    deterministisch weniger Bindungen und Kompaktierung: loop −22 %, tak
+    −40 % (ohne JIT; mit JIT unverändert, der rechnet ohnehin in
+    Erlang-Variablen). Damit das greift, gilt auch ein Vergleich ohne
+    Operator (`N > 0`) als übersetzte Arithmetik und läuft am Anfang des
+    Rumpfs direkt.
 - Wächter im Index: beginnt ein Rumpf mit einem Typtest auf die Variable
   des ersten Kopfarguments (`integer/1`, `float/1`, `number/1`, `atom/1`,
   `atomic/1`, `compound/1`, `callable/1`, `var/1`), lässt der Index die
