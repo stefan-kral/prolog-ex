@@ -56,6 +56,12 @@ defmodule PrologEx do
   defguard is_marked(t)
            when is_tuple(t) and (elem(t, 0) == :gstruct or elem(t, 0) == :glist)
 
+  # Zahl, Atom, []: was eine Variable bindet, ohne dass etwas zu prüfen
+  # ist (kein Occurs-Check, nichts zu wecken bei einer gewöhnlichen
+  # Variablen)
+  defguardp is_atomic_value(v)
+            when is_number(v) or v == [] or (is_tuple(v) and elem(v, 0) == :atom)
+
   # atomar oder markiert = sicher ground, ohne hineinzuschauen
   defguard is_known_ground(t)
            when is_number(t) or t == [] or is_marked(t) or
@@ -5287,21 +5293,12 @@ defmodule PrologEx do
       r when r in [:fail, false] ->
         backtrack(st)
 
-      # (werfen kann die Unifikation nur mit occurs_check=error)
+      # das Häufigste (Ausgaben an freie Variablen): direkt binden
       {:unify, pairs} ->
-        mode = occurs_mode()
-
-        if mode == :error do
-          case guarded(fn -> unify_pairs(pairs, st.subst, mode) end) do
-            {:ok, {:ok, s}} -> cont(st, s, rest)
-            {:ok, :error} -> backtrack(st)
-            {:thrown, ball} -> throw_ball(ball, st)
-          end
-        else
-          case unify_pairs(pairs, st.subst, mode) do
-            {:ok, s} -> cont(st, s, rest)
-            :error -> backtrack(st)
-          end
+        case quick_pairs(pairs, st.subst, occurs_mode()) do
+          {:ok, s} -> run(%{st | goals: rest, subst: s})
+          :fail -> backtrack(st)
+          nil -> apply_unify(pairs, rest, st)
         end
 
       {:call, goal} ->
@@ -5320,6 +5317,63 @@ defmodule PrologEx do
         raise "Builtin lieferte ungültiges Ergebnis: #{inspect(other)}"
     end
   end
+
+  # (werfen kann die Unifikation nur mit occurs_check=error)
+  defp apply_unify(pairs, rest, st) do
+    mode = occurs_mode()
+
+    if mode == :error do
+      case guarded(fn -> unify_pairs(pairs, st.subst, mode) end) do
+        {:ok, {:ok, s}} -> cont(st, s, rest)
+        {:ok, :error} -> backtrack(st)
+        {:thrown, ball} -> throw_ball(ball, st)
+      end
+    else
+      case unify_pairs(pairs, st.subst, mode) do
+        {:ok, s} -> cont(st, s, rest)
+        :error -> backtrack(st)
+      end
+    end
+  end
+
+  # Ergebnis-Paare eines Builtins ohne die allgemeine Unifikation, wo
+  # nichts zu prüfen ist: {:ok, s}, :fail oder nil (dann der allgemeine
+  # Weg, ab der alten Substitution)
+  defp quick_pairs([], s, _oc), do: {:ok, s}
+
+  defp quick_pairs([{x, v} | ps], s, oc) do
+    case quick_bind(x, v, s, oc) do
+      {:ok, s} -> quick_pairs(ps, s, oc)
+      other -> other
+    end
+  end
+
+  # x mit dem Wert v: eine freie gewöhnliche Variable bindet direkt – an
+  # einen atomaren Wert immer, an eine Struktur ohne Occurs-Check (wie
+  # unify/4 dann: nur die Bindung, nichts zu wecken); derselbe atomare
+  # Wert gelingt, ein anderer scheitert (Floats über den allgemeinen Weg:
+  # -0.0). Sonst nil: attributierte Variable, Variable als Wert (welche an
+  # welche gebunden wird, entscheidet unify/4), Struktur gegen Struktur, ...
+  @compile {:inline, quick_bind: 4}
+  defp quick_bind(x, v, s, _oc) when is_atomic_value(v) do
+    case Store.walk(x, s) do
+      {:var, {:attv, _}} -> nil
+      {:var, _} = var -> {:ok, :maps.put(var, v, s)}
+      ^v -> {:ok, s}
+      w when is_atomic_value(w) and not is_float(w) and not is_float(v) -> :fail
+      _ -> nil
+    end
+  end
+
+  defp quick_bind(x, v, s, nil) when is_list(v) or (is_tuple(v) and elem(v, 0) != :var) do
+    case Store.walk(x, s) do
+      {:var, {:attv, _}} -> nil
+      {:var, _} = var -> {:ok, :maps.put(var, v, s)}
+      _ -> nil
+    end
+  end
+
+  defp quick_bind(_x, _v, _s, _oc), do: nil
 
   defp unify_pairs([], s, _mode), do: {:ok, s}
 
@@ -6600,6 +6654,44 @@ defmodule PrologEx do
       :continue -> backtrack(st)
       :retry -> trace_retry_at(frame, st, &backtrack/1)
       other -> trace_answer(other, frame, st)
+    end
+  end
+
+  # die nächste Lösung einer lazy Liste: hat sie danach noch weitere,
+  # bleibt der Choice Point (mit dem Rest) liegen – Zustand in einem Update
+  defp backtrack(%{cps: [{:solutions_list, more, mod, rest, subst, answer} = cp | cps]} = st)
+       when is_function(more, 0) do
+    s0 = Store.fast_restore(subst)
+
+    case guarded(more) do
+      {:ok, [{:unify, pairs} | more2]} when more2 != [] ->
+        case quick_pairs(pairs, s0, occurs_mode()) do
+          {:ok, s} ->
+            run(%{
+              st
+              | cps: [put_elem(cp, 1, more2) | cps],
+                subst: s,
+                answer: answer,
+                goals: rest
+            })
+
+          # (scheitert sie, nimmt backtrack/1 den Choice Point mit dem Rest)
+          _ ->
+            st = %{st | cps: [put_elem(cp, 1, more2) | cps], subst: s0, answer: answer}
+            apply_unify(pairs, rest, st)
+        end
+
+      {:ok, r} ->
+        start_solutions(r, mod, rest, %{
+          st
+          | cps: cps,
+            height: st.height - 1,
+            subst: s0,
+            answer: answer
+        })
+
+      {:thrown, ball} ->
+        throw_ball(ball, %{st | cps: cps, height: st.height - 1, subst: s0, answer: answer})
     end
   end
 

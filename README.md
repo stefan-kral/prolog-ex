@@ -362,6 +362,18 @@ Ein Prolog-Kern in Elixir:
   Atom unifiziert ohne allgemeine Unifikation, ein Vergleich zweier
   Zahlen als Ziel ohne Auswerten: between/member-Schleifen −25 bis
   −35 %, if-then-else/Disjunktion/Schnitt −20 bis −30 %
+- Lösungen eingebauter Prädikate (`between/3`, `member/2`, `nth0/3`,
+  `nth1/3`, `length/2`, ... – alle, die ihre Lösungen als lazy Liste
+  liefern): Ausgaben an freie Variablen bindet die Maschine direkt, ohne
+  die allgemeine Unifikation – an einen atomaren Wert immer, an eine
+  Struktur, wenn kein Occurs-Check eingeschaltet ist (sonst, bei
+  attributierten Variablen, Floats, schon gebundenen Strukturen: wie
+  bisher). Beim Zurücksetzen bleibt der Choice Point liegen und zeigt
+  auf den Rest, statt abgebaut und neu angelegt zu werden – ein Update
+  des Zustands je Lösung. Fehlschlag-Schleifen je 300 000 Lösungen:
+  `between/3` 110 → 53 ms, `member/2` über Zahlen 100 → 55 ms, über
+  `f(X)` 140 → 100 ms, `nth1/3` 160 → 110 ms; `findall/3` über
+  `between/3` −10 %
 - Index auf weitere Argumente, bei Bedarf: Ist beim Aufruf das erste
   Argument ungebunden, ein anderes aber gebunden, und hat das Prädikat
   wenigstens 8 Klauseln, nimmt der Aufruf nur die Klauseln, deren Kopf
