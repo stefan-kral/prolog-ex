@@ -132,7 +132,9 @@ defmodule PrologEx.Builtins do
                     call_with_inference_limit/3 atomic_concat/3
                     cached_is/2 clausex/2)},
                 {"between", ~w(between/3 repeat/1)},
-                {"terms", ~w(term_hash/2 term_hash/4 term_size/2 variant/2)},
+                {"terms",
+                 ~w(term_hash/2 term_hash/4 term_size/2 variant/2 same_functor/2 same_functor/3
+                    same_functor/4)},
                 {"fastrw", ~w(fast_read/1 fast_read/2 fast_write/1 fast_write/2)},
                 {"swi", ~w(ignore/1 not/1 *->/2 plus/3 atomic_list_concat/2 atomic_list_concat/3
                     atom_number/2 term_to_atom/2 read_term_from_atom/3 =@=/2 \\=@=/2

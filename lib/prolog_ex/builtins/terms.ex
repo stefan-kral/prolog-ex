@@ -462,6 +462,62 @@ defmodule PrologEx.Builtins.Terms do
     end
   end
 
+  # same_functor/2,3,4 (library(terms), wie SICStus): T1 und T2 haben
+  # denselben Funktor Name/Stelligkeit. Reicht einer der beiden Terme, wird
+  # der andere damit gebaut (frische Argumente) bzw. verglichen; sind beide
+  # offen, entscheiden Name und Stelligkeit wie bei functor/3 – fehlen sie,
+  # instantiation_error (nur dann)
+  defbuiltin "same_functor", [t1, t2] do
+    same_functor(t1, t2, nil, nil, subst())
+  end
+
+  defbuiltin "same_functor", [t1, t2, arity] do
+    same_functor(t1, t2, nil, arity, subst())
+  end
+
+  defbuiltin "same_functor", [t1, t2, name, arity] do
+    same_functor(t1, t2, name, arity, subst())
+  end
+
+  defp same_functor(t1, t2, name, arity, s) do
+    case {PrologEx.Store.walk(t1, s), PrologEx.Store.walk(t2, s)} do
+      {{:var, _}, {:var, _}} ->
+        if name == nil or arity == nil, do: PrologEx.Error.instantiation!()
+        {:unify, [{_, x}]} = functor(t1, name, arity, s)
+        {f, args} = parts(x)
+        {:unify, [{t1, x}, {t2, shape(f, length(args), s)}]}
+
+      {{:var, _}, _} ->
+        same_functor(t2, t1, name, arity, s)
+
+      {a, b} ->
+        {f, args} = parts(a)
+        n = length(args)
+
+        with {:ok, s} <- if(name, do: bind_atomic(name, f, s), else: {:ok, s}),
+             {:ok, s} <- if(arity, do: bind_atomic(arity, n, s), else: {:ok, s}) do
+          case b do
+            {:var, _} ->
+              {:subst, PrologEx.Store.bind(b, shape(f, n, s), s)}
+
+            _ ->
+              {f2, args2} = parts(b)
+              if f2 === f and length(args2) == n, do: {:subst, s}, else: :fail
+          end
+        else
+          :error -> :fail
+        end
+    end
+  end
+
+  # ein Term mit Funktor f/n und frischen Argumenten (f atomar bei n = 0)
+  defp shape(f, 0, _s), do: f
+
+  defp shape(f, n, s) do
+    {:unify, [{_, x}]} = functor(fresh_var(), f, n, s)
+    x
+  end
+
   # t mit dem atomaren Wert v unifizieren, ohne den allgemeinen Weg:
   # ungebunden → binden (bind/3 vermerkt attributierte Variablen zum
   # Wecken), sonst strikt vergleichen (wie unify/4: 1 und 1.0 verschieden);

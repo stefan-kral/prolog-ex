@@ -1874,7 +1874,13 @@ ist jeweils am Dateianfang vermerkt.
   `portray_clause/1` zeigen).
 * `library(freeze)` gibt wie in Scryer `freeze/2` weiter (eingebaut),
   `library(when)` ebenso `when/2`.
-* `library(terms)`: wie in Scryer `numbervars/3`, dazu wie SWI
+* `library(terms)`: wie in Scryer `numbervars/3`; wie SICStus
+  `same_functor(?T1, ?T2)`, `same_functor(?T1, ?T2, ?N)`,
+  `same_functor(?T1, ?T2, ?F, ?N)`: T1 und T2 haben denselben Funktor
+  F/N – reicht einer der beiden Terme, wird der andere damit gebaut
+  (frische Argumente) oder verglichen; sind beide offen, bauen F und N
+  beide wie `functor/3`, nur wenn auch die fehlen: `instantiation_error`.
+  Dazu wie SWI
   - `term_hash(+T, -H)`: ist T ground, ein Hashwert in 0..2²⁷-1 (über
     Sitzungen und Rechner gleich, `:erlang.phash2/1` einer kanonischen
     Form); sonst bleibt H ungebunden. Gleiche Terme (`==`) geben denselben

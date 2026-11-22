@@ -647,6 +647,7 @@ s16le 3
 s32be 3
 s32le 3
 s8 3
+same_functor 2 3 4
 same_length 2 3
 sample_covariance 3
 sample_standard_deviation 2

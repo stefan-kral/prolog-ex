@@ -62,6 +62,38 @@ defmodule PrologEx.TermHashTest do
     yes(c, "catch(term_hash(a, _, 10, _), error(instantiation_error, _), true)")
   end
 
+  test "same_functor/2,3,4 (wie SICStus)", c do
+    assert [_] = ask(c, "catch(same_functor(a, _), error(existence_error(_, _), _), true)")
+    yes(c, "use_module(library(terms))")
+    assert ask(c, "same_functor(f(a, b), T)") == ["T = f(_A,_B)"]
+    assert ask(c, "same_functor(T, g(1))") == ["T = g(_A)"]
+    assert ask(c, "same_functor([a], T)") == ["T = [_A|_B]"]
+    assert ask(c, "same_functor(1, T)") == ["T = 1"]
+    yes(c, "same_functor(f(a), f(b)), same_functor(a, a), same_functor(T, T, g, 1)")
+    no(c, "same_functor(f(a), g(b))")
+    no(c, "same_functor(f(a), f(a, b))")
+    no(c, "same_functor(1, 1.0)")
+    assert ask(c, "same_functor(f(a), T, N)") == ["N = 1, T = f(_A)"]
+    assert ask(c, "same_functor(f(a), T, F, N)") == ["F = f, N = 1, T = f(_A)"]
+    no(c, "same_functor(f(a), _, g, _)")
+    no(c, "same_functor(f(a), _, _, 2)")
+    no(c, "same_functor(f(a), _, _, a)")
+    # beide offen: Name und Stelligkeit bauen beide (wie functor/3)
+    assert ask(c, "same_functor(T1, T2, foo, 2)") == ["T1 = foo(_A,_B), T2 = foo(_C,_D)"]
+    assert ask(c, "same_functor(T1, T2, 7, 0)") == ["T1 = 7, T2 = 7"]
+    assert ask(c, "same_functor(T1, T2, '.', 2)") == ["T1 = [_A|_B], T2 = [_C|_D]"]
+    # instantiation_error nur, wenn nichts den Funktor festlegt
+    for g <- ["same_functor(_, _)", "same_functor(_, _, 2)", "same_functor(_, _, f, _)"] do
+      assert ask(c, "catch(#{g}, error(E, _), true)") == ["E = instantiation_error"], g
+    end
+
+    assert ask(c, "catch(same_functor(_, _, foo, a), error(E, _), true)") ==
+             ["E = type_error(integer,a)"]
+
+    assert ask(c, "catch(same_functor(_, _, foo, -1), error(E, _), true)") ==
+             ["E = domain_error(not_less_than_zero,-1)"]
+  end
+
   test "term_size/2", c do
     yes(c, "use_module(library(terms))")
     yes(c, "term_size(a, 0), term_size(_, 0), term_size(1, 0)")
