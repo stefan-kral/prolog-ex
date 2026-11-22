@@ -27,6 +27,8 @@
    concurrent_labeling ohne min/max: any lässt feste Teile gegeneinander
    laufen, die erste gefundene Lösung gilt (welche, hängt von der Zeit ab,
    wie first_solution/3). steal(S) – siehe unten (Vorgabe 0.02).
+   stats(S) – S beschreibt, was parallel geschah (Teile, Work Stealing,
+   Auslastung, der Anfang nacheinander; siehe concurrent_statistics/2).
 
    Variablen mit Constraints dürfen nicht in die Kinder von
    library(concurrent) (representation_error(concurrent_attributed_variable)).
@@ -91,6 +93,9 @@ concurrent_labeling(Options, Vars) :-
     concurrent_labeling(Options, Vars, []).
 
 concurrent_labeling(Options, Vars, COptions) :-
+    with_stats(COptions, labeling_(Options, Vars, COptions)).
+
+labeling_(Options, Vars, COptions) :-
     check(Options, Vars, COptions, Spec, Whats, Parts0),
     (   Whats == []
     ->  current_prolog_flag(cpu_count, Cores),
@@ -148,12 +153,23 @@ concurrent_labelings(Options, Vars, Solutions) :-
     concurrent_labelings(Options, Vars, Solutions, []).
 
 concurrent_labelings(Options, Vars, Solutions, COptions) :-
+    with_stats(COptions, labelings_(Options, Vars, Solutions, COptions)).
+
+labelings_(Options, Vars, Solutions, COptions) :-
     check(Options, Vars, COptions, Spec, Whats, Parts0),
     parts(Parts0, 16, N),
     current_prolog_flag(cpu_count, W),
     serial_limit(COptions, Limit),
     steal_age(COptions, Age),
     optimise_all(Whats, Spec, Vars, N, all(W, Limit, Age), Solutions).
+
+% stats(S): S wie bei concurrent_statistics/2 (library(concurrent))
+with_stats(COptions, G) :-
+    must_be(list, COptions),
+    (   memberchk(stats(S), COptions)
+    ->  concurrent_statistics(G, S)
+    ;   call(G)
+    ).
 
 parts(none, Default, Default) :- !.
 parts(N, _, N).

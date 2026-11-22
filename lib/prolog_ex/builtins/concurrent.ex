@@ -39,6 +39,9 @@ defmodule PrologEx.Builtins.Concurrent do
   use PrologEx.Builtin
   alias PrologEx.Error
 
+  # stats(S): der Stapel der offenen Messungen im Aufrufer (nil: keine)
+  @stats :conc_stats
+
   # concurrent_child(-I/N): im Kind seine Position unter den Zielen des
   # (innersten) Aufrufs, 1-basiert, und deren Anzahl; außerhalb scheitert es
   defbuiltin "$conc_child", [p] do
@@ -146,6 +149,12 @@ defmodule PrologEx.Builtins.Concurrent do
         {:unify, [{id, a("stop")}]}
 
       {parent, ref} ->
+        # stats(S): wie lange der Arbeiter das Modell aufgebaut hat
+        case Process.delete(:conc_setup_t0) do
+          nil -> :ok
+          t0 -> send(parent, {:conc_setup, ref, now_us() - t0})
+        end
+
         receive do
           {:conc_part, ^ref, i, d} ->
             Process.put(:conc_steal, {parent, ref, i})
@@ -316,6 +325,7 @@ defmodule PrologEx.Builtins.Concurrent do
     Process.delete(:conc_steal_marks)
     Process.delete(:conc_serial_parts)
     Process.put(:conc_serial, d)
+    stats_serial_start()
     true
   end
 
@@ -346,6 +356,7 @@ defmodule PrologEx.Builtins.Concurrent do
       end
 
     {st, marks, ser} = saved
+    stats_serial_end(Process.get(:conc_serial) == :stopped)
     keep(:conc_steal, st)
     keep(:conc_steal_marks, marks)
     keep(:conc_serial, ser)
@@ -534,6 +545,161 @@ defmodule PrologEx.Builtins.Concurrent do
   defp mode!({:struct, "first", [{:atom, on_fail}, {:atom, output}, {:atom, on_error}]}),
     do: {:first, on_fail, output, on_error}
 
+  # --- Einblick: stats(S), concurrent_statistics/2 ------------------------------
+  #
+  # Nur wenn eine Messung offen ist ('$conc_stats_begin'), zählt der
+  # Aufrufer mit (sonst kostet jede Stelle ein Process.get/1). Der Stapel
+  # :conc_stats hält je Messung {Start µs, Zähler}; '$conc_stats_end'(S)
+  # nimmt die oberste ab, zählt sie in die darunter ein und liefert S
+  # ('$conc_stats_end'(none): nur abnehmen, bei Scheitern oder Ausnahme).
+  # Gemessen wird nur im Aufrufer: was die Kinder selbst parallel rechnen
+  # (verschachtelt), zählt nicht. Zeiten in µs, ausgegeben in ms.
+  #
+  # Arbeiter belegt (busy): beim Teilen vom Senden eines Teils bis zu
+  # seinem Ergebnis (das erste mit dem Aufbau des Modells, setup), sonst
+  # vom ersten Paket bis zum letzten Ergebnis; beendete Arbeiter bis zum
+  # Ende des Laufs. Kapazität: Arbeiter × Dauer des Laufs; idle der Rest.
+
+  defbuiltin "$conc_stats_begin", [] do
+    Process.put(@stats, [{now_us(), %{}} | Process.get(@stats) || []])
+    true
+  end
+
+  defbuiltin "$conc_stats_end", [s] do
+    case Process.get(@stats) do
+      [{t0, m} | rest] ->
+        time = now_us() - t0
+
+        case rest do
+          [] -> Process.delete(@stats)
+          [{t1, outer} | rest1] -> Process.put(@stats, [{t1, stats_merge(outer, m)} | rest1])
+        end
+
+        case deref(s) do
+          {:atom, "none"} -> true
+          _ -> {:unify, [{s, stats_list(time, m)}]}
+        end
+
+      _ ->
+        :fail
+    end
+  end
+
+  defp stats_merge(outer, m) do
+    Map.merge(outer, m, fn
+      :workers, a, b -> max(a, b)
+      _, a, b -> a + b
+    end)
+  end
+
+  defp stats_list(time, m) do
+    g = &Map.get(m, &1, 0)
+    par = g.(:parallel) + g.(:prepare)
+    cap = g.(:capacity)
+    busy = min(g.(:busy), cap)
+
+    [
+      {"time", ms(time)},
+      {"parallel", ms(par)},
+      {"serial", ms(max(time - par, 0))},
+      {"serial_phase", ms(g.(:serial_phase))},
+      {"prepare", ms(g.(:prepare))},
+      {"runs", g.(:runs)},
+      {"workers", g.(:workers)},
+      {"parts", g.(:parts)},
+      {"packets", g.(:packets)},
+      {"fixed", g.(:fixed)},
+      {"requests", g.(:requests)},
+      {"steals", g.(:steals)},
+      {"refused", g.(:refused)},
+      {"pruned", g.(:pruned)},
+      {"bounds", g.(:bounds)},
+      {"busy", ms(busy)},
+      {"setup", ms(g.(:setup))},
+      {"idle", ms(cap - busy)},
+      {"utilization", if(cap > 0, do: round(busy * 100 / cap), else: 0)},
+      {"phases", g.(:phases)},
+      {"handovers", g.(:handovers)}
+    ]
+    |> Enum.map(fn {k, v} -> mk(k, [v]) end)
+  end
+
+  defp ms(us), do: Float.round(us / 1000, 1)
+
+  defp stat(k, n) do
+    case Process.get(@stats) do
+      nil -> :ok
+      [{t0, m} | rest] -> Process.put(@stats, [{t0, Map.update(m, k, n, &(&1 + n))} | rest])
+    end
+  end
+
+  # Arbeiter pid bekommt Arbeit (n Teile oder Elemente): belegt ab jetzt
+  defp busy_on(pid, n) do
+    if Process.get(@stats) do
+      busy_off(pid)
+      stat(:parts, n)
+      stat(:packets, 1)
+      Process.put(:conc_stats_busy, Map.put(Process.get(:conc_stats_busy, %{}), pid, now_us()))
+    end
+
+    :ok
+  end
+
+  defp busy_off(pid) do
+    if Process.get(@stats) do
+      {t, open} = Map.pop(Process.get(:conc_stats_busy, %{}), pid)
+      Process.put(:conc_stats_busy, open)
+      if t, do: stat(:busy, now_us() - t)
+    end
+
+    :ok
+  end
+
+  # der Zustand für die Arbeiter ist fertig (begonnen um t): die Zeit
+  # dafür (zählt zum Lauf, die Arbeiter gibt es noch nicht); der Start
+  # der Arbeiter
+  defp stats_prepared(t) do
+    now = now_us()
+    stat(:prepare, now - t)
+    now
+  end
+
+  # Ende eines Laufs mit w Arbeitern, gestartet um t0
+  defp stats_run(t0, w) do
+    if Process.get(@stats) do
+      now = now_us()
+      open = Process.delete(:conc_stats_busy) || %{}
+      for {_pid, t} <- open, do: stat(:busy, now - t)
+      stat(:runs, 1)
+      stat(:parallel, now - t0)
+      stat(:capacity, w * (now - t0))
+
+      [{t1, m} | rest] = Process.get(@stats)
+      Process.put(@stats, [{t1, Map.update(m, :workers, w, &max(&1, w))} | rest])
+    end
+
+    :ok
+  end
+
+  # der Anfang nacheinander (serial_search/7 in clpz_concurrent)
+  defp stats_serial_start do
+    if Process.get(@stats),
+      do: Process.put(:conc_stats_serial, [now_us() | Process.get(:conc_stats_serial, [])])
+  end
+
+  defp stats_serial_end(stopped?) do
+    case Process.get(:conc_stats_serial) do
+      [t | rest] ->
+        Process.put(:conc_stats_serial, rest)
+        stat(:serial_phase, now_us() - t)
+        stat(:phases, 1)
+        if stopped?, do: stat(:handovers, 1)
+
+      _ ->
+        :ok
+    end
+  end
+
   # --- Elternprozess ----------------------------------------------------------
 
   defp run([], {:first, _, _, _}, _max, _limits), do: a("fail")
@@ -547,6 +713,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run(jobs, mode, {max, chunk}, {deadline, _, _} = limits) do
     ref = make_ref()
+    t_prep = now_us()
     # der Zustand für die Arbeiter (die Datenbank als Literal, child_state/0)
     state = child_state()
     waiting = Enum.with_index(jobs)
@@ -554,6 +721,7 @@ defmodule PrologEx.Builtins.Concurrent do
     # first: jedes Ziel ein eigener Arbeiter (sie laufen gegeneinander)
     w = if match?({:first, _, _, _}, mode), do: n, else: min(max, n)
     sched = %{w: w, chunk: chunk, n_wait: n}
+    t0 = stats_prepared(t_prep)
 
     try do
       {running, waiting, sched} =
@@ -566,6 +734,7 @@ defmodule PrologEx.Builtins.Concurrent do
     after
       # alle noch laufenden beenden (auch bei Ausnahmen hier)
       kill_all(ref)
+      stats_run(t0, w)
     end
   end
 
@@ -574,6 +743,7 @@ defmodule PrologEx.Builtins.Concurrent do
   # mindestens 1, oder eine feste Größe (chunk(K)); ist nichts mehr da, wird
   # er beendet. running: Arbeiter -> seine offenen Indizes (der erste läuft)
   defp dispatch(ref, pid, running, [], sched) do
+    busy_off(pid)
     send(pid, {:stop, ref})
     {Map.delete(running, pid), [], sched}
   end
@@ -587,6 +757,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
     {pkg, rest} = Enum.split(waiting, k)
     send(pid, {:jobs, ref, for({{:struct, "-", [t, g]}, i} <- pkg, do: {i, t, g})})
+    busy_on(pid, length(pkg))
     running = Map.put(running, pid, for({_, i} <- pkg, do: i))
     {running, rest, %{sched | n_wait: nw - length(pkg)}}
   end
@@ -649,6 +820,7 @@ defmodule PrologEx.Builtins.Concurrent do
             Enum.reduce(running[pid], outs, fn i, o -> Map.put(o, i, {:error, ""}) end)
 
           Process.put({:conc_outs, ref}, outs)
+          busy_off(pid)
           running = Map.delete(running, pid)
           loop(ref, running, queue, mode, limits, state, deadline, results)
 
@@ -749,7 +921,10 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run_split([{:struct, "-", [t, c]} | fixed], w, {deadline, _, _} = limits, mode) do
     ref = make_ref()
+    t_prep = now_us()
     state = child_state()
+    t0 = stats_prepared(t_prep)
+    stat(:fixed, length(fixed))
 
     try do
       sp = %{
@@ -778,6 +953,7 @@ defmodule PrologEx.Builtins.Concurrent do
       split_loop(%{sp | idle: idle})
     after
       kill_all(ref)
+      stats_run(t0, w)
     end
   end
 
@@ -867,6 +1043,10 @@ defmodule PrologEx.Builtins.Concurrent do
 
           {:conc_improve, ^ref, _i, v} ->
             sp |> split_improve(v) |> split_loop()
+
+          {:conc_setup, ^ref, us} ->
+            stat(:setup, us)
+            split_loop(sp)
 
           {:DOWN, _mon, :process, pid, reason} when is_map_key(mons, pid) ->
             Error.throw!(
@@ -981,6 +1161,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
     if gb == nil or (dir == "min" and v < gb) or (dir == "max" and v > gb) do
       for pid <- Map.values(sp.run), do: send(pid, {:conc_bound, sp.ref, v})
+      stat(:bounds, 1)
       Map.put(sp, :bound, v)
     else
       sp
@@ -1021,6 +1202,7 @@ defmodule PrologEx.Builtins.Concurrent do
       Enum.reduce(order, sp, fn
         {id, :pending}, %{idle: [pid | idle]} = sp ->
           send(pid, {:conc_part, sp.ref, id, sp.parts[id].ds})
+          busy_on(pid, 1)
 
           # die gemeinsame Schranke gleich mit (Branch and Bound)
           if gb = Map.get(sp, :bound), do: send(pid, {:conc_bound, sp.ref, gb})
@@ -1051,6 +1233,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
       asks = asks |> Enum.reverse() |> Enum.take(free)
       for id <- asks, do: send(Map.fetch!(sp.run, id), {:conc_steal_req, sp.ref, id})
+      if asks != [], do: stat(:requests, length(asks))
       asked = Enum.reduce(asks, sp.asked, &Map.put(&2, &1, true))
       {%{sp | asked: asked}, if(later, do: @split_retry, else: :infinity)}
     else
@@ -1063,6 +1246,7 @@ defmodule PrologEx.Builtins.Concurrent do
   defp split_result(sp, pid, i, oc, k) do
     case sp.run do
       %{^i => ^pid} ->
+        busy_off(pid)
         sp = split_free(sp, i)
         sp = %{sp | idle: [pid | sp.idle]}
 
@@ -1127,10 +1311,16 @@ defmodule PrologEx.Builtins.Concurrent do
     sp =
       case p.st do
         :running ->
+          stat(:pruned, 1)
+          busy_off(Map.fetch!(sp.run, id))
           split_kill(sp.ref, Map.fetch!(sp.run, id))
           pid = split_spawn(sp)
           sp = split_free(sp, id)
           %{sp | idle: [pid | sp.idle]}
+
+        :pending ->
+          stat(:pruned, 1)
+          sp
 
         _ ->
           sp
@@ -1157,9 +1347,11 @@ defmodule PrologEx.Builtins.Concurrent do
 
       case ds do
         {:atom, "none"} ->
+          stat(:refused, 1)
           %{sp | none: Map.put(sp.none, i, System.monotonic_time(:millisecond))}
 
         _ ->
+          stat(:steals, 1)
           p = sp.parts[i]
           id = sp.next
           givens = List.insert_at(p.givens, rank, id)
@@ -1344,10 +1536,13 @@ defmodule PrologEx.Builtins.Concurrent do
     outer = Process.get(:conc_path, [])
     # Tiefengrenzen des Aufrufers (von '$conc_limits' gesetzt)
     depth = Process.get(:conc_depth)
+    # stats(S): der Arbeiter meldet, wie lange er das Modell aufbaut
+    setup? = mode == :split and Process.get(@stats) != nil
 
     pid =
       spawn_link(fn ->
         Process.put(:conc_depth, depth)
+        if setup?, do: Process.put(:conc_setup_t0, now_us())
         worker(parent, ref, state, base, total, outer, mode, limits)
       end)
 

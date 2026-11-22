@@ -146,6 +146,7 @@ concurrent_forall 2 3
 concurrent_labeling 2 3
 concurrent_labelings 3 4
 concurrent_maplist 2 3 4
+concurrent_statistics 2
 cond_t 3
 connect_ugraph 3
 cons 3

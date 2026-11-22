@@ -246,6 +246,50 @@ defmodule PrologEx.ClpzConcurrentTest do
              "domain_error(not_less_than_zero,-1)"
   end
 
+  defp stats(answer) do
+    [_, list] = Regex.run(~r/\bS = \[([^\]]*)\]/, answer)
+
+    for kv <- String.split(list, ","), into: %{} do
+      [_, k, v] = Regex.run(~r/(\w+)\(([-\d.e]+)\)/, kv)
+      {k, if(String.contains?(v, "."), do: String.to_float(v), else: String.to_integer(v))}
+    end
+  end
+
+  test "stats(S): Teile, Work Stealing, Anfang nacheinander", c do
+    # gleich parallel: ein Lauf mit Work Stealing, jeder Arbeiter baut das
+    # Modell auf
+    [a] = ask(c, "queens(12, Qs), concurrent_labeling([], Qs, [serial(0), stats(S)])")
+    st = stats(a)
+    assert %{"runs" => 1, "phases" => 0, "handovers" => 0} = st
+    assert st["parts"] >= 1 and st["parts"] == st["packets"]
+    assert st["steals"] + st["refused"] <= st["requests"]
+    assert st["setup"] > 0 and st["setup"] <= st["busy"]
+    assert a =~ "Qs = [1,3,5,8,10,12,6,11,2,7,9,4]"
+
+    # klein: alles im Anfang nacheinander, kein paralleler Lauf
+    [a] = ask(c, "queens(6, Qs), concurrent_labelings([], Qs, L, [stats(S)]), length(L, N)")
+    assert %{"runs" => 0, "phases" => 1, "handovers" => 0} = stats(a)
+    assert a =~ "N = 4"
+
+    # alle Lösungen, feste Teile
+    [a] =
+      ask(
+        c,
+        "queens(7, Qs), concurrent_labelings([], Qs, L, [serial(0), parts(8), stats(S)]), " <>
+          "length(L, N)"
+      )
+
+    st = stats(a)
+    assert %{"runs" => 1, "phases" => 0} = st
+    assert st["fixed"] >= 1 and st["parts"] >= st["fixed"]
+    assert a =~ "N = 40"
+
+    # Branch and Bound: neue Schranken
+    [a] = ask(c, "small(L), opt(2, L, O), concurrent_labeling(O, L, [serial(0), stats(S)])")
+    assert stats(a)["runs"] >= 1
+    assert err(c, "concurrent_labeling([], [X], foo)") == ["E = type_error(list,foo)"]
+  end
+
   test "copy_term/3 mit mehr als 255 Restzielen (16 Damen; vorher max_arity)", c do
     assert ask(c, "queens(16, Qs), copy_term(Qs, Vs, Gs), Gs \\== true, length(Vs, 16)") != []
   end

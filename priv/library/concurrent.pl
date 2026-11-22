@@ -26,7 +26,13 @@
      first_solution(?X, :Goals, +Options)
          wer zuerst eine Lösung hat, gewinnt; die anderen werden beendet
 
-   Options: threads(N) (concurrent_forall/3, concurrent_and/3, wie SWI;
+     concurrent_statistics(:Goal, -Stats)
+         wie once(Goal), Stats: was die parallelen Läufe darin taten
+         (Teile, Work Stealing, Auslastung der Arbeiter; siehe unten)
+
+   Options: stats(S) (concurrent/3, concurrent_forall/3, concurrent_and/3,
+   first_solution/3): S wie bei concurrent_statistics/2 für den Lauf;
+   threads(N) (concurrent_forall/3, concurrent_and/3, wie SWI;
    es sind Prozesse der BEAM, keine Threads) und chunk(K) (ebenda, siehe
    Blockung); first_solution/3:
    on_fail(stop) (Vorgabe: das erste Scheitern beendet alles) oder
@@ -83,6 +89,7 @@
                        concurrent_and/2,
                        concurrent_and/3,
                        first_solution/3,
+                       concurrent_statistics/2,
                        concurrent_child/1,
                        concurrent_child_stack/1]).
 
@@ -119,13 +126,15 @@ concurrent_child_stack(Stack) :-
 :- meta_predicate(concurrent_and(0, 0, +)).
 :- meta_predicate(concurrent_findall(?, :, -)).
 :- meta_predicate(first_solution(?, :, +)).
+:- meta_predicate(concurrent_statistics(0, -)).
 
-concurrent(N, M:Goals, _Options) :-
+concurrent(N, M:Goals, Options) :-
     must_be(integer, N),
     (   N >= 1 -> true ; domain_error(positive_integer, N) ),
     must_be(list, Goals),
+    must_be(list, Options),
     goals_jobs(Goals, M, Jobs),
-    run(Jobs, once, N, R),
+    run(Jobs, once, N, Options, R),
     R = ok(Results),
     Goals = Results.
 
@@ -189,7 +198,7 @@ concurrent_forall(Cond, Action) :-
 concurrent_forall(Cond, Action, Options) :-
     threads_option(Options, W),
     findall(Action-Action, Cond, Jobs),
-    run(Jobs, once, W, ok(_)).
+    run(Jobs, once, W, Options, ok(_)).
 
 % threads(N) und chunk(K) als sched(N, K) für '$conc_run'/7
 threads_option(Options, sched(W, K)) :-
@@ -215,7 +224,7 @@ concurrent_and(Gen, Test, Options) :-
     threads_option(Options, W),
     term_variables(Gen-Test, Vs),
     findall(Vs-Test, Gen, Jobs),
-    run(Jobs, findall, W, ok(Bags)),
+    run(Jobs, findall, W, Options, ok(Bags)),
     member(Bag, Bags),
     member(Vs, Bag).
 
@@ -247,7 +256,7 @@ first_solution(X, M:Goals, Options) :-
     findall_jobs(Goals, X, M, Jobs),
     length(Jobs, N),
     N1 is max(N, 1),
-    run(Jobs, first(F, O, E), N1, R),
+    run(Jobs, first(F, O, E), N1, Options, R),
     R = ok([X]).
 
 % so viele wie Scheduler (die Maschine wählt)
@@ -259,6 +268,56 @@ run(Jobs, Mode, Max, R) :-
     '$conc_limits'(D, B, Mem),
     '$conc_run'(Jobs, Mode, Max, D, B, Mem, R0),
     R = R0.
+
+% mit Options: stats(S) misst den Lauf (concurrent_statistics/2)
+run(Jobs, Mode, Max, Options, R) :-
+    (   memberchk(stats(S), Options)
+    ->  concurrent_statistics(run(Jobs, Mode, Max, R), S)
+    ;   run(Jobs, Mode, Max, R)
+    ).
+
+%% concurrent_statistics(:Goal, -Stats)
+%
+% wie once(Goal); Stats beschreibt die parallelen Läufe darin (Zeiten in
+% ms, auf 0.1 gerundet):
+%
+%   time(T)          die ganze Zeit von Goal
+%   parallel(P)      davon in parallelen Läufen (Uhrzeit, mit prepare)
+%   serial(S)        T - P: der Aufrufer allein (Vorbereiten, Einsammeln,
+%                    der Anfang nacheinander bei clpz_concurrent)
+%   serial_phase(Q)  davon der Anfang nacheinander (clpz_concurrent)
+%   prepare(R)       in P: den Zustand für die Arbeiter bereitstellen
+%                    (die Datenbank teilen; beim ersten Lauf nach einer
+%                    Änderung länger)
+%   runs(N)          parallele Läufe
+%   workers(W)       Arbeiter (der größte Lauf)
+%   parts(N)         ausgegebene Arbeit: Elemente bzw. Teile der Suche
+%   packets(N)       so oft bekam ein Arbeiter Arbeit (Pakete; beim
+%                    Teilen gleich parts)
+%   fixed(N)         feste Teile (Teilen)
+%   requests(N)      Bitten um Arbeit an laufende Teile (Work Stealing)
+%   steals(N)        abgegebene Teile
+%   refused(N)       Bitten ohne Teil (none)
+%   pruned(N)        weggefallene Teile (rechts einer Lösung)
+%   bounds(N)        neue gemeinsame Schranken (Branch and Bound)
+%   busy(B)          Arbeiter belegt, zusammen (mit setup)
+%   setup(U)         davon der Aufbau des Modells (Teilen)
+%   idle(I)          Arbeiter frei: Arbeiter × Dauer der Läufe - busy
+%   utilization(P)   busy in Prozent davon
+%   phases(N)        Anfänge nacheinander (clpz_concurrent)
+%   handovers(N)     davon mit dem Rest an einen parallelen Lauf
+%
+% Gemessen wird im Aufrufer: was Kinder selbst parallel rechnen
+% (verschachtelt), zählt nicht. Scheitert Goal oder wirft es, bleibt
+% Stats ungebunden.
+concurrent_statistics(Goal, Stats) :-
+    '$conc_stats_begin',
+    (   catch(Goal, E, ('$conc_stats_end'(none), throw(E)))
+    ->  '$conc_stats_end'(Stats0),
+        Stats = Stats0
+    ;   '$conc_stats_end'(none),
+        fail
+    ).
 
 % --- ein Element im Arbeiter ------------------------------------------------
 %

@@ -83,6 +83,85 @@ defmodule PrologEx.ConcurrentTest do
            ) == ["true"]
   end
 
+  # stats(S) / concurrent_statistics/2: Einblick in die parallelen Läufe
+  @stat_keys ~w(time parallel serial serial_phase prepare runs workers parts packets fixed
+                requests steals refused pruned bounds busy setup idle utilization phases
+                handovers)
+
+  defp stats(answer) do
+    [_, list] = Regex.run(~r/\bS = \[([^\]]*)\]/, answer)
+
+    for kv <- String.split(list, ","), into: %{} do
+      [_, k, v] = Regex.run(~r/(\w+)\(([-\d.e]+)\)/, kv)
+      {k, if(String.contains?(v, "."), do: String.to_float(v), else: String.to_integer(v))}
+    end
+  end
+
+  test "concurrent_statistics/2: Läufe, Teile, Auslastung; deterministisch", c do
+    [a] =
+      ask(
+        c,
+        "numlist(1, 30, L), concurrent_statistics(concurrent_maplist(sq, L, _), S), " <>
+          "call_cleanup(true, Det = true)"
+      )
+
+    st = stats(a)
+    assert Map.keys(st) |> Enum.sort() == Enum.sort(@stat_keys)
+    assert a =~ ~r/S = \[time\(/
+    assert %{"runs" => 1, "parts" => 30, "fixed" => 0, "steals" => 0, "phases" => 0} = st
+    assert st["workers"] == min(System.schedulers_online(), 30)
+    assert st["packets"] >= st["workers"] and st["packets"] <= 30
+    assert st["utilization"] in 0..100
+    assert st["time"] >= st["parallel"] and st["parallel"] >= st["prepare"]
+    assert_in_delta st["serial"], st["time"] - st["parallel"], 0.11
+    assert Process.get(:conc_stats) == nil
+
+    # verschachtelt: die äußere Messung zählt die inneren Läufe mit
+    [a] =
+      ask(
+        c,
+        "concurrent_statistics((concurrent_maplist(sq, [1, 2], _), " <>
+          "concurrent_statistics(concurrent_maplist(sq, [3], _), S1)), S)"
+      )
+
+    assert %{"runs" => 2, "parts" => 3} = stats(a)
+    [_, s1] = Regex.run(~r/S1 = (\[[^\]]*\])/, a)
+    assert %{"runs" => 1, "parts" => 1} = stats("S = " <> s1)
+
+    # Scheitern und Ausnahmen: wie das Ziel, die Messung ist danach zu
+    assert ask(c, ~S"concurrent_statistics(concurrent_maplist(\X^(X > 1), [1, 2]), _)") == []
+
+    assert ask(
+             c,
+             ~S"catch(concurrent_statistics(concurrent_maplist(\X^(X > a), [1]), S), " <>
+               "error(E, _), true)"
+           ) == ["E = type_error(evaluable,a/0)"]
+
+    assert Process.get(:conc_stats) == nil
+    # ohne parallelen Lauf: nur die Zeit
+    [a] = ask(c, "concurrent_statistics(true, S)")
+    assert %{"runs" => 0, "busy" => 0.0, "utilization" => 0} = stats(a)
+  end
+
+  test "Option stats(S): concurrent/3, concurrent_forall/3, concurrent_and/3, first_solution/3",
+       c do
+    [a] = ask(c, "concurrent(2, [sq(1, A), sq(2, B), sq(3, C)], [stats(S)])")
+    assert %{"runs" => 1, "workers" => 2, "parts" => 3} = stats(a)
+    assert a =~ "A = 1, B = 4, C = 9"
+
+    [a] = ask(c, "concurrent_forall(between(1, 5, X), sq(X, _), [threads(1), stats(S)])")
+    assert %{"runs" => 1, "workers" => 1, "parts" => 5} = stats(a)
+
+    [a | _] = ask(c, "concurrent_and(between(1, 3, X), sq(X, Y), [stats(S)])")
+    assert %{"runs" => 1, "parts" => 3} = stats(a)
+
+    [a] = ask(c, "first_solution(X, [sq(2, X), sq(3, X)], [stats(S)])")
+    assert %{"runs" => 1, "workers" => 2} = stats(a)
+
+    assert ask(c, "catch(concurrent(1, [true], foo), error(E, _), true)") ==
+             ["E = type_error(list,foo)"]
+  end
+
   test "concurrent_maplist/2,3,4: Ergebnisse in der Reihenfolge der Elemente", c do
     assert ask(c, "concurrent_maplist(sq, [1, 2, 3, 4], Ys)") == ["Ys = [1,4,9,16]"]
     assert ask(c, ~S"concurrent_maplist(\X^(X > 0), [1, 2, 3])") == ["true"]

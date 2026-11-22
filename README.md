@@ -4248,9 +4248,42 @@ also ab etwa 0,1 ms Arbeit je Element.
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
 | `concurrent_and(Gen, Test[, [threads(N), chunk(K)]])` | wie `(Gen, Test)`, die Tests parallel: `Gen` vorab im Aufrufer (muss endlich sein), je Lösung ein Kind mit allen Lösungen von `Test`; per Backtracking in der Reihenfolge von `(Gen, Test)` (SWI: beliebige Reihenfolge, `Gen` nebenher) |
 | `first_solution(X, Goals, [on_fail(stop\|continue), on_error(stop\|continue), output(winner\|all)])` | der Erste gewinnt, die anderen werden beendet; mit `on_error(continue)` zählt eine Ausnahme wie ein Scheitern (werfen oder scheitern alle: scheitert, wie SWI) |
+| `concurrent_statistics(G, S)` | wie `once(G)`; `S` beschreibt die parallelen Läufe darin (unten). Dasselbe gibt die Option `stats(S)` von `concurrent/3`, `concurrent_forall/3`, `concurrent_and/3`, `first_solution/3`, `concurrent_labeling/3`, `concurrent_labelings/4` |
 | `concurrent_child(I/N)` | im Kind: Position seines Ziels (1-basiert) und Anzahl der Ziele des innersten Aufrufs; außerhalb scheitert es |
 | `concurrent_child_stack(Stack)` | der Stapel der Aufrufe `[I/N, …]`, innerster oben (`concurrent_child(P)` ist `concurrent_child_stack([P\|_])`); außerhalb jedes Kinds `[]`, `length(Stack, D)` ist die Tiefe |
 
+* **Einblick:** `concurrent_statistics(G, S)` (bzw. die Option `stats(S)`)
+  misst im Aufrufer, was die parallelen Läufe in `G` taten – wie viele
+  Teile, wie oft gestohlen, wie lange die Arbeiter warteten, wie viel
+  nacheinander lief. `S` ist eine Liste (Zeiten in ms):
+
+  ```prolog
+  ?- queens(10, Qs), concurrent_labelings([], Qs, L, [serial(0), stats(S)]).
+  S = [time(757.7), parallel(707.9), serial(49.8), serial_phase(0.0),
+       prepare(12.7), runs(1), workers(2), parts(17), packets(17), fixed(17),
+       requests(1), steals(0), refused(0), pruned(0), bounds(0),
+       busy(1373.2), setup(12.2), idle(42.5), utilization(97), phases(0),
+       handovers(0)], …
+  ```
+
+  | Schlüssel | Bedeutung |
+  |---|---|
+  | `time` | die ganze Zeit von `G` |
+  | `parallel` | davon in parallelen Läufen (Uhrzeit), mit `prepare`: den Zustand für die Arbeiter bereitstellen (die Datenbank teilen – beim ersten Lauf nach einer Änderung länger) |
+  | `serial` | `time - parallel`: der Aufrufer allein (Vorbereiten, Einsammeln, bei clpz_concurrent der Anfang nacheinander, `serial_phase`) |
+  | `runs`, `workers` | parallele Läufe; Arbeiter des größten |
+  | `parts`, `packets` | ausgegebene Arbeit (Elemente bzw. Teile der Suche); so oft bekam ein Arbeiter Arbeit (Pakete der Blockung; beim Teilen gleich `parts`) |
+  | `fixed` | feste Teile zu Beginn (clpz_concurrent) |
+  | `requests`, `steals`, `refused` | Work Stealing: Bitten um Arbeit, abgegebene Teile, Bitten ohne Teil |
+  | `pruned` | weggefallene Teile (rechts einer gefundenen Lösung) |
+  | `bounds` | neue gemeinsame Schranken (Branch and Bound) |
+  | `busy`, `setup`, `idle`, `utilization` | Arbeiter belegt (zusammen; mit `setup`, dem Aufbau des Modells je Arbeiter), frei (Arbeiter × Dauer der Läufe − `busy`), Auslastung in Prozent |
+  | `phases`, `handovers` | Anfänge nacheinander (clpz_concurrent, `serial(S)`); davon mit dem Rest an einen parallelen Lauf |
+
+  Gezählt wird nur, solange gemessen wird (sonst kostet es nichts), und nur
+  im Aufrufer: was Kinder selbst parallel rechnen, zählt nicht.
+  Verschachtelte Messungen zählen in die äußere mit. Scheitert `G` oder
+  wirft es, bleibt `S` ungebunden.
 * **Ausnahmen:** wirft ein Kind – auch den Seiteneffekt-Fehler
   `permission_error(perform, side_effect, G)` –, werden alle anderen sofort
   beendet (kein Warten), und die Ausnahme kommt beim Aufrufer an; werfen
@@ -4337,7 +4370,7 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
 | Prädikat | Bedeutung |
 |---|---|
 | `concurrent_labelings(Opts, Vars, Sols[, COpts])` | alle Lösungen als Liste von Wertelisten, genau wie `findall(Vars, labeling(Opts, Vars), Sols)` – **auch in derselben Reihenfolge** –, die Teile parallel (`parts(N)`, Vorgabe 16 Teile; `concurrent_maplist/3` verteilt sie, bei weniger als 4 je Kern mit Work Stealing, unten); erst `serial(S)` nacheinander |
-| `concurrent_labeling(Opts, Vars[, COpts])` | eine Lösung (det), **genau die von `once(labeling(Opts, Vars))`** – die erste in der Reihenfolge der Suche, auch mit `min(E)`/`max(E)` (unten). COpts: `serial(S)` (erst S Sekunden nacheinander, Vorgabe 0,1), `parts(N)` (Arbeiter, Vorgabe Flag `cpu_count`), `steal(S)` (unten), `solution(any)` (die erste gefundene, wer zuerst kommt) |
+| `concurrent_labeling(Opts, Vars[, COpts])` | eine Lösung (det), **genau die von `once(labeling(Opts, Vars))`** – die erste in der Reihenfolge der Suche, auch mit `min(E)`/`max(E)` (unten). COpts: `serial(S)` (erst S Sekunden nacheinander, Vorgabe 0,1), `parts(N)` (Arbeiter, Vorgabe Flag `cpu_count`), `steal(S)` (unten), `solution(any)` (die erste gefundene, wer zuerst kommt), `stats(S)` (was parallel geschah, wie `concurrent_statistics/2`) |
 
 * **Aufteilen:** Der Aufrufer trifft die ersten Entscheidungen, die
   `labeling/2` selbst träfe – dieselbe Variablenwahl (`leftmost`, `ff`,
