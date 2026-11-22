@@ -5637,6 +5637,34 @@ Im geometrischen Mittel aller zwölf 0,23-mal Scryer und 1,19-mal SWI
 kleinen Gleichungen bleibt (1,8- und 2,2-mal SWI), ist der Prolog-Code
 drumherum (Listen, `transpose/2`, Zufallszahlen).
 
+Stand 22. November gegenüber dem 17. November (Commit 2ba2419), dieselbe
+Maschine, beide als Release-Build, im Wechsel gemessen, je das Beste aus
+fünf Runden (die Maschine schwankt von Lauf zu Lauf um 15–30 %, kleinere
+Unterschiede sind Rauschen; ms):
+
+| Fall | 17. 11. | 22. 11. | | ohne JIT 17. 11. | 22. 11. | |
+|---|---|---|---|---|---|---|
+| nrev | 28 | 21 | 0,75 | 654 | 714 | ≈ |
+| loop | 6 | 3 | 0,50 | 692 | 441 | 0,64 |
+| tak | 0 | 0 | | 85 | 58 | 0,68 |
+| queens | 20 | 21 | ≈ | 31 | 41 | ≈ ¹ |
+| deriv | 23 | 17 | 0,74 | 286 | 336 | ≈ |
+| facts | 333 | 352 | ≈ | 342 | 347 | ≈ |
+| foldl | 289 | 315 | ≈ | 304 | 309 | ≈ |
+| Summe von Hand | 2 | 3 | | 239 | 196 | 0,82 |
+| findall + sort | 355 | 337 | ≈ | 372 | 359 | ≈ |
+| clpb | 33 | 25 | 0,76 | 27 | 26 | ≈ |
+
+¹ einzeln nachgemessen (je 15 Läufe in einer Sitzung, drei Sitzungen im
+Wechsel): 31–38 gegen 36–43 ms vorher, kein Rückschritt.
+
+Gewonnen hat vor allem Arithmetik in Rekursionen: mit JIT nrev, loop,
+deriv, clpb, ohne JIT loop, tak und die Summe (Ausgabe-Slots: `N1 is N -
+1` bindet nichts mehr). clpz und die linearen Gleichungen sind im
+Rahmen des Rauschens gleich geblieben (geometrisches Mittel 0,95 bzw.
+0,99): dort läuft das meiste in Elixir oder über attributierte
+Variablen, was beides nicht angefasst wurde.
+
 Am 1. November (ohne JIT, sonst gleich) waren es nrev 1248, loop 1525,
 tak 181, deriv 714, facts 722, foldl 720 ms: auch der Interpreter ist
 seitdem schneller geworden.
