@@ -237,6 +237,13 @@ defmodule PrologEx.Shell.Complete do
   end
 
   @doc false
+  # Für die TAB-Ergänzung unter rlwrap: die Schlüssel von statistics/2, je
+  # Zeile einer; steht in .rlwrap_statistics (test/rlwrap_test.exs)
+  def rlwrap_statistics_text do
+    PrologEx.Builtins.Statistics.keys() |> Enum.sort() |> Enum.map_join(&(&1 <> "\n"))
+  end
+
+  @doc false
   # Für die TAB-Ergänzung unter rlwrap: die Zeichenklassen, je Zeile das
   # Prädikat und seine Typen (mit Argument: "upper("). char_type/2 aus
   # library(charsio) (ctype/1 in charsio.pl), code_type/2 aus library(swi);
@@ -289,6 +296,7 @@ defmodule PrologEx.Shell.Complete do
       ".rlwrap_ops" => rlwrap_ops_text(),
       ".rlwrap_evaluables" => rlwrap_evaluables_text(),
       ".rlwrap_evaluable_terms" => rlwrap_evaluable_terms_text(),
+      ".rlwrap_statistics" => rlwrap_statistics_text(),
       ".rlwrap_char_types" => rlwrap_char_types_text(),
       ".rlwrap_clpz" => rlwrap_clpz_text()
     }

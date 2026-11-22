@@ -1,0 +1,16 @@
+cputime
+garbage_collection
+inferences
+memory
+occurs_check_steps
+occurs_checks
+process_count
+process_cputime
+process_memory
+real_time
+reductions
+runtime
+schedulers
+total_runtime
+vm_memory
+walltime

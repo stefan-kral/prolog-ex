@@ -46,7 +46,8 @@ defmodule PrologEx.Builtins.Statistics do
     * `process_count`: Anzahl der Erlang-Prozesse.
 
   `statistics/0` gibt eine Übersicht davon aus, ohne die Abstände von
-  `statistics/2` zurückzusetzen.
+  `statistics/2` zurückzusetzen; vorn in jeder Zeile der Schlüssel, mit
+  dem `statistics/2` den Wert liefert.
 
   Unbekannter Schlüssel: domain_error(statistics_key, Key).
   """
@@ -58,6 +59,9 @@ defmodule PrologEx.Builtins.Statistics do
   @keys @deltas ++
           ~w(cputime inferences occurs_checks occurs_check_steps memory process_memory vm_memory
              garbage_collection schedulers process_count)
+
+  @doc "Die Schlüssel von statistics/2 (für die TAB-Ergänzung)"
+  def keys, do: @keys
 
   defbuiltin "statistics", [key, value] do
     case deref(key) do
@@ -90,28 +94,31 @@ defmodule PrologEx.Builtins.Statistics do
   def summary do
     {gcs, words, _} = :erlang.statistics(:garbage_collection)
 
+    # {Schlüssel von statistics/2 (oder ""), Bezeichnung, Wert}
     rows = [
-      {"CPU-Zeit (VM)", "#{secs(current("runtime"))} s"},
-      {"Laufzeit (Uhr)", "#{secs(current("walltime"))} s seit Start der VM"},
-      {"Inferenzen", group(PrologEx.inferences())},
-      {"Occurs-Checks", occurs_row()},
-      {"Reduktionen", "#{group(current("reductions"))} (Sitzungsprozess)"},
-      {"Speicher Sitzung", bytes(process_memory())},
-      {"Speicher VM", bytes(:erlang.memory(:total))},
-      {"GC (VM)",
+      {"runtime", "CPU-Zeit (VM)", "#{secs(current("runtime"))} s"},
+      {"walltime", "Laufzeit (Uhr)", "#{secs(current("walltime"))} s seit Start der VM"},
+      {"inferences", "Inferenzen", group(PrologEx.inferences())},
+      {"occurs_checks", "Occurs-Checks", occurs_row()},
+      {"reductions", "Reduktionen", "#{group(current("reductions"))} (Sitzungsprozess)"},
+      {"process_memory", "Speicher Sitzung", bytes(process_memory())},
+      {"vm_memory", "Speicher VM", bytes(:erlang.memory(:total))},
+      {"garbage_collection", "GC (VM)",
        "#{group(gcs)} Läufe, #{bytes(words * :erlang.system_info(:wordsize))} freigegeben"},
       # Scheduler: die Threads der BEAM, die Erlang-Prozesse ausführen,
       # normalerweise einer je CPU-Kern
-      {"Scheduler",
+      {"schedulers", "Scheduler",
        "#{:erlang.system_info(:schedulers_online)} (Threads der BEAM, einer je CPU-Kern)"},
-      {"Erlang-Prozesse", group(:erlang.system_info(:process_count))},
-      {"System", "Erlang/OTP #{:erlang.system_info(:otp_release)}, Elixir #{System.version()}"}
+      {"process_count", "Erlang-Prozesse", group(:erlang.system_info(:process_count))},
+      {"", "System",
+       "Erlang/OTP #{:erlang.system_info(:otp_release)}, Elixir #{System.version()}"}
     ]
 
-    width = rows |> Enum.map(&String.length(elem(&1, 0))) |> Enum.max()
+    kw = rows |> Enum.map(&String.length(elem(&1, 0))) |> Enum.max()
+    width = rows |> Enum.map(&String.length(elem(&1, 1))) |> Enum.max()
 
-    Enum.map_join(rows, "", fn {k, v} ->
-      "% #{String.pad_trailing(k <> ":", width + 1)} #{v}\n"
+    Enum.map_join(rows, "", fn {key, k, v} ->
+      "% #{String.pad_trailing(key, kw)}  #{String.pad_trailing(k <> ":", width + 1)} #{v}\n"
     end)
   end
 

@@ -173,25 +173,27 @@ defmodule PrologEx.StatisticsTest do
   test "statistics/0: Übersicht", c do
     out = capture_io(fn -> assert ask(c, "statistics.") == ["true"] end)
 
-    for label <- [
-          "CPU-Zeit",
-          "Laufzeit",
-          "Inferenzen",
-          "Reduktionen",
-          "Speicher Sitzung",
-          "Speicher VM",
-          "GC",
-          "Scheduler",
-          "Erlang-Prozesse",
-          "System"
+    # vorn der Schlüssel von statistics/2
+    for {key, label} <- [
+          {"runtime", "CPU-Zeit"},
+          {"walltime", "Laufzeit"},
+          {"inferences", "Inferenzen"},
+          {"occurs_checks", "Occurs-Checks"},
+          {"reductions", "Reduktionen"},
+          {"process_memory", "Speicher Sitzung"},
+          {"vm_memory", "Speicher VM"},
+          {"garbage_collection", "GC"},
+          {"schedulers", "Scheduler"},
+          {"process_count", "Erlang-Prozesse"},
+          {"", "System"}
         ] do
-      assert out =~ "% " <> label, label
+      assert out =~ ~r/^% #{key} +#{Regex.escape(label)}/m, label
     end
 
     assert out =~ "Erlang/OTP #{:erlang.system_info(:otp_release)}"
     # Tausender mit _ gruppiert (wie Zifferngruppen in Prolog)
-    assert out =~ ~r/% Reduktionen: +\d{1,3}(_\d{3})* \(/
-    assert out =~ ~r/% GC \(VM\): +\d{1,3}(_\d{3})* Läufe/
+    assert out =~ ~r/% reductions +Reduktionen: +\d{1,3}(_\d{3})* \(/
+    assert out =~ ~r/% garbage_collection +GC \(VM\): +\d{1,3}(_\d{3})* Läufe/
     refute out =~ ~r/\d \d{3}\b/
   end
 

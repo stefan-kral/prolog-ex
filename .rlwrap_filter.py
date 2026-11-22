@@ -32,6 +32,10 @@ nach Stelle:
                              auswertbaren Funktoren; symbolische als
                              Operator: evaluable_property(_<TAB> _*_, ...)
   predicate_property(<TAB>   _:  user:           (Modul des Kopfs)
+  when(<TAB>                 nonvar(  ground(  ?=(  (   (die Bedingungen;
+                             auch in einer Klammer nach ( , ;)
+  statis<TAB>                statistics.  statistics(runtime,  ...
+  statistics(<TAB>           runtime,  walltime,  ...  (die Schlüssel)
   X =:<TAB>                  =:=                 (symbolische Wörter: =.. \==
                              @< ...; auch ohne Leerzeichen: X=:<TAB>)
   sonst                      die Wörter aus .rlwrap_completions; ein
@@ -52,7 +56,8 @@ a1 a2 ...", erzeugt), die Flags in .rlwrap_flags ("name" oder "name =
 wert ...", erzeugt), die Standard-Operatoren in .rlwrap_ops ("Priorität
 Typ Name", erzeugt), die auswertbaren Funktionen in .rlwrap_evaluables
 ("name a1 a2 ...", erzeugt), Terme dazu für evaluable_property/2 in
-.rlwrap_evaluable_terms (einer je Zeile, erzeugt), die von clpz in
+.rlwrap_evaluable_terms (einer je Zeile, erzeugt), die Schlüssel von
+statistics/2 in .rlwrap_statistics (ebenso), die von clpz in
 .rlwrap_clpz (ebenso), die
 Zeichenklassen in .rlwrap_char_types
 ("char_type t1 t2 ...", erzeugt); test/rlwrap_test.exs prüft sie, dort
@@ -174,6 +179,7 @@ def load():
         "ops": read_ops(),
         "evaluables": read_predicates(os.path.join(HERE, ".rlwrap_evaluables")),
         "evaluable_terms": read_lines(os.path.join(HERE, ".rlwrap_evaluable_terms")),
+        "statistics": read_lines(os.path.join(HERE, ".rlwrap_statistics")),
         "char_types": read_char_types(),
         "clpz": read_predicates(os.path.join(HERE, ".rlwrap_clpz")),
     }
@@ -184,6 +190,40 @@ CHAR_TYPE = re.compile(r"\b(char_type|code_type)\([^,]*,\s*$")
 # erstes Argument von evaluable_property/2 bzw. predicate_property/2
 EVAL_PROP = re.compile(r"\bevaluable_property\(\s*$")
 PRED_PROP = re.compile(r"\bpredicate_property\(\s*$")
+STAT_KEY = re.compile(r"\bstatistics\(\s*$")
+WHEN = re.compile(r"\bwhen\(")
+WHEN_CONDITIONS = ["nonvar(", "ground(", "?=(", "("]
+
+
+def when_condition(before):
+    """Steht before am Anfang einer Bedingung im ersten Argument von when/2?
+    Direkt nach when( oder in einer Klammer darin nach ( , ; – nicht in den
+    Argumenten von nonvar( usw. und nicht mehr im zweiten Argument."""
+    ms = list(WHEN.finditer(before))
+    if not ms:
+        return False
+    stack, expect = ["arg"], True
+    for ch in before[ms[-1].end():]:
+        if ch.isspace():
+            continue
+        if ch == "(":
+            stack.append("group" if expect else "call")
+        elif ch == ")":
+            if len(stack) == 1:
+                return False
+            stack.pop()
+            expect = False
+            continue
+        elif ch in ",;":
+            if stack[-1] == "arg" and ch == ",":
+                return False
+            expect = stack[-1] != "call"
+            continue
+        else:
+            expect = False
+            continue
+        expect = stack[-1] != "call"
+    return expect
 
 # in einem arithmetischen Ausdruck: nach is oder einem Vergleich (nicht
 # -> --> >> << @< \= ...); in einem von clpz nach #= #\= #< #> #=< #>=
@@ -290,6 +330,10 @@ def complete(line, prefix, words, data):
         return [t + "," for t in data["evaluable_terms"] if t.startswith(prefix)]
     if PRED_PROP.search(whole):
         return [m for m in ("_:", "user:") if m.startswith(prefix)]
+    if when_condition(whole):
+        return [w for w in WHEN_CONDITIONS if w.startswith(prefix)]
+    if STAT_KEY.search(whole):
+        return [k + "," for k in data["statistics"] if k.startswith(prefix)]
     lead, tok = split_token(prefix)
     if is_symbolic(tok) and arith_tail(line[: len(line) - len(tok)]) is not None:
         # in einem Ausdruck ist ein Symbol ein Operator: weiter mit dem
@@ -350,6 +394,9 @@ def complete_token(line, prefix, words, data):
         if c.startswith(prefix) and c not in seen:
             seen.add(c)
             out.append(c)
+    if out == ["statistics"]:
+        # nur statistics passt: gleich statistics/0 oder /2 mit Schlüssel
+        out = ["statistics."] + ["statistics(%s," % k for k in data.get("statistics", [])]
     return out
 
 

@@ -8,7 +8,7 @@ defmodule PrologEx.RlwrapTest do
   # Aus PrologEx erzeugt (PrologEx.Shell.Complete.rlwrap_files/0), müssen
   # dazu passen: .rlwrap_predicates (Stelligkeiten: member( mit Klammer),
   # .rlwrap_flags, .rlwrap_ops, .rlwrap_evaluables, .rlwrap_evaluable_terms,
-  # .rlwrap_char_types, .rlwrap_clpz.
+  # .rlwrap_statistics, .rlwrap_char_types, .rlwrap_clpz.
   # Alle neu schreiben:
   #
   #   mix run -e 'PrologEx.Shell.Complete.write_rlwrap_files()'
@@ -37,7 +37,7 @@ defmodule PrologEx.RlwrapTest do
   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
   data = m.load()
   words = ["use_module", "member", "findall", "halt", "true", "lists", "=:=", "=..", "==",
-           "is", "repeat", "\\\\+", "append"]
+           "is", "repeat", "\\\\+", "append", "statistics", "stream_property"]
   c = lambda line, prefix: m.complete(line, prefix, words, data)
   assert c("use_mod", "use_mod") == ["use_module("]
   assert not [x for x in c("", "") if "library" in x]
@@ -111,6 +111,23 @@ defmodule PrologEx.RlwrapTest do
   assert c("predicate_property(", "") == ["_:", "user:"]
   assert c("predicate_property(u", "u") == ["user:"]
   assert c("X = 1, predicate_property(_", "_") == ["_:"]
+  conds = ["nonvar(", "ground(", "?=(", "("]
+  assert c("when(", "") == conds
+  assert c("X = 1, when(", "") == conds
+  assert c("when(n", "n") == ["nonvar("]
+  assert c("when(?", "?") == ["?=("]
+  assert c("when((", "") == conds
+  assert c("when((nonvar(X), ", "") == conds
+  assert c("when((nonvar(X);g", "g") == ["ground("]
+  assert c("when(nonvar(", "") != conds
+  assert c("when(nonvar(X), ", "") != conds
+  st = c("statis", "statis")
+  assert st[:3] == ["statistics.", "statistics(cputime,", "statistics(garbage_collection,"], st
+  assert "statistics(runtime," in st and "statistics(walltime," in st
+  assert c("statistics", "statistics") == st
+  assert c("st", "st") == ["statistics", "stream_property("]
+  assert c("statistics(", "")[0] == "cputime,"
+  assert c("statistics(wa", "wa") == ["walltime,"]
   print("ok")
   """
 

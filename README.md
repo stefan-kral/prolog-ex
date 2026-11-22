@@ -509,7 +509,10 @@ mix compile                          # einmal, und nach jeder Änderung
     von `library(swi)`. `evaluable_property(` → genau die auswertbaren
     Funktoren als Terme (`_*_,`, `-_,`, `abs(_),`, `atan2(_,_),`, `pi,` …;
     `evaluable_property(_` → die Operatoren), `predicate_property(` →
-    `_:` und `user:`.
+    `_:` und `user:`. `when(` → die Bedingungen `nonvar(`, `ground(`,
+    `?=(` und `(` (auch in einer Klammer darin nach `(`, `,`, `;`).
+    `statis` → `statistics.` und `statistics(runtime,` usw. mit allen
+    Schlüsseln, `statistics(` → die Schlüssel.
     Das macht ein rlwrap-Filter in Python (`.rlwrap_filter.py`). Die Dateien:
 
     | Datei | Inhalt | gepflegt |
@@ -521,6 +524,7 @@ mix compile                          # einmal, und nach jeder Änderung
     | `.rlwrap_ops` | die Standard-Operatoren (Priorität, Typ, Name) | erzeugt |
     | `.rlwrap_evaluables` | die auswertbaren Funktionen mit Stelligkeiten | erzeugt |
     | `.rlwrap_evaluable_terms` | die auswertbaren Funktoren als Terme für `evaluable_property(` | erzeugt |
+    | `.rlwrap_statistics` | die Schlüssel von `statistics/2` | erzeugt |
     | `.rlwrap_char_types` | die Typen von `char_type/2` und `code_type/2` | erzeugt |
     | `.rlwrap_clpz` | die Funktionen in clpz-Ausdrücken (aus `clpz.pl`) | erzeugt |
 
@@ -3864,8 +3868,18 @@ pro Sekunde:
    LIPS is (I1 - I0) / (T1 - T0) * 1000.
 ```
 
-`statistics/0` (eingebaut, wie in SICStus) gibt eine Übersicht aus. Das
-Zählen der Inferenzen kostet etwa 25 ns je Aufruf (rund 1–2 %).
+`statistics/0` (eingebaut, wie in SICStus) gibt eine Übersicht aus, vorn
+in jeder Zeile der Schlüssel, mit dem `statistics/2` den Wert liefert:
+
+```
+% runtime             CPU-Zeit (VM):    0.247 s
+% walltime            Laufzeit (Uhr):   0.274 s seit Start der VM
+% inferences          Inferenzen:       1
+...
+%                     System:           Erlang/OTP 28, Elixir 1.20.4
+```
+
+Das Zählen der Inferenzen kostet etwa 25 ns je Aufruf (rund 1–2 %).
 
 Occurs-Checks laufen mit dem Flag `occurs_check` (`true` oder `error`)
 und bei `unify_with_occurs_check/2`. Gezählt wird nur ein *tatsächlicher*

@@ -132,6 +132,8 @@ defmodule PrologEx.OccursCountsTest do
     ask(c, "unify_with_occurs_check(_, f(_))")
 
     out = ExUnit.CaptureIO.capture_io(fn -> ask(c, "swi:statistics") end)
-    assert out =~ ~r/% Occurs-Checks: +\d{1,3}(_\d{3})* \(\d{1,3}(_\d{3})* Schritte\)/
+
+    assert out =~
+             ~r/% occurs_checks +Occurs-Checks: +\d{1,3}(_\d{3})* \(\d{1,3}(_\d{3})* Schritte\)/
   end
 end
