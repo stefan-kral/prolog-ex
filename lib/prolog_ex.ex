@@ -6340,10 +6340,24 @@ defmodule PrologEx do
   # ohne Block frischer Variablen und ohne Occurs-Check (ein ground Wert
   # bildet keinen Zyklus, kann also auch mit occurs_check=error nicht
   # werfen). Keine Variable im Fakt, auch keine anonyme: nvars 0
-  defp try_clauses(args, [{:clause, key, 0, pats, 0, [], 0, cc} | more], rest, mod, st) do
-    matched = head(cc, pats, 0, args, st.subst, st.next_var, nil)
+  # Passt er nicht, gleich der nächste (ohne Umweg); passt er und weckt
+  # nichts, ein Update des Zustands: Choice Point für die übrigen, Ziele,
+  # Bindungen
+  defp try_clauses(args, [{:clause, key, 0, pats, 0, [], 0, _cc} | more], rest, mod, st) do
+    case fact_args(pats, args, st.subst) do
+      :error ->
+        try_clauses(args, more, rest, mod, st)
 
-    clause_matched(matched, args, more, rest, 0, [], key, mod, st, nil)
+      {:ok, s1} when not is_map_key(s1, :wake) and more == [] ->
+        run(%{st | goals: rest, subst: s1})
+
+      {:ok, s1} when not is_map_key(s1, :wake) ->
+        cp = {:clauses, args, more, rest, mod, Store.fast_snapshot(st.subst), st.answer}
+        run(%{st | cps: [cp | st.cps], height: st.height + 1, goals: rest, subst: s1})
+
+      {:ok, s1} ->
+        clause_matched({:ok, {}, s1, st.next_var}, args, more, rest, 0, [], key, mod, st, nil)
+    end
   end
 
   # mod: Modul, in dem das Prädikat definiert ist (Kontext für den Rumpf)
@@ -6367,6 +6381,66 @@ defmodule PrologEx do
     else
       matched = head(cc, pats, nslots, args, st.subst, st.next_var, mode)
       clause_matched(matched, args, more, rest, nfresh, body, key, mod, st, cc)
+    end
+  end
+
+  # Zurücksetzen auf Fakten ohne Variablen (siehe backtrack/1): cp ist der
+  # Choice Point oben, cps der Rest darunter, s0 die Bindungen von damals
+  defp facts_retry(
+         args,
+         [{:clause, _, 0, pats, 0, [], 0, _} = c | more],
+         rest,
+         mod,
+         st,
+         cp,
+         cps,
+         s0,
+         answer
+       ) do
+    case fact_args(pats, args, s0) do
+      :error ->
+        facts_retry(args, more, rest, mod, st, cp, cps, s0, answer)
+
+      {:ok, s1} when not is_map_key(s1, :wake) and more == [] ->
+        run(%{st | cps: cps, height: st.height - 1, subst: s1, answer: answer, goals: rest})
+
+      {:ok, s1} when not is_map_key(s1, :wake) ->
+        run(%{st | cps: [put_elem(cp, 2, more) | cps], subst: s1, answer: answer, goals: rest})
+
+      # weckt etwas: der allgemeine Weg ab diesem Fakt
+      _ ->
+        st = %{st | cps: cps, height: st.height - 1, subst: s0, answer: answer}
+        try_clauses(args, [c | more], rest, mod, st)
+    end
+  end
+
+  # keine Fakten (mehr): der allgemeine Weg
+  defp facts_retry(args, more, rest, mod, st, _cp, cps, s0, answer),
+    do:
+      try_clauses(args, more, rest, mod, %{
+        st
+        | cps: cps,
+          height: st.height - 1,
+          subst: s0,
+          answer: answer
+      })
+
+  # Kopf eines Fakts ohne Variablen (Muster nur :const, :ground): wie
+  # match_args/6, ohne Umfeld – {:ok, s} oder :error
+  defp fact_args([], [], s), do: {:ok, s}
+
+  defp fact_args([{:const, c} | ps], [t | ts], s) do
+    case Store.walk(t, s) do
+      ^c -> fact_args(ps, ts, s)
+      {:var, _} = v -> fact_args(ps, ts, Store.fast_bind(v, c, s))
+      _ -> :error
+    end
+  end
+
+  defp fact_args([p | ps], [t | ts], s) do
+    case m(p, t, {}, s, 0, nil) do
+      {:ok, _, s, _} -> fact_args(ps, ts, s)
+      :error -> :error
     end
   end
 
@@ -6656,6 +6730,20 @@ defmodule PrologEx do
 
   # Klausel-Alternative und nächste Lösung eines Builtins (die häufigsten
   # Fälle): ein einziges Update des Structs
+  # die nächsten Klauseln sind Fakten ohne Variablen: der Choice Point
+  # bleibt mit dem Rest liegen (ein Update des Zustands), Fakten, die nicht
+  # passen, werden gleich übergangen
+  defp backtrack(
+         %{
+           cps: [
+             {:clauses, args, [{:clause, _, 0, _, 0, [], 0, _} | _] = more, rest, mod, subst,
+              answer} = cp
+             | cps
+           ]
+         } = st
+       ),
+       do: facts_retry(args, more, rest, mod, st, cp, cps, Store.fast_restore(subst), answer)
+
   defp backtrack(%{cps: [{:clauses, args, more, rest, mod, subst, answer} | cps]} = st),
     do:
       try_clauses(args, more, rest, mod, %{

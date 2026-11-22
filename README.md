@@ -398,7 +398,12 @@ Ein Prolog-Kern in Elixir:
   gegen einen ground Kopf vergleicht sie statt zu unifizieren (ohne
   Merktabelle und catch-Rahmen): Durchsuchen nach `e(_, _, f(c5))` (dort
   trennt kein Index: lauter `f/1`) −35 % Zeit, −75 % Reduktionen, alle
-  Lösungen aufzählen −5 bis −10 %
+  Lösungen aufzählen −5 bis −10 %. Auch beim Zurücksetzen: liegen als
+  nächste Klauseln solche Fakten, bleibt der Choice Point mit dem Rest
+  liegen (ein Update des Zustands statt Abbau und Neuanlage), Fakten,
+  die nicht passen, werden gleich übergangen, der Kopf ohne Umfeld
+  abgeglichen. Fehlschlag-Schleife über 10 Fakten −12 % Reduktionen;
+  `facts` aus `bench/compare.pl` (ohne JIT) 340–416 → 291–304 ms
 - Kompaktierung der Bindungen: konstanter Speicher bei endrekursiven Schleifen.
   Sie läuft früh (ab 256 Bindungen, danach beim Doppelten der lebenden
   Nicht-ground-Knoten) und kostet ohne `call_nth/2`/`time/1` nichts je

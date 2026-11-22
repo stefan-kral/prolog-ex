@@ -18,6 +18,8 @@ defmodule PrologEx.BuiltinSolutionsTest do
         :- use_module(library(lists)).
         :- use_module(library(between)).
         :- use_module(library(swi)).
+        f(1). f(2.0). f(a). f(g(1)). f(g(2)). f([x]). f(3).
+        k(a, 1). k(b, 2). k(a, 3). k(c, 4).
         """)
       )
 
@@ -59,6 +61,18 @@ defmodule PrologEx.BuiltinSolutionsTest do
         {"findall(D, call_cleanup(repeat(2), D = det), L)", ["L = [_A,det]"]},
         {"catch(repeat(a), error(E, _), true)", ["E = type_error(integer,a)"]},
         {"findall(N, (between(1, 3, X), N is X * 10), L)", ["L = [10,20,30]"]},
+        # Fakten ohne Variablen: Reihenfolge, Filter, gebundene Teile,
+        # Wecken, Determinismus nach dem letzten passenden
+        {"findall(X, f(X), L)", ["L = [1,2.0,a,g(1),g(2),[x],3]"]},
+        {"findall(Y, f(g(Y)), L)", ["L = [1,2]"]},
+        {"\\+ f(2), f(2.0), \\+ f(1.0)", :succeeds},
+        {"findall(X-Y, k(X, Y), L)", ["L = [a-1,b-2,a-3,c-4]"]},
+        {"findall(Y, k(a, Y), L)", ["L = [1,3]"]},
+        {"call_cleanup(k(c, Y), D = det)", ["D = det, Y = 4"]},
+        {"findall(D, call_cleanup(f(_), D = det), L)", ["L = [_A,_B,_C,_D,_E,_F,det]"]},
+        {"freeze(X, write(X)), findall(X, f(X), _)", {:out, "12.0ag(1)g(2)[x]3"}},
+        {"freeze(X, atom(X)), findall(X, f(X), L)", ["L = [a], freeze(X,atom(X))"]},
+        {"findall(X, (f(X), integer(X)), L)", ["L = [1,3]"]},
         # zurücksetzen: die Bindung der vorigen Lösung ist weg
         {"findall(X-Y, (between(1, 3, X), (X =:= 2 -> Y = zwei ; Y = sonst)), L)",
          ["L = [1-sonst,2-zwei,3-sonst]"]}
