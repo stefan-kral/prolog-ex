@@ -139,6 +139,27 @@ defmodule PrologEx.BlackboardMutablesTest do
       assert ask(c, "bb_put(a:b:k, 1), bb_get(b:k, V).") == ["V = 1"]
     end
 
+    # Schlüssel oder Modul ungebunden: aufzählen, sortiert nach Modul und
+    # Schlüssel (backtrackbare Werte mit)
+    test "bb_get/2 zählt auf", c do
+      assert ask(
+               c,
+               "bb_put(b, 2), bb_put(a, f(_)), bb_put(m:c, 3), bb_b_put(d, 4), bb_get(K, V)."
+             )
+             |> norm() == ["K = a, V = f(_A)", "K = b, V = 2", "K = d, V = 4"]
+
+      assert ask(
+               c,
+               "bb_put(n:c, 3), bb_put(n:a, 1), findall(M:K, (bb_get(M:K, _), M \\== user), L)."
+             ) == ["L = [m:c,n:a,n:c]"]
+
+      assert ask(c, "bb_put(m:c, 3), bb_put(m:d, 4), bb_get(m:K, V).") ==
+               ["K = c, V = 3", "K = d, V = 4"]
+
+      assert ask(c, "bb_put(m:einzig, 3), bb_get(M:einzig, V).") == ["M = m, V = 3"]
+      assert ask(c, "bb_get(nichts:K, V).") == []
+    end
+
     test "Fehler", c do
       assert err(c, "bb_put(K, 1).") =~ "instantiation_error"
       assert err(c, "bb_get(f(x), V).") =~ "type_error(atomic,f(x))"

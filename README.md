@@ -509,7 +509,7 @@ mix compile                          # einmal, und nach jeder Änderung
     von `library(swi)`. `evaluable_property(` → genau die auswertbaren
     Funktoren als Terme (`_*_,`, `-_,`, `abs(_),`, `atan2(_,_),`, `pi,` …;
     `evaluable_property(_` → die Operatoren), `predicate_property(` →
-    `_:` und `user:`. `when(` → die Bedingungen `nonvar(`, `ground(`,
+    `_:` und `user:`, `bb_get(` ebenso. `when(` → die Bedingungen `nonvar(`, `ground(`,
     `?=(` und `(` (auch in einer Klammer darin nach `(`, `,`, `;`).
     `statis` → `statistics.` und `statistics(runtime,` usw. mit allen
     Schlüsseln, `statistics(` → die Schlüssel.
@@ -3715,7 +3715,9 @@ Wie SICStus (dort eingebaut, hier nach `use_module`):
   * `bb_put(:Key, +T)`, `bb_get(:Key, ?T)`, `bb_delete(:Key, ?T)`,
     `bb_update(:Key, ?Old, ?New)` – Werte je Modul (Key ein Atom oder eine
     Ganzzahl, auch `M:Key`), als Kopie gespeichert, nicht backtrackbar.
-    `bb_get/2` und `bb_put/2` führt die Maschine selbst aus, wenn der Aufruf
+    `bb_get/2` mit ungebundenem Schlüssel oder Modul zählt auf, sortiert
+    nach Modul und Schlüssel (`bb_get(K, V)`: die des Kontextmoduls,
+    `bb_get(M:K, V)`: alle). `bb_get/2` und `bb_put/2` führt die Maschine selbst aus, wenn der Aufruf
     sie meint (aus `blackboard` importiert, auch über `iso_ext`, und nicht
     selbst definiert): ohne den Aufrufweg eines Bibliotheks-Builtins,
     atomare und variablenfreie Werte ohne Kopie, eine freie Zielvariable
@@ -4863,7 +4865,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |
     | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`), `name/2` (Zahl, wenn der Text eine ist; Codes oder Zeichen) |
     | `library(edinburgh_io)` | die Edinburgh-Ein-/Ausgabe für ältere Programme und Lehrbücher (in SICStus und SWI eingebaut): `see/1`, `seen/0`, `seeing/1`, `tell/1`, `append/1`, `told/0`, `telling/1` (ein Dateiname öffnet beim ersten Mal, danach derselbe Stream, solange er offen ist; `user` ist die Standard-Ein-/Ausgabe) |
-    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `style_check/1`, `expand_goal/2`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])`; das `format/3` aus `library(format)` ebenso. Terme: `unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3` |
+    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `style_check/1`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])`; das `format/3` aus `library(format)` ebenso. Terme: `unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3` |
 
     `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
     und nach in Bibliotheken, zu denen sie inhaltlich passen. Eigene
@@ -5007,7 +5009,8 @@ goal_expansion(setze(X), true) :- X = 42.   % Bindungen gelten in der ganzen Kla
     Direktiven): `module`, `dialect` (`prolog_ex`), `source` (die geladene
     Datei), `file` (bei `include/1` die eingebundene), `directory`;
     außerhalb des Ladens scheitert es.
-  * `expand_term/2`, `expand_goal/2`, `dcg_translate_rule/2`.
+  * `expand_term/2`, `expand_goal/2` (beide eingebaut, ohne Import),
+    `dcg_translate_rule/2`.
   * Fehler in einem Hook werden gemeldet, der Term bleibt dann, wie er ist.
   * Anfragen im Toplevel werden ebenso expandiert (Hook in `user`; wie SWI,
     SICStus expandiert Meta-Aufrufe zur Laufzeit). Bindungen des Hooks

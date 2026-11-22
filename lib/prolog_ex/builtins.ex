@@ -138,7 +138,7 @@ defmodule PrologEx.Builtins do
                     atom_number/2 term_to_atom/2 read_term_from_atom/3 =@=/2 \\=@=/2
                     term_attvars/2 findnsols/4 findnsols/5 call_with_depth_limit/3
                     exists_file/1 exists_directory/1 delete_file/1 fast_term_serialized/2
-                    time/1 style_check/1 expand_goal/2 dcg_translate_rule/2
+                    time/1 style_check/1 dcg_translate_rule/2
                     upcase_atom/2 downcase_atom/2 writeln/1 writeln/2 tab/1
                     tab/2 with_output_to/2 select/4 selectchk/3 selectchk/4 flatten/2
                     predsort/3 sort/4 code_type/2 nb_setval/2 nb_getval/2 b_setval/2

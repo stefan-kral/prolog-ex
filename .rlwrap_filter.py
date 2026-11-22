@@ -32,6 +32,7 @@ nach Stelle:
                              auswertbaren Funktoren; symbolische als
                              Operator: evaluable_property(_<TAB> _*_, ...)
   predicate_property(<TAB>   _:  user:           (Modul des Kopfs)
+  bb_get(<TAB>               _:  user:           (Modul des Schlüssels)
   when(<TAB>                 nonvar(  ground(  ?=(  (   (die Bedingungen;
                              auch in einer Klammer nach ( , ;)
   statis<TAB>                statistics.  statistics(runtime,  ...
@@ -189,7 +190,7 @@ CHAR_TYPE = re.compile(r"\b(char_type|code_type)\([^,]*,\s*$")
 
 # erstes Argument von evaluable_property/2 bzw. predicate_property/2
 EVAL_PROP = re.compile(r"\bevaluable_property\(\s*$")
-PRED_PROP = re.compile(r"\bpredicate_property\(\s*$")
+PRED_PROP = re.compile(r"\b(?:predicate_property|bb_get)\(\s*$")
 STAT_KEY = re.compile(r"\bstatistics\(\s*$")
 WHEN = re.compile(r"\bwhen\(")
 WHEN_CONDITIONS = ["nonvar(", "ground(", "?=(", "("]

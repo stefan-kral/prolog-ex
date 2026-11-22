@@ -4,7 +4,9 @@ defmodule PrologEx.Builtins.Blackboard do
   (`bb_put/2` & Co. sind dort eingebaut).
 
     * `bb_put(:Key, +Term)`          speichert eine Kopie von Term
-    * `bb_get(:Key, ?Term)`          Kopie des Werts; scheitert ohne Wert
+    * `bb_get(:Key, ?Term)`          Kopie des Werts; scheitert ohne Wert.
+                                     Key oder Modul ungebunden: zählt die
+                                     Einträge auf (sortiert)
     * `bb_delete(:Key, ?Term)`       wie bb_get, entfernt den Wert dann
     * `bb_update(:Key, ?Old, ?New)`  Old mit dem Wert unifizieren, dann New
                                      (als Kopie) speichern
@@ -70,11 +72,61 @@ defmodule PrologEx.Builtins.Blackboard do
   ein Occurs-Check ist nie nötig (attributierte: Unifikation, die weckt).
   """
   def get(key, t, mod, s) do
-    k = key!(key, mod, s)
+    case open_key(key, mod, s) do
+      nil ->
+        k = key!(key, mod, s)
 
-    case s do
-      %{@b_key => %{^k => v}} -> {:unify, [{t, v}]}
-      _ -> get_global(k, t, s)
+        case s do
+          %{@b_key => %{^k => v}} -> {:unify, [{t, v}]}
+          _ -> get_global(k, t, s)
+        end
+
+      {m, k} ->
+        enumerate(m, k, t, s)
+    end
+  end
+
+  # Schlüssel oder Modul ungebunden: {Modulterm, Schlüsselterm}, sonst nil
+  # (dann wie gewohnt key!/3, auch mit seinen Fehlern)
+  defp open_key(key, mod, s) do
+    case PrologEx.unmark_top(PrologEx.Store.walk(key, s)) do
+      {:var, _} = k ->
+        {{:atom, mod}, k}
+
+      {:struct, ":", [m, k]} ->
+        case {PrologEx.Store.walk(m, s), PrologEx.unmark_top(PrologEx.Store.walk(k, s))} do
+          {{:var, _} = m, k} -> {m, k}
+          {{:atom, m}, {:var, _} = k} -> {{:atom, m}, k}
+          {{:atom, m}, {:struct, ":", _} = k} -> open_key(k, m, s)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  # alle Einträge (backtrackbare gehen vor), sortiert nach Modul und
+  # Schlüssel; als Disjunktion (M = m, K = k, T = Wert ; ...)
+  defp enumerate(mt, kt, t, s) do
+    global =
+      for {k, v} <- PrologEx.current_db() |> Map.get(:blackboard, %{}),
+          into: %{},
+          do: {k, value_copy(v, %{})}
+
+    entries = Map.merge(global, Store.get(s, @b_key, %{})) |> Enum.sort()
+
+    alts =
+      for {{m, k}, v} <- entries do
+        PrologEx.mk(",", [
+          PrologEx.mk("=", [mt, PrologEx.a(m)]),
+          PrologEx.mk(",", [PrologEx.mk("=", [kt, k]), PrologEx.mk("=", [t, v])])
+        ])
+      end
+
+    case Enum.reverse(alts) do
+      [] -> :fail
+      [last | rest] -> {:call, Enum.reduce(rest, last, &PrologEx.mk(";", [&1, &2]))}
     end
   end
 

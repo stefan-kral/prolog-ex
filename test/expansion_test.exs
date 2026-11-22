@@ -14,9 +14,8 @@ defmodule PrologEx.ExpansionTest do
   defp ask(c, db, q) do
     [{:term, g, _}] = Reader.read_terms(c.reader, q <> ".")
 
-    # expand_goal/2: library(swi)
+    # (expand_goal/2 ist eingebaut, ohne Import)
     db
-    |> PrologEx.use_library("swi")
     |> PrologEx.query(g)
     |> Enum.take(10)
     |> Enum.map(&PrologEx.format_answer(&1, PrologEx.query_var_names(g)))

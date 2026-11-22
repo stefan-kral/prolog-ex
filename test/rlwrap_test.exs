@@ -111,6 +111,8 @@ defmodule PrologEx.RlwrapTest do
   assert c("predicate_property(", "") == ["_:", "user:"]
   assert c("predicate_property(u", "u") == ["user:"]
   assert c("X = 1, predicate_property(_", "_") == ["_:"]
+  assert c("bb_get(", "") == ["_:", "user:"]
+  assert c("X = 1, bb_get(u", "u") == ["user:"]
   conds = ["nonvar(", "ground(", "?=(", "("]
   assert c("when(", "") == conds
   assert c("X = 1, when(", "") == conds
