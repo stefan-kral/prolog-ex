@@ -41,9 +41,13 @@ main(G) :-
     zeige_ergebnis('Seiteneffekt im Kind (assertz) abgelehnt',
                    catch(concurrent_maplist(\_^assertz(foo), [1]), error(E, _), true), E).
 
-fib(0, 0).
-fib(1, 1).
-fib(N, F) :- N > 1, N1 is N-1, N2 is N-2, fib(N1, F1), fib(N2, F2), F is F1+F2.
+% deterministisch: mit den Klauseln fib(0, 0), fib(1, 1), fib(N, F) :- N > 1, ...
+% bliebe bei jedem fib(0, _) und fib(1, _) ein Choice Point offen (beide
+% Klauseln passen) – 16 x fib(22) nacheinander: fast eine Million, gut 850 MB,
+% und jede Speicherbereinigung kopiert sie; nacheinander war das so doppelt
+% so langsam, die Primzahlen danach 25-mal (die Kinder räumen ihre mit ab)
+fib(N, F) :- N < 2, !, F = N.
+fib(N, F) :- N1 is N-1, N2 is N-2, fib(N1, F1), fib(N2, F2), F is F1+F2.
 
 prim(N) :- N > 1, M is floor(sqrt(N)), \+ ( between(2, M, D), N mod D =:= 0 ).
 

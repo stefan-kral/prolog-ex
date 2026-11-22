@@ -35,8 +35,10 @@ zeile(Name, T1, T2, Text, Gleich) :-
         format("~w~t~44|~t~d ms~14+~t~d ms~10+~t~2f x~9+  ~w~w~n", [Name, T1, T2, F, Text, Gl])
     ).
 
+% (once/1: offene Choice Points einer Messung blieben sonst bis zum Ende von
+% main/1 und machten jede spätere Speicherbereinigung teurer)
 ms(G, T) :-
-    statistics(walltime, [T0|_]), call(G), statistics(walltime, [T1|_]),
+    statistics(walltime, [T0|_]), once(G), statistics(walltime, [T1|_]),
     T is T1 - T0.
 
 % vergleich(+Name, +Art, :Modell, +COpts): Art eine (once(labeling/2) gegen

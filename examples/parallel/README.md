@@ -13,8 +13,8 @@ Fortschrittszeilen gehen auf stderr:
 
 | Aufgabe | nacheinander | parallel, 1 Kern | parallel, 2 Kerne |
 |---|---:|---:|---:|
-| maplist fib(18), 16 mal | 1,48 s | 1,15 s (1,3×) | 0,76 s (2,0×) |
-| Primzahlen bis 100000, Blöcke zu 10000 | 5,91 s | 3,55 s (1,7×) | 2,16 s (2,7×) |
+| maplist fib(18), 16 mal | 0,36 s | 0,30 s (1,2×) | 0,27 s (1,4×) |
+| Primzahlen bis 100000, Blöcke zu 10000 | 2,93 s | 2,87 s (1,0×) | 1,57 s (1,9×) |
 
 „nacheinander“ ist die schnellste Messung aus allen Läufen, der Faktor
 bezieht sich darauf. Mehr Kerne als der Rechner hat lassen sich angeben
@@ -62,7 +62,13 @@ alle Lösungen und das Optimieren gewinnen verlässlich, das Optimieren oft
 mehr als die Zahl der Kerne (die gemeinsame Schranke schneidet früher ab).
 Kleine Aufgaben bleiben nacheinander (`serial(S)`, Vorgabe 0,1 s).
 
-Ein Teil des Faktors kommt nicht von den Kernen: die Kinder rechnen in
-frischen BEAM-Prozessen mit kleinem Heap, der Toplevel mit einem großen
-(mehr Speicherbereinigung). Mit `run.sh -k 1` sieht man diesen Anteil –
-die Primzahlen etwa laufen auch mit einem Kern knapp doppelt so schnell.
+Vorsicht mit offenen Choice Points beim Messen: Mit `fib(0, 0). fib(1, 1).
+fib(N, F) :- N > 1, ...` passen auf `fib(1, _)` und `fib(0, _)` je zwei
+Klauseln, jeder solche Aufruf lässt einen Choice Point offen – 16 ×
+`fib(22)` nacheinander fast eine Million, gut 850 MB, die bis zum Ende der
+Anfrage leben, und jede Speicherbereinigung kopiert sie. Nacheinander lief
+das so 14 statt 2 s, und alles danach in derselben Anfrage wurde
+langsamer (die Primzahlen 25-mal); die Kinder dagegen räumen ihre Choice
+Points mit sich ab – das sah aus wie ein Gewinn der Parallelität, auch
+mit einem Kern. Darum ist `fib/2` hier deterministisch (`N < 2, !`), und
+`ms/2` misst mit `once/1`.
