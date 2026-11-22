@@ -56,6 +56,11 @@ defmodule PrologEx.Flags do
     # Toplevel: Antworten ohne Rückfrage zeigen, solange keine Seiteneffekte
     # passieren – auto: die halbe Höhe des Terminals, N: höchstens N, 1: einzeln
     "answer_chunk" => {:auto, [:auto, :positive_integer]},
+    # Toplevel: am Ende einer Anfrage als Kommentar, wie viele Antworten es
+    # gab und wie sie endete (keine weiteren, abgebrochen, Fehler) – auto:
+    # ab zwei Antworten und immer nach Abbruch oder Fehler, on: immer, off:
+    # nie
+    "toplevel_answer_count" => {:auto, [:auto, :on, :off]},
     # wie SWI: Farben im Toplevel (Fehler rot, Kommentare grün, Eingabe
     # blau; PrologEx.Terminal) – nur am Terminal und ohne NO_COLOR
     "color_term" => {true, [false, true]},

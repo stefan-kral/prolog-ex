@@ -319,8 +319,14 @@ defmodule PrologEx.Toplevel do
   # ?- :- G. wie eine Direktive: G ausführen (z. B. op/3)
   defp run_query({:struct, ":-", [g]}, st, mode), do: run_query(g, st, mode)
 
+  # Zahl der gezeigten Antworten der laufenden Anfrage (answer_count/1; nicht
+  # prolog_ex_...: gehört nicht zum Zustand des Interpreters)
+  @count_key :toplevel_answer_count
+
   defp run_query(goal, st, mode) do
     answers = PrologEx.solutions(st.db, PrologEx.Builtins.Expansion.expand_query(st.db, goal))
+
+    Process.put(@count_key, 0)
 
     try do
       show(answers, mode, PrologEx.query_var_names(goal))
@@ -330,12 +336,15 @@ defmodule PrologEx.Toplevel do
         if e.term == PrologEx.Shell.abort_ball() do
           fresh_line()
           IO.puts(Terminal.paint(:comment, "% Ausführung abgebrochen"))
+          if mode != :goal, do: answer_count(:aborted)
         else
           error_message(e)
+          if mode != :goal, do: answer_count(:error)
         end
 
       e in RuntimeError ->
         error_message(e)
+        if mode != :goal, do: answer_count(:error)
     end
 
     if mode != :goal, do: IO.puts("")
@@ -370,10 +379,12 @@ defmodule PrologEx.Toplevel do
     fresh_line()
     text = PrologEx.format_answer(ans, order)
     used = used + size(text, page)
+    Process.put(@count_key, Process.get(@count_key, 0) + 1)
 
     cond do
       not more? ->
         IO.puts(text <> ".")
+        answer_count(:done)
 
       # (nicht mit dem Debugger: die nächste Antwort sucht er mit dem
       # Benutzer, nicht probeweise in einem anderen Prozess)
@@ -386,6 +397,7 @@ defmodule PrologEx.Toplevel do
           # keine weitere Lösung: gleich mit "." enden
           {:ok, {_done, false}} ->
             IO.puts(text <> ".")
+            answer_count(:done)
 
           _ ->
             ask(text, cont, order, page)
@@ -399,6 +411,41 @@ defmodule PrologEx.Toplevel do
   defp show_next({_done, _effects?}, _order, _page, _used) do
     fresh_line()
     IO.puts("false.")
+    answer_count(false)
+  end
+
+  # --- Zahl der Antworten am Ende (Flag toplevel_answer_count) -------------
+  #
+  # Kommentar nach der letzten Antwort: wie viele es gab und wie die Anfrage
+  # endete – :done (keine weiteren; nach "false." genügt die Zahl), :stopped
+  # (der Benutzer hörte auf, weitere wären möglich), :error, :aborted
+  # (Ctrl-C). auto: ab zwei Antworten, nach Abbruch oder Fehler ab einer
+  # (Zähler: @count_key)
+
+  defp answer_count(how) do
+    n = Process.get(@count_key, 0)
+
+    show? =
+      case PrologEx.Flags.get("toplevel_answer_count") do
+        {:atom, "on"} -> true
+        {:atom, "off"} -> false
+        _ -> n >= 2 or (how in [:stopped, :error, :aborted] and n >= 1)
+      end
+
+    if show? do
+      ans = if n == 1, do: "1 Antwort", else: "#{n} Antworten"
+
+      text =
+        case how do
+          :done -> ans <> ", keine weiteren"
+          false -> ans
+          :stopped -> ans <> ", abgebrochen"
+          :error -> ans <> ", dann Fehler"
+          :aborted -> ans <> ", dann abgebrochen"
+        end
+
+      IO.puts(Terminal.paint(:comment, "% " <> text))
+    end
   end
 
   # Antworten beginnen am Zeilenanfang: hat die Anfrage auf user_output
@@ -413,11 +460,18 @@ defmodule PrologEx.Toplevel do
     Terminal.end_input()
 
     case line do
-      ";" <> _ -> show_next(computed(fn -> cont.({:cont, nil}) end), order, page, 0)
+      ";" <> _ ->
+        show_next(computed(fn -> cont.({:cont, nil}) end), order, page, 0)
+
       # Ctrl-C: wie "." (keine weiteren Antworten)
-      {:error, :interrupted} -> IO.puts(Terminal.paint(:input, "."))
+      {:error, :interrupted} ->
+        IO.puts(Terminal.paint(:input, "."))
+        answer_count(:stopped)
+
       # Ende nach Enter: der Punkt steht für die Taste des Benutzers
-      _ -> IO.puts(Terminal.paint(:input, "."))
+      _ ->
+        IO.puts(Terminal.paint(:input, "."))
+        answer_count(:stopped)
     end
   end
 

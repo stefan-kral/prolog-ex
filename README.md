@@ -653,6 +653,25 @@ Antwort mit Seiteneffekt wird nie vorausgerechnet. Flag `answer_chunk`:
 `auto` (Standard: halbe Terminalhöhe), `N` (höchstens N Antworten), `1` (einzeln wie
 früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 
+**Zahl der Antworten:** Am Ende einer Anfrage steht als Kommentar, wie
+viele Antworten es gab und wie sie endete:
+
+```
+?- member(X, [a, b, c]).
+X = a ;
+X = b ;
+X = c.
+% 3 Antworten, keine weiteren
+```
+
+`% 3 Antworten, abgebrochen` (Enter oder Ctrl-C nach der Rückfrage –
+weitere wären möglich), `% 2 Antworten` (nach `;` kam `false.`),
+`% 1 Antwort, dann Fehler`, `% 2 Antworten, dann abgebrochen` (Ctrl-C
+während der Suche). Flag `toplevel_answer_count`: `auto` (Vorgabe: ab zwei
+Antworten, nach Abbruch oder Fehler ab einer – `X = 1.` oder `false.`
+allein bleiben ohne), `on` (immer, auch `% 0 Antworten`), `off` (nie, wie
+SWI). Nicht bei `-g`.
+
 **Farben** (Flag `color_term`, wie SWI; Vorgabe `true`): am Terminal
 erscheinen Fehler und Warnungen rot, Kommentare (`% …`: Meldungen beim
 Laden, Hinweise) in sattem Grün (256 Farben: 34, `#00af00`) und die

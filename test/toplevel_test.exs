@@ -154,6 +154,27 @@ defmodule PrologEx.ToplevelTest do
       assert out =~ "X = p X = q."
     end
 
+    test "am Ende die Zahl der Antworten (Flag toplevel_answer_count)" do
+      # auto: ab zwei Antworten
+      assert top("member(X, [1, 2]).\n") =~ "X = 1 ;\nX = 2.\n% 2 Antworten, keine weiteren\n"
+      refute top("member(X, [1]).\n") =~ "Antwort"
+      refute top("fail.\n") =~ "Antwort"
+      # abgebrochen (Enter nach der Rückfrage)
+      assert top("between(1, 7, X).\n\n") =~ "X = 3 .\n% 3 Antworten, abgebrochen\n"
+      # nach ";" keine weitere: false, dann nur die Zahl
+      assert top("( X = 1 ; X = 2 ; fail ).\n;\n;\n", 1) =~ "X = 1 X = 2 false.\n% 2 Antworten\n"
+      # Fehler nach einer Antwort
+      out = top("member(X, [1, 0]), Y is 1/X.\n;\n", 1)
+      assert out =~ "Fehler: evaluation_error(zero_divisor)\n% 1 Antwort, dann Fehler\n"
+      # on: immer; off: nie
+      out = top("set_prolog_flag(toplevel_answer_count, on).\nX = 1.\nfail.\n")
+      assert out =~ "X = 1.\n% 1 Antwort, keine weiteren\n"
+      assert out =~ "false.\n% 0 Antworten\n"
+
+      refute top("set_prolog_flag(toplevel_answer_count, off).\nmember(X, [1, 2]).\n") =~
+               "Antworten"
+    end
+
     test "Flag answer_chunk" do
       out =
         top(
