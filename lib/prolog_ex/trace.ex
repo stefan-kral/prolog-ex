@@ -1,7 +1,8 @@
 defmodule PrologEx.Trace do
   @moduledoc """
   Der Tracer (Procedure-Box-Modell, Byrd): die Ports Call, Exit, Redo,
-  Fail und Exception jedes Aufrufs in Benutzer-Code.
+  Fail und Exception jedes Aufrufs in Benutzer-Code. Die Prädikate gehören
+  zu library(traces) (PrologEx.Builtins: Heimat "traces").
 
   Die Maschine (PrologEx) ruft hier nur im Trace-Modus an: trace/0 lässt
   jeden gezählten Schritt den langsamen Pfad nehmen, den es für

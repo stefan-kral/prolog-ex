@@ -19,6 +19,7 @@ defmodule PrologEx.TraceTest do
   :- use_module(library(lists)).
   :- use_module(library(iso_ext)).
   :- use_module(library(between)).
+  :- use_module(library(traces)).
   app([], L, L).
   app([H|T], L, [H|R]) :- app(T, L, R).
   nrev([], []).
@@ -191,6 +192,22 @@ defmodule PrologEx.TraceTest do
 
     assert out == "cleanupafter"
     assert traced == out
+  end
+
+  test "die Prädikate erst nach dem Import von library(traces)", c do
+    PrologEx.put_db(%{})
+
+    assert run(c, "catch(trace, error(E, _), true)") == [
+             "E = existence_error(procedure,trace/0)"
+           ]
+
+    assert run(c, "catch(leash(none), error(E, _), true)") == [
+             "E = existence_error(procedure,leash/1)"
+           ]
+
+    # ohne Import ein gewöhnlicher Name
+    assert run(c, "assertz(debug), debug") == ["true"]
+    assert PrologEx.Trace.mode() == nil
   end
 
   test "ohne trace keine Ausgabe; tracing/0; leash/1", c do

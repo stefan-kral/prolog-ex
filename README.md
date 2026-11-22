@@ -3860,14 +3860,21 @@ der Check selbst wurde dabei sogar schneller (eigene Rekursion über die
 Argumente statt `Enum.any?`, rund 10 % bei langen Listen). Ohne
 Occurs-Check kostet das Zählen nichts.
 
-## Tracer: `trace/0`
+## Tracer: `library(traces)`
 
 Der klassische Tracer im Procedure-Box-Modell (Byrd): jeder Aufruf ist
 eine Box mit den Ports **Call** (Eintritt), **Exit** (Lösung), **Redo**
 (zurück in einen Aufruf, der schon eine Lösung hatte), **Fail** (keine
-weitere Lösung) und **Exception** (eine Ausnahme verlässt ihn).
+weitere Lösung) und **Exception** (eine Ausnahme verlässt ihn). Die
+Prädikate (`trace/0`, `notrace/0`, `nodebug/0`, `debug/0`, `spy/1`,
+`nospy/1`, `nospyall/0`, `tracing/0`, `debugging/0`, `leash/1`,
+`visible/1`) sind erst nach `use_module(library(traces))` sichtbar (mit
+dem Flag `swi_compat` immer); ohne Import sind es gewöhnliche Namen.
 
 ```
+?- use_module(library(traces)).
+true.
+
 ?- trace, nrev([1,2], R).
    Call: (1) nrev([1,2],_21) ?
    Call: (2) nrev([2],_22) ?

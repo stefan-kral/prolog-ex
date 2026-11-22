@@ -151,7 +151,10 @@ defmodule PrologEx.Builtins do
                 # Edinburgh-Ein-/Ausgabe (DEC-10; SWI und SICStus eingebaut)
                 {"edinburgh_io", ~w(see/1 seen/0 seeing/1 tell/1 told/0 telling/1 append/1)},
                 # begrenzte Fortsetzungen wie Scryer (in der Maschine)
-                {"cont", ~w(reset/3 shift/1)}
+                {"cont", ~w(reset/3 shift/1)},
+                # der Tracer (PrologEx.Trace; zum Teil in der Maschine)
+                {"traces", ~w(trace/0 notrace/0 nodebug/0 debug/0 spy/1 nospy/1 nospyall/0
+                    tracing/0 debugging/0 leash/1 visible/1)}
               ],
               k <- keys,
               into: %{} do
@@ -451,6 +454,7 @@ defmodule PrologEx.Builtins do
     "edinburgh" => @home_reexports["edinburgh"],
     "edinburgh_io" => @home_reexports["edinburgh_io"],
     "cont" => @home_reexports["cont"],
+    "traces" => @home_reexports["traces"],
     # wie Scryers library(terms) (eingebaut), dazu term_hash/2,4 und
     # term_size/2 wie SWI
     "terms" => Map.put(@home_reexports["terms"], {"numbervars", 3}, "system"),

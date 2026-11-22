@@ -1,6 +1,7 @@
 defmodule PrologEx.Builtins.Trace do
   @moduledoc """
-  Der Tracer, die Prädikate (system): `leash/1`, `visible/1`, `tracing/0`,
+  Der Tracer, `library(traces)` (die Implementierung liegt in system, die
+  Prädikate sind erst nach dem Import sichtbar): `leash/1`, `visible/1`, `tracing/0`,
   `debugging/0`. `trace/0`, `notrace/0`, `nodebug/0`, `debug/0`, `spy/1`,
   `nospy/1` und `nospyall/0` führt die Maschine selbst aus (sie setzen den
   Prüfpunkt, siehe `PrologEx.Trace`).
