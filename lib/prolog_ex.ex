@@ -3069,8 +3069,14 @@ defmodule PrologEx do
   # '$aggregate_all'(T, G, R) (library(aggregate)): die Lösungen von G
   # in das Template T falten (PrologEx.Aggregate), ohne sie zu sammeln –
   # count, sum, min, max mit konstantem Speicher; Template vorab geprüft
-  defp step({:struct, "$aggregate_all", [_, _, _]} = goal, cutb, mod, rest, st) do
-    {{:struct, "$aggregate_all", [t, g, r]}, rest, st} = tidy(goal, cutb, mod, rest, st)
+  #
+  # '$aggregate_part'(T, G, P) ebenso, P aber der Akkumulator als Term
+  # (PrologEx.Aggregate.encode/2) – ein Teilergebnis, das
+  # '$aggregate_merge'/3 mit anderen zusammenführt
+  # (concurrent_aggregate_all/4); gelingt immer
+  defp step({:struct, name, [_, _, _]} = goal, cutb, mod, rest, st)
+       when name in ["$aggregate_all", "$aggregate_part"] do
+    {{:struct, ^name, [t, g, r]}, rest, st} = tidy(goal, cutb, mod, rest, st)
 
     folded =
       guarded(fn ->
@@ -3083,7 +3089,9 @@ defmodule PrologEx do
             PrologEx.Aggregate.init(spec)
           )
 
-        PrologEx.Aggregate.result(spec, acc)
+        if name == "$aggregate_part",
+          do: {:ok, PrologEx.Aggregate.encode(spec, acc)},
+          else: PrologEx.Aggregate.result(spec, acc)
       end)
 
     case folded do

@@ -138,6 +138,7 @@ complement 2
 compose 3
 compound 1
 concurrent 3
+concurrent_aggregate_all 4 5
 concurrent_and 2 3
 concurrent_child 1
 concurrent_child_stack 1

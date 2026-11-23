@@ -109,6 +109,53 @@ defmodule PrologEx.Aggregate do
       else: :fail
   end
 
+  # --- Teilergebnisse (concurrent_aggregate_all/4) -------------------------
+  #
+  # Ein Akkumulator als Term, damit er aus einem Kind zurückkommt: count und
+  # sum die Zahl, min und max `none` oder die Zahl, mit Zeugen `none` oder
+  # `w(Wert, Zeuge)`, bag und set die Liste in der Reihenfolge der Lösungen,
+  # zusammengesetzt `acc([A1, ...])`. merge/3 führt zwei in der Reihenfolge
+  # der Lösungen zusammen – dasselbe wie eine Faltung über alle: bei
+  # Gleichstand bleibt der Zeuge des früheren, bag hängt an. Nur sum über
+  # Gleitkommazahlen kann in der letzten Stelle abweichen (andere
+  # Klammerung der Summe).
+
+  @doc "Akkumulator als Term"
+  def encode(k, n) when k in [:count, :sum], do: n
+  def encode(_k, nil), do: {:atom, "none"}
+  def encode(k, v) when k in [:max, :min], do: v
+  def encode(k, {v, w}) when k in [:max_w, :min_w], do: mk("w", [v, w])
+  def encode(k, acc) when k in [:bag, :set], do: list(Enum.reverse(acc))
+
+  def encode({:comp, _, specs}, accs),
+    do: mk("acc", [list(Enum.zip_with(specs, accs, &encode/2))])
+
+  @doc "Term (aus encode/2, aufgelöst) zurück in den Akkumulator"
+  def decode(spec, t), do: dec(spec, PrologEx.unmark(t))
+
+  defp dec(k, n) when k in [:count, :sum], do: n
+  defp dec(_k, {:atom, "none"}), do: nil
+  defp dec(k, v) when k in [:max, :min], do: v
+  defp dec(k, {:struct, "w", [v, w]}) when k in [:max_w, :min_w], do: {v, w}
+  defp dec(k, l) when k in [:bag, :set], do: Enum.reverse(l)
+
+  defp dec({:comp, _, specs}, {:struct, "acc", [l]}), do: Enum.zip_with(specs, l, &dec/2)
+
+  @doc "Zwei Akkumulatoren zusammen: a aus früheren Lösungen, b aus späteren"
+  def merge(k, a, b) when k in [:count, :sum], do: Arith.eval(mk("+", [a, b]), %{})
+  def merge(_k, nil, b), do: b
+  def merge(_k, a, nil), do: a
+
+  def merge(k, a, b) when k in [:max, :min],
+    do: Arith.eval(mk(if(k == :max, do: "max", else: "min"), [a, b]), %{})
+
+  def merge(:max_w, {va, _} = a, {vb, _} = b), do: if(vb > va, do: b, else: a)
+  def merge(:min_w, {va, _} = a, {vb, _} = b), do: if(vb < va, do: b, else: a)
+  def merge(k, a, b) when k in [:bag, :set], do: b ++ a
+
+  def merge({:comp, _, specs}, as, bs),
+    do: [specs, as, bs] |> Enum.zip() |> Enum.map(fn {sp, a, b} -> merge(sp, a, b) end)
+
   # Ausdruck auswerten wie is/2
   defp value(e, s), do: Arith.eval(e, s)
 

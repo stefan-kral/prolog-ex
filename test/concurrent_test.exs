@@ -196,6 +196,57 @@ defmodule PrologEx.ConcurrentTest do
              "I = [7,14,21,28,35,42,49]"
   end
 
+  # dasselbe wie aggregate_all(T, (Gen, Test), R): über between/3 (Teil-
+  # bereiche je Kind) und über andere Erzeuger (gesammelte Lösungen)
+  test "concurrent_aggregate_all/4,5 wie aggregate_all/3", c do
+    src = @src <> ":- use_module(library(aggregate)).\n"
+
+    for gen <- ["between(1, 60, X)", "member(X, [3,1,4,1,5,9,2,6,5,3,5,8,9,7,9])"],
+        {t, test} <- [
+          {"count", "X mod 3 =:= 0"},
+          {"sum(X)", "true"},
+          {"max(X)", "X < 50"},
+          {"min(Y)", "Y is X mod 7"},
+          {"max(Y, X)", "Y is X mod 7"},
+          {"min(Y, X)", "Y is X mod 4"},
+          {"bag(X-Y)", "member(Y, [a, b])"},
+          {"set(Y)", "Y is X mod 5"},
+          {"r(count, sum(X), max(X, X), bag(X))", "X > 4"},
+          {"max(X)", "X > 100"},
+          {"count", "fail"}
+        ] do
+      seq = ask(c, "aggregate_all(#{t}, (#{gen}, #{test}), R)", src)
+      par = ask(c, "concurrent_aggregate_all(#{t}, #{gen}, #{test}, R)", src)
+
+      par2 =
+        ask(c, "concurrent_aggregate_all(#{t}, #{gen}, #{test}, R, [threads(2), chunk(2)])", src)
+
+      assert par == seq, "#{t} / #{gen} / #{test}"
+      assert par2 == seq, "#{t} / #{gen} / #{test} (chunk 2)"
+    end
+
+    # mehrere Variablen im Erzeuger; leerer Bereich; Fehler; stats(S)
+    assert ask(c, "concurrent_aggregate_all(bag(X-Y), member(X-Y, [1-a, 2-b]), true, R)", src) ==
+             ["R = [1-a,2-b]"]
+
+    assert ask(c, "concurrent_aggregate_all(count, between(5, 1, _), true, R)", src) == ["R = 0"]
+
+    assert ask(c, "catch(concurrent_aggregate_all(foo, true, true, _), error(E, _), true)", src) ==
+             ["E = domain_error(aggregate_template,foo)"]
+
+    assert ask(
+             c,
+             "catch(concurrent_aggregate_all(sum(X), member(X, [1, a]), true, _), error(E, _), true)",
+             src
+           ) == ["E = type_error(evaluable,a/0)"]
+
+    [a] =
+      ask(c, "concurrent_aggregate_all(count, between(1, 100, X), X > 50, C, [stats(S)])", src)
+
+    assert a =~ "C = 50"
+    assert %{"runs" => 1} = stats(a)
+  end
+
   test "concurrent_foldl/4: Map-Reduce mit assoziativer Verknüpfung", c do
     assert ask(c, ~S"numlist(1, 1000, L), concurrent_foldl(\X^A^B^(B is A + X), L, 0, S)")
            |> hd() =~ "S = 500500"

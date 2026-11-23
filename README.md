@@ -4304,10 +4304,24 @@ also ab etwa 0,1 ms Arbeit je Element.
 | `concurrent_findall(T, Goals, Bags)` | je Ziel alle Lösungen |
 | `concurrent_and(Gen, Test[, [threads(N), chunk(K)]])` | wie `(Gen, Test)`, die Tests parallel: `Gen` vorab im Aufrufer (muss endlich sein), je Lösung ein Kind mit allen Lösungen von `Test`; per Backtracking in der Reihenfolge von `(Gen, Test)` (SWI: beliebige Reihenfolge, `Gen` nebenher) |
 | `first_solution(X, Goals, [on_fail(stop\|continue), on_error(stop\|continue), output(winner\|all)])` | der Erste gewinnt, die anderen werden beendet; mit `on_error(continue)` zählt eine Ausnahme wie ein Scheitern (werfen oder scheitern alle: scheitert, wie SWI) |
+| `concurrent_aggregate_all(T, Gen, Test, R[, Opts])` | wie `aggregate_all(T, (Gen, Test), R)` (`count`, `sum`, `max`, `min`, mit Zeugen, `bag`, `set`, zusammengesetzt): `Gen` im Aufrufer, die Tests in Abschnitten parallel; jedes Kind faltet seinen Abschnitt zu einem Teilergebnis, der Aufrufer führt sie in der Reihenfolge der Abschnitte zusammen – ohne die Lösungen von `Test` zu sammeln. Ist `Gen` `between(L, H, X)`, bekommt jedes Kind einen Teilbereich (nichts wird gesammelt). Zeugen bei Gleichstand der früheste, `bag` in der Reihenfolge; nur `sum` über Gleitkommazahlen kann in der letzten Stelle abweichen. Opts: `threads(N)`, `chunk(K)` (Lösungen von `Gen` je Abschnitt), `stats(S)` |
 | `concurrent_statistics(G, S)` | wie `once(G)`; `S` beschreibt die parallelen Läufe darin (unten). Dasselbe gibt die Option `stats(S)` von `concurrent/3`, `concurrent_forall/3`, `concurrent_and/3`, `first_solution/3`, `concurrent_labeling/3`, `concurrent_labelings/4` |
 | `concurrent_child(I/N)` | im Kind: Position seines Ziels (1-basiert) und Anzahl der Ziele des innersten Aufrufs; außerhalb scheitert es |
 | `concurrent_child_stack(Stack)` | der Stapel der Aufrufe `[I/N, …]`, innerster oben (`concurrent_child(P)` ist `concurrent_child_stack([P\|_])`); außerhalb jedes Kinds `[]`, `length(Stack, D)` ist die Tiefe |
 
+* **Aggregieren:** Primzahlen bis 1 000 000 zählen
+  (`concurrent_aggregate_all(count, between(1, 1000000, X), prime(X), C)`,
+  `prime/1` mit Probedivision, übersetzt): 1,95 → 1,35 s auf 2 Kernen; ein
+  billiger Test (`X mod 3 =:= 0` über 200 000) kostet nichts mehr als
+  nacheinander (89 → 75 ms). Bei anderen Erzeugern sammelt der Aufrufer
+  vorab alle Lösungen (rund 0,4 µs je Lösung) und teilt sie auf.
+* **Übersetzen in den Kindern:** Riefen mehrere Kinder ein übersetzbares
+  Prädikat gleichzeitig zum ersten Mal, übersetzten sie es gleichzeitig;
+  einer scheiterte an der doppelten Definition und lud den Ersatz, der
+  immer aufgibt – das Prädikat wurde kalt und lief im Interpreter, je nach
+  Zufall der Reihenfolge bis zu 100-mal langsamer (1 000 000 Primzahlen:
+  110 statt 2 s). Jetzt übersetzt je Modul nur ein Prozess, die anderen
+  warten auf ihn (`PrologEx.Jit.ensure/1`).
 * **Einblick:** `concurrent_statistics(G, S)` (bzw. die Option `stats(S)`)
   misst im Aufrufer, was die parallelen Läufe in `G` taten – wie viele
   Teile, wie oft gestohlen, wie lange die Arbeiter warteten, wie viel

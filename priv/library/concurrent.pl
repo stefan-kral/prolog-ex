@@ -36,13 +36,23 @@
      first_solution(?X, :Goals, +Options)
          wer zuerst eine Lösung hat, gewinnt; die anderen werden beendet
 
+     concurrent_aggregate_all(+Template, :Gen, :Test, -Result)
+     concurrent_aggregate_all(+Template, :Gen, :Test, -Result, +Options)
+         wie aggregate_all(Template, (Gen, Test), Result) (library(aggregate):
+         count, sum(E), max(E), min(E), max(E, W), min(E, W), bag(X),
+         set(X), zusammengesetzt): Gen im Aufrufer (vorab alle Lösungen),
+         die Tests in Abschnitten parallel; jedes Kind faltet seinen
+         Abschnitt, der Aufrufer führt die Teilergebnisse zusammen – ohne
+         die Lösungen von Test zu sammeln
      concurrent_statistics(:Goal, -Stats)
          wie once(Goal), Stats: was die parallelen Läufe darin taten
          (Teile, Work Stealing, Auslastung der Arbeiter; siehe unten)
 
    Options: stats(S) (concurrent/3, concurrent_forall/3, concurrent_and/3,
-   first_solution/3): S wie bei concurrent_statistics/2 für den Lauf;
-   threads(N) (concurrent_forall/3, concurrent_and/3, wie SWI;
+   concurrent_aggregate_all/5, first_solution/3): S wie bei
+   concurrent_statistics/2 für den Lauf;
+   threads(N) (concurrent_forall/3, concurrent_and/3,
+   concurrent_aggregate_all/5, wie SWI;
    es sind Prozesse der BEAM, keine Threads) und chunk(K) (ebenda, siehe
    Blockung); first_solution/3:
    on_fail(stop) (Vorgabe: das erste Scheitern beendet alles) oder
@@ -98,6 +108,8 @@
                        concurrent_partition/4,
                        concurrent_partition/5,
                        concurrent_foldl/4,
+                       concurrent_aggregate_all/4,
+                       concurrent_aggregate_all/5,
                        concurrent_forall/2,
                        concurrent_forall/3,
                        concurrent_findall/3,
@@ -140,6 +152,8 @@ concurrent_child_stack(Stack) :-
 :- meta_predicate(concurrent_partition(1, +, -, -)).
 :- meta_predicate(concurrent_partition(2, +, -, -, -)).
 :- meta_predicate(concurrent_foldl(3, +, +, -)).
+:- meta_predicate(concurrent_aggregate_all(?, 0, 0, -)).
+:- meta_predicate(concurrent_aggregate_all(?, :, 0, -, +)).
 :- meta_predicate(concurrent_forall(0, 0)).
 :- meta_predicate(concurrent_forall(0, 0, +)).
 :- meta_predicate(concurrent_and(0, 0)).
@@ -266,6 +280,74 @@ order_split_(=, X, Ls, [X|Es], Gs, Ls, Es, Gs) :- !.
 order_split_(>, X, Ls, Es, [X|Gs], Ls, Es, Gs) :- !.
 order_split_(O, _, _, _, _, _, _, _) :-
     domain_error(order, O).
+
+% --- aggregieren ---------------------------------------------------------------
+%
+% Ist Gen between(L, H, X), bekommt jedes Kind einen Teilbereich (zählt
+% selbst, nichts wird gesammelt). Sonst die Lösungen von Gen (im
+% Aufrufer, als Werte seiner Variablen) in Abschnitte: bis zu 4 je Arbeiter, oder chunk(K) je Abschnitt; jedes Kind
+% faltet aggregate_all(Template, (member(Vs, Abschnitt), Test)) zu einem
+% Teilergebnis ('$aggregate_part'/3), der Aufrufer führt sie in der
+% Reihenfolge der Abschnitte zusammen ('$aggregate_merge'/3) – dasselbe
+% wie aggregate_all/3 über (Gen, Test): Zeugen bei Gleichstand der
+% früheste, bag in der Reihenfolge; sum über Gleitkommazahlen kann in der
+% letzten Stelle abweichen (andere Klammerung).
+concurrent_aggregate_all(T, Gen, Test, R) :-
+    concurrent_aggregate_all(T, Gen, Test, R, []).
+
+concurrent_aggregate_all(T, M:Gen, Test, R, Options) :-
+    '$aggregate_check'(T),
+    threads_option(Options, sched(W, K0)),
+    (   range_gen(Gen, M, L, H, X)
+    ->  % between(L, H, X): je Kind ein Teilbereich, ohne die Zahlen zu sammeln
+        N is H - L + 1,
+        chunk_size(K0, W, N, K),
+        range_jobs(L, H, K, X, T, Test, Jobs)
+    ;   gen_jobs(M:Gen, T, Test, K0, W, Jobs)
+    ),
+    run(Jobs, once, sched(W, 1), Options, ok(Parts)),
+    '$aggregate_merge'(T, Parts, R0),
+    R = R0.
+
+% Gen ist between(L, H, X) – das eingebaute, nicht ein eigenes des
+% Moduls – mit Ganzzahlen L, H und freiem X
+range_gen(G0, M0, L, H, X) :-
+    unqualify(M0:G0, M, G),
+    G = between(L, H, X),
+    integer(L), integer(H), var(X),
+    predicate_property(M:between(_, _, _), built_in).
+
+unqualify(M0:G0, M, G) :- !,
+    (   nonvar(G0), G0 = M1:G1, atom(M1) -> unqualify(M1:G1, M, G)
+    ;   M = M0, G = G0
+    ).
+
+% bis zu 4 Abschnitte je Arbeiter, oder chunk(K)
+chunk_size(auto, W, N, K) :- !,
+    ( integer(W) -> C = W ; current_prolog_flag(cpu_count, C) ),
+    K is max(1, (N + 4*C - 1) // (4*C)).
+chunk_size(K, _, _, K).
+
+range_jobs(L, H, _, _, _, _, []) :-
+    L > H, !.
+range_jobs(L, H, K, X, T, Test, [P-'$aggregate_part'(T, (between(L, H1, X), Test), P)|Js]) :-
+    H1 is min(H, L + K - 1),
+    L1 is H1 + 1,
+    range_jobs(L1, H, K, X, T, Test, Js).
+
+gen_jobs(Gen, T, Test, K0, W, Jobs) :-
+    term_variables(Gen, Vs0),
+    % (eine Variable: ihre Werte selbst, ohne Liste darum)
+    ( Vs0 = [V] -> Vs = V ; Vs = Vs0 ),
+    findall(Vs, Gen, Sols),
+    length(Sols, N),
+    chunk_size(K0, W, N, K),
+    chunks(Sols, K, Cs),
+    aggregate_jobs(Cs, T, Vs, Test, Jobs).
+
+aggregate_jobs([], _, _, _, []).
+aggregate_jobs([C|Cs], T, Vs, Test, [P-'$aggregate_part'(T, (lists:member(Vs, C), Test), P)|Js]) :-
+    aggregate_jobs(Cs, T, Vs, Test, Js).
 
 % --- falten: Map-Reduce -------------------------------------------------------
 %
