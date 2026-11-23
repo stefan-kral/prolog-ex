@@ -829,9 +829,11 @@ path_decisions([N|Ns], [X|Xs]) :-
     path_decisions(Ns, Xs).
 
 % die Werte von E über alle Lösungen des Teils
+% (scheitert schon das Aufsetzen – neu gepostet propagiert das Modell
+% mitunter stärker als im Aufrufer –: keine Werte, wie part_empty/2;
+% vorher scheiterte damit concurrent_labelings mit min/max ganz)
 part_values(Gs, Vs, Base, EV, Ds, Vals) :-
-    call(Gs),
-    (   decide(Ds, Vs, Pre)
+    (   call(Gs), decide(Ds, Vs, Pre)
     ->  findall(V, ( pre_label(Pre), labeling(Base, Vs), value(EV, V) ), Vals)
     ;   Vals = []
     ).

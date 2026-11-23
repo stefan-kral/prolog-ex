@@ -4506,6 +4506,13 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
     erreicht wird. Nacheinander beginnt jeder Schritt neu von links,
     parallel schneiden auch Lösungen rechts davon ab. Dort gilt nur: Haben
     beide eine Lösung, ist es dieselbe.
+  - **Erst im Arbeiter widersprüchlich:** Neu aufgesetzt kann ein Modell
+    schon beim Aufsetzen scheitern, das im Aufrufer erst die Suche
+    widerlegt (unten, Grenze). Dann scheiterte `concurrent_labelings` mit
+    `min`/`max` ganz, statt `[]` zu geben (`part_values/6`). Gefunden mit
+    der Coverage (`part_empty/2` war nie getroffen) und einem eigens
+    gebauten Modell; der Zufallstest erzeugt solche Modelle jetzt auch
+    (ein Ausdruck, dessen Variable erst danach gebunden wird).
   - **Grenze:** Die Kinder setzen das Modell aus den Zielen von
     `copy_term/3` neu auf. Ein Constraint, der erst durch Propagation
     seine Form bekam (etwa nach einer Bindung), wird dabei neu gepostet und

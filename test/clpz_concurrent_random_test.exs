@@ -51,7 +51,8 @@ defmodule PrologEx.ClpzConcurrentRandomTest do
               % Original (die Grenze trifft dieses Modell); mit serial(S)
               % mischen sich beide (der Anfang im Aufrufer): dann nur
               % dieselbe Menge bzw. eine Lösung aus ihr
-              R0 = verschieden(S0, _), S3 \\== S0,
+              R0 = verschieden(S0, _),
+              ( S3 \\== S0 ; Kind == all, group_prone(G, Vs, O) ),
               same_set(Kind, G, Vs, O, S0, S1)
           )
       ->  R = gleich
@@ -61,6 +62,27 @@ defmodule PrologEx.ClpzConcurrentRandomTest do
   same_set(first, G, Vs, O, ok(_), ok(Sol)) :-
       copy_term(G-Vs-O, G4-V4-O4), call(G4), findall(V4, labeling(O4, V4), All),
       memberchk(Sol, All).
+  % alle Lösungen mit min(E)/max(E): je Gruppe ein eigener Zustand (S #= E,
+  % S #\\= die vorigen Werte, S #= Wert), die Kinder setzen ihn neu auf –
+  % trifft die Grenze diesen Zustand (labeling/2 neu aufgesetzt anders als
+  % im Original), gilt nur dieselbe Menge
+  group_prone(G, Vs, O) :-
+      select(W, O, B0), W =.. [Dir, _], memberchk(Dir, [min, max]),
+      \\+ ( member(W2, B0), W2 =.. [D2, _], memberchk(D2, [min, max]) ),
+      copy_term(G-Vs-W-B0, G1-V1-W1-B1), arg(1, W1, E1),
+      catch(call(G1), _, fail),
+      catch(findall(X, ( labeling(B1, V1), X is E1 ), Xs), _, fail),
+      sort(Xs, Asc), ( Dir == min -> Vals = Asc ; reverse(Asc, Vals) ),
+      append(Prev, [V|_], Vals),
+      copy_term(G-Vs-W-B0, G2-V2-W2b-B2), arg(1, W2b, E2),
+      call(G2), S #= E2, maplist(expr_neq(S), Prev), S #= V,
+      findall(V2, labeling(B2, V2), L2),
+      maplist(clpz_concurrent:props_count, V2, Ns),
+      copy_term(V2-B2, V3-B3, Gs0), clpz_concurrent:goal_conj(Gs0, Gs), call(Gs),
+      ( memberchk(ffc, B2) -> clpz_concurrent:pad_props(V3, Ns) ; true ),
+      findall(V3, labeling(B3, V3), L3),
+      L2 \\== L3, !.
+  expr_neq(S, V) :- S #\\= V.
   side(G, Goal, Out, S) :-
       catch(( call(G) -> ( call(Goal) -> S = ok(Out) ; S = none ) ; S = none ),
             E, ( E = error(F, _) -> S = error(F) ; S = ball(E) )).
@@ -112,7 +134,11 @@ defmodule PrologEx.ClpzConcurrentRandomTest do
     # copy_term/3 in die Kinder; wirft, sobald zwei Variablen eine Summe
     # aus einer Menge haben
     fz = if chance(0.25), do: [thrower(vs)], else: []
-    {vs, Enum.join(ins ++ cs ++ fz, ", ")}
+    # manchmal ein Ausdruck, dessen Variable erst danach gebunden wird:
+    # copy_term/3 nennt dann die Gleichung, neu gepostet propagiert sie
+    # mitunter stärker (bis zum Scheitern im Arbeiter, part_empty/2)
+    bd = if chance(0.2), do: ["_B #= #{lin(vs)}, _B = #{:rand.uniform(7) - 3}"], else: []
+    {vs, Enum.join(ins ++ cs ++ bd ++ fz, ", ")}
   end
 
   defp thrower(vs) do

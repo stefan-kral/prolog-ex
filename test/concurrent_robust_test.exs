@@ -121,6 +121,18 @@ defmodule PrologEx.ConcurrentRobustTest do
     gone!()
   end
 
+  test "ein Arbeiter stirbt mit zusammengesetztem Grund: der Grund im Fehler", c do
+    t = start(c, "catch(concurrent_maplist(spin, [1, 2]), error(E, _), true)")
+    [w | _] = await_workers(2)
+    Process.exit(w, {:kaputt, 42})
+    {ans, state} = Task.await(t, 10_000)
+    assert {:answers, [a]} = ans
+    assert a =~ "concurrent_child("
+    assert a =~ "kaputt"
+    clean!(state)
+    gone!()
+  end
+
   test "first_solution/3 mit on_error(continue): ein toter Arbeiter wie ein Scheitern", c do
     t = start(c, "first_solution(X, [spin(X), late(X)], [on_error(continue)])")
     ws = await_workers(2)
