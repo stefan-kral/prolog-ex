@@ -1125,35 +1125,52 @@ defmodule PrologEx.Builtins.Concurrent do
   end
 
   # alle Lösungen: :undecided, solange ein Teil wartet oder läuft; eine
-  # Ausnahme gleich (die erste in der Reihenfolge der Suche)
+  # Ausnahme, sobald sie die erste in der Reihenfolge der Suche ist (vorher
+  # galt die erste unter den schon fertigen: lief ein Teil links davon noch
+  # und warf später, kam die falsche an – je nach Zeit)
   defp sall(parts) do
-    order = sorder(parts, 0)
+    case sfirst_error(parts, 0) do
+      {:error, e} -> {:found, {:error, e}}
+      :undecided -> :undecided
+      :clean -> {:found, {:all, sassemble(parts, 0)}}
+    end
+  end
 
-    cond do
-      e = Enum.find_value(order, fn {_, st} -> match?({:error, _, _}, st) && elem(st, 1) end) ->
-        {:found, {:error, e}}
+  # in der Reihenfolge der Suche: {:error, E}, wenn vor der ersten Ausnahme
+  # alles fertig ist; :undecided, solange davor ein Teil wartet oder läuft;
+  # :clean, wenn alles fertig ist, ohne Ausnahme. Vor der Ausnahme eines
+  # Teils liegen seine ersten k abgegebenen Teile (wie bei einer Lösung)
+  defp sfirst_error(parts, id) do
+    p = parts[id]
 
-      Enum.any?(order, fn {_, st} -> st in [:pending, :running] end) ->
-        :undecided
+    case p.st do
+      st when st in [:pending, :running] -> :undecided
+      :pruned -> :clean
+      {:error, e, k} -> serr_list(parts, Enum.take(p.givens, k), {:error, e})
+      _ -> serr_list(parts, p.givens, :clean)
+    end
+  end
 
-      true ->
-        {:found, {:all, sassemble(parts, 0)}}
+  defp serr_list(_parts, [], last), do: last
+
+  defp serr_list(parts, [g | gs], last) do
+    case sfirst_error(parts, g) do
+      :clean -> serr_list(parts, gs, last)
+      r -> r
     end
   end
 
   # Branch and Bound: wie sall/1, dann der beste Wert, bei gleichem der
   # erste in der Reihenfolge der Suche; :empty ohne Lösung
   defp sbest(parts, dir) do
-    order = sorder(parts, 0)
-
-    cond do
-      e = Enum.find_value(order, fn {_, st} -> match?({:error, _, _}, st) && elem(st, 1) end) ->
+    case sfirst_error(parts, 0) do
+      {:error, e} ->
         {:found, {:error, e}}
 
-      Enum.any?(order, fn {_, st} -> st in [:pending, :running] end) ->
+      :undecided ->
         :undecided
 
-      true ->
+      :clean ->
         case sbest_list(parts, 0) do
           [] ->
             :empty

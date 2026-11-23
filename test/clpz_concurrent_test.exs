@@ -65,6 +65,32 @@ defmodule PrologEx.ClpzConcurrentTest do
   same(Model, Opts, COpts, R) :- call(Model, L), findall(L, labeling(Opts, L), S1),
       call(Model, L2), concurrent_labelings(Opts, L2, S2, COpts),
       ( S1 == S2 -> R = gleich ; R = verschieden(S1, S2) ).
+  % Ausnahmen mitten in der Suche: wirft boom(Q2-Q3), sobald Q2 + Q3 in S
+  % liegt (freeze/2 kommt über copy_term/3 mit in die Kinder)
+  bq(N, S, Qs) :- queens(N, Qs), Qs = [_, Q2, Q3|_],
+      freeze(Q2, freeze(Q3, ( Q is Q2 + Q3, memberchk(Q, S) -> throw(boom(Q2-Q3)) ; true ))).
+  outcome(G, R) :- catch(( call(G) -> R = ok ; R = fail ), E, R = ex(E)).
+  % eine Lösung, alle, das Beste: dieselbe Lösung oder dieselbe Ausnahme
+  same_ex(first, N, S, O, C, R) :-
+      bq(N, S, A), outcome(once(labeling(O, A)), R0),
+      bq(N, S, B), outcome(concurrent_labeling(O, B, C), R1),
+      ( R0-A == R1-B -> R = gleich(R0) ; R0 \\== ok, R0 == R1 -> R = gleich(R0) ; R = verschieden(R0-A, R1-B) ).
+  same_ex(all, N, S, O, C, R) :-
+      bq(N, S, A), outcome(findall(A, labeling(O, A), L0), R0),
+      bq(N, S, B), outcome(concurrent_labelings(O, B, L1, C), R1),
+      ( R0 == R1, ( R0 \\== ok ; L0 == L1 ) -> R = gleich(R0) ; R = verschieden(R0, R1) ).
+  % Branch and Bound: ob ein Knoten mit Ausnahme erreicht wird, hängt an der
+  % Schranke, die dort gerade gilt – nacheinander jeder Schritt neu von
+  % links, parallel schneiden auch Lösungen rechts davon ab (die gemeinsame
+  % Schranke). Darum nur: haben beide eine Lösung, dieselbe
+  same_ex(Dir, N, S, O, C, R) :-
+      memberchk(Dir, [min, max]),
+      bq(N, S, A), A = [Q1|_], W0 =.. [Dir, Q1], outcome(once(labeling([W0|O], A)), R0),
+      bq(N, S, B), B = [P1|_], W1 =.. [Dir, P1], outcome(concurrent_labeling([W1|O], B, C), R1),
+      (   R0-A == R1-B -> R = gleich(R0)
+      ;   ( R0 = ex(_) ; R1 = ex(_) ) -> R = gleich(ex_bb)
+      ;   R = verschieden(R0-A, R1-B)
+      ).
   """
 
   setup_all do
@@ -365,6 +391,32 @@ defmodule PrologEx.ClpzConcurrentTest do
         co <- ["[serial(0)]", "[serial(10)]", "[serial(0), parts(1)]"] do
       assert ask(c, "same_grp(#{o}, #{d}, #{co}, R)") == ["R = gleich"], "#{o} #{d} #{co}"
     end
+  end
+
+  # eine Ausnahme in einem Teil (auch einem abgegebenen): concurrent_labeling
+  # wirft dieselbe wie once(labeling/2) – die erste in der Reihenfolge der
+  # Suche –, liegt sie rechts der Lösung, gilt die Lösung; ebenso alle
+  # Lösungen (vorher kam bei Work Stealing mitunter eine spätere an, je nach
+  # Zeit). min/max: nur die Lösung, wenn beide eine haben (siehe same_ex/6)
+  test "Ausnahmen in den Teilen wie labeling/2", c do
+    seen =
+      for {mode, n} <- [{"first", 8}, {"all", 7}, {"min", 8}, {"max", 7}],
+          s <- ["[5]", "[7, 9]", "[6, 10, 13]", "[15]"],
+          o <- ["[]", "[ff]", "[down]"],
+          co <- [
+            "[serial(0)]",
+            "[serial(0), parts(1)]",
+            "[serial(0), parts(4)]",
+            "[serial(0.001)]"
+          ] do
+        q = "same_ex(#{mode}, #{n}, #{s}, #{o}, #{co}, R)"
+        assert [a] = ask(c, q), q
+        assert a =~ "R = gleich(", "#{q}: #{a}"
+        if a =~ "ex(", do: :ex, else: :ok
+      end
+
+    # beides kommt vor: Ausnahmen links der Lösung und rechts davon
+    assert :ex in seen and :ok in seen
   end
 
   test "copy_term/3 mit mehr als 255 Restzielen (16 Damen; vorher max_arity)", c do

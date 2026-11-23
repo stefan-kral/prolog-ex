@@ -81,6 +81,36 @@ defmodule PrologEx.ConcurrentRobustTest do
       flunk("Arbeiter übrig: #{inspect(workers())}")
   end
 
+  # Während eines Laufs fängt der Aufrufer Exit-Signale ab (trap_exit), um
+  # tote Arbeiter zu bemerken. Ein Signal eines fremden verbundenen
+  # Prozesses gehört nicht dazu: danach muss es wirken wie ohne den Lauf
+  # (abnormal: der Aufrufer stirbt mit demselben Grund; normal: nichts)
+  test "fremdes Exit-Signal während eines Laufs wirkt danach wie sonst", c do
+    me = self()
+
+    for {reason, dies?} <- [{:fremd, true}, {:normal, false}] do
+      {pid, mref} =
+        spawn_monitor(fn ->
+          Reader.put_current(c.reader)
+          Process.put(:prolog_ex_ops, c.ops)
+          spawn_link(fn -> Process.sleep(50) && exit(reason) end)
+          {_, ans} = TableCase.run(c.reader, c.db, "concurrent_maplist(late, [A, B])")
+          {:trap_exit, trap} = Process.info(self(), :trap_exit)
+          send(me, {:fertig, ans, trap})
+        end)
+
+      if dies? do
+        assert_receive {:DOWN, ^mref, :process, ^pid, ^reason}, 5_000
+        refute_received {:fertig, _, _}
+      else
+        assert_receive {:fertig, {:answers, ["A = spaet, B = spaet"]}, false}, 5_000
+        assert_receive {:DOWN, ^mref, :process, ^pid, :normal}, 5_000
+      end
+    end
+
+    gone!()
+  end
+
   test "ein Arbeiter stirbt: Fehler beim Aufrufer, alles aufgeräumt", c do
     t = start(c, "catch(concurrent_maplist(spin, [1, 2]), error(E, _), true)")
     [w | _] = await_workers(2)

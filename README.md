@@ -4491,16 +4491,34 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
     in der Gruppe. Jetzt derselbe Zustand. Die erste Lösung sucht
     `concurrent_labeling` bei diesen Variablenwahlen am Ende noch einmal in
     diesem Zustand (bei `leftmost` ist sie schon die richtige).
+  - **Ausnahmen in den Teilen** (ein Ziel von `freeze/2` wirft mitten in
+    der Suche; der Zufallstest baut das in jedes vierte Modell ein). Bei
+    `concurrent_labelings` kam mit Work Stealing mitunter eine spätere
+    Ausnahme an statt der ersten in der Reihenfolge der Suche. Der
+    Aufrufer nahm die erste unter den schon fertigen Teilen, auch wenn
+    links davon noch einer lief. Jetzt zählt sie erst, wenn davor alles
+    fertig ist (`sfirst_error/2`). Und mit vielen festen Teilen kam
+    regelmäßig die falsche an: Beim Aufteilen im Aufrufer
+    (größter Teil zuerst, nicht der Reihe nach) feuerte schon die
+    Propagation das werfende Ziel. Jetzt wird ein solcher Knoten ein Blatt,
+    und das Kind trifft die Ausnahme an ihrer Stelle. Bei `min`/`max` hängt
+    an der gerade geltenden Schranke, ob ein Knoten mit Ausnahme überhaupt
+    erreicht wird. Nacheinander beginnt jeder Schritt neu von links,
+    parallel schneiden auch Lösungen rechts davon ab. Dort gilt nur: Haben
+    beide eine Lösung, ist es dieselbe.
   - **Grenze:** Die Kinder setzen das Modell aus den Zielen von
     `copy_term/3` neu auf. Ein Constraint, der erst durch Propagation
     seine Form bekam (etwa nach einer Bindung), wird dabei neu gepostet und
     kann stärker propagieren als im Original (ein Beispiel: `X2` gerade aus
-    `2*X4 #= 2*X1 + X2`). Für `leftmost` (die Vorgabe) ändert das nichts,
-    die Reihenfolge ist die lexikographische. Bei `ff`, `ffc`, `min`, `max`
-    kann die Wahl abweichen. Gefunden nur mit einem eigens gebauten Fall
-    (`max` mit `bisect`, `parts(1)`), in 4200 Zufallsmodellen (drei Seeds) nie. Die
-    Lösungen sind immer dieselben, nur Reihenfolge und erste Lösung können
-    dann abweichen.
+    `2*X4 #= 2*X1 + X2`). Eine Reifikation hängt später womöglich andere
+    Propagatoren an als im Original (`ffc` zählt sie). Für `leftmost` (die
+    Vorgabe) ändert das nichts, die Reihenfolge ist die lexikographische.
+    Bei `ff`, `ffc`, `min`, `max` kann die Wahl abweichen. Die Lösungen
+    sind immer dieselben, nur Reihenfolge und erste Lösung können dann
+    abweichen. Gefunden in einem eigens gebauten Fall (`max` mit `bisect`,
+    `parts(1)`) und in einem von rund 7000 Zufallsmodellen (`ffc`). Der
+    Zufallstest lässt eine Abweichung zu, wenn `labeling/2` auf einem
+    genau so neu aufgesetzten Modell dasselbe gibt wie parallel.
 * **Gemessen** (2 Kerne): 10 Damen, alle 724 Lösungen mit `ff`: 1,9 s
   nacheinander, 0,9 s parallel; 9 Damen 0,45 → 0,3 s.
 * **Alle Lösungen mit vielen Kernen:** 16 feste Teile reichen, solange es
@@ -6115,12 +6133,15 @@ ihr Verhalten: `ok(V)`, `nd(L)` (mehrere Lösungen), `no` (scheitert),
 `err(E)` (wirft), `out(V)` (schreibt), `nap(Ms, V)`, `work(N, V)` und
 `sub(L)` (darin `concurrent_maplist/3`, verschachtelt). Dazu zufällig
 `threads(N)`, `chunk(K)`, Listen bis 100 Elemente, ein Teil mit
-Verzögerungen. Gleich heißt: dieselben Bindungen und dieselbe Ausgabe. Wo
+Verzögerungen, jede zehnte Eingabe unter einer Zeit- oder Inferenzgrenze
+des Aufrufers (das Ergebnis ist das ohne Grenze, oder die Grenze schlug
+zu). Der lange Lauf prüft am Ende, dass keine Prozesse, ETS-Tabellen oder
+`persistent_term`-Einträge zurückbleiben. Gleich heißt: dieselben Bindungen und dieselbe Ausgabe. Wo
 mehrere Ausgänge möglich sind (mehrere Ziele werfen oder scheitern),
 muss der Ausgang einer davon sein, dann ohne Ausgabe. Die Suite prüft
 370 Eingaben (5 s), `--include slow` 4500 (50 s); `CONC_RANDOM_SEED`,
 `CONC_RANDOM_N`, `CONC_RANDOM_COLLECT` wie beim clpz-Test. Ergebnis über
-neun Seeds (rund 15 000 Eingaben): keine Abweichung. Angepasst wurde nur
+zwölf Seeds (rund 20 000 Eingaben): keine Abweichung. Angepasst wurde nur
 das Vorbild an die dokumentierte Semantik: keine Ausgabe eines
 gescheiterten verschachtelten Aufrufs, ein Element von
 `concurrent_foldl/4` auch in der Rolle des Akkumulators.

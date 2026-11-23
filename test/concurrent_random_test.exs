@@ -70,9 +70,25 @@ defmodule PrologEx.ConcurrentRandomTest do
 
   diff(Xs, Fails, T0, G0, T1, G1, V) :-
       copy_term(T0-G0, T0c-G0c), copy_term(T1-G1, T1c-G1c),
+      ( catch(b_getval(px_wrap, W), _, fail) -> true ; W = none ),
+      wrap(W, G1c, G1w),
       run(T0c, G0c, S),
-      run(T1c, G1c, C),
-      judge(Xs, Fails, S, C, V).
+      run(T1c, G1w, C),
+      % (die Grenze kann auch erst nach dem parallelen Teil zuschlagen, etwa
+      % in findall/3 um concurrent_and/3: dann ist die Ausgabe schon da)
+      (   C = ex(limit)-O1 -> ( ( O1 == '' ; S = ok(_)-O1 ) -> V = gleich ; V = verschieden(S, C) )
+      ;   judge(Xs, Fails, S, C, V)
+      ).
+
+  % lim(W, Fall): die parallele Seite unter einer Grenze des Aufrufers –
+  % das Ergebnis ist das ohne Grenze, oder die Grenze schlug zu (dann ohne
+  % Ausgabe); die Kinder rechnen im selben Budget, die Zahl der Inferenzen
+  % ist also eine andere als nacheinander
+  lim(W, G) :- b_setval(px_wrap, W), call(G).
+  wrap(none, G, G).
+  wrap(time(T), G, catch(call_with_time_limit(T, G), time_limit_exceeded, throw(limit))).
+  wrap(inf(N), G, ( call_with_inference_limit(G, N, R),
+                    ( R == inference_limit_exceeded -> throw(limit) ; true ) )).
 
   % die Fälle
   case(maplist2, Xs, _, V) :- diff(Xs, yes, x, maplist(t, Xs), x, concurrent_maplist(t, Xs), V).
@@ -212,22 +228,32 @@ defmodule PrologEx.ConcurrentRandomTest do
     n = if chance(0.05), do: pick([30, 100]), else: pick([0, 1, 2, 3, 5, 8, 12])
     xs = list(elems(n, p))
 
-    case :rand.uniform(15) do
-      1 -> "case(maplist2, #{xs}, [], V)"
-      2 -> "case(maplist3, #{xs}, [], V)"
-      3 -> "case(maplist4, #{xs}, [], V)"
-      4 -> "case(concurrent, #{xs}, [n(#{:rand.uniform(4)})], V)"
-      5 -> "case(forall, #{xs}, #{list(opts())}, V)"
-      6 -> "case(findall, #{xs}, [], V)"
-      7 -> "case(and, #{xs}, #{list(opts())}, V)"
-      8 -> "case(include, #{xs}, [], V)"
-      9 -> "case(exclude, #{xs}, [], V)"
-      10 -> "case(partition4, #{xs}, [], V)"
-      11 -> "case(partition5, #{xs}, [], V)"
-      12 -> "case(aggregate(#{pick(@templates)}), #{xs}, #{list(opts())}, V)"
-      13 -> "case(aggregate(#{pick(@templates)}), #{xs}, #{list(opts())}, V)"
-      14 -> "case(foldl, #{list(folds(n))}, [], V)"
-      15 -> "first(#{list(elems(max(n, 1), p))}, #{list(first_opts())}, V)"
+    c =
+      case :rand.uniform(15) do
+        1 -> "case(maplist2, #{xs}, [], V)"
+        2 -> "case(maplist3, #{xs}, [], V)"
+        3 -> "case(maplist4, #{xs}, [], V)"
+        4 -> "case(concurrent, #{xs}, [n(#{:rand.uniform(4)})], V)"
+        5 -> "case(forall, #{xs}, #{list(opts())}, V)"
+        6 -> "case(findall, #{xs}, [], V)"
+        7 -> "case(and, #{xs}, #{list(opts())}, V)"
+        8 -> "case(include, #{xs}, [], V)"
+        9 -> "case(exclude, #{xs}, [], V)"
+        10 -> "case(partition4, #{xs}, [], V)"
+        11 -> "case(partition5, #{xs}, [], V)"
+        12 -> "case(aggregate(#{pick(@templates)}), #{xs}, #{list(opts())}, V)"
+        13 -> "case(aggregate(#{pick(@templates)}), #{xs}, #{list(opts())}, V)"
+        14 -> "case(foldl, #{list(folds(n))}, [], V)"
+        15 -> "first(#{list(elems(max(n, 1), p))}, #{list(first_opts())}, V)"
+      end
+
+    # ab und zu unter einer Zeit- oder Inferenzgrenze (nicht first/3: das
+    # hat kein Vorbild nacheinander, an dem sich die Grenze messen ließe)
+    cond do
+      String.starts_with?(c, "first(") -> c
+      chance(0.05) -> "lim(time(#{pick(~w(0.001 0.005 0.02 0.1))}), #{c})"
+      chance(0.05) -> "lim(inf(#{pick([50, 500, 5000, 50000])}), #{c})"
+      true -> c
     end
   end
 
@@ -300,8 +326,34 @@ defmodule PrologEx.ConcurrentRandomTest do
   @tag :slow
   @tag timeout: :infinity
   test "viele Eingaben", c do
+    # warm (Bibliotheken, JIT), dann messen
+    rounds(c, 10, 200, nil)
+    before = footprint()
     rounds(c, 11, 3000, nil)
     rounds(c, 12, 1000, p: 0.3, max_ms: 2)
     rounds(c, 13, 500, p: 0.5, max_ms: 0)
+    # nichts bleibt zurück: Prozesse, ETS-Tabellen, persistent_term (der
+    # JIT darf noch ein paar Module mehr übersetzt haben; ein Leck je Lauf
+    # wären Tausende)
+    after_ = settle(before)
+    assert after_.procs <= before.procs + 3, inspect({before, after_})
+    assert after_.ets <= before.ets + 3, inspect({before, after_})
+    assert after_.pterms <= before.pterms + 50, inspect({before, after_})
+  end
+
+  defp footprint do
+    %{
+      procs: length(Process.list()),
+      ets: length(:ets.all()),
+      pterms: :persistent_term.info().count
+    }
+  end
+
+  # bis zu 2 s, bis die letzten Arbeiter weg sind
+  defp settle(before) do
+    Enum.reduce_while(1..20, nil, fn _, _ ->
+      f = footprint()
+      if f.procs <= before.procs + 3, do: {:halt, f}, else: Process.sleep(100) && {:cont, f}
+    end)
   end
 end

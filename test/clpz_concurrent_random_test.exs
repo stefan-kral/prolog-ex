@@ -21,15 +21,58 @@ defmodule PrologEx.ClpzConcurrentRandomTest do
   same1(G, Vs, O, C, R) :-
       copy_term(G-Vs-O, G0-V0-O0), side(G0, once(labeling(O0, V0)), V0, S0),
       copy_term(G-Vs-O, G1-V1-O1), side(G1, concurrent_labeling(O1, V1, C), V1, S1),
-      verdict(S0, S1, R).
+      verdict(O, S0, S1, R0),
+      limit(R0, G, Vs, O, first, S1, R).
   sameall(G, Vs, O, C, R) :-
       copy_term(G-Vs-O, G0-V0-O0), side(G0, findall(V0, labeling(O0, V0), L0), L0, S0),
       copy_term(G-Vs-O, G1-V1-O1), side(G1, concurrent_labelings(O1, V1, L1, C), L1, S1),
-      verdict(S0, S1, R).
+      verdict(O, S0, S1, R0),
+      limit(R0, G, Vs, O, all, S1, R).
+  % die bekannte Grenze (README): die Kinder setzen das Modell aus
+  % copy_term/3 neu auf, das kann anders propagieren oder später andere
+  % Propagatoren anhängen; bei ff, ffc, min, max wählen sie dann womöglich
+  % andere Variablen. Abweichung zulässig, wenn labeling/2 auf genau so
+  % einem neu aufgesetzten Modell dasselbe gibt wie parallel
+  limit(gleich, _, _, _, _, _, gleich) :- !.
+  limit(R0, G, Vs, O, Kind, S1, R) :-
+      R0 = verschieden(S0, _),
+      (   ( memberchk(ff, O) ; memberchk(ffc, O) ; memberchk(min, O) ; memberchk(max, O) ),
+          copy_term(G-Vs-O, G2-V2-O2),
+          catch(call(G2), _, fail),
+          copy_term(V2-O2, V3-O3, Gs0), clpz_concurrent:goal_conj(Gs0, Gs),
+          catch(( call(Gs),
+                  ( memberchk(ffc, O) -> maplist(clpz_concurrent:props_count, V2, Ns),
+                                         clpz_concurrent:pad_props(V3, Ns) ; true ) ), _, fail),
+          (   Kind == first -> side(true, once(labeling(O3, V3)), V3, S3)
+          ;   side(true, findall(V3, labeling(O3, V3), L3), L3, S3)
+          ),
+          (   S3 == S1 -> true
+          ;   % das neu aufgesetzte Modell gibt selbst etwas anderes als das
+              % Original (die Grenze trifft dieses Modell); mit serial(S)
+              % mischen sich beide (der Anfang im Aufrufer): dann nur
+              % dieselbe Menge bzw. eine Lösung aus ihr
+              R0 = verschieden(S0, _), S3 \\== S0,
+              same_set(Kind, G, Vs, O, S0, S1)
+          )
+      ->  R = gleich
+      ;   R = R0
+      ).
+  same_set(all, _, _, _, ok(L0), ok(L1)) :- msort(L0, M), msort(L1, M).
+  same_set(first, G, Vs, O, ok(_), ok(Sol)) :-
+      copy_term(G-Vs-O, G4-V4-O4), call(G4), findall(V4, labeling(O4, V4), All),
+      memberchk(Sol, All).
   side(G, Goal, Out, S) :-
       catch(( call(G) -> ( call(Goal) -> S = ok(Out) ; S = none ) ; S = none ),
             E, ( E = error(F, _) -> S = error(F) ; S = ball(E) )).
-  verdict(S0, S1, R) :- ( S0 == S1 -> R = gleich ; R = verschieden(S0, S1) ).
+  % mit min/max hängt, ob ein Knoten mit Ausnahme erreicht wird, an der
+  % Schranke, die dort gilt (nacheinander und parallel verschieden): dann
+  % zählt nur, haben beide eine Lösung, dieselbe
+  verdict(O, S0, S1, R) :-
+      (   S0 == S1 -> R = gleich
+      ;   ( memberchk(min(_), O) ; memberchk(max(_), O) ),
+          ( S0 = ball(_) ; S1 = ball(_) ) -> R = gleich
+      ;   R = verschieden(S0, S1)
+      ).
   """
 
   setup_all do
@@ -65,7 +108,19 @@ defmodule PrologEx.ClpzConcurrentRandomTest do
 
     ins = for {v, {lo, hi}} <- Enum.zip(vs, doms), do: "#{v} in #{lo} .. #{hi}"
     cs = for _ <- 1..(1 + :rand.uniform(4)), do: constraint(vs)
-    {vs, Enum.join(ins ++ cs, ", ")}
+    # manchmal eine Ausnahme mitten in der Suche: freeze/2 kommt über
+    # copy_term/3 in die Kinder; wirft, sobald zwei Variablen eine Summe
+    # aus einer Menge haben
+    fz = if chance(0.25), do: [thrower(vs)], else: []
+    {vs, Enum.join(ins ++ cs ++ fz, ", ")}
+  end
+
+  defp thrower(vs) do
+    [a, b | _] = Enum.shuffle(vs)
+    ks = Enum.map_join(1..:rand.uniform(3), ", ", fn _ -> :rand.uniform(9) - 2 end)
+
+    "freeze(#{a}, freeze(#{b}, ( S is #{a} + #{b}, memberchk(S, [#{ks}]) -> " <>
+      "throw(boom(#{a}-#{b})) ; true )))"
   end
 
   defp lin(vs) do
@@ -190,7 +245,11 @@ defmodule PrologEx.ClpzConcurrentRandomTest do
 
         if System.get_env("CLPZ_RANDOM_COLLECT") do
           if ans != {:answers, ["R = gleich"]},
-            do: IO.puts(:stderr, "ABWEICHUNG #{q}")
+            do:
+              IO.puts(
+                :stderr,
+                "ABWEICHUNG #{q}\n  => #{inspect(ans, limit: 30, printable_limit: 400)}"
+              )
         else
           assert ans == {:answers, ["R = gleich"]}, "#{q}\n=> #{inspect(ans, limit: :infinity)}"
         end

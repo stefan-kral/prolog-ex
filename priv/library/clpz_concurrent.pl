@@ -83,6 +83,13 @@
    die Variablenwahl abweichen – dieselben Lösungen, aber Reihenfolge und
    erste Lösung dann womöglich anders als bei labeling/2.
 
+   Ausnahmen (etwa ein Ziel von freeze/2, das in der Suche wirft): dieselbe
+   wie labeling/2, die erste in der Reihenfolge der Suche; liegt sie rechts
+   der Lösung, gilt die Lösung. Bei min/max hängt an der Schranke, die
+   gerade gilt, ob ein Knoten mit Ausnahme erreicht wird – nacheinander
+   beginnt jeder Schritt neu von links, parallel schneiden auch Lösungen
+   rechts davon ab: dort kann das abweichen.
+
    Lohnend, wenn die Suche deutlich länger dauert als das Aufsetzen des
    Modells (jedes Kind setzt es neu auf).
 */
@@ -977,9 +984,14 @@ replace([N|Ns], Old, New, Out) :-
     ).
 
 % Knoten node(open | final, Größe, Entscheidungen umgekehrt); scheitern
-% die Entscheidungen schon durch Propagation: kein Knoten
-node(Ds, Vars, Kind, node(Kind, S, Ds)) :-
-    findall(S0, ( reverse(Ds, Ds1), decide(Ds1, Vars, _), log_size(Vars, 0, S0) ), [S]).
+% die Entscheidungen schon durch Propagation: kein Knoten. Wirft die
+% Propagation (ein Ziel von freeze/2, when/2, ...): ein Blatt – das Kind
+% trifft die Ausnahme wieder, an ihrer Stelle in der Reihenfolge der Suche
+% (hier aufzuteilen geht nicht der Reihe nach: sonst käme eine spätere an)
+node(Ds, Vars, Kind, Node) :-
+    catch(findall(S0, ( reverse(Ds, Ds1), decide(Ds1, Vars, _), log_size(Vars, 0, S0) ), [S]),
+          _, S = thrown),
+    (   S == thrown -> Node = node(final, 0, Ds) ; Node = node(Kind, S, Ds) ).
 
 log_size([], S, S).
 log_size([V|Vs], S0, S) :-
@@ -1001,8 +1013,9 @@ expand_(B, Ds, Vars, Ns) :-
     children(B, Ds, Cs),
     findall(Nd, ( member(Kind-[D|_], Cs), child_node(D, Kind, Ds, Vars, Nd) ), Ns).
 
-child_node(D, Kind, Ds, Vars, node(Kind, S, [D|Ds])) :-
-    findall(S0, ( decide([D], Vars, _), log_size(Vars, 0, S0) ), [S]).
+child_node(D, Kind, Ds, Vars, Node) :-
+    catch(findall(S0, ( decide([D], Vars, _), log_size(Vars, 0, S0) ), [S]), _, S = thrown),
+    (   S == thrown -> Node = node(final, 0, [D|Ds]) ; Node = node(Kind, S, [D|Ds]) ).
 
 children(step(I, V), Ds, [open-[eq(I, V)|Ds], open-[neq(I, V)|Ds]]).
 children(enum(I, Vals), Ds, Cs) :-

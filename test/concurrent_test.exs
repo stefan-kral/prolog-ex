@@ -679,6 +679,33 @@ defmodule PrologEx.ConcurrentTest do
 
     [e] = ask(c, "catch(first_solution(X, [X = a], [output(foo)]), error(E, _), true)")
     assert e =~ "domain_error(output,foo)"
+
+    # ein Verlierer warf (on_error(continue)): seine Kopfzeile sagt es
+    {[ans], err} =
+      with_err(fn ->
+        ask(
+          c,
+          ~S|with_output_to(atom(A), first_solution(X, [(write(e1), throw(x)), (write(b1), numlist(1, 200000, L), sum_list(L, _), X = b)], [on_error(continue), output(all)]))|
+        )
+      end)
+
+    assert ans == "A = b1, X = b"
+    assert err =~ "% Ziel 1: Ausnahme\ne1\n"
+
+    # zwei sofort fertig: der Verlierer ist fertig oder abgebrochen, je nach
+    # Zeit (ab und zu beides vorkommen lassen: zehn Runden)
+    for _ <- 1..10 do
+      {[ans], err} =
+        with_err(fn ->
+          ask(
+            c,
+            ~S|with_output_to(atom(A), first_solution(X, [(write(a1), X = a), (write(b1), X = b)], [output(all)]))|
+          )
+        end)
+
+      assert ans in ["A = a1, X = a", "A = b1, X = b"]
+      assert err =~ ~r/% Ziel [12]: (fertig|abgebrochen)\n/
+    end
   end
 
   defp with_err(f) do
