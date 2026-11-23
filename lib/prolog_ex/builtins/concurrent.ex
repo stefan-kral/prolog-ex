@@ -1464,13 +1464,29 @@ defmodule PrologEx.Builtins.Concurrent do
     end
   end
 
+  # Alle Arbeiter des Laufs beenden (auch schon unterwegs abgeschossene,
+  # split_kill/2) und auf ihr Ende warten: Process.exit/2 wirkt nicht
+  # sofort, ein Arbeiter kann bis dahin noch Nachrichten schicken. Erst
+  # das DOWN eines frischen Monitors (auch :noproc, war er schon tot) sagt:
+  # alles von ihm ist da – dann erst aufräumen, sonst blieben späte
+  # Nachrichten für immer im Postfach des Aufrufers (im Toplevel: der
+  # Sitzung)
   defp kill_all(ref) do
-    for pid <- Process.get({:conc_pids, ref}, []) do
-      Process.unlink(pid)
-      Process.exit(pid, :kill)
+    for {_pid, mon} <- Process.get({:conc_mon, ref}, %{}), do: Process.demonitor(mon, [:flush])
+
+    mons =
+      for pid <- Map.keys(Process.get({:conc_all, ref}, %{})) do
+        Process.unlink(pid)
+        Process.exit(pid, :kill)
+        Process.monitor(pid)
+      end
+
+    for mon <- mons do
+      receive do
+        {:DOWN, ^mon, :process, _, _} -> :ok
+      end
     end
 
-    for {_pid, mon} <- Process.get({:conc_mon, ref}, %{}), do: Process.demonitor(mon, [:flush])
     Process.delete({:conc_pids, ref})
     Process.delete({:conc_mon, ref})
     Process.delete({:conc_outs, ref})

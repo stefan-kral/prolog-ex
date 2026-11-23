@@ -197,4 +197,27 @@ defmodule PrologEx.ConcurrentRobustTest do
     assert a =~ "R = inference_limit_exceeded"
     gone!()
   end
+
+  # Abbruch mitten im Aufteilen, oft: ein Arbeiter, der beim Beenden
+  # gerade eine Nachricht schickt (conc_offer, conc_loop_end, ...), darf
+  # sie nicht im Postfach des Aufrufers hinterlassen (das Zeitfenster ist
+  # klein: der Test fing den alten Fehler nur in etwa jedem sechsten Lauf)
+  test "nach Abbruch keine späten Nachrichten im Postfach", c do
+    for _ <- 1..40 do
+      {ans, state} =
+        Task.await(
+          start(
+            c,
+            "ph(9, Vs), catch(call_with_time_limit(0.01, " <>
+              "concurrent_labeling([], Vs, [serial(0), parts(16)])), E, true)"
+          ),
+          30_000
+        )
+
+      assert {:answers, [_]} = ans
+      clean!(state)
+    end
+
+    gone!()
+  end
 end

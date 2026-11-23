@@ -4322,6 +4322,11 @@ also ab etwa 0,1 ms Arbeit je Element.
   verlinkt (stirbt er, sterben sie mit); während eines Laufs fängt er
   dafür Exit-Signale ab und stellt danach den alten Zustand her – vorher
   riss ein toter Arbeiter den Aufrufer mit, im Toplevel die Sitzung.
+* **Aufräumen nach dem Lauf:** Der Aufrufer beendet alle Arbeiter und
+  wartet auf ihr Ende, bevor er das Postfach leert. Vorher konnte ein
+  Arbeiter, der beim Beenden gerade eine Nachricht schickte
+  (`conc_offer`, Ergebnis, Fehler), sie dort für immer hinterlassen –
+  selten, aber im Toplevel sammelten sie sich an.
 * **Übersetzen in den Kindern:** Riefen mehrere Kinder ein übersetzbares
   Prädikat gleichzeitig zum ersten Mal, übersetzten sie es gleichzeitig;
   einer scheiterte an der doppelten Definition und lud den Ersatz, der

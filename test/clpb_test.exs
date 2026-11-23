@@ -766,13 +766,17 @@ defmodule PrologEx.ClpbTest do
 
     kinds = Enum.frequencies_by(results, fn {_, r} -> elem(r, 0) end)
 
-    with_goals =
-      Enum.count(results, fn {_, r} ->
-        match?({:answers, [a | _]} when is_binary(a), r) and
-          r |> elem(1) |> hd() |> String.contains?("sat(")
-      end)
+    # Nummern der Anfragen mit Restzielen (bei festem Seed immer 150): fällt
+    # die Zahl einmal, zeigt der Vergleich mit einem gewöhnlichen Lauf die
+    # Anfrage, die sich geändert hat
+    goal_ix =
+      for {{_, r}, i} <- Enum.with_index(results, 1),
+          match?({:answers, [a | _]} when is_binary(a), r),
+          r |> elem(1) |> hd() |> String.contains?("sat("),
+          do: i
 
-    assert with_goals >= 150, inspect({kinds, with_goals})
+    with_goals = length(goal_ix)
+    assert with_goals >= 150, inspect({kinds, with_goals, goal_ix}, limit: :infinity)
 
     # auch unter monotonic Antworten mit Restzielen (v(X) in der ANF)
     assert Enum.any?(results, fn {_, r} ->
