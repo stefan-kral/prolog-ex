@@ -140,6 +140,16 @@ defmodule PrologEx.Builtins.Concurrent do
     true
   end
 
+  # '$conc_steal_pick'(+P0, -P): welchen Knoten ein Teil auf eine Bitte
+  # abgibt – P0 (first: den tiefsten alten ab der halben Tiefe, all: den
+  # obersten alten); in Tests (PrologEx.Chaos, steal: :top) immer den
+  # obersten, damit auch flache Zweige wandern
+  defbuiltin "$conc_steal_pick", [p0, p] do
+    if PrologEx.Chaos.steal_top?(),
+      do: {:unify, [{p, a("all")}]},
+      else: {:unify, [{p, p0}]}
+  end
+
   # --- im Kind: ein Arbeiter, viele Teile (part_loop/3, clpz_concurrent) ----
   #
   # Ein Arbeiter beim Teilen läuft als eine Anfrage: das Modell einmal
@@ -1235,6 +1245,11 @@ defmodule PrologEx.Builtins.Concurrent do
           sp
       end)
 
+    # die Reihenfolge nach dem Verteilen: die eben verteilten Teile laufen
+    # jetzt (mit der alten Reihenfolge – noch :pending – bat ein Arbeiter,
+    # der übrig blieb, um nichts, bis die nächste Nachricht kam; ohne
+    # stats(S) oft erst das Ende eines Teils: so lange lag er brach)
+    order = sorder(sp.parts, 0)
     free = length(sp.idle) - map_size(sp.asked)
 
     if free > 0 and not Enum.any?(order, &match?({_, :pending}, &1)) do

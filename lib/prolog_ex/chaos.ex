@@ -11,13 +11,15 @@ defmodule PrologEx.Chaos do
 
       PrologEx.Chaos.enable(seed: 7, p: 0.3, max_ms: 3)
       ... Läufe ...
-      hits = PrologEx.Chaos.disable()   # %{tag => wie oft verzögert}
+      hits = PrologEx.Chaos.disable()   # %{tag => wie oft erreicht}
 
   Optionen: `p` Wahrscheinlichkeit je Stelle (Vorgabe 0.2), `max_ms`
   längste Verzögerung (Vorgabe 2; die Hälfte der Fälle nur
   `:erlang.yield/0`), `only` eine Liste von Tags (Vorgabe alle), `seed`
   Startwert (je Prozess abgeleitet; die Reihenfolge der Prozesse bleibt
-  Sache des Schedulers, ein Lauf ist also nicht genau wiederholbar).
+  Sache des Schedulers, ein Lauf ist also nicht genau wiederholbar),
+  `steal: :top` beim Aufteilen immer den obersten alten Knoten abgeben
+  (sonst meist der tiefste: flache Zweige wanderten fast nie).
   """
 
   @enabled Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0) and Mix.env() == :test
@@ -58,6 +60,20 @@ defmodule PrologEx.Chaos do
     end
   end
 
+  @doc """
+  Beim Aufteilen (clpz_concurrent) immer den obersten alten Knoten abgeben
+  (Option `steal: :top`)? Außerhalb von Tests false.
+  """
+  defmacro steal_top? do
+    if @enabled do
+      quote do
+        match?(%{steal: :top}, :persistent_term.get({PrologEx.Chaos, :cfg}, nil))
+      end
+    else
+      false
+    end
+  end
+
   def enable(opts \\ []) do
     counters = :counters.new(length(@tags), [])
     index = @tags |> Enum.with_index(1) |> Map.new()
@@ -68,6 +84,7 @@ defmodule PrologEx.Chaos do
       max_ms: Keyword.get(opts, :max_ms, 2),
       only: MapSet.new(only),
       seed: Keyword.get(opts, :seed, 1),
+      steal: Keyword.get(opts, :steal, :deep),
       counters: counters,
       index: index
     })
@@ -97,12 +114,13 @@ defmodule PrologEx.Chaos do
   defp maybe_wait(cfg, tag) do
     {x, st} = :rand.uniform_real_s(state(cfg))
 
+    :counters.add(cfg.counters, cfg.index[tag], 1)
+
     if x < cfg.p do
-      :counters.add(cfg.counters, cfg.index[tag], 1)
-      {y, st} = :rand.uniform_s(2 * cfg.max_ms, st)
+      {y, st} = :rand.uniform_s(2 * max(cfg.max_ms, 1), st)
       Process.put({__MODULE__, :rand}, st)
 
-      if y <= cfg.max_ms do
+      if y <= max(cfg.max_ms, 1) or cfg.max_ms == 0 do
         :erlang.yield()
       else
         receive do

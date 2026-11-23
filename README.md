@@ -6043,17 +6043,32 @@ Nachrichten in Reihenfolgen an, die sonst selten sind. Der Test lässt rund
 `clpz_concurrent`: erste Lösung, alle, Branch and Bound, Fehler,
 Verschachtelung) erst ohne, dann mit Verzögerungen laufen. Die Antworten
 müssen gleich sein, danach ist der Aufrufer sauber, dazu Abbrüche mitten
-im Lauf. Die gewöhnliche Suite fährt 3 Runden (10 s), `--include slow`
-25 Runden mit bis zu 20 ms (3,5 min). Außerhalb von `MIX_ENV=test` wird
+im Lauf. Die gewöhnliche Suite fährt 4 Runden (17 s), `--include slow`
+40 Runden, auch mit bis zu 20 ms. Außerhalb von `MIX_ENV=test` wird
 aus den Stellen nichts (kein Aufruf im BEAM-Code). Eingrenzen:
 `CHAOS_Q=Text` (nur Anfragen mit Text), `CHAOS_ONLY=c_part,w_offer` (nur
 diese Stellen). Ergebnis bisher: keine Abweichung, kein Rest. Der alte
 Aufräumfehler (spät eintreffende Nachrichten nach dem Beenden) fällt
-damit in jedem Lauf auf. Nicht erreicht wird nur der Schnitt
-(`c_steal_cut`: ein abgegebener Teil findet eine Lösung, während der
-Geber noch sucht): Der Geber gibt den tiefsten alten Knoten ab, und in
-allen Versuchen mit Suchen unter einer Sekunde fand nie ein abgegebener
-Teil zuerst die Lösung.
+damit in jedem Lauf auf.
+
+Ein Teil der Runden läuft mit `steal: :top`: Beim Aufteilen gibt ein Teil
+dann immer den obersten alten Knoten ab statt des tiefsten (nur im Test,
+`'$conc_steal_pick'/2`). Andere Teile wandern, die Antworten müssen
+trotzdem dieselben sein. Erst so wird auch der Schnitt erreicht
+(`c_steal_cut`: ein abgegebener Teil findet die Lösung, während sein Geber
+noch sucht), vorher kam das in Suchen unter einer Sekunde nie vor. Der
+Test zählt, wie oft jede Stelle erreicht wird, und verlangt jede
+wenigstens einmal.
+
+Dabei fiel ein Fehler beim Verteilen auf: Blieb nach dem Verteilen der
+Teile ein Arbeiter übrig, bat er erst bei der nächsten Nachricht an den
+Aufrufer um Arbeit. Mit `stats(S)` kam die sofort (der Arbeiter meldet,
+wie lange er das Modell aufbaute), ohne oft erst, wenn ein Teil fertig
+war. So lange lag der Arbeiter brach, etwa bei `parts(2)` auf 2 Kernen
+mit einem schnell scheiternden Teil. Jetzt bittet er sofort.
+`examples/parallel` (mittel, 2 Kerne): „12 Damen, parts(2)“ 2,55 →
+2,12 s (Faktor 1,30 → 1,65), Golomb 8 Marken 2,83 → 2,58 s, der Rest
+im Rauschen.
 
 Stil im Elixir-Code: ohne konkreten Anlass (Sortieren, Maps,
 Mengenoperationen) explizite Rekursion statt `Enum.map`, `Enum.reduce`,

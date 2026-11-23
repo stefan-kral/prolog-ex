@@ -714,7 +714,8 @@ steal_poll(Req, E, P, Depth, T) :-
     ->  throw('$conc_steal_stop')
     ;   arg(6, E, A),
         Old is T - A,
-        arg(7, E, Pick),
+        arg(7, E, Pick0),
+        '$conc_steal_pick'(Pick0, Pick),
         (   steal_pick(Pick, P, Depth, Old, D, Ds1, R)
         ->  arg(2, E, Ds0),
             append(Ds0, Ds1, Ds2),

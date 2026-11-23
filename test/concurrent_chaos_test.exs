@@ -175,12 +175,31 @@ defmodule PrologEx.ConcurrentChaosTest do
 
   test "Antworten wie ohne Verzögerungen, danach sauber", c do
     base = baseline(c)
-    hits = chaos_rounds(c, base, 1..3, p: 0.2, max_ms: 2)
-    # jede Stelle wenigstens einmal verzögert – bis auf c_steal_cut: ein
-    # abgegebener Teil findet eine Lösung, während sein Geber noch sucht;
-    # in Versuchen mit Suchen unter einer Sekunde kam das nie vor (der Geber
-    # gibt den tiefsten alten Knoten ab, kaum je der mit der Lösung)
-    assert Chaos.tags() -- [:c_steal_cut | Map.keys(hits)] == [], inspect(hits)
+    hits = chaos_rounds(c, base, 1..2, p: 0.2, max_ms: 2)
+    # dazu: beim Aufteilen immer den obersten alten Knoten abgeben – sonst
+    # wandern flache Zweige kaum, und ein abgegebener Teil findet fast nie
+    # die Lösung, während sein Geber noch sucht (Schnitt, c_steal_cut).
+    # Andere Teile, dieselben Antworten
+    top = chaos_rounds(c, base, 3..4, p: 0.2, max_ms: 2, steal: :top)
+    hits = Map.merge(hits, top, fn _, a, b -> a + b end)
+    # jede Stelle wenigstens einmal verzögert
+    assert Chaos.tags() -- Map.keys(hits) == [], inspect(hits)
+  end
+
+  # ohne stats(S): ein Arbeiter, der nach dem Verteilen übrig bleibt, bittet
+  # sofort um einen Teil (früher erst bei der nächsten Nachricht – mit
+  # stats(S) kam die gleich, ohne oft erst am Ende eines Teils: der Arbeiter
+  # lag so lange brach). Gezählt über die Stellen, ohne Verzögerung
+  test "übrige Arbeiter bitten gleich um Teile, auch ohne stats(S)", c do
+    Chaos.enable(p: 0.0)
+
+    {ans, state} =
+      run(c, "c3(L), concurrent_labeling([], L, [serial(0), parts(2)]), L = [1, 2|_]")
+
+    hits = Chaos.disable()
+    assert match?({:answers, [_]}, ans)
+    clean!(state, "c3")
+    assert Map.get(hits, :c_steal_req, 0) > 0, inspect(hits)
   end
 
   @tag :slow
@@ -190,5 +209,7 @@ defmodule PrologEx.ConcurrentChaosTest do
     chaos_rounds(c, base, 1..15, p: 0.3, max_ms: 2)
     chaos_rounds(c, base, 16..20, p: 0.1, max_ms: 20)
     chaos_rounds(c, base, 21..25, p: 0.6, max_ms: 1)
+    chaos_rounds(c, base, 26..35, p: 0.3, max_ms: 2, steal: :top)
+    chaos_rounds(c, base, 36..40, p: 0.5, max_ms: 0, steal: :top)
   end
 end
