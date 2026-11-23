@@ -76,6 +76,13 @@
 
    Noch nicht: upto_in (domain_error(concurrent_labeling_option, upto_in)).
 
+   Grenze: die Kinder setzen das Modell aus copy_term/3 neu auf; ein
+   Constraint, der erst durch Propagation seine Form bekam, kann dabei
+   stärker propagieren als im Original. Bei leftmost (Vorgabe) ändert das
+   nichts (die Reihenfolge ist lexikographisch); bei ff, ffc, min, max kann
+   die Variablenwahl abweichen – dieselben Lösungen, aber Reihenfolge und
+   erste Lösung dann womöglich anders als bei labeling/2.
+
    Lohnend, wenn die Suche deutlich länger dauert als das Aufsetzen des
    Modells (jedes Kind setzt es neu auf).
 */
@@ -111,7 +118,8 @@ labeling_(Options, Vars, COptions) :-
         parts(Parts0, Cores, N),
         serial_limit(COptions, Limit),
         steal_age(COptions, Age),
-        optimise_first(Whats, Spec, Vars, opt(N, Limit, Age))
+        clpz:exprs_singlevars(Whats, SWhats),
+        optimise_first(SWhats, Spec, Vars, opt(N, Limit, Age))
     ).
 
 % serial(Sekunden): wie lange die Suche (ein Schritt des Branch and Bound)
@@ -161,7 +169,15 @@ labelings_(Options, Vars, Solutions, COptions) :-
     current_prolog_flag(cpu_count, W),
     serial_limit(COptions, Limit),
     steal_age(COptions, Age),
-    optimise_all(Whats, Spec, Vars, N, all(W, Limit, Age), Solutions).
+    (   Whats == []
+    ->  optimise_all([], Spec, Vars, N, all(W, Limit, Age), Solutions)
+    ;   % die Variablen je Ausdruck wie labeling/2 (optimise_first/4) – in
+        % findall/3: danach bleibt nichts gepostet, wie bei
+        % findall(Vars, labeling(...), L)
+        findall(Sols, ( clpz:exprs_singlevars(Whats, SWhats),
+                        optimise_all(SWhats, Spec, Vars, N, all(W, Limit, Age), Sols) ),
+                [Solutions])
+    ).
 
 % stats(S): S wie bei concurrent_statistics/2 (library(concurrent))
 with_stats(COptions, G) :-
@@ -199,8 +215,7 @@ ordered_first(Spec, Vars, W, Limit, Age) :-
     ).
 
 split_first(Base, Vars, W, Age, Parts) :-
-    copy_term(Vars, Vs, Gs0),
-    goal_conj(Gs0, Gs),
+    model_copy(Base, Vars, Vars, Vs, Gs),
     '$conc_limits'(D, B, M),
     '$conc_run'([Vs-(clpz_concurrent:part_loop(Gs, Vs, first(Base, Age)))|Parts],
                 split, W, D, B, M, R),
@@ -215,13 +230,27 @@ first_goals([Ds|Dss], Gs, Vs, Base, Sol, [part_first(Gs, Vs, Base, Ds, Sol)|Goal
 % Reihe nach den besten Wert bestimmen und festhalten (E #= Wert); die
 % Lösung ist die, mit der das letzte Kriterium sein Optimum fand – die
 % erste mit diesem Wert in der Reihenfolge der Suche (siehe optimum/6)
+% Wie labeling/2 (label/8, optimise/3 in clpz): je Ausdruck eine Variable
+% (#S #= Ausdruck, exprs_singlevars/2) vor der Suche; nach dem besten Wert
+% S #= Wert, dann für die übrigen Kriterien neue Variablen (das innere
+% labeling/2). Die Lösung: bei fester Variablenwahl (leftmost) die erste
+% des letzten Schritts – die erste mit dem besten Wert, gleich in welchem
+% Zustand gesucht; bei ff, ffc, min, max hängt die Wahl an den Domänen,
+% also an dem, was gepostet ist: dann noch einmal die erste Lösung im
+% Zustand von labeling/2 (S #= Wert), parallel wie ohne Optimierung
 optimise_first([W|Ws], Spec, Vars, How) :-
     optimum(W, Spec, Vars, How, Val-Sol),
+    arg(1, W, S),
     (   Ws == []
-    ->  Vars = Sol
-    ;   arg(1, W, E),
-        E #= Val,
-        optimise_first(Ws, Spec, Vars, How)
+    ->  (   Spec = spec(leftmost, _, _)
+        ->  Vars = Sol
+        ;   S #= Val,
+            How = opt(N, Limit, Age),
+            ordered_first(Spec, Vars, N, Limit, Age)
+        )
+    ;   S #= Val,
+        clpz:exprs_singlevars(Ws, SWs),
+        optimise_first(SWs, Spec, Vars, How)
     ).
 
 % Branch and Bound wie labeling/2: eine Lösung unter der bisherigen
@@ -278,8 +307,7 @@ steal_best(W, Spec, Vars, Bound, N, Age, Parts, Best) :-
     bound_value(Bound, B),
     findall(Sol,
             ( Ev #= E,
-              copy_term(Vars-Ev, Vs-EvC, Gs0),
-              goal_conj(Gs0, Gs),
+              model_copy(Spec, Vars-Ev, Vars, Vs-EvC, Gs),
               '$conc_limits'(D, Bu, M),
               '$conc_run'([x-(clpz_concurrent:part_loop(Gs, Vs, best(Base, Age, Dir, B, EvC)))|Parts],
                           split_best(Dir), N, D, Bu, M, R),
@@ -397,8 +425,7 @@ rest_pieces(Rest, Spec, Vars, N, Parts, Vs, Gs) :-
     MaxSteps is 8 * N,
     grow_(Nodes0, Spec, Vars, N1, MaxSteps, Nodes),
     findall(Ds, ( member(node(_, _, Ds0), Nodes), reverse(Ds0, Ds) ), Parts),
-    copy_term(Vars, Vs, Gs0),
-    goal_conj(Gs0, Gs).
+    model_copy(Spec, Vars, Vars, Vs, Gs).
 
 % ein Rest von enum (range/4 am Ende) wird nicht weiter geteilt
 rest_kind(Ds, Kind) :-
@@ -411,10 +438,19 @@ optimise_all([W|Ws], Spec, Vars, N, How, Sols) :-
     append(Vals0, Vals1),
     sort(Vals1, Asc),
     ( Dir == min -> Vals = Asc ; reverse(Asc, Vals) ),
-    findall(S, ( member(V, Vals),
-                 findall(S0, ( E #= V, optimise_all(Ws, Spec, Vars, N, How, S0) ), [S]) ),
+    % wie labeling/2 (optimise/3 in clpz; E die Variable des Ausdrucks): die
+    % Gruppe des k-ten Werts unter E #\= V1, ..., E #\= Vk-1, E #= Vk, die
+    % übrigen Kriterien mit neuen Variablen (das innere labeling/2) – die
+    % Propagation hängt daran, ff, ffc, min, max wählten sonst andere
+    % Variablen, die Reihenfolge in der Gruppe wiche ab
+    findall(S, ( append(Prev, [V|_], Vals),
+                 findall(S0, ( maplist(expr_neq(E), Prev), E #= V,
+                               clpz:exprs_singlevars(Ws, SWs),
+                               optimise_all(SWs, Spec, Vars, N, How, S0) ), [S]) ),
             Groups),
     append(Groups, Sols).
+
+expr_neq(E, V) :- E #\= V.
 
 % --- in den Kindern --------------------------------------------------------------
 
@@ -844,8 +880,47 @@ pieces(Spec, Vars, N, Parts, Vs, Gs) :-
 
 pieces_t(Spec, Term, Vars, N, Parts, Copy, Gs) :-
     split(Spec, Vars, N, Parts),
-    copy_term(Term, Copy, Gs0),
-    goal_conj(Gs0, Gs).
+    model_copy(Spec, Term, Vars, Copy, Gs).
+
+% die Kopie für die Kinder: Term (Vars oder Vars-E) frisch, Gs setzt die
+% Constraints wieder auf. Bei ffc entscheidet labeling/2 Gleichstände der
+% Domänengröße nach der Zahl der Propagatoren je Variable – auch der
+% toten (schon erfüllten), die copy_term/3 nicht mehr nennt: die Kinder
+% wählten sonst andere Variablen als labeling/2 im Aufrufer (andere
+% Reihenfolge der Lösungen, eine andere erste). pad_props/2 hängt im Kind
+% tote Propagatoren an, bis die Zahlen bis auf einen gemeinsamen Versatz
+% gleich sind (nur der Vergleich zählt)
+model_copy(Spec, Term, Vars, Copy, Gs) :-
+    copy_term(Term-Vars, Copy-Vs, Gs0),
+    goal_conj(Gs0, Gs1),
+    (   selection_of(Spec, ffc) ->
+        maplist(props_count, Vars, Ns),
+        Gs = (Gs1, clpz_concurrent:pad_props(Vs, Ns))
+    ;   Gs = Gs1
+    ).
+
+selection_of(spec(S, _, _), S).
+selection_of([S|_], S).
+
+props_count(V, N) :-
+    (   var(V), clpz:fd_get(V, _, Ps) -> clpz:props_number(Ps, N) ; N = 0 ).
+
+pad_props(Vs, Ns) :-
+    maplist(props_count, Vs, Cs),
+    foldl(excess, Cs, Ns, 0, K),
+    maplist(pad_prop(K), Vs, Cs, Ns).
+
+excess(C, N, K0, K) :- K is max(K0, C - N).
+
+pad_prop(K, V, C, N) :-
+    P is N + K - C,
+    (   P > 0, var(V), clpz:fd_get(V, Dom, fd_props(Gs, Bs, Os)) ->
+        length(Ds, P),
+        maplist(=(propagator(pad, dead)), Ds),
+        append(Ds, Os, Os1),
+        clpz:fd_put(V, Dom, fd_props(Gs, Bs, Os1))
+    ;   true
+    ).
 
 % copy_term/3 gibt die Ziele je nach Import als Liste (iso_ext, wie Scryer)
 % oder als Konjunktion

@@ -16,6 +16,24 @@ defmodule PrologEx.ClpzConcurrentTest do
   % gemischtes Modell: Summen, Reifikation, große Bereiche (enum in Abschnitten)
   mixed([X, Y, Z, B]) :- X in 0..200, Y in 0..9, Z in -5..5, B in 0..1,
       X mod 7 #= 3, X + Y #> 50, (Y #> Z) #<==> B, X #< 120 + Z.
+  % ein Constraint ist nach dem Aufsetzen schon erfüllt (-X3 + 3*X5 #< 6):
+  % sein toter Propagator hängt noch an X3 und X5, copy_term/3 nennt ihn
+  % nicht mehr – ffc zählt ihn aber (aus dem Zufallstest)
+  entailed([X1,X2,X3,X4,X5]) :- X1 in 0..4, X2 in 1..5, X3 in -2..0, X4 in 1..4, X5 in -2..1,
+      X5 mod 2 #= 0, -1*X3 + 3*X5 #< 6, abs(X4 - X5) #\\= 3.
+  % zum Optimieren mit ff, ffc, min, max: die Reihenfolge in einer Gruppe
+  % hängt an dem, was labeling/2 postet (eine Variable je Ausdruck, E #\\=
+  % die vorigen Werte, E #= Wert; aus dem Zufallstest)
+  grp([X1,X2,X3,X4,X5], X2 + -2*X4 + 2*X1) :- X1 in 0..3, X2 in 0..3, X3 in -2..4, X4 in 1..3,
+      X5 in 0..3, abs(X4 - X1) #\\= 2, (3*X4 + X3 #=< 4) #==> (-2*X4 #>= 4).
+  grp_opts(O0, Dirs, E, O) :- maplist(dir_w(E), Dirs, Ws), append(O0, Ws, O).
+  dir_w(E, D, W) :- W =.. [D, E].
+  same_grp(O0, Dirs, COpts, R) :-
+      grp(L, E), grp_opts(O0, Dirs, E, O), findall(L, labeling(O, L), S1),
+      grp(L2, E2), grp_opts(O0, Dirs, E2, O2), concurrent_labelings(O2, L2, S2, COpts),
+      grp(L3, E3), grp_opts(O0, Dirs, E3, O3), once(labeling(O3, L3)),
+      grp(L4, E4), grp_opts(O0, Dirs, E4, O4), concurrent_labeling(O4, L4, COpts),
+      ( S1 == S2, L3 == L4 -> R = gleich ; R = verschieden(L3, L4) ).
   % zum Optimieren: viele gleich gute Lösungen (es zählt, welche zuerst)
   small([X, Y, Z]) :- [X, Y, Z] ins 0..9, X + Y #>= Z, X #\\= Y, Z #\\= 3.
   opt(1, [X, _, _], [min(X)]).
@@ -321,6 +339,32 @@ defmodule PrologEx.ClpzConcurrentTest do
     # alles schon gebunden
     assert ask(c, "concurrent_labelings([], [1, 2], L, [serial(0)])") == ["L = [[1,2]]"]
     assert ask(c, "concurrent_labeling([], [1, 2], [serial(0)])") == ["true"]
+  end
+
+  # ffc entscheidet Gleichstände nach der Zahl der Propagatoren, auch
+  # toter: die Kinder bekommen sie nachgebildet (pad_props/2), sonst wählten
+  # sie andere Variablen – andere Reihenfolge, andere erste Lösung
+  test "ffc: tote Propagatoren zählen auch in den Kindern", c do
+    for o <- ["[ffc]", "[enum, ffc]", "[ffc, down]", "[bisect, ffc]"],
+        co <- ["[serial(0), parts(1)]", "[serial(0.0005)]", "[serial(0), parts(3)]"] do
+      assert ask(c, "same(entailed, #{o}, #{co}, R)") == ["R = gleich"], "#{o} #{co}"
+      assert ask(c, "first(entailed, #{o}, #{co}, R)") == ["R = gleich"], "#{o} #{co}"
+    end
+  end
+
+  # labeling/2 mit min/max: je Ausdruck eine Variable (S #= Ausdruck), die
+  # Gruppe des k-ten Werts unter S #\\= V1..Vk-1, S #= Vk, die übrigen
+  # Kriterien mit neuen Variablen; ff, ffc, min, max wählen nach Domänen –
+  # nur im selben Zustand dieselbe Reihenfolge, dieselbe erste Lösung
+  test "min/max mit ff, ffc, min, max: Zustand wie labeling/2", c do
+    # (nicht [max, bisect] mit parts(1): die Kinder setzen das Modell aus
+    # copy_term/3 neu auf und propagieren hier stärker als das Original –
+    # eine Grenze des Verfahrens, siehe README)
+    for o <- ["[ff]", "[ff, down]", "[ffc]", "[min]", "[max, down]"],
+        d <- ["[max]", "[min]", "[max, min]"],
+        co <- ["[serial(0)]", "[serial(10)]", "[serial(0), parts(1)]"] do
+      assert ask(c, "same_grp(#{o}, #{d}, #{co}, R)") == ["R = gleich"], "#{o} #{d} #{co}"
+    end
   end
 
   test "copy_term/3 mit mehr als 255 Restzielen (16 Damen; vorher max_arity)", c do

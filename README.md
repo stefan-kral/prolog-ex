@@ -4466,6 +4466,41 @@ gewöhnliche Terme. `library(clpz_concurrent)` teilt damit die Suche von
   `labeling/2` – daher dieselben Lösungen in derselben Reihenfolge
   (`test/clpz_concurrent_test.exs` vergleicht für 13 Kombinationen der
   Optionen auf zwei Modellen).
+* **Zufallsmodelle** (`test/clpz_concurrent_random_test.exs`): zufällige
+  Modelle (Summen, Ungleich, `all_different`, Reifikation, `mod`,
+  Produkte), zufällige Optionen von `labeling/2` (Variablenwahl,
+  Reihenfolge, Verzweigung, `min`/`max`, auch zwei) und des Aufteilens
+  (`serial`, `parts`, `steal`), teils mit erzwungenen Verzögerungen.
+  `concurrent_labeling` muss genau `once(labeling/2)` geben,
+  `concurrent_labelings` genau `findall/3` über `labeling/2`. Die Suite
+  prüft 155 Modelle (17 s), `--include slow` 1400;
+  `CLPZ_RANDOM_SEED=N`, `CLPZ_RANDOM_N=K` (K-mal so viele),
+  `CLPZ_RANDOM_COLLECT=1` (alle Abweichungen ausgeben statt anzuhalten).
+  Gefunden und behoben:
+  - **`ffc`** entscheidet Gleichstände der Domänengröße nach der Zahl der
+    Propagatoren einer Variablen, auch der toten (schon erfüllten), die
+    `copy_term/3` nicht mehr nennt. Die Kinder wählten deshalb andere
+    Variablen: andere Reihenfolge, eine andere erste Lösung. Jetzt hängt
+    `pad_props/2` im Kind tote Propagatoren an, bis die Zahlen bis auf
+    einen gemeinsamen Versatz gleich sind.
+  - **`min`/`max` mit `ff`, `ffc`, `min`, `max`:** `labeling/2` setzt je
+    Ausdruck eine Variable (`S #= E`), die Gruppe des k-ten Werts steht
+    unter `S #\= V1, …, S #\= Vk-1, S #= Vk`, die übrigen Kriterien
+    bekommen neue Variablen. `clpz_concurrent` postete stattdessen
+    `E #= V`: andere Propagation, andere Domänen, eine andere Reihenfolge
+    in der Gruppe. Jetzt derselbe Zustand. Die erste Lösung sucht
+    `concurrent_labeling` bei diesen Variablenwahlen am Ende noch einmal in
+    diesem Zustand (bei `leftmost` ist sie schon die richtige).
+  - **Grenze:** Die Kinder setzen das Modell aus den Zielen von
+    `copy_term/3` neu auf. Ein Constraint, der erst durch Propagation
+    seine Form bekam (etwa nach einer Bindung), wird dabei neu gepostet und
+    kann stärker propagieren als im Original (ein Beispiel: `X2` gerade aus
+    `2*X4 #= 2*X1 + X2`). Für `leftmost` (die Vorgabe) ändert das nichts,
+    die Reihenfolge ist die lexikographische. Bei `ff`, `ffc`, `min`, `max`
+    kann die Wahl abweichen. Gefunden nur mit einem eigens gebauten Fall
+    (`max` mit `bisect`, `parts(1)`), in 4200 Zufallsmodellen (drei Seeds) nie. Die
+    Lösungen sind immer dieselben, nur Reihenfolge und erste Lösung können
+    dann abweichen.
 * **Gemessen** (2 Kerne): 10 Damen, alle 724 Lösungen mit `ff`: 1,9 s
   nacheinander, 0,9 s parallel; 9 Damen 0,45 → 0,3 s.
 * **Alle Lösungen mit vielen Kernen:** 16 feste Teile reichen, solange es
