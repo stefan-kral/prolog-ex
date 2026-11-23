@@ -4315,6 +4315,13 @@ also ab etwa 0,1 ms Arbeit je Element.
   billiger Test (`X mod 3 =:= 0` über 200 000) kostet nichts mehr als
   nacheinander (89 → 75 ms). Bei anderen Erzeugern sammelt der Aufrufer
   vorab alle Lösungen (rund 0,4 µs je Lösung) und teilt sie auf.
+* **Ein Arbeiter stirbt** (von außen beendet, abgestürzt): Fehler
+  `system_error(concurrent_child(Grund))` beim Aufrufer, bei
+  `first_solution/3` mit `on_error(continue)` wie ein Scheitern; die
+  übrigen Arbeiter werden beendet. Die Arbeiter sind mit dem Aufrufer
+  verlinkt (stirbt er, sterben sie mit); während eines Laufs fängt er
+  dafür Exit-Signale ab und stellt danach den alten Zustand her – vorher
+  riss ein toter Arbeiter den Aufrufer mit, im Toplevel die Sitzung.
 * **Übersetzen in den Kindern:** Riefen mehrere Kinder ein übersetzbares
   Prädikat gleichzeitig zum ersten Mal, übersetzten sie es gleichzeitig;
   einer scheiterte an der doppelten Definition und lud den Ersatz, der
@@ -6014,9 +6021,12 @@ mix run bench/coverage/prolog.exs                      # concurrent, clpz_concur
 mix run bench/coverage/prolog.exs --lib lists -- test/lists_test.exs
 ```
 
-Stand 23. November, Tests von `concurrent` und `clpz_concurrent`:
-`builtins/concurrent.ex` 86,5 % der Zeilen, `concurrent.pl` alle 77
-Klauseln, `clpz_concurrent.pl` 117 von 125.
+Stand 23. November, Tests von `concurrent`, `clpz_concurrent` und
+`concurrent_robust` (Abstürze, Grenzen und Wegfallen beim Aufteilen,
+Aufräumen): `builtins/concurrent.ex` 91,5 % der Zeilen (vorher 86,5 %),
+`concurrent.pl` alle 77 Klauseln, `clpz_concurrent.pl` 118 von 125 (offen:
+Absicherungen – ein Modell, das erst im Arbeiter widersprüchlich wird,
+Restziele als Liste, ein Blatt beim Aufteilen).
 
 Stil im Elixir-Code: ohne konkreten Anlass (Sortieren, Maps,
 Mengenoperationen) explizite Rekursion statt `Enum.map`, `Enum.reduce`,

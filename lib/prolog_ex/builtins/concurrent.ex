@@ -713,6 +713,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run(jobs, mode, {max, chunk}, {deadline, _, _} = limits) do
     ref = make_ref()
+    trap(ref)
     t_prep = now_us()
     # der Zustand für die Arbeiter (die Datenbank als Literal, child_state/0)
     state = child_state()
@@ -831,7 +832,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
           Error.throw!(
             mk("error", [
-              mk("system_error", [mk("concurrent_child", [a(inspect(reason, limit: 5))])]),
+              mk("system_error", [mk("concurrent_child", [a(exit_text(reason))])]),
               fresh_var()
             ])
           )
@@ -921,6 +922,7 @@ defmodule PrologEx.Builtins.Concurrent do
 
   defp run_split([{:struct, "-", [t, c]} | fixed], w, {deadline, _, _} = limits, mode) do
     ref = make_ref()
+    trap(ref)
     t_prep = now_us()
     state = child_state()
     t0 = stats_prepared(t_prep)
@@ -1051,7 +1053,7 @@ defmodule PrologEx.Builtins.Concurrent do
           {:DOWN, _mon, :process, pid, reason} when is_map_key(mons, pid) ->
             Error.throw!(
               mk("error", [
-                mk("system_error", [mk("concurrent_child", [a(inspect(reason, limit: 5))])]),
+                mk("system_error", [mk("concurrent_child", [a(exit_text(reason))])]),
                 fresh_var()
               ])
             )
@@ -1473,6 +1475,55 @@ defmodule PrologEx.Builtins.Concurrent do
     Process.delete({:conc_mon, ref})
     Process.delete({:conc_outs, ref})
     flush(ref)
+    untrap(ref)
+  end
+
+  # Die Arbeiter sind mit dem Aufrufer verlinkt: stirbt er (Abbruch), sterben
+  # sie mit. Umgekehrt soll ein abgestürzter Arbeiter den Aufrufer nicht
+  # mitreißen (im Toplevel: die Sitzung), sondern als Fehler ankommen (der
+  # Monitor meldet ihn, siehe loop/8, split_loop/1) – darum fängt der
+  # Aufrufer während eines Laufs Exit-Signale ab. Danach: der alte Zustand,
+  # die Exit-Nachrichten der eigenen Arbeiter weg; kam in der Zeit ein
+  # fremdes Signal, das ihn sonst beendet hätte, jetzt (:kill fängt
+  # niemand ab, es wirkt sofort).
+  # Grund eines Absturzes als Atom: killed, nicht ':killed'
+  defp exit_text(r) when is_atom(r), do: Atom.to_string(r)
+  defp exit_text(r), do: inspect(r, limit: 5)
+
+  defp trap(ref) do
+    Process.put({:conc_trap, ref}, Process.flag(:trap_exit, true))
+    Process.put({:conc_all, ref}, %{})
+  end
+
+  defp untrap(ref) do
+    all = Process.delete({:conc_all, ref}) || %{}
+
+    case Process.delete({:conc_trap, ref}) do
+      nil ->
+        :ok
+
+      old ->
+        Process.flag(:trap_exit, old)
+        drain_exits(all)
+        if old == false, do: foreign_exits()
+    end
+  end
+
+  defp drain_exits(all) do
+    receive do
+      {:EXIT, pid, _} when is_map_key(all, pid) -> drain_exits(all)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp foreign_exits do
+    receive do
+      {:EXIT, _pid, :normal} -> foreign_exits()
+      {:EXIT, _pid, reason} -> Process.exit(self(), reason)
+    after
+      0 -> :ok
+    end
   end
 
   defp flush(ref) do
@@ -1547,6 +1598,7 @@ defmodule PrologEx.Builtins.Concurrent do
       end)
 
     mon = Process.monitor(pid)
+    Process.put({:conc_all, ref}, Map.put(Process.get({:conc_all, ref}, %{}), pid, true))
     Process.put({:conc_pids, ref}, [pid | Process.get({:conc_pids, ref}, [])])
     Process.put({:conc_mon, ref}, Map.put(Process.get({:conc_mon, ref}, %{}), pid, mon))
     pid
