@@ -6001,6 +6001,23 @@ mix test --include slow   # mit den langsamen (Minuten)
 mix run bench/bench.exs   # Speicher- und Laufzeitmessung
 ```
 
+Abdeckung: `mix test --cover` misst den Elixir-Code (HTML in `cover/`).
+Für die Bibliotheken in Prolog zählt `bench/coverage/prolog.exs`, welche
+Klauseln die Tests treffen: es schreibt die Bibliotheken vorübergehend so
+um, dass jede Klausel zuerst `'$coverage'(Id)` ruft (zählt nur während
+der Messung, `PrologEx.Coverage`, auch in Kindern von
+`library(concurrent)`), lässt die Tests laufen, stellt die Originale
+wieder her und nennt die nie getroffenen Klauseln:
+
+```sh
+mix run bench/coverage/prolog.exs                      # concurrent, clpz_concurrent
+mix run bench/coverage/prolog.exs --lib lists -- test/lists_test.exs
+```
+
+Stand 23. November, Tests von `concurrent` und `clpz_concurrent`:
+`builtins/concurrent.ex` 86,5 % der Zeilen, `concurrent.pl` alle 77
+Klauseln, `clpz_concurrent.pl` 117 von 125.
+
 Stil im Elixir-Code: ohne konkreten Anlass (Sortieren, Maps,
 Mengenoperationen) explizite Rekursion statt `Enum.map`, `Enum.reduce`,
 `Enum.all?` und Co. – jede `Enum`-Funktion ruft eine Lambda indirekt

@@ -85,6 +85,13 @@ defmodule PrologEx.Builtins.Statistics do
     end
   end
 
+  # Abdeckung der Prolog-Bibliotheken messen (PrologEx.Coverage): zählt
+  # einen Treffer für Id; ohne Messung nichts
+  defbuiltin "$coverage", [id] do
+    PrologEx.Coverage.hit(resolve(id))
+    true
+  end
+
   defbuiltin "statistics", [] do
     PrologEx.Builtins.IO.out(summary())
     :ok
