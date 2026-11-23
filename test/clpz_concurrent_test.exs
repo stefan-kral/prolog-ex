@@ -17,7 +17,7 @@ defmodule PrologEx.ClpzConcurrentTest do
   mixed([X, Y, Z, B]) :- X in 0..200, Y in 0..9, Z in -5..5, B in 0..1,
       X mod 7 #= 3, X + Y #> 50, (Y #> Z) #<==> B, X #< 120 + Z.
   % zum Optimieren: viele gleich gute Lösungen (es zählt, welche zuerst)
-  small([X, Y, Z]) :- [X, Y, Z] ins 0..9, X + Y #>= Z, X #\= Y, Z #\= 3.
+  small([X, Y, Z]) :- [X, Y, Z] ins 0..9, X + Y #>= Z, X #\\= Y, Z #\\= 3.
   opt(1, [X, _, _], [min(X)]).
   opt(2, [X, Y, _], [max(X + Y)]).
   opt(3, [X, _, Z], [min(Z), max(X)]).
@@ -288,6 +288,39 @@ defmodule PrologEx.ClpzConcurrentTest do
     [a] = ask(c, "small(L), opt(2, L, O), concurrent_labeling(O, L, [serial(0), stats(S)])")
     assert stats(a)["runs"] >= 1
     assert err(c, "concurrent_labeling([], [X], foo)") == ["E = type_error(list,foo)"]
+  end
+
+  # '$clpz_conc_step'/5 (Builtin) und conc_step_ref/5 (Prolog, der Weg für
+  # alles, was das Builtin nicht selbst kann): derselbe Schritt
+  test "Suchschritt: Builtin und Referenz in Prolog gleich", c do
+    for model <- [
+          "small(Vs)",
+          "mixed(Vs)",
+          "queens(6, Vs)",
+          "Vs = [1, 2]",
+          "small(Vs), Vs = [1|_]"
+        ],
+        sel <- ~w(leftmost ff ffc min max),
+        ord <- ~w(up down) do
+      q =
+        "#{model}, clpz_concurrent:'$clpz_conc_step'(Vs, #{sel}, #{ord}, Vs, S1), " <>
+          "clpz_concurrent:conc_step_ref(Vs, #{sel}, #{ord}, Vs, S2), " <>
+          "( S1 == S2 -> R = gleich ; R = verschieden )"
+
+      assert [a] = ask(c, q)
+      assert a =~ "R = gleich", q <> "\n" <> a
+    end
+  end
+
+  test "mehr Teile als Knoten; schon gebundene Variablen", c do
+    assert ask(
+             c,
+             "X in 1..2, Y in 1..2, concurrent_labelings([], [X, Y], L, [serial(0), parts(16)])"
+           ) == ["L = [[1,1],[1,2],[2,1],[2,2]], X in 1..2, Y in 1..2"]
+
+    # alles schon gebunden
+    assert ask(c, "concurrent_labelings([], [1, 2], L, [serial(0)])") == ["L = [[1,2]]"]
+    assert ask(c, "concurrent_labeling([], [1, 2], [serial(0)])") == ["true"]
   end
 
   test "copy_term/3 mit mehr als 255 Restzielen (16 Damen; vorher max_arity)", c do

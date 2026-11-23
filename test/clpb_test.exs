@@ -128,7 +128,7 @@ defmodule PrologEx.ClpbTest do
           ;   K < 5 -> rp(D1, Vs, A), F = ~(A)
           ;   K < 15 ->
               rp(D1, Vs, A), rp(D1, Vs, B),
-              random_member(Op, [*, +, #, =:=, =\=, =<, >=, <, >]),
+              random_member(Op, [*, +, #, =:=, =\\=, =<, >=, <, >]),
               F =.. [Op, A, B]
           ;   K < 18 ->
               rp(D1, Vs, A), rp(D1, Vs, B), random_member(Op, [+, *]),
