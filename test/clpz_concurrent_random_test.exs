@@ -66,9 +66,11 @@ defmodule PrologEx.ClpzConcurrentRandomTest do
   % S #\\= die vorigen Werte, S #= Wert), die Kinder setzen ihn neu auf –
   % trifft die Grenze diesen Zustand (labeling/2 neu aufgesetzt anders als
   % im Original), gilt nur dieselbe Menge
+  % (bei mehreren Kriterien: die Gruppen des ersten, die übrigen bleiben in
+  % den Optionen – labeling/2 optimiert sie in der Gruppe selbst)
   group_prone(G, Vs, O) :-
-      select(W, O, B0), W =.. [Dir, _], memberchk(Dir, [min, max]),
-      \\+ ( member(W2, B0), W2 =.. [D2, _], memberchk(D2, [min, max]) ),
+      append(Pre, [W|Post], O), W =.. [Dir, _], memberchk(Dir, [min, max]), !,
+      append(Pre, Post, B0),
       copy_term(G-Vs-W-B0, G1-V1-W1-B1), arg(1, W1, E1),
       catch(call(G1), _, fail),
       catch(findall(X, ( labeling(B1, V1), X is E1 ), Xs), _, fail),

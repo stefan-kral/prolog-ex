@@ -68,7 +68,10 @@ defmodule PrologEx.ClpzConcurrentTest do
   % widersprüchlich, aber erst neu aufgesetzt sichtbar: copy_term/3 nennt
   % 2*X4 #= 2*X1 + X2, neu gepostet ist X2 gerade – mit X2 ungerade
   % scheitert schon das Aufsetzen im Arbeiter (im Aufrufer erst die Suche)
-  odd([X1, X2, X4]) :- [X1, X2, X4] ins 0..3, S #= X2 + 2*X1 - 2*X4, S = 0, X2 mod 2 #= 1.
+  % (Y vorn: der Aufrufer teilt nach Y auf, ohne den Widerspruch zu sehen –
+  % die Teile gehen an Arbeiter, und dort scheitert das Aufsetzen)
+  odd([Y, X1, X2, X4]) :- Y in 1..40, [X1, X2, X4] ins 0..3, S #= X2 + 2*X1 - 2*X4, S = 0,
+      X2 mod 2 #= 1.
   % Ausnahmen mitten in der Suche: wirft boom(Q2-Q3), sobald Q2 + Q3 in S
   % liegt (freeze/2 kommt über copy_term/3 mit in die Kinder)
   bq(N, S, Qs) :- queens(N, Qs), Qs = [_, Q2, Q3|_],
@@ -430,9 +433,9 @@ defmodule PrologEx.ClpzConcurrentTest do
       assert [_] = ask(c, "odd(L), \\+ concurrent_labeling([], L, #{co})"), co
       assert ask(c, "odd(L), concurrent_labelings([], L, S, #{co})") |> hd() =~ "S = []", co
 
-      assert [_] = ask(c, "odd(L), L = [X|_], \\+ concurrent_labeling([min(X)], L, #{co})"), co
+      assert [_] = ask(c, "odd(L), L = [_, X|_], \\+ concurrent_labeling([min(X)], L, #{co})"), co
 
-      assert ask(c, "odd(L), L = [X|_], concurrent_labelings([max(X)], L, S, #{co})")
+      assert ask(c, "odd(L), L = [_, X|_], concurrent_labelings([max(X)], L, S, #{co})")
              |> hd() =~ "S = []",
              co
     end

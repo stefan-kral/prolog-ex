@@ -6086,12 +6086,14 @@ mix run bench/coverage/prolog.exs                      # concurrent, clpz_concur
 mix run bench/coverage/prolog.exs --lib lists -- test/lists_test.exs
 ```
 
-Stand 23. November, Tests von `concurrent`, `clpz_concurrent` und
-`concurrent_robust` (Abstürze, Grenzen und Wegfallen beim Aufteilen,
-Aufräumen): `builtins/concurrent.ex` 91,5 % der Zeilen (vorher 86,5 %),
-`concurrent.pl` alle 77 Klauseln, `clpz_concurrent.pl` 118 von 125 (offen:
-Absicherungen – ein Modell, das erst im Arbeiter widersprüchlich wird,
-Restziele als Liste, ein Blatt beim Aufteilen).
+Stand 24. November, alle Tests zu `concurrent` und `clpz_concurrent`
+(auch Chaos und Zufall): `builtins/concurrent.ex` 673 von 710 Zeilen
+(94,8 %; am 23. November 91,5 %, davor 86,5 %), `concurrent.pl` alle 77
+Klauseln, `clpz_concurrent.pl` 130 von 133 (offen: Restziele als Liste,
+ein Blatt beim Aufteilen). Die Elixir-Zeilen misst ein kleines Skript mit
+`:cover` nur für das eine Modul (schneller als `mix test --cover`). Die
+Lücke `part_empty/2` (ein Modell, erst im Arbeiter widersprüchlich) führte
+zu einem Fehler, siehe `clpz_concurrent`.
 
 Erzwungene Verzögerungen (`PrologEx.Chaos`, `test/concurrent_chaos_test.exs`):
 `library(concurrent)` hat 15 markierte Stellen – vor jedem Senden (Ergebnis,
