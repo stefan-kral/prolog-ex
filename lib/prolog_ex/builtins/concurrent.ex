@@ -37,6 +37,7 @@ defmodule PrologEx.Builtins.Concurrent do
   zyklische Ergebnisse: `representation_error(cyclic_term)`.
   """
   use PrologEx.Builtin
+  require PrologEx.Chaos
   alias PrologEx.Error
 
   # stats(S): der Stapel der offenen Messungen im Aufrufer (nil: keine)
@@ -94,6 +95,7 @@ defmodule PrologEx.Builtins.Concurrent do
         {:unify, [{t, 0}, {req, a(serial_req())}]}
 
       {_parent, ref, i} ->
+        PrologEx.Chaos.point(:w_steal_node)
         r = steal_msgs(ref, i, "no")
         r = if Process.get(:conc_steal_stop), do: "stop", else: r
 
@@ -107,6 +109,7 @@ defmodule PrologEx.Builtins.Concurrent do
         true
 
       {parent, ref, i} ->
+        PrologEx.Chaos.point(:w_offer)
         send(parent, {:conc_offer, ref, i, PrologEx.resolve(ds, subst()), 0, 0})
         true
     end
@@ -130,6 +133,7 @@ defmodule PrologEx.Builtins.Concurrent do
         true
 
       {parent, ref, i} ->
+        PrologEx.Chaos.point(:w_offer)
         send(parent, {:conc_offer, ref, i, PrologEx.resolve(ds, subst()), rank, g})
     end
 
@@ -154,6 +158,8 @@ defmodule PrologEx.Builtins.Concurrent do
           nil -> :ok
           t0 -> send(parent, {:conc_setup, ref, now_us() - t0})
         end
+
+        PrologEx.Chaos.point(:w_part_recv)
 
         receive do
           {:conc_part, ^ref, i, d} ->
@@ -188,6 +194,7 @@ defmodule PrologEx.Builtins.Concurrent do
             _ -> :fail
           end
 
+        PrologEx.Chaos.point(:w_part_done)
         send(parent, {:conc_split, ref, self(), i, oc, Process.get(:conc_steal_skipped, 0)})
         true
     end
@@ -253,8 +260,12 @@ defmodule PrologEx.Builtins.Concurrent do
     Process.put(:conc_best, %{b | own: v, sol: PrologEx.resolve(sol, s), k: k})
 
     case Process.get(:conc_steal) do
-      {parent, ref, i} -> send(parent, {:conc_improve, ref, i, v})
-      nil -> :ok
+      {parent, ref, i} ->
+        PrologEx.Chaos.point(:w_improve)
+        send(parent, {:conc_improve, ref, i, v})
+
+      nil ->
+        :ok
     end
 
     true
@@ -400,6 +411,7 @@ defmodule PrologEx.Builtins.Concurrent do
           {:ok, n, 0, serial_req()}
 
         {_parent, ref, j} ->
+          PrologEx.Chaos.point(:w_steal_node)
           r = steal_msgs(ref, j, "no")
           r = if Process.get(:conc_steal_stop), do: "stop", else: r
           {:ok, n, System.monotonic_time(:microsecond), r}
@@ -745,6 +757,7 @@ defmodule PrologEx.Builtins.Concurrent do
   # er beendet. running: Arbeiter -> seine offenen Indizes (der erste läuft)
   defp dispatch(ref, pid, running, [], sched) do
     busy_off(pid)
+    PrologEx.Chaos.point(:c_stop)
     send(pid, {:stop, ref})
     {Map.delete(running, pid), [], sched}
   end
@@ -757,6 +770,7 @@ defmodule PrologEx.Builtins.Concurrent do
       end
 
     {pkg, rest} = Enum.split(waiting, k)
+    PrologEx.Chaos.point(:c_jobs)
     send(pid, {:jobs, ref, for({{:struct, "-", [t, g]}, i} <- pkg, do: {i, t, g})})
     busy_on(pid, length(pkg))
     running = Map.put(running, pid, for({_, i} <- pkg, do: i))
@@ -771,6 +785,7 @@ defmodule PrologEx.Builtins.Concurrent do
       res
     else
       timeout = if deadline, do: max(div(deadline - now_us(), 1000), 0), else: :infinity
+      PrologEx.Chaos.point(:c_loop)
 
       receive do
         {:conc, ^ref, pid, i, res, text} when is_map_key(running, pid) ->
@@ -962,6 +977,7 @@ defmodule PrologEx.Builtins.Concurrent do
   # ein Arbeiter: eine Anfrage C (part_loop/3), die Teil für Teil abarbeitet
   defp split_spawn(sp) do
     pid = spawn_worker(sp.ref, :split, sp.limits, sp.state)
+    PrologEx.Chaos.point(:c_jobs)
     send(pid, {:jobs, sp.ref, [{0, a("true"), sp.c}]})
     pid
   end
@@ -1020,6 +1036,7 @@ defmodule PrologEx.Builtins.Concurrent do
         dl = if sp.deadline, do: max(div(sp.deadline - now_us(), 1000), 0), else: :infinity
         timeout = if wait == :infinity, do: dl, else: min(wait, dl)
         mons = Process.get({:conc_mon, ref}, %{})
+        PrologEx.Chaos.point(:c_loop)
 
         receive do
           {:conc_split, ^ref, pid, i, oc, k} ->
@@ -1162,6 +1179,7 @@ defmodule PrologEx.Builtins.Concurrent do
     gb = Map.get(sp, :bound)
 
     if gb == nil or (dir == "min" and v < gb) or (dir == "max" and v > gb) do
+      PrologEx.Chaos.point(:c_bound)
       for pid <- Map.values(sp.run), do: send(pid, {:conc_bound, sp.ref, v})
       stat(:bounds, 1)
       Map.put(sp, :bound, v)
@@ -1203,6 +1221,7 @@ defmodule PrologEx.Builtins.Concurrent do
     sp =
       Enum.reduce(order, sp, fn
         {id, :pending}, %{idle: [pid | idle]} = sp ->
+          PrologEx.Chaos.point(:c_part)
           send(pid, {:conc_part, sp.ref, id, sp.parts[id].ds})
           busy_on(pid, 1)
 
@@ -1234,7 +1253,12 @@ defmodule PrologEx.Builtins.Concurrent do
         end
 
       asks = asks |> Enum.reverse() |> Enum.take(free)
-      for id <- asks, do: send(Map.fetch!(sp.run, id), {:conc_steal_req, sp.ref, id})
+
+      for id <- asks do
+        PrologEx.Chaos.point(:c_steal_req)
+        send(Map.fetch!(sp.run, id), {:conc_steal_req, sp.ref, id})
+      end
+
       if asks != [], do: stat(:requests, length(asks))
       asked = Enum.reduce(asks, sp.asked, &Map.put(&2, &1, true))
       {%{sp | asked: asked}, if(later, do: @split_retry, else: :infinity)}
@@ -1298,7 +1322,10 @@ defmodule PrologEx.Builtins.Concurrent do
         sp = put_in(sp.parts[up].cut, i)
 
         # läuft up noch: überspringt es i, kann es aufhören
-        if pid = sp.run[up], do: send(pid, {:conc_steal_cut, sp.ref, up, sp.parts[i].g})
+        if pid = sp.run[up] do
+          PrologEx.Chaos.point(:c_steal_cut)
+          send(pid, {:conc_steal_cut, sp.ref, up, sp.parts[i].g})
+        end
 
         sp = Enum.reduce(right, sp, &split_prune(&2, &1))
         split_cut(sp, up)
@@ -1472,6 +1499,7 @@ defmodule PrologEx.Builtins.Concurrent do
   # Nachrichten für immer im Postfach des Aufrufers (im Toplevel: der
   # Sitzung)
   defp kill_all(ref) do
+    PrologEx.Chaos.point(:c_kill)
     for {_pid, mon} <- Process.get({:conc_mon, ref}, %{}), do: Process.demonitor(mon, [:flush])
 
     mons =
@@ -1621,6 +1649,8 @@ defmodule PrologEx.Builtins.Concurrent do
   end
 
   defp worker(parent, ref, st, base, total, outer, mode, limits) do
+    PrologEx.Chaos.point(:w_start)
+
     receive do
       {:jobs, ^ref, jobs} ->
         for {i, t, g} <- jobs do
@@ -1628,6 +1658,7 @@ defmodule PrologEx.Builtins.Concurrent do
           if mode == :split, do: Process.put(:conc_loop, {parent, ref})
 
           res_text = job(st, base, total, outer, i, t, g, mode, limits)
+          PrologEx.Chaos.point(:w_result)
 
           if mode == :split do
             unless Process.get(:conc_loop_stopped),

@@ -6033,6 +6033,28 @@ Aufräumen): `builtins/concurrent.ex` 91,5 % der Zeilen (vorher 86,5 %),
 Absicherungen – ein Modell, das erst im Arbeiter widersprüchlich wird,
 Restziele als Liste, ein Blatt beim Aufteilen).
 
+Erzwungene Verzögerungen (`PrologEx.Chaos`, `test/concurrent_chaos_test.exs`):
+`library(concurrent)` hat 15 markierte Stellen – vor jedem Senden (Ergebnis,
+Paket, Teil, Bitte, Schranke, Schnitt), vor dem Empfang im Aufrufer, beim
+Beenden der Arbeiter und je Knoten der Suche beim Aufteilen. Dort wartet
+ein Prozess im Test zufällig (`yield` oder bis zu einige ms), so kommen
+Nachrichten in Reihenfolgen an, die sonst selten sind. Der Test lässt rund
+25 Anfragen (alle Prädikate von `concurrent`, Aufteilen mit
+`clpz_concurrent`: erste Lösung, alle, Branch and Bound, Fehler,
+Verschachtelung) erst ohne, dann mit Verzögerungen laufen. Die Antworten
+müssen gleich sein, danach ist der Aufrufer sauber, dazu Abbrüche mitten
+im Lauf. Die gewöhnliche Suite fährt 3 Runden (10 s), `--include slow`
+25 Runden mit bis zu 20 ms (3,5 min). Außerhalb von `MIX_ENV=test` wird
+aus den Stellen nichts (kein Aufruf im BEAM-Code). Eingrenzen:
+`CHAOS_Q=Text` (nur Anfragen mit Text), `CHAOS_ONLY=c_part,w_offer` (nur
+diese Stellen). Ergebnis bisher: keine Abweichung, kein Rest. Der alte
+Aufräumfehler (spät eintreffende Nachrichten nach dem Beenden) fällt
+damit in jedem Lauf auf. Nicht erreicht wird nur der Schnitt
+(`c_steal_cut`: ein abgegebener Teil findet eine Lösung, während der
+Geber noch sucht): Der Geber gibt den tiefsten alten Knoten ab, und in
+allen Versuchen mit Suchen unter einer Sekunde fand nie ein abgegebener
+Teil zuerst die Lösung.
+
 Stil im Elixir-Code: ohne konkreten Anlass (Sortieren, Maps,
 Mengenoperationen) explizite Rekursion statt `Enum.map`, `Enum.reduce`,
 `Enum.all?` und Co. – jede `Enum`-Funktion ruft eine Lambda indirekt
