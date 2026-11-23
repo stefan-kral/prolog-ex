@@ -992,6 +992,39 @@ defmodule PrologEx.JitTest do
     assert_raise PrologEx.Error, fn -> PrologEx.Flags.set("jit_threshold", 0) end
   end
 
+  # Rufen mehrere Prozesse ein Prädikat gleichzeitig zum ersten Mal (Kinder
+  # von library(concurrent)), übersetzt es nur einer; die anderen warten und
+  # nehmen dasselbe Modul. Früher scheiterte einer an der doppelten
+  # Definition, lud den Ersatz, der immer aufgibt, und das Prädikat wurde
+  # kalt (Interpreter)
+  test "gleichzeitig zum ersten Mal gerufen: ein Modul, kein Aufgeben", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    prog = "gleich_#{System.unique_integer([:positive])}"
+    src = "#{prog}(N, M) :- A is N * 3, M is A + #{System.unique_integer([:positive])}."
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+    {:pred, _, _, {:jit, {mod, _, _, _, _}, _, _, _, stats}, _} = db[{"user", prog, 2}]
+    refute :erlang.module_loaded(mod)
+
+    for _ <- 1..3 do
+      1..16
+      |> Enum.map(fn i ->
+        Task.async(fn ->
+          Reader.put_current(c.reader)
+          PrologEx.Flags.set("jit", {:atom, "true"})
+          PrologEx.Flags.set("jit_threshold", 1)
+          TableCase.run(c.reader, db, "#{prog}(#{i}, _)")
+        end)
+      end)
+      |> Enum.each(&assert({_, {:answers, [_]}} = Task.await(&1, 60_000)))
+    end
+
+    assert :erlang.module_loaded(mod)
+    # jeder Aufruf lief übersetzt, keiner gab auf
+    assert :atomics.get(stats, 2) == 0
+    assert :atomics.get(stats, 1) == 48
+  end
+
   # Gibt der übersetzte Code immer wieder auf (hier: die Eingabe enthält
   # Variablen, die er binden müsste), nimmt der Interpreter die Aufrufe
   # bald direkt (jit_cold?/1) – mit denselben Antworten

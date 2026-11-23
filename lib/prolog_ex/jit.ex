@@ -1958,10 +1958,24 @@ defmodule PrologEx.Jit do
   # das Modul geladen? Sonst jetzt übersetzen (Gerufene zuerst); scheitert
   # der Compiler (etwa an einer Grenze der BEAM), bleibt es beim
   # Interpreter (false)
-  def ensure(mod), do: :erlang.module_loaded(mod) or compile_now(mod)
+  #
+  # Je Modul nur ein Prozess zugleich (eine Sperre je Modul): übersetzten
+  # zwei Prozesse dasselbe Modul gleichzeitig (Kinder von
+  # library(concurrent), die das Prädikat zum ersten Mal rufen), scheiterte
+  # einer an der doppelten Definition und lüde den Ersatz (stub/2) – der
+  # ersetzte das gute Modul, jeder Aufruf gäbe auf, und das Prädikat würde
+  # kalt (Interpreter, bis zu 100-mal langsamer). Wer wartet, findet das
+  # Modul danach geladen.
+  def ensure(mod) do
+    :erlang.module_loaded(mod) or
+      :global.trans({{__MODULE__, mod}, self()}, fn -> compile_now(mod) end, [node()])
+  end
 
   defp compile_now(mod) do
-    case :persistent_term.get({__MODULE__, mod}, nil) do
+    case :erlang.module_loaded(mod) or :persistent_term.get({__MODULE__, mod}, nil) do
+      true ->
+        true
+
       {:ir, infos, targets, callees, _} ->
         (Enum.all?(callees, &ensure/1) and compiled?(gen(mod, infos, targets))) or
           stub(mod, infos)
