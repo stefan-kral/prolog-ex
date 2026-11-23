@@ -6105,6 +6105,26 @@ mit einem schnell scheiternden Teil. Jetzt bittet er sofort.
 2,12 s (Faktor 1,30 → 1,65), Golomb 8 Marken 2,83 → 2,58 s, der Rest
 im Rauschen.
 
+Differenztests mit Zufallseingaben (`test/concurrent_random_test.exs`):
+jedes `concurrent_X` gegen sein Vorbild nacheinander (`maplist/2,3,4`,
+Aufrufe der Reihe nach, `forall/2`, `findall/3` je Ziel, `(Gen, Test)`,
+`include`/`exclude`/`partition`, `foldl/4`, `aggregate_all/3` mit zehn
+Schablonen). Für `first_solution/3` muss das Ergebnis einer der
+möglichen Gewinner sein, je nach `on_fail`/`on_error`. Die Elemente tragen
+ihr Verhalten: `ok(V)`, `nd(L)` (mehrere Lösungen), `no` (scheitert),
+`err(E)` (wirft), `out(V)` (schreibt), `nap(Ms, V)`, `work(N, V)` und
+`sub(L)` (darin `concurrent_maplist/3`, verschachtelt). Dazu zufällig
+`threads(N)`, `chunk(K)`, Listen bis 100 Elemente, ein Teil mit
+Verzögerungen. Gleich heißt: dieselben Bindungen und dieselbe Ausgabe. Wo
+mehrere Ausgänge möglich sind (mehrere Ziele werfen oder scheitern),
+muss der Ausgang einer davon sein, dann ohne Ausgabe. Die Suite prüft
+370 Eingaben (5 s), `--include slow` 4500 (50 s); `CONC_RANDOM_SEED`,
+`CONC_RANDOM_N`, `CONC_RANDOM_COLLECT` wie beim clpz-Test. Ergebnis über
+neun Seeds (rund 15 000 Eingaben): keine Abweichung. Angepasst wurde nur
+das Vorbild an die dokumentierte Semantik: keine Ausgabe eines
+gescheiterten verschachtelten Aufrufs, ein Element von
+`concurrent_foldl/4` auch in der Rolle des Akkumulators.
+
 Stil im Elixir-Code: ohne konkreten Anlass (Sortieren, Maps,
 Mengenoperationen) explizite Rekursion statt `Enum.map`, `Enum.reduce`,
 `Enum.all?` und Co. – jede `Enum`-Funktion ruft eine Lambda indirekt
