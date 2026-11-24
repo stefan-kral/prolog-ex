@@ -4496,6 +4496,24 @@ also ab etwa 0,1 ms Arbeit je Element.
   `nb_setval/2`, `assertz/1` & Co., Flags, `op/3` und `gensym/2` bleiben
   verboten: wer sie schreibt, meint meist eine Wirkung über das Kind
   hinaus. Ein innerer `call_with_no_side_effects/1` im Kind bleibt streng.
+* **Dateien lesen**, die das Kind selbst öffnet, ist erlaubt: `open/3,4`
+  mit `read`, dann von diesem Stream lesen (`read_term/3`, `get_char/2`,
+  `phrase_from_file/2,3`, ...) und ihn schließen – nichts Geteiltes.
+  Verzeichnisse und Dateien abfragen (`directory_files/2`,
+  `exists_file/1`, ...) war schon immer erlaubt. Verboten bleiben
+  Schreiben (das Dateisystem ist geteilt, und ein Abbruch ließe halbe
+  Dateien), Streams des Aufrufers und `user_input`. Was ein Element offen
+  lässt, schließt `library(concurrent)` an seinem Ende (Erfolg,
+  Scheitern, Ausnahme); ein hart beendeter Arbeiter (Verlierer von
+  `first_solution/3`, Zeitgrenze) nimmt seine Dateien mit. Besser bleibt
+  `setup_call_cleanup(open(F, read, S), …, close(S))`: das Cleanup läuft
+  auf der Tiefe seines Bereichs und darf schließen, was er geöffnet hat.
+  ```prolog
+  terms(F, Ts) :- setup_call_cleanup(open(F, read, S), rd(S, Ts), close(S)).
+  rd(S, Ts) :- read_term(S, T, []),
+      ( T == end_of_file -> Ts = [] ; Ts = [T|Ts1], rd(S, Ts1) ).
+  ?- concurrent_maplist(terms, ['a.pl', 'b.pl'], Tss).
+  ```
 * **Ausgabe:** jedes Kind schreibt in einen eigenen Puffer (die aktuelle
   Ausgabe; andere Streams wie `user_error` bleiben verboten). Ausgegeben
   wird beim Aufrufer, wenn alles entschieden ist: nach Erfolg alle Puffer

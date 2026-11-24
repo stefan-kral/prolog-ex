@@ -1729,7 +1729,17 @@ defmodule PrologEx.Builtins.Concurrent do
     out = PrologEx.Stream.open_memory_out(1)
     PrologEx.Stream.set_output(out)
     Process.put(:conc_out, out)
-    res = child(t, g, mode, limits)
+
+    res =
+      try do
+        child(t, g, mode, limits)
+      after
+        # Dateien, die das Element zum Lesen geöffnet und offen gelassen
+        # hat (Erfolg, Scheitern, Ausnahme; ein beendeter Arbeiter nimmt
+        # seine Dateien ohnehin mit)
+        PrologEx.Stream.close_scoped_files()
+      end
+
     {res, PrologEx.Stream.memory_text(out)}
   end
 

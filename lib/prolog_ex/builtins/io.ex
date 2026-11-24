@@ -451,6 +451,11 @@ defmodule PrologEx.Builtins.IO do
 
     case S.open_file(path, m, open_opts) do
       {:ok, id} ->
+        # im Bereich ohne Seiteneffekte (ein Element von library(concurrent),
+        # dort nur zum Lesen erlaubt): der Stream gehört dem Bereich
+        if PrologEx.Effects.nse_active?(s),
+          do: S.set_nse_depth(id, PrologEx.Effects.nse_depth(s))
+
         {:unify, [{stream, S.term(id)}]}
 
       {:error, :enoent} ->

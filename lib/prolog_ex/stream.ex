@@ -136,6 +136,27 @@ defmodule PrologEx.Stream do
     end
   end
 
+  @doc "Den Stream als im Bereich ohne Seiteneffekte auf Tiefe d geöffnet vermerken"
+  def set_nse_depth(id, d), do: update(%{get(id) | nse_depth: d})
+
+  @doc """
+  Die Dateien schließen, die ein Bereich ohne Seiteneffekte geöffnet und
+  offen gelassen hat (Ende eines Elements von library(concurrent))
+  """
+  def close_scoped_files do
+    case Process.get(@key) do
+      nil ->
+        :ok
+
+      t ->
+        for id <- t.streams,
+            match?(%__MODULE__{kind: :file, nse_depth: d} when d != nil, Process.get({@key, id})),
+            do: close(id, true)
+
+        :ok
+    end
+  end
+
   @doc "Tiefe, auf der der Stream im Bereich ohne Seiteneffekte geöffnet wurde (oder nil)"
   def nse_depth(id) do
     case Process.get({@key, id}) do
@@ -157,6 +178,14 @@ defmodule PrologEx.Stream do
 
   @doc "Alle offenen Streams (Kennungen, aufsteigend)"
   def all, do: table().streams |> Enum.sort()
+
+  @doc "Kennung zu einem Alias (oder nil), ohne die Tabelle anzulegen"
+  def alias_id(a) do
+    case Process.get(@key) do
+      nil -> nil
+      t -> Map.get(t.aliases, a)
+    end
+  end
 
   @doc """
   Stream aus einem Prolog-Term (dereferenziert): Kennung oder Fehler wie

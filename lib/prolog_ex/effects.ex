@@ -86,6 +86,14 @@ defmodule PrologEx.Effects do
   # hat und wieder schließt (with_output_to/2, format/3 in eine Senke) –
   # nur auf derselben Tiefe, ein innerer Bereich darf nicht nach außen
   # schreiben.
+  # io im Kind von library(concurrent), auf seiner Tiefe: Dateien zum
+  # Lesen öffnen (open/3,4 mit read; der Stream gehört dann dem Kind, siehe
+  # Stream.set_nse_depth/2), von eigenen Streams lesen, sie schließen; eine
+  # ganze Datei lesen (read_file_to_bytes/2). Was das Kind offen lässt,
+  # schließt library(concurrent) am Ende des Elements, ein beendeter
+  # Arbeiter nimmt seine Dateien mit. Nicht: schreiben (das Dateisystem ist
+  # geteilt; ein Abbruch ließe halbe Dateien), user_input, Streams des
+  # Aufrufers.
   # random, memo, tabling, b_setval/2: in einem Kind von library(concurrent)
   # gehören Generator, Tabellen und globale Variablen dem Kind (Kopien, die
   # mit ihm verschwinden) – auf der Tiefe des Kinds (1); ein innerer
@@ -113,6 +121,11 @@ defmodule PrologEx.Effects do
   # Ausgabe auf einen Stream im ersten Argument
   @out_stream MapSet.new(~w(write/2 print/2 writeln/2 writeq/2 write_canonical/2 write_term/3 nl/1
                    put_char/2 put_code/2 tab/2 format/3 flush_output/1))
+  # Lesen von einem Stream im ersten Argument, Schließen (eigene Streams)
+  @in_stream MapSet.new(~w(get_char/2 get_code/2 get_byte/2 peek_char/2 peek_code/2 peek_byte/2
+                   read/2 read_term/3 at_end_of_stream/1 close/1 close/2 fast_read/2
+                   set_stream_position/2 $get_n_chars/3 $lazy_start/2 $lazy_block/5
+                   $lazy_position/4))
   # with_output_to/2 (öffnet und schließt seinen Speicher-Stream selbst)
   @wot MapSet.new(~w($wot_sink/1 $wot_open/2 $wot_restore/2 $wot_close/3))
 
@@ -127,35 +140,71 @@ defmodule PrologEx.Effects do
     pi = "#{name}/#{arity}"
 
     cond do
-      MapSet.member?(@wot, pi) -> true
-      MapSet.member?(@out_current, pi) -> local?(PrologEx.Stream.current_output(), subst)
-      MapSet.member?(@out_stream, pi) and is_list(args) -> local_target?(hd(args), pi, subst)
-      true -> false
+      MapSet.member?(@wot, pi) ->
+        true
+
+      MapSet.member?(@out_current, pi) ->
+        local?(PrologEx.Stream.current_output(), subst)
+
+      MapSet.member?(@out_stream, pi) and is_list(args) ->
+        local_target?(hd(args), pi, subst)
+
+      MapSet.member?(@in_stream, pi) and is_list(args) ->
+        local_target?(hd(args), pi, subst)
+
+      pi in ["open/3", "open/4"] and is_list(args) ->
+        child_local?(subst) and read_mode?(args, subst)
+
+      pi == "read_file_to_bytes/2" ->
+        child_local?(subst)
+
+      true ->
+        false
     end
   end
 
   defp allowed?(_cat, _name, _arity, _args, _subst), do: false
 
+  defp read_mode?([_, mode | _], subst),
+    do: PrologEx.unmark_top(PrologEx.Store.walk(mode, subst)) == {:atom, "read"}
+
   defp local?(id, subst), do: PrologEx.Stream.nse_depth(id) == nse_depth(subst)
 
   defp local_target?(t, pi, subst) do
     case PrologEx.unmark_top(PrologEx.Store.walk(t, subst)) do
-      {:struct, "$stream", [id]} when is_integer(id) -> local?(id, subst)
+      {:struct, "$stream", [id]} when is_integer(id) ->
+        local?(id, subst)
+
+      # ein Alias (open/4 mit alias(A)) eines eigenen Streams
+      {:atom, al} when al not in ["user_input", "user_output", "user_error"] ->
+        case PrologEx.Stream.alias_id(al) do
+          nil -> false
+          id -> local?(id, subst)
+        end
+
       # format/3 in eine Senke (atom(A), chars(Cs), ...): eigener Stream
-      other -> pi == "format/3" and PrologEx.Builtins.Swi.sink?(other)
+      other ->
+        pi == "format/3" and PrologEx.Builtins.Swi.sink?(other)
     end
   end
 
   @doc "Im Bereich von call_with_no_side_effects/1?"
   def nse_active?(subst), do: is_map_key(subst, @nse)
 
-  @doc "Code, der im Bereich registriert wird, im Bereich laufen lassen"
+  @doc """
+  Code, der im Bereich registriert wird, im Bereich laufen lassen – auf
+  dessen Tiefe ('$nse_at'/2), nicht eine tiefer: das Cleanup von
+  setup_call_cleanup/3 darf so schließen, was sein Bereich geöffnet hat
+  (eine Datei im Kind von library(concurrent), with_output_to/2)
+  """
   def nse_wrap(goal, subst) do
-    if is_map_key(subst, @nse) do
-      import PrologEx, only: [mk: 2, a: 1]
-      mk(":", [a("system"), mk("$nse_call", [goal])])
-    else
-      goal
+    case Map.get(subst, @nse) do
+      nil ->
+        goal
+
+      d ->
+        import PrologEx, only: [mk: 2, a: 1]
+        mk(":", [a("system"), mk("$nse_at", [d, goal])])
     end
   end
 end

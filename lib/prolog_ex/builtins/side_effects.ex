@@ -32,9 +32,26 @@ defmodule PrologEx.Builtins.SideEffects do
     end
   end
 
+  # '$nse_at'(D, G): G auf Tiefe D (der des Bereichs, in dem G registriert
+  # wurde: PrologEx.Effects.nse_wrap/2), danach die Tiefe davor
+  defbuiltin "$nse_depth", [d] do
+    {:unify, [{d, Store.get(subst(), Effects.nse_key(), 0)}]}
+  end
+
+  defbuiltin "$nse_put", [d] do
+    s = subst()
+    k = Effects.nse_key()
+
+    case PrologEx.Store.walk(d, s) do
+      n when is_integer(n) and n > 0 -> {:subst, Store.put(s, k, n)}
+      _ -> {:subst, Map.delete(s, k)}
+    end
+  end
+
   def meta,
     do: [
       {"system", "$nse_call", [0]},
+      {"system", "$nse_at", ["?", 0]},
       {"iso_ext", "call_with_no_side_effects", [0]}
     ]
 
@@ -43,8 +60,12 @@ defmodule PrologEx.Builtins.SideEffects do
     g = v("G")
     body = [s("$nse_enter", []), s("call", [g]), s("$nse_exit", [])]
 
+    [d, o] = [v("D"), v("O")]
+
+    at = [s("$nse_depth", [o]), s("$nse_put", [d]), s("call", [g]), s("$nse_put", [o])]
+
     %{
-      "system" => [rule(s("$nse_call", [g]), body)],
+      "system" => [rule(s("$nse_call", [g]), body), rule(s("$nse_at", [d, g]), at)],
       "iso_ext" => [rule(s("call_with_no_side_effects", [g]), body)]
     }
   end
