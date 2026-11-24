@@ -705,6 +705,12 @@ Antwort mit Seiteneffekt wird nie vorausgerechnet. Flag `answer_chunk`:
 `auto` (Standard: halbe Terminalhöhe), `N` (höchstens N Antworten), `1` (einzeln wie
 früher). Ohne Terminal (Eingabe aus Datei/Pipe) immer einzeln.
 
+Beim Aufhören steht der Punkt einmal hinter der Antwort: Wer `.` tippt,
+sieht sein eigenes Echo. Nach bloßem Enter setzt der Toplevel den Punkt
+zurück in die Zeile der Antwort (eine Zeile hoch, hinter den Prompt).
+Früher stand er zusätzlich in einer eigenen Zeile darunter, nach `.` also
+doppelt.
+
 **Zahl der Antworten:** Am Ende einer Anfrage steht als Kommentar, wie
 viele Antworten es gab und wie sie endete:
 

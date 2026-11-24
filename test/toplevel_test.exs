@@ -154,6 +154,25 @@ defmodule PrologEx.ToplevelTest do
       assert out =~ "X = p X = q."
     end
 
+    # am Terminal steht das Getippte samt Zeilenumbruch schon da: nach "."
+    # kein zweiter Punkt in einer eigenen Zeile; nach bloßem Enter der Punkt
+    # zurück in die Zeile der Antwort (eine Zeile hoch, hinter den Prompt)
+    test "am Terminal: der Punkt nach dem Ende nur einmal, in der Zeile der Antwort" do
+      Process.put(:prolog_ex_force_echo, true)
+
+      try do
+        out = top("between(1, 7, X).\n.\n")
+        assert out =~ "X = 3 % 3 Antworten, abgebrochen\n"
+        refute out =~ "X = 3 ."
+
+        out = top("between(1, 7, X).\n\n")
+        # "X = 3 " ist 6 Zeichen lang: der Punkt in Spalte 7
+        assert out =~ "X = 3 \e[1A\e[7G.\n% 3 Antworten, abgebrochen\n"
+      after
+        Process.delete(:prolog_ex_force_echo)
+      end
+    end
+
     test "am Ende die Zahl der Antworten (Flag toplevel_answer_count)" do
       # auto: ab zwei Antworten
       assert top("member(X, [1, 2]).\n") =~ "X = 1 ;\nX = 2.\n% 2 Antworten, keine weiteren\n"

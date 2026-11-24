@@ -456,7 +456,8 @@ defmodule PrologEx.Toplevel do
   end
 
   defp ask(text, cont, order, page) do
-    line = PrologEx.Shell.gets(Terminal.input_prompt(ask_prompt(text)), true)
+    prompt = ask_prompt(text)
+    line = PrologEx.Shell.gets(Terminal.input_prompt(prompt), true)
     Terminal.end_input()
 
     case line do
@@ -468,10 +469,38 @@ defmodule PrologEx.Toplevel do
         IO.puts(Terminal.paint(:input, "."))
         answer_count(:stopped)
 
-      # Ende nach Enter: der Punkt steht für die Taste des Benutzers
       _ ->
-        IO.puts(Terminal.paint(:input, "."))
+        stop_dot(prompt, line)
         answer_count(:stopped)
+    end
+  end
+
+  # Ende der Antworten: der Punkt hinter der Antwort. Ohne Terminal (Eingabe
+  # aus Datei/Pipe, kein Echo) einfach dahinter. Am Terminal steht das
+  # Getippte samt Zeilenumbruch schon da: hat der Benutzer selbst etwas
+  # getippt (".", oder was sonst als Ende gilt), nichts mehr – früher kam
+  # der Punkt noch einmal in eine eigene Zeile; nach bloßem Enter der Punkt
+  # zurück in die Zeile der Antwort (eine Zeile hoch, hinter den Prompt)
+  defp stop_dot(prompt, line) do
+    typed = if is_binary(line), do: String.trim(line), else: ""
+
+    # (:prolog_ex_force_echo: für Tests – das Verhalten am Terminal)
+    cond do
+      not (Terminal.terminal?() or Process.get(:prolog_ex_force_echo) == true) ->
+        IO.puts(Terminal.paint(:input, "."))
+
+      typed != "" ->
+        :ok
+
+      true ->
+        col =
+          case :string.split(prompt, "\n", :trailing) do
+            [_, l] -> String.length(l)
+            [l] -> String.length(l)
+          end
+
+        IO.write("\e[1A\e[#{col + 1}G")
+        IO.puts(Terminal.paint(:input, "."))
     end
   end
 
