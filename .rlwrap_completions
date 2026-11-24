@@ -75,10 +75,12 @@ halt
 integer
 is
 keysort
+keys_and_values
 length
 listing
 maplist
 member
+memberd
 msort
 nonvar
 nth0
@@ -100,6 +102,7 @@ repeat
 retract
 retractall
 reverse
+same_length
 select
 set_prolog_flag
 set_stream_position
