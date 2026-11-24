@@ -198,9 +198,13 @@ defmodule PrologEx.ConcurrentRobustTest do
     # rechts (X = 2) eine lange Suche ohne Lösung (Sekunden): wartete der
     # Lauf auf sie, dauerte er so lange. Die Lösung immer die von
     # once(labeling/2); ob es Teile gibt, hängt davon ab, wie weit der
-    # Anfang kommt – wenigstens einmal von mehreren Versuchen
+    # Anfang kommt – wenigstens einmal von mehreren Versuchen. Der Anfang
+    # findet die Lösung nach etwa 1 ms (hier; auf einem schnellen Mac schon
+    # vor 0,5 ms: dort P = 0 in allen Läufen mit 0,5 bis 3 ms), darum auch
+    # kürzere (serial(0) teilt nicht auf: ein Arbeiter nimmt den ganzen
+    # Baum und findet links die Lösung)
     runs =
-      for serial <- ~w(0.0005 0.001 0.002 0.003 0.0005 0.001) do
+      for serial <- ~w(0.00005 0.0001 0.0002 0.0005 0.001 0.002 0.0001 0.0002) do
         {ans, state} =
           Task.await(
             start(
