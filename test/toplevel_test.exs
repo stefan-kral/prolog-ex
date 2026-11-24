@@ -453,6 +453,23 @@ defmodule PrologEx.ToplevelTest do
     out = bare("set_prolog_flag(autoload, true).\nuse_module('#{mod}').\nt(X).\n")
     assert out =~ "X = 2."
 
+    # Importe nach dem Übersetzen (Autoload, use_module/1 am Ende): die
+    # Prädikate der Datei werden neu übersetzt – nur unveränderte; was eine
+    # Direktive mit assert/retract geändert hat (dynamisch), bleibt
+    late = Path.join(c.tmp_dir, "late.pl")
+
+    File.write!(late, """
+    :- dynamic(z/1).
+    z(0).
+    :- retract(z(0)), assertz(z(1)).
+    t(X) :- last([1, 2], X).
+    u(L) :- append([1], [2], L).
+    :- use_module(library(lists)).
+    """)
+
+    out = bare("['#{late}'].\nz(Z), t(X), u(L).\n")
+    assert out =~ "L = [1,2], X = 2, Z = 1."
+
     {_, err} =
       with_io(:stderr, fn -> bare("set_prolog_flag(autoload, false).\n['#{prog}'].\n") end)
 

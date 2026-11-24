@@ -769,6 +769,14 @@ die nach `user` laden (ohne `:- module/2`); `true`: auch in Modulen;
 es nichts; was erst zur Laufzeit entsteht (`call(G)` mit gebautem `G`),
 braucht weiter einen Import.
 
+Importe nach dem Übersetzen (Autoload am Ende des Ladens, ein
+`use_module/1,2` unten in der Datei) übersetzen die Prädikate des
+Ladevorgangs noch einmal: Ein Aufruf, der beim Übersetzen kein Ziel fand,
+ginge sonst bei jedem Aufruf über die langsame Suche (nreverse mit
+`append/3` aus `lists`: etwa viermal, auf einem Mac 17-mal langsamer). Nur
+Prädikate, die noch genau ihre geladenen Klauseln haben – was eine
+Direktive mit `assert`/`retract` schon geändert hat, bleibt.
+
 **Hinweise:** Nach `existence_error(procedure, …)` sagt der Toplevel, wo
 das Prädikat liegt: `% last/2 liegt in library(lists): :- use_module(library(lists)).`,
 bei mehreren alle (`… liegt in library(ugraphs) oder library(wgraphs)`).

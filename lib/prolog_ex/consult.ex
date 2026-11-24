@@ -110,10 +110,13 @@ defmodule PrologEx.Consult do
       prev_group: MapSet.new(),
       seen: MapSet.new(),
       warned: MapSet.new(),
-      own_metas: Keyword.get(opts, :own_metas, MapSet.new())
+      own_metas: Keyword.get(opts, :own_metas, MapSet.new()),
+      # Module, in die nach dem Übersetzen ihrer Prädikate importiert wurde
+      # (relink/1)
+      late: MapSet.new()
     }
 
-    st = st |> feed.() |> eof_expansion() |> flush() |> autoload_load()
+    st = st |> feed.() |> eof_expansion() |> flush() |> autoload_load() |> relink()
 
     st =
       Enum.reduce(Enum.reverse(st.init), st, fn {g, m}, st ->
@@ -695,9 +698,48 @@ defmodule PrologEx.Consult do
           PrologEx.LoadLog.autoloaded(m, lib, keys)
         end)
 
-      %{st | db: db}
+      if db == st.db, do: st, else: late(%{st | db: db}, m)
     else
       st
+    end
+  end
+
+  # Importe nach dem Übersetzen (Autoload am Ende, use_module/2 unten in
+  # der Datei): Aufrufe, die beim Übersetzen kein Ziel fanden, gehen bei
+  # jedem Aufruf über locate/4 und am JIT vorbei (nreverse mit append/3 aus
+  # lists: etwa viermal langsamer). Darum die Prädikate dieses Ladevorgangs
+  # in den Modulen noch einmal übersetzen – nur, die noch genau ihre
+  # geladenen Klauseln haben (nicht, was Direktiven mit assert/retract
+  # schon geändert haben)
+  defp late(st, m) do
+    if Enum.any?(st.pending, fn {{pm, _, _}, _} -> pm == m end),
+      do: %{st | late: MapSet.put(st.late, m)},
+      else: st
+  end
+
+  @import_directives ~w(use_module ensure_loaded autoload reexport import)
+
+  defp import_directive?({:struct, n, _}), do: n in @import_directives
+  defp import_directive?(_), do: false
+
+  defp relink(%{late: late} = st) do
+    if MapSet.size(late) == 0 do
+      st
+    else
+      keys =
+        for {{m, _, _} = k, cls} <- st.pending,
+            MapSet.member?(late, m),
+            unchanged?(st, k, cls),
+            do: k
+
+      flush(%{st | dirty: MapSet.new(keys), late: MapSet.new()})
+    end
+  end
+
+  defp unchanged?(st, k, cls) do
+    case Map.get(st.db, k) do
+      nil -> false
+      pred -> PrologEx.pred_source(pred) == Map.get(st.mf_base, k, []) ++ Enum.reverse(cls)
     end
   end
 
@@ -883,6 +925,7 @@ defmodule PrologEx.Consult do
   defp directive(g, st) do
     st = flush(st)
     st = autoload_goals(st, st.module, [g])
+    st = if import_directive?(g), do: late(st, st.module), else: st
     {st, hook?} = hook?(st, "goal_expansion")
 
     {st, g} =
