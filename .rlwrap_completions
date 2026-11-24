@@ -113,7 +113,6 @@ term_variables
 throw
 time
 true
-unifiable
 unify_with_occurs_check
 use_module
 var
