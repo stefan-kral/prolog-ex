@@ -20,6 +20,9 @@ defmodule PrologEx.Builtins.ListMore do
     * `memberd(?X, ?Liste)` – wie `member/2`, aber ohne doppelte Antworten
       (Neumerkel; `dif/2` in der Rekursion). In Elixir; dieselben Antworten
       wie die Prolog-Fassung in `library(memberd_pl)`.
+    * `selectd(?X, ?Liste, ?Rest)`, `permutationd(?Liste, ?Perm)` – wie
+      `select/3` und `permutation/2`, ebenso mit `dif/2` (in Prolog):
+      `permutationd([a,a,b], P)` gibt jede Anordnung nur einmal.
 
   Dazu, nicht aus SICStus: `list_frequencies/2` und `list_runs/2`
   (Häufigkeiten bzw. Läufe gleicher Elemente, gleich heißt `==/2`; in
@@ -264,7 +267,7 @@ defmodule PrologEx.Builtins.ListMore do
     [l, s0, x, ks, vs, k, vv, kvs, xss, yss, xr, yr, rows, rest, col, cols, f, fs, r, rs] =
       Enum.map(~w(L S X Ks Vs K V KVs Xss Yss Xr Yr Rows Rest Col Cols F Fs R Rs), &v/1)
 
-    [p, xs, ls, es, gs, w] = Enum.map(~w(P Xs Ls Es Gs _), &v/1)
+    [p, xs, ls, es, gs, w, ys, zs, e] = Enum.map(~w(P Xs Ls Es Gs _ Ys Zs E), &v/1)
 
     %{
       "lists" => [
@@ -319,6 +322,19 @@ defmodule PrologEx.Builtins.ListMore do
         rule(s("ordered", [p, [x | xs]]), [s("$ordered", [xs, x, p])]),
         fact(s("$ordered", [[], w, w])),
         rule(s("$ordered", [[x | xs], l, p]), [s("call", [p, l, x]), s("$ordered", [xs, x, p])]),
+
+        # selectd/3, permutationd/2 (wie memberd/2: dif/2 in der Rekursion,
+        # also ohne doppelte Antworten bei gleichen Elementen)
+        fact(s("selectd", [x, [x | xs], xs])),
+        rule(s("selectd", [e, [x | xs], [x | ys]]), [
+          s("dif", [e, x]),
+          s("selectd", [e, xs, ys])
+        ]),
+        fact(s("permutationd", [[], []])),
+        rule(s("permutationd", [xs, [e | zs]]), [
+          s("selectd", [e, xs, ys]),
+          s("permutationd", [ys, zs])
+        ]),
 
         # partition/5 (Liste vorn: Indexierung)
         rule(s("partition", [p, xs, ls, es, gs]), [s("$partition5", [xs, p, ls, es, gs])]),

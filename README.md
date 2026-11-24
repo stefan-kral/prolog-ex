@@ -83,7 +83,8 @@ Ein Prolog-Kern in Elixir:
     `append/3` aus `library(lists)` (sichtbar und nicht selbst definiert;
     die erste Liste muss eine echte Liste sein, sonst gibt der Code auf;
     eine spätere eigene Definition nimmt den Rufern ihren Code – nrev über
-    30 Elemente mit `append/3` 9 → 34 MLIPS, mit eigenem `app/3` 31),
+    30 Elemente mit `append/3` 9 → 34 MLIPS, mit einem Durchlauf über
+    die erste Liste statt dreien 49, mit eigenem `app/3` 33),
     ebenso `bit_is_set/2` aus `library(arithmetic)` (zwei Ganzzahlen, K ≥ 0,
     sonst gibt der Code auf) und `getbit/2` in Ausdrücken; `memberchk/2`
     (prüft, ohne zu binden – ein Element, das nur durch Binden gleich
@@ -786,7 +787,7 @@ Bibliotheken, auch derer in Prolog (`priv/library/**/*.pl`, deren
 ist: Weitergaben zählen als ihre Quelle (`maplist/3` aus `apply`, nicht
 `lists`; `forall/2` aus `iso_ext`, nicht `swi`), Alternativen wie
 `reif_pl`, `memberd_pl`, `wgraphs` und `linda/client` nie von selbst. Von
-924 exportierten Prädikaten bleiben 33 mehrdeutig (Graphen, Linda,
+926 exportierten Prädikaten bleiben 33 mehrdeutig (Graphen, Linda,
 `in/2`, `eos//0`).
 
 **Farben** (Flag `color_term`, wie SWI; Vorgabe `true`): am Terminal
@@ -930,7 +931,10 @@ Definitionen im Programm gehen wie sonst vor),
 `memberd/2` (Neumerkel: wie `member/2` mit `dif/2` in der Rekursion, also
 ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
-Prolog-Fassung `library(memberd_pl)`, `mix run bench/memberd_bench.exs`), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
+Prolog-Fassung `library(memberd_pl)`, `mix run bench/memberd_bench.exs`),
+`selectd/3` und `permutationd/2` (ebenso mit `dif/2`, in Prolog:
+`permutationd([a,a,b], P)` gibt jede Anordnung nur einmal; wie die
+Definition terminiert `permutationd(-, +)` nicht), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
 `findall/3,4`, `forall/2`, `once/1`, `ignore/1`, `plus/3`, `numbervars/3`,
 `atomic_list_concat/2,3` (auch zerlegen: `atomic_list_concat(L, '-', 'a-b')`),
 `setup_call_cleanup/3` (wie SWI und der WG17-Vorschlag: Cleanup sofort bei

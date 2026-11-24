@@ -75,4 +75,28 @@ defmodule PrologEx.MemberdTest do
     assert ask(c, ex, "numlist(1, 200000, L), memberd(199999, L)", 3) |> length() == 1
     assert ask(c, ex, "numlist(1, 200000, L), memberd(0, L)") == []
   end
+
+  # selectd/3, permutationd/2 (in Prolog, mit dif/2): gleiche Elemente
+  # geben keine doppelten Antworten
+  test "selectd/3, permutationd/2", c do
+    ex = db(c, "lists")
+
+    assert ask(c, ex, "findall(X-R, selectd(X, [a,b,a], R), L)") ==
+             [~S(L = [a-"ba",b-"aa"])]
+
+    assert ask(c, ex, "selectd(X, [Y, Z], R)") == [
+             "R = [Z], X = Y",
+             "R = [Y], X = Z, dif(Z,Y)"
+           ]
+
+    assert ask(c, ex, "findall(P, permutationd([a,a,b], P), L)") ==
+             [~S(L = ["aab","aba","baa"])]
+
+    assert ask(c, ex, "findall(P, permutationd([a,b,c], P), L), length(L, N)") ==
+             [~S(L = ["abc","acb","bac","bca","cab","cba"], N = 6)]
+
+    assert ask(c, ex, "permutationd([], P)") == ["P = []"]
+    assert ask(c, ex, "permutationd([a,b], [b,a])") == ["true"]
+    assert ask(c, ex, "permutationd([a,a], [a,b])") == []
+  end
 end
