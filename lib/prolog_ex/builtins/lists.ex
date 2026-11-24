@@ -140,8 +140,8 @@ defmodule PrologEx.Builtins.Lists do
   end
 
   defbuiltin "append", [x, y, z], protected: false, helpers: [{"$append", 3}] do
-    case prefix(x, subst()) do
-      {:ok, front} -> {:unify, [{z, join(front, y, subst())}]}
+    case append_det(x, y, subst()) do
+      {:ok, r} -> {:unify, [{z, r}]}
       :partial -> {:call, mk("$append", [x, y, z])}
     end
   end
@@ -463,41 +463,45 @@ defmodule PrologEx.Builtins.Lists do
   # Vorderteil für append: {:ok, {:glist, l}} | {:ok, {:items, [..]}} | :partial
   @doc false
   # append/3 deterministisch (für PrologEx.Jit): {:ok, Z} oder :partial
+  # X eine echte Liste: {:ok, X ++ Y}, sonst :partial. Markiert ground
+  # ganz: ++ der BEAM; sonst ein Durchlauf, der die Zellen von hinten neu
+  # baut (cons/2: ground Teile bleiben markiert) – früher erst gesammelt,
+  # umgedreht und dann gebaut (drei Durchläufe; nreverse mit append/3 aus
+  # lists war so langsamer als mit einem eigenen app/3)
   def append_det(x, y, subst) do
-    case prefix(x, subst) do
-      {:ok, front} -> {:ok, join(front, y, subst)}
-      :partial -> :partial
+    case PrologEx.Store.walk(x, subst) do
+      {:glist, l} ->
+        if proper?(l), do: {:ok, join(l, y, subst)}, else: :partial
+
+      x ->
+        try do
+          {:ok, copy(x, y, subst)}
+        catch
+          :partial -> :partial
+        end
     end
   end
 
-  defp prefix(x, subst) do
-    case PrologEx.Store.walk(x, subst) do
-      {:glist, l} -> if proper?(l), do: {:ok, {:glist, l}}, else: :partial
-      _ -> collect(x, subst, [])
-    end
-  end
+  defp copy([h | t], y, subst),
+    do: PrologEx.cons(h, copy(PrologEx.Store.walk(t, subst), y, subst))
 
-  defp collect(x, subst, acc) do
-    case PrologEx.Store.walk(x, subst) do
-      [] -> {:ok, {:items, Enum.reverse(acc)}}
-      [h | t] -> collect(t, subst, [h | acc])
-      {:glist, l} -> if proper?(l), do: {:ok, {:items, Enum.reverse(acc, l)}}, else: :partial
-      _ -> :partial
-    end
-  end
+  defp copy([], y, _subst), do: y
+
+  defp copy({:glist, l}, y, _subst),
+    do: if(proper?(l), do: PrologEx.list(l, y), else: throw(:partial))
+
+  defp copy(_, _y, _subst), do: throw(:partial)
 
   defp proper?([_ | t]), do: proper?(t)
   defp proper?(t), do: t == []
 
-  defp join({:glist, l}, y, subst) do
+  defp join(l, y, subst) do
     case PrologEx.Store.walk(y, subst) do
       [] -> {:glist, l}
       {:glist, ly} -> {:glist, l ++ ly}
       _ -> l ++ y
     end
   end
-
-  defp join({:items, items}, y, _subst), do: PrologEx.list(items, y)
 
   @doc false
   # Filter für member/2: Konstante (Vergleich mit ===), Funktor/Stelligkeit,
