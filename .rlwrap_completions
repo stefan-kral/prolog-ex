@@ -63,6 +63,7 @@ findall
 findnsols
 flatten
 float
+foldl
 forall
 format
 freeze
