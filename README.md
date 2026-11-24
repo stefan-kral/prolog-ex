@@ -5113,6 +5113,12 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     `autoload/1,2` (wie SWI) laden gleich, wie `use_module/1,2`: dasselbe
     Ergebnis, nur früher, und SWI-Quellen mit solchen Direktiven laufen.
     Eigene Definitionen gehen Importen vor.
+    Schnellwege: was in der Datenbank steht, ein Zugriff; ein
+    eingebautes Prädikat von `system` ebenso; ein Prädikat einer
+    Bibliothek in ihrem eigenen Modul (die Rekursion von
+    `lists:permutationd/2`) gleich nach der Datenbank, ohne die ganze
+    Suche – Bibliotheksklauseln laufen damit so schnell wie dieselben
+    Klauseln in `user` (vorher etwa 10 % langsamer).
   * Eingebaut ohne Import ist nur, was ISO vorschreibt oder SICStus
     eingebaut hat – und `evaluable_property/2` (aus Logtalks „Prolog
     commons“): `built_in`, `static`, `template(abs(number), number)`,

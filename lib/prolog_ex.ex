@@ -4404,10 +4404,29 @@ defmodule PrologEx do
             {:scoped, ^mod, entry} -> {:builtin, "system", entry}
             {:scoped, _, entry} when mod == "system" -> {:builtin, "system", entry}
             {:scoped, _, _} -> locate(db, mod, name, arity)
-            nil -> locate(db, mod, name, arity)
+            nil when mod == "user" -> locate(db, mod, name, arity)
+            # im eigenen Modul einer Bibliothek (die Rekursion von
+            # lists:selectd/3, ...): der erste Schritt von locate/4 nach
+            # der Datenbank, gleich hier – sonst bei jedem Aufruf locate/4
+            # und qualify/5 (permutationd/2 aus lists war so 10 % langsamer
+            # als dieselben Klauseln in user)
+            nil -> PrologEx.Builtins.lookup(mod, name, arity) || locate(db, mod, name, arity)
           end
 
-        call_located(found, goal, name, args, mod, rest, st)
+        case found do
+          # (in mod selbst: qualify/5 ändert nichts)
+          {:prolog, pred, _} ->
+            try_clauses(args, candidates(pred, mod, name, args, st.subst), rest, mod, st)
+
+          {tag, _, _} when tag in [:builtin, :db] ->
+            call_located(found, goal, name, args, mod, rest, st)
+
+          :none ->
+            call_located(found, goal, name, args, mod, rest, st)
+
+          entry ->
+            call_located({:builtin, mod, entry}, goal, name, args, mod, rest, st)
+        end
     end
   end
 
