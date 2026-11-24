@@ -6181,6 +6181,17 @@ mit einem schnell scheiternden Teil. Jetzt bittet er sofort.
 2,12 s (Faktor 1,30 → 1,65), Golomb 8 Marken 2,83 → 2,58 s, der Rest
 im Rauschen.
 
+**Belastungsläufe auf vielen Kernen** (`bench/stress/run.sh`): die
+Zufalls-, Chaos- und festen Tests von `concurrent` und `clpz_concurrent`
+über eine Matrix aus Scheduler-Zahlen (`+S N:N`, auch mehr als Kerne),
+JIT-Einstellungen (`CONC_JIT`: `on`, `off`, `eager`, `clause`,
+`clause_sync`; `PrologEx.TestEnv`) und Seeds (je Lauf neue zufällige).
+`-q` schnell (~2 min auf 8 Kernen), ohne Schalter normal (Scheduler 2,
+Kerne, 2×Kerne; JIT on, off, clause), `-f` gründlich (Stunden), `-p` dazu
+die Skalierung der Demos (`examples/parallel/run.sh -t`). Ergebnis in
+`bench/stress/out/ZEIT/summary.md`, je Lauf mit der Umgebung zum
+Wiederholen; Rückgabe 1 bei einer Abweichung oder einem Fehler.
+
 Differenztests mit Zufallseingaben (`test/concurrent_random_test.exs`):
 jedes `concurrent_X` gegen sein Vorbild nacheinander (`maplist/2,3,4`,
 Aufrufe der Reihe nach, `forall/2`, `findall/3` je Ziel, `(Gen, Test)`,

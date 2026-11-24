@@ -144,6 +144,7 @@ defmodule PrologEx.ConcurrentRandomTest do
   """
 
   setup_all do
+    PrologEx.TestEnv.apply_jit()
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
     db = TableCase.db(r, ~w(concurrent lists between aggregate time swi))
@@ -278,6 +279,7 @@ defmodule PrologEx.ConcurrentRandomTest do
 
   defp run(c, q) do
     Task.async(fn ->
+      PrologEx.TestEnv.apply_jit()
       Reader.put_current(c.reader)
       if c.ops, do: Process.put(:prolog_ex_ops, c.ops)
       {_, ans} = TableCase.run(c.reader, c.db, q)

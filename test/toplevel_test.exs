@@ -326,6 +326,21 @@ defmodule PrologEx.ToplevelTest do
     refute out =~ "importiert"
     assert out =~ "% add_edges/3 liegt in library(ugraphs) oder library(wgraphs)"
 
+    # schon importiert: kein zweiter Import (trace/0 findet locate/4 nicht,
+    # es ist eingebaut mit Heimat traces) – und der Import läuft am Tracer
+    # vorbei, ohne die Meldung von verbose_load
+    {out, trace_out} =
+      with_io(:stderr, fn ->
+        bare("use_module(library(traces)).\nleash(-all).\ntrace.\nlast([1], X).\nnotrace.\n")
+      end)
+
+    assert trace_out =~ "Call: (1) last("
+    refute trace_out =~ "use_module("
+    refute out =~ "trace/0 aus"
+    refute out =~ "nichts Neues"
+    refute out =~ "use_module(library(lists)"
+    assert out =~ "% last/2 aus library(lists) importiert"
+
     # eigene Definitionen gehen vor
     out = bare("assertz(last(_, eigen)).\nlast([1], X).\n")
     refute out =~ "last/2 aus"

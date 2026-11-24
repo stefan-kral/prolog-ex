@@ -398,6 +398,13 @@ defmodule PrologEx.Toplevel do
     pis = for {n, a} <- keys, do: {:struct, "/", [{:atom, n}, a]}
     goal = {:struct, "use_module", [PrologEx.unmark(spec), pis]}
 
+    # still und am Tracer vorbei: der Import gehört nicht zur Anfrage
+    # (sonst Call/Exit von use_module/2 im Trace und die Meldung von
+    # verbose_load zusätzlich zu unserer)
+    trace = Process.delete(:prolog_ex_trace)
+    load = PrologEx.Flags.get("verbose_load")
+    PrologEx.Flags.set("verbose_load", {:atom, "silent"})
+
     try do
       case Enum.take(PrologEx.solutions(db, goal), 1) do
         [_] ->
@@ -410,6 +417,9 @@ defmodule PrologEx.Toplevel do
       end
     rescue
       PrologEx.Error -> db
+    after
+      PrologEx.Flags.set("verbose_load", load)
+      if trace, do: Process.put(:prolog_ex_trace, trace)
     end
   end
 
@@ -439,8 +449,19 @@ defmodule PrologEx.Toplevel do
   defp pred(n, args, db, acc) do
     a = length(args)
 
+    # schon nach user importiert gilt als sichtbar, auch wo locate/4 es
+    # nicht findet (trace/0: eingebaut mit Heimat traces) – sonst käme der
+    # Import bei jeder Anfrage wieder
+    found =
+      if Map.has_key?(db, {:import, "user", n, a}),
+        do: :imported,
+        else: PrologEx.locate(db, "user", n, a)
+
     {acc, meta} =
-      case PrologEx.locate(db, "user", n, a) do
+      case found do
+        :imported ->
+          {acc, Map.get(@control_meta, {n, a})}
+
         :none ->
           case PrologEx.LibraryIndex.choice(n, a) do
             nil ->

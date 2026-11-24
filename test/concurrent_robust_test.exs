@@ -26,6 +26,7 @@ defmodule PrologEx.ConcurrentRobustTest do
   """
 
   setup_all do
+    PrologEx.TestEnv.apply_jit()
     {:ok, r} = Reader.start_link()
     Reader.put_current(r)
     db = TableCase.db(r, ~w(clpz clpz_concurrent concurrent between lists time swi))
@@ -37,6 +38,7 @@ defmodule PrologEx.ConcurrentRobustTest do
   # des Prozesses danach
   defp start(c, q) do
     Task.async(fn ->
+      PrologEx.TestEnv.apply_jit()
       Reader.put_current(c.reader)
       Process.put(:prolog_ex_ops, c.ops)
       {_, ans} = TableCase.run(c.reader, c.db, q)

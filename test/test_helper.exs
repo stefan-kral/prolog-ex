@@ -89,3 +89,45 @@ defmodule PrologEx.TableCase do
     end
   end
 end
+
+defmodule PrologEx.TestEnv do
+  @moduledoc """
+  Einstellungen für Belastungsläufe (bench/stress/run.sh) über
+  Umgebungsvariablen – ohne sie ändert sich nichts.
+
+  `CONC_JIT`: `on` (Vorgabe), `off` (jit aus), `eager` (Prädikate gleich
+  beim ersten Aufruf übersetzt), `clause` (dazu Klauseln als BEAM-Code,
+  im Hintergrund übersetzt, nach 1 Aufruf), `clause_sync` (dasselbe, beim
+  Aufruf). Die Flags gelten je Prozess und gehen an die Kinder von
+  library(concurrent) weiter; clause_jit wird beim Laden gelesen – darum
+  auch im Prozess, der die Bibliotheken lädt (setup_all).
+  """
+
+  def apply_jit do
+    set = fn k, v -> PrologEx.Flags.set(k, v) end
+
+    case System.get_env("CONC_JIT", "on") do
+      "on" ->
+        :ok
+
+      "off" ->
+        set.("jit", {:atom, "false"})
+
+      "eager" ->
+        set.("jit_threshold", 1)
+
+      "clause" ->
+        set.("jit_threshold", 1)
+        set.("clause_jit", {:atom, "true"})
+        set.("clause_jit_threshold", 1)
+
+      "clause_sync" ->
+        set.("jit_threshold", 1)
+        set.("clause_jit", {:atom, "sync"})
+        set.("clause_jit_threshold", 1)
+
+      other ->
+        raise ArgumentError, "CONC_JIT: on, off, eager, clause, clause_sync – nicht #{other}"
+    end
+  end
+end
