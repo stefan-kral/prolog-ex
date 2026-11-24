@@ -127,6 +127,16 @@ defmodule PrologEx.LoadLog do
     end
   end
 
+  @doc "Autoload beim Laden (PrologEx.Autoload): `% user ← lists: member/2 (autoload)`"
+  def autoloaded(into, from, keys) do
+    if level() != :silent do
+      items = Enum.map_join(keys, ", ", fn {name, ar} -> "#{quote_atom(name)}/#{ar}" end)
+      say("#{into} ← #{from}: #{items} (autoload)")
+    end
+
+    :ok
+  end
+
   # Zeilenlänge: die Breite des Terminals (beim Ausgeben gemessen, also auch
   # nach Ändern der Fenstergröße) abzüglich "% ", Einrückung und dem Komma
   # bzw. der Klammer am Zeilenende (sonst bricht das Terminal eine genau

@@ -751,9 +751,23 @@ Durchgesehen werden die Steuerkonstrukte (`,`, `;`, `->`, `\+`, `findall/3`,
 `succ/2`). Eigene Definitionen gehen vor. Mehrdeutiges (`add_edges/3` in
 `ugraphs` und `wgraphs`) wird nicht importiert, ebenso wenig, was erst zur
 Laufzeit entsteht (`call(G)` mit gebautem `G`): Dann kommt der Fehler mit
-Hinweis. Programme (`consult`, `-g`) bleiben ohne Autoload. Operatoren
+Hinweis. Operatoren
 kann es nicht nachladen (die Anfrage scheitert schon beim Lesen), dafür
 gibt es einen Hinweis: `% #<==> ist ein Operator aus library(clpz)`.
+
+**Autoload beim Laden** (Flag `autoload`, Vorgabe `user`; Name wie SWI):
+Dasselbe für Programme, aber beim Laden statt beim Aufruf. Am Ende eines
+Ladevorgangs (vor `initialization/1`) sieht PrologEx die Klauselrümpfe und
+die Ziele von `initialization/1` durch, vor jeder Direktive deren Ziel, und
+importiert, was nirgends definiert ist, aber eindeutig in einer Bibliothek
+liegt. Eine Datei ohne `use_module/1,2`, wie viele Benchmarks, läuft so
+auch mit `start_ex zebra.pl -g "bench(10000)" -q`. Meldung je Import
+(nicht bei `verbose_load` = `silent`, also nicht mit `-q`):
+`% user ← lists: last/2, member/2 (autoload)`. `user`: nur in Dateien,
+die nach `user` laden (ohne `:- module/2`); `true`: auch in Modulen;
+`false`: nie. Die Bibliotheken von PrologEx selbst nie. Zur Laufzeit kostet
+es nichts; was erst zur Laufzeit entsteht (`call(G)` mit gebautem `G`),
+braucht weiter einen Import.
 
 **Hinweise:** Nach `existence_error(procedure, …)` sagt der Toplevel, wo
 das Prädikat liegt: `% last/2 liegt in library(lists): :- use_module(library(lists)).`,
@@ -5076,13 +5090,14 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     `chattop` weiter); ein Aufruf folgt der Kette der Importe.
   * Auflösung eines Aufrufs in Modul `m` wie SICStus: in `m` definiert →
     nach `m` importiert → `system`. Kein Rückgriff auf `user` (sonst
-    `user:foo` schreiben) und kein Autoload in Programmen:
+    `user:foo` schreiben) und kein Autoload beim Aufruf:
     Bibliotheksprädikate wie `append/3`, `member/2`, `maplist/2..8` gibt es
-    nur nach `:- use_module(library(lists)).` bzw. `library(apply)`. Die
-    Auflösung hängt so nur vom Inhalt der Datenbank ab, nicht davon, was
-    vorher aufgerufen wurde. Bequemlichkeit gibt es nur im Toplevel: Er
-    importiert, was eine Anfrage braucht, selbst (Flag `toplevel_autoload`,
-    siehe dort) und gibt sonst einen Hinweis, wo ein Prädikat liegt.
+    nur nach einem Import. Die Auflösung hängt so nur vom Inhalt der
+    Datenbank ab, nicht davon, was vorher aufgerufen wurde. Bequemlichkeit
+    gibt es vorher: Der Toplevel importiert, was eine Anfrage braucht,
+    selbst (Flag `toplevel_autoload`), das Laden, was eine Datei ohne
+    `:- module/2` aufruft (Flag `autoload`, siehe dort), und sonst gibt es
+    einen Hinweis, wo ein Prädikat liegt.
     `autoload/1,2` (wie SWI) laden gleich, wie `use_module/1,2`: dasselbe
     Ergebnis, nur früher, und SWI-Quellen mit solchen Direktiven laufen.
     Eigene Definitionen gehen Importen vor.

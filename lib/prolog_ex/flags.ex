@@ -65,6 +65,11 @@ defmodule PrologEx.Flags do
     # liegt, vorher selbst nach user importieren (nur diese Prädikate, mit
     # Meldung); Programme bleiben ohne
     "toplevel_autoload" => {true, [false, true]},
+    # beim Laden (wie SWIs autoload, aber vorher statt beim Aufruf): was
+    # die Klauseln und Direktiven aufrufen und eindeutig in einer
+    # Bibliothek liegt, importieren (PrologEx.Autoload) – user: nur in
+    # Dateien ohne module/2, true: auch in Modulen, false: nie
+    "autoload" => {:user, [false, true, :user]},
     # wie SWI: Farben im Toplevel (Fehler rot, Kommentare grün, Eingabe
     # blau; PrologEx.Terminal) – nur am Terminal und ohne NO_COLOR
     "color_term" => {true, [false, true]},
@@ -164,6 +169,9 @@ defmodule PrologEx.Flags do
         :ok
     end
   end
+
+  @doc "Ein Flag wieder auf seinen Standardwert (ohne Seiteneffekte; explicit/1 dann nil)"
+  def unset(name), do: Process.put(@key, Map.delete(Process.get(@key, %{}), name))
 
   @doc "Alle Flags auf Standardwerte zurücksetzen (für Tests)"
   def reset do

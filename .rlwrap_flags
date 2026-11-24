@@ -1,5 +1,6 @@
 answer_chunk = auto
 apply_macros = false true
+autoload = false true user
 bounded
 char_conversion = off on
 clause_jit = false true sync

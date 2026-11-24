@@ -113,7 +113,7 @@ defmodule PrologEx.Consult do
       own_metas: Keyword.get(opts, :own_metas, MapSet.new())
     }
 
-    st = st |> feed.() |> eof_expansion() |> flush()
+    st = st |> feed.() |> eof_expansion() |> flush() |> autoload_load()
 
     st =
       Enum.reduce(Enum.reverse(st.init), st, fn {g, m}, st ->
@@ -656,6 +656,59 @@ defmodule PrologEx.Consult do
     }
   end
 
+  # --- Autoload (Flag autoload, PrologEx.Autoload) -------------------------
+  #
+  # Am Ende eines Ladevorgangs (vor initialization/1): was die Klauseln und
+  # die Ziele von initialization/1 aufrufen und eindeutig in einer
+  # Bibliothek liegt, ins Modul importieren; ebenso vor jeder Direktive.
+  # Nur hier beim Laden: zur Laufzeit kostet es nichts
+
+  defp autoload_load(st) do
+    if autoload_flag() == :off do
+      st
+    else
+      bodies =
+        for {{m, _, _}, cls} <- st.pending, {_head, body} <- cls, do: {m, body}
+
+      inits = for {g, m} <- st.init, do: {m, g}
+
+      (bodies ++ inits)
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Enum.sort()
+      |> Enum.reduce(st, fn {m, goals}, st -> autoload_goals(st, m, goals) end)
+    end
+  end
+
+  defp autoload_goals(st, m, goals) do
+    ok? =
+      case autoload_flag() do
+        :off -> false
+        :user -> m == "user"
+        :all -> true
+      end
+
+    if ok? and not system_library?(st.file) do
+      PrologEx.put_db(st.db)
+
+      db =
+        PrologEx.Autoload.run(goals, st.db, m, fn lib, keys ->
+          PrologEx.LoadLog.autoloaded(m, lib, keys)
+        end)
+
+      %{st | db: db}
+    else
+      st
+    end
+  end
+
+  defp autoload_flag do
+    case PrologEx.Flags.get("autoload") do
+      {:atom, "user"} -> :user
+      {:atom, "true"} -> :all
+      _ -> :off
+    end
+  end
+
   defp system_library?(nil), do: false
 
   defp system_library?(file) do
@@ -829,6 +882,7 @@ defmodule PrologEx.Consult do
 
   defp directive(g, st) do
     st = flush(st)
+    st = autoload_goals(st, st.module, [g])
     {st, hook?} = hook?(st, "goal_expansion")
 
     {st, g} =

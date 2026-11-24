@@ -361,151 +361,26 @@ defmodule PrologEx.Toplevel do
 
   # --- Autoload im Toplevel (Flag toplevel_autoload) -----------------------
   #
-  # Vor dem Ausführen: Prädikate der Anfrage, die in user nicht sichtbar
-  # sind, aber eindeutig in einer Bibliothek liegen (PrologEx.LibraryIndex.
-  # choice/2), nach user importieren – nur sie (use_module/2 mit Liste),
-  # mit einer Meldung. Durchgesehen werden die Steuerkonstrukte und die
-  # Meta-Argumente (maplist(foo, ...) → foo/N); nach einem Import noch
-  # einmal (die Meta-Argumente einer eben importierten Bibliothek). Was erst
-  # zur Laufzeit entsteht (call(G) mit gebautem G), bleibt beim Fehler mit
-  # Hinweis. Programme (consult) bleiben ohne: nur der Toplevel
+  # Vor dem Ausführen: was die Anfrage aufruft, in user nicht sichtbar ist,
+  # aber eindeutig in einer Bibliothek liegt, nach user importieren, mit
+  # einer Meldung (PrologEx.Autoload). Programme: Flag autoload (Consult)
 
-  defp autoload(goal, st, rounds \\ 3)
-
-  defp autoload(_goal, st, 0), do: st
-
-  defp autoload(goal, st, rounds) do
+  defp autoload(goal, st) do
     if PrologEx.Flags.get("toplevel_autoload") == {:atom, "true"} do
-      case scan(goal, st.db, []) |> Enum.reverse() |> Enum.uniq() do
-        [] ->
-          st
+      report = fn lib, keys ->
+        what =
+          Enum.map_join(keys, ", ", fn {n, a} ->
+            PrologEx.Writer.format({:struct, "/", [{:atom, n}, a]}, quoted: true)
+          end)
 
-        missing ->
-          db =
-            missing
-            |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-            |> Enum.sort()
-            |> Enum.reduce(st.db, &import_into_user/2)
-
-          autoload(goal, %{st | db: db}, rounds - 1)
+        IO.puts(Terminal.paint(:comment, "% #{what} aus library(#{lib}) importiert"))
       end
+
+      %{st | db: PrologEx.Autoload.run([goal], st.db, "user", report)}
     else
       st
     end
   end
-
-  defp import_into_user({lib, keys}, db) do
-    {:term, spec, _} = PrologEx.Parser.read_one("library(#{lib}).")
-    pis = for {n, a} <- keys, do: {:struct, "/", [{:atom, n}, a]}
-    goal = {:struct, "use_module", [PrologEx.unmark(spec), pis]}
-
-    # still und am Tracer vorbei: der Import gehört nicht zur Anfrage
-    # (sonst Call/Exit von use_module/2 im Trace und die Meldung von
-    # verbose_load zusätzlich zu unserer)
-    trace = Process.delete(:prolog_ex_trace)
-    load = PrologEx.Flags.get("verbose_load")
-    PrologEx.Flags.set("verbose_load", {:atom, "silent"})
-
-    try do
-      case Enum.take(PrologEx.solutions(db, goal), 1) do
-        [_] ->
-          what = Enum.map_join(pis, ", ", &PrologEx.Writer.format(&1, quoted: true))
-          IO.puts(Terminal.paint(:comment, "% #{what} aus library(#{lib}) importiert"))
-          PrologEx.current_db()
-
-        [] ->
-          db
-      end
-    rescue
-      PrologEx.Error -> db
-    after
-      PrologEx.Flags.set("verbose_load", load)
-      if trace, do: Process.put(:prolog_ex_trace, trace)
-    end
-  end
-
-  # Steuerkonstrukte und eingebaute Meta-Prädikate ohne eigene Angabe
-  @control_meta %{
-    {"findall", 3} => ["?", 0, "?"],
-    {"findall", 4} => ["?", 0, "?", "?"],
-    {"once", 1} => [0],
-    {"ignore", 1} => [0],
-    {"catch", 3} => [0, "?", 0],
-    {"phrase", 2} => ["//", "?"],
-    {"phrase", 3} => ["//", "?", "?"]
-  }
-
-  defp scan({:var, _}, _db, acc), do: acc
-  defp scan({:struct, ":", [_, _]}, _db, acc), do: acc
-
-  defp scan({:struct, f, [a, b]}, db, acc) when f in [",", ";", "->", "*->"],
-    do: scan(b, db, scan(a, db, acc))
-
-  defp scan({:struct, "\\+", [a]}, db, acc), do: scan(a, db, acc)
-  defp scan({:struct, "call", [c | extra]}, db, acc), do: closure(c, length(extra), db, acc)
-  defp scan({:atom, n}, db, acc), do: pred(n, [], db, acc)
-  defp scan({:struct, n, args}, db, acc), do: pred(n, args, db, acc)
-  defp scan(_, _db, acc), do: acc
-
-  defp pred(n, args, db, acc) do
-    a = length(args)
-
-    # schon nach user importiert gilt als sichtbar, auch wo locate/4 es
-    # nicht findet (trace/0: eingebaut mit Heimat traces) – sonst käme der
-    # Import bei jeder Anfrage wieder
-    found =
-      if Map.has_key?(db, {:import, "user", n, a}),
-        do: :imported,
-        else: PrologEx.locate(db, "user", n, a)
-
-    {acc, meta} =
-      case found do
-        :imported ->
-          {acc, Map.get(@control_meta, {n, a})}
-
-        :none ->
-          case PrologEx.LibraryIndex.choice(n, a) do
-            nil ->
-              {acc, Map.get(@control_meta, {n, a})}
-
-            lib ->
-              {[{lib, {n, a}} | acc],
-               PrologEx.Builtins.meta(PrologEx.Builtins.source(lib, n, a), n, a)}
-          end
-
-        {:db, m, _} ->
-          {acc, Map.get(db, {:meta, m, n, a})}
-
-        {:builtin, m, _} ->
-          {acc, PrologEx.Builtins.meta(m, n, a) || Map.get(@control_meta, {n, a})}
-      end
-
-    case meta do
-      specs when is_list(specs) and length(specs) == a ->
-        Enum.zip(args, specs)
-        |> Enum.reduce(acc, fn
-          {g, 0}, acc -> scan(g, db, acc)
-          {c, k}, acc when is_integer(k) -> closure(c, k, db, acc)
-          {g, "^"}, acc -> scan(strip_caret(g), db, acc)
-          {c, "//"}, acc -> closure(c, 2, db, acc)
-          _, acc -> acc
-        end)
-
-      _ ->
-        acc
-    end
-  end
-
-  # ein Closure mit k weiteren Argumenten
-  defp closure({:atom, n}, k, db, acc), do: pred(n, List.duplicate({:var, 0}, k), db, acc)
-
-  defp closure({:struct, n, args}, k, db, acc) when n != ":",
-    do: pred(n, args ++ List.duplicate({:var, 0}, k), db, acc)
-
-  defp closure(_, _k, _db, acc), do: acc
-
-  defp strip_caret({:struct, "^", [_, g]}), do: strip_caret(g)
-  defp strip_caret(g), do: g
 
   defp error_message(e) do
     IO.puts(Terminal.paint(:error, "Fehler: #{Exception.message(e)}"))

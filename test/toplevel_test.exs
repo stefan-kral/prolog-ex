@@ -405,4 +405,58 @@ defmodule PrologEx.ToplevelTest do
       File.rm(f)
     end
   end
+
+  # Flag autoload (Vorgabe user): beim Laden importieren, was die Klauseln,
+  # Direktiven und initialization/1 aufrufen – in Dateien ohne module/2
+  @tag :tmp_dir
+  test "Autoload beim Laden (Flag autoload)", c do
+    prog = Path.join(c.tmp_dir, "zebra.pl")
+    mod = Path.join(c.tmp_dir, "mm.pl")
+
+    File.write!(prog, """
+    :- forall(member(X, [eins]), (write(X), nl)).
+    bench(N) :- between(1, N, _), member(a, [b, a]), fail.
+    bench(_) :- maplist(succ, [1, 2], L), last(L, X), write(X), nl.
+    :- initialization((sum_list([1, 2], S), write(s(S)), nl)).
+    """)
+
+    File.write!(mod, """
+    :- module(mm, [t/1]).
+    t(X) :- last([1, 2], X).
+    """)
+
+    # wie start_ex zebra.pl -g "bench(10)" -q: still
+    {out, err} =
+      with_io(:stderr, fn ->
+        capture_io(fn -> PrologEx.Toplevel.main([prog, "-g", "bench(10)", "-q"]) end)
+      end)
+
+    assert out == "eins\ns(3)\n3\n"
+    assert err == ""
+
+    # mit Meldungen
+    {out, err} =
+      with_io(:stderr, fn ->
+        bare("set_prolog_flag(verbose_load, normal).\n['#{prog}'].\nbench(3).\n")
+      end)
+
+    assert out =~ "3\ntrue."
+    assert err =~ "% user ← lists: member/2 (autoload)"
+    assert err =~ "% user ← apply: maplist/3 (autoload)"
+    assert err =~ "% user ← iso_ext: succ/2 (autoload)"
+    assert err =~ "% user ← lists: last/2, sum_list/2 (autoload)"
+
+    # user: nicht in Modulen; true: auch dort; false: nie
+    out = bare("use_module('#{mod}').\nt(X).\n")
+    assert out =~ "existence_error(procedure,mm:last/2)"
+
+    out = bare("set_prolog_flag(autoload, true).\nuse_module('#{mod}').\nt(X).\n")
+    assert out =~ "X = 2."
+
+    {_, err} =
+      with_io(:stderr, fn -> bare("set_prolog_flag(autoload, false).\n['#{prog}'].\n") end)
+
+    assert err =~ "existence_error(procedure,forall/2)"
+    assert err =~ "existence_error(procedure,sum_list/2)"
+  end
 end
