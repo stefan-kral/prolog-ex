@@ -183,6 +183,45 @@ defmodule PrologEx.ToplevelTest do
       end
     end
 
+    # Flag terminal_title: vor jedem Prompt, nur bei Änderung; beim ersten
+    # Mal der alte Titel auf den Stapel, am Ende zurück
+    test "am Terminal: Titel des Fensters (Flag terminal_title)" do
+      Process.put(:prolog_ex_force_title, true)
+
+      try do
+        out =
+          capture_io(
+            "true.\nset_prolog_flag(terminal_title, 'Hallo\\x7\\Welt').\n" <>
+              "set_prolog_flag(terminal_title, '').\nset_prolog_flag(terminal_title, x).\n",
+            fn -> PrologEx.Toplevel.main(["-q"]) end
+          )
+
+        v = Mix.Project.config()[:version]
+        seqs = Regex.scan(~r/\e\]0;[^\a]*\a|\e\[2[23];0t/, out) |> List.flatten()
+
+        assert seqs == [
+                 # beim ersten Prompt: alter Titel auf den Stapel, die Vorgabe
+                 "\e[22;0t",
+                 "\e]0;PrologEx #{v}\a",
+                 # ohne Steuerzeichen
+                 "\e]0;HalloWelt\a",
+                 # '': leer, alter Titel vom Stapel
+                 "\e]0;\a",
+                 "\e[23;0t",
+                 "\e[22;0t",
+                 "\e]0;x\a",
+                 # am Ende
+                 "\e]0;\a",
+                 "\e[23;0t"
+               ]
+      after
+        Process.delete(:prolog_ex_force_title)
+      end
+
+      # ohne Terminal: nichts
+      refute capture_io("true.\n", fn -> PrologEx.Toplevel.main(["-q"]) end) =~ "\e]0;"
+    end
+
     test "am Ende die Zahl der Antworten (Flag toplevel_answer_count)" do
       # auto: ab zwei Antworten
       assert top("member(X, [1, 2]).\n") =~ "X = 1 ;\nX = 2.\n% 2 Antworten, keine weiteren\n"

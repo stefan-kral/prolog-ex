@@ -248,6 +248,7 @@ defmodule PrologEx.Toplevel do
   defp loop(st, save) do
     # TAB-Completion (eigener Editor): die sichtbaren Prädikate
     if PrologEx.Shell.active?(), do: PrologEx.Shell.Complete.publish(st.db)
+    Terminal.title(PrologEx.Flags.get("terminal_title"))
 
     # im Trace- oder Debug-Modus (bleibt über Anfragen hinweg an) wie SWI
     prompt =

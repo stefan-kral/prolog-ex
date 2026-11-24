@@ -22,6 +22,7 @@ occurs_check = false true error
 prefer_rationals = false true
 stack_limit = unlimited
 swi_compat = false true
+terminal_title =
 toplevel_answer_count = auto on off
 toplevel_autoload = false true
 unknown = error fail warning

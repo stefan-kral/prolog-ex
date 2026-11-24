@@ -785,6 +785,21 @@ Varianten aussehen (8 Farben, hell, 256, Truecolor, dazu je zehn Blau-
 und Grüntöne zur Auswahl):
 `mix run -e "PrologEx.Terminal.demo()"`.
 
+**Titel des Fensters** (Flag `terminal_title`, Vorgabe `'PrologEx 0.1.0'`,
+also mit der Version): am Terminal setzt der Toplevel den Titel des
+Fensters (`ESC ]0;…BEL`), vor jedem Prompt, wenn sich das Flag geändert
+hat – `set_prolog_flag(terminal_title, 'Beweise')` gilt gleich ab dem
+nächsten Prompt; `''` oder `false`: kein eigener Titel. Den alten Titel
+legt er vorher auf den Titelstapel des Terminals (`CSI 22;0 t`) und holt
+ihn am Ende zurück (`CSI 23;0 t`; xterm, iTerm2, kitty). Terminal.app
+kennt den Stapel nicht: dort setzt das Ende den Titel leer, so zeigt es
+wieder seinen eigenen. Terminal.app hängt sonst den Prozess im
+Vordergrund samt Argumenten an (unter `start_ex` den rlwrap-Filter in
+Python); abschalten unter Einstellungen → Profile → Fenster bzw. Tab
+(„Name des aktiven Prozesses“, „Argumente“). Ohne Terminal und bei
+`TERM=dumb` kein Titel; `rlwrap -A` (in `start_ex`) kommt mit der Folge
+vor dem Prompt zurecht.
+
 **Zyklische Terme (rationale Bäume):** Ohne Occurs-Check (Flag
 `occurs_check` = `false`, Standard) macht `X = f(X)` einen zyklischen Term.
 Der Toplevel zeigt ihn wie SWI, statt endlos aufzulösen:

@@ -203,8 +203,70 @@ defmodule PrologEx.Terminal do
   @doc "Sitzung beginnt: weiß (ohne Farben nichts)"
   def start, do: if(color?(), do: IO.write(code(:normal)))
 
-  @doc "Sitzung endet: die Farbe des Terminals zurück (ohne Farben nichts)"
-  def restore, do: if(color?(), do: IO.write(IO.ANSI.reset()))
+  @doc "Sitzung endet: die Farbe und der Titel des Terminals zurück"
+  def restore do
+    title_restore()
+    if color?(), do: IO.write(IO.ANSI.reset())
+  end
+
+  # ---------------------------------------------------------------------
+  # Titel des Fensters (Flag terminal_title)
+  # ---------------------------------------------------------------------
+
+  @title :prolog_ex_title
+
+  @doc """
+  Titel des Terminalfensters nach dem Flag `terminal_title` (vor jedem
+  Prompt; schreibt nur, wenn er sich ändert). Beim ersten Mal kommt der
+  alte Titel auf den Titelstapel (xterm: `CSI 22;0 t`; iTerm2, kitty,
+  xterm), `restore/0` holt ihn zurück; '' oder false: kein eigener Titel.
+  Nur am Terminal und nicht bei `TERM=dumb`.
+  """
+  def title({:atom, t}) do
+    t = if t == "false", do: "", else: String.replace(t, ~r/[\x00-\x1f\x7f]/u, "")
+
+    case Process.get(@title) do
+      ^t ->
+        :ok
+
+      nil when t == "" ->
+        :ok
+
+      :none ->
+        :ok
+
+      old ->
+        cond do
+          old == nil and not title_terminal?() ->
+            Process.put(@title, :none)
+
+          t == "" ->
+            title_restore()
+
+          true ->
+            IO.write([if(old == nil, do: "\e[22;0t", else: ""), "\e]0;", t, "\a"])
+            Process.put(@title, t)
+        end
+    end
+
+    :ok
+  end
+
+  def title(_), do: :ok
+
+  # der alte Titel zurück: erst leer (wo es keinen Stapel gibt, etwa
+  # Terminal.app: dessen eigener Titel), dann vom Stapel
+  defp title_restore do
+    case Process.delete(@title) do
+      t when is_binary(t) -> IO.write("\e]0;\a\e[23;0t")
+      _ -> :ok
+    end
+  end
+
+  defp title_terminal? do
+    (terminal?() or Process.get(:prolog_ex_force_title) == true) and
+      System.get_env("TERM") != "dumb"
+  end
 
   defp code(role), do: code(role, palette())
 

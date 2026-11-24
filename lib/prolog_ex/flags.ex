@@ -68,6 +68,10 @@ defmodule PrologEx.Flags do
     # wie SWI: Farben im Toplevel (Fehler rot, Kommentare grün, Eingabe
     # blau; PrologEx.Terminal) – nur am Terminal und ohne NO_COLOR
     "color_term" => {true, [false, true]},
+    # Toplevel: Titel des Terminalfensters (beliebiges Atom; '' oder false:
+    # keinen setzen); am Ende kommt der alte Titel zurück
+    # (PrologEx.Terminal.title/1)
+    "terminal_title" => {:"PrologEx #{Mix.Project.config()[:version]}", [:any_atom]},
     # wie SWI (dort Vorgabe silent): Meldungen beim Laden (PrologEx.LoadLog) – silent: keine,
     # normal: geladene Dateien und je Import die Zahl der Prädikate, full:
     # dazu die importierten Prädikate und Operatoren einzeln
@@ -149,6 +153,7 @@ defmodule PrologEx.Flags do
       {:ok, {_, allowed}} ->
         unless Enum.any?(allowed, fn
                  :positive_integer -> is_integer(value) and value > 0
+                 :any_atom -> match?({:atom, _}, value)
                  v -> term(v) == value
                end),
                do:

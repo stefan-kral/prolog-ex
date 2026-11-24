@@ -179,7 +179,7 @@ defmodule PrologEx.Shell.Complete do
   @doc false
   # Für die TAB-Ergänzung unter rlwrap: die Prolog-Flags, je Zeile der Name,
   # bei schreibbaren dazu "=" und die Werte, die ein Atom sind (also ohne
-  # positive_integer), sortiert; steht in .rlwrap_flags (test/rlwrap_test.exs
+  # positive_integer und any_atom), sortiert; steht in .rlwrap_flags (test/rlwrap_test.exs
   # prüft das)
   def rlwrap_flags_text do
     for {name, {_, allowed}} <- Enum.sort(PrologEx.Flags.spec()), into: "" do
@@ -188,7 +188,10 @@ defmodule PrologEx.Shell.Complete do
           name <> "\n"
 
         vs ->
-          Enum.join([name, "=" | for(v <- vs, v != :positive_integer, do: to_string(v))], " ") <>
+          Enum.join(
+            [name, "=" | for(v <- vs, v not in [:positive_integer, :any_atom], do: to_string(v))],
+            " "
+          ) <>
             "\n"
       end
     end
