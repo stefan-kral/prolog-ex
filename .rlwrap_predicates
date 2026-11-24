@@ -52,6 +52,7 @@ atomic 1
 atomic_concat 3
 atomic_list_concat 2 3
 atomic_si 1
+autoload 1 2
 automaton 3 8
 b_getval 2
 b_setval 2

@@ -9,6 +9,16 @@ defmodule PrologEx.ToplevelTest do
   end
 
   # Toplevel mit Eingabe; Seiten mit höchstens n Antworten (ohne Terminal)
+  # ohne vorher geladene Bibliotheken (für das Autoload)
+  defp bare(input) do
+    Process.put(:prolog_ex_force_chunk, true)
+    input = "set_prolog_flag(answer_chunk, 1).\n" <> input
+
+    capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)
+    |> String.split("set_prolog_flag(answer_chunk, 1).")
+    |> List.last()
+  end
+
   defp top(input, n \\ 3) do
     Process.put(:prolog_ex_force_chunk, true)
 
@@ -262,9 +272,83 @@ defmodule PrologEx.ToplevelTest do
   end
 
   test "existence_error eines Builtins mit Heimat: Hinweis auf die Bibliothek" do
-    out = top("succ(1, X).\nm:(true *-> true ; true).\nfoo.\n")
-    assert out =~ "% succ/2 liegt in library(iso_ext): :- use_module(library(iso_ext))."
+    out =
+      top(
+        "set_prolog_flag(toplevel_autoload, false).\nsucc(1, X).\nm:(true *-> true ; true).\nfoo.\n"
+      )
+
+    assert out =~
+             "% succ/2 liegt in library(iso_ext): :- use_module(library(iso_ext)). (oder set_prolog_flag(swi_compat, true))"
+
     assert out =~ "% (*->)/2 liegt in library(swi)"
     refute out =~ "foo/0 liegt"
+  end
+
+  test "existence_error eines Bibliotheksprädikats: Hinweis, auch bei mehreren" do
+    out =
+      bare(
+        "set_prolog_flag(toplevel_autoload, false).\nlast([1], X).\nadd_edges([], [a-b], G).\n"
+      )
+
+    assert out =~ "% last/2 liegt in library(lists): :- use_module(library(lists)).\n"
+    assert out =~ "% add_edges/3 liegt in library(ugraphs) oder library(wgraphs)\n"
+  end
+
+  test "Syntaxfehler: Hinweis auf den Operator einer Bibliothek" do
+    out = capture_io(:stderr, fn -> top("X #<==> B.\n") end)
+    assert out =~ "% #<==> ist ein Operator aus library(clpz): :- use_module(library(clpz))."
+  end
+
+  # Toplevel: was eine Anfrage aufruft und eindeutig in einer Bibliothek
+  # liegt, importiert er vorher selbst – nur diese Prädikate, mit Meldung;
+  # auch in Meta-Argumenten (maplist(succ, ...) → succ/2)
+  test "Autoload im Toplevel" do
+    out = bare("last([1, 2], X).\n")
+    assert out =~ "% last/2 aus library(lists) importiert\nX = 2.\n"
+
+    out = bare("maplist(succ, [1, 2], L).\n")
+    assert out =~ "% maplist/3 aus library(apply) importiert\n"
+    assert out =~ "% succ/2 aus library(iso_ext) importiert\n"
+    assert out =~ "L = [2,3]."
+
+    # nur das Gebrauchte: reverse/2 bleibt unsichtbar
+    out = bare("last([1], X).\nreverse([1], R).\n")
+    assert out =~ "% last/2 aus library(lists) importiert"
+    assert out =~ "% reverse/2 aus library(lists) importiert"
+
+    # in findall/3, Konjunktionen, \\+ und phrase/2 (seq//1)
+    out = bare("findall(X, (member(X, [1, 2]), \\+ last([3], X)), L).\nphrase(seq(S), [a]).\n")
+    assert out =~ "% member/2, last/2 aus library(lists) importiert\nL = [1,2]."
+    assert out =~ "% seq/3 aus library(dcgs) importiert"
+
+    # mehrdeutig: kein Import, der Hinweis nennt beide
+    out = bare("add_edges([], [a-b], G).\n")
+    refute out =~ "importiert"
+    assert out =~ "% add_edges/3 liegt in library(ugraphs) oder library(wgraphs)"
+
+    # eigene Definitionen gehen vor
+    out = bare("assertz(last(_, eigen)).\nlast([1], X).\n")
+    refute out =~ "last/2 aus"
+    assert out =~ "X = eigen."
+  end
+
+  # autoload/1,2 wie SWI – hier gleich geladen, wie use_module/1,2
+  test "autoload/1,2 in einer Datei" do
+    f = Path.join(System.tmp_dir!(), "px_autoload_#{System.unique_integer([:positive])}.pl")
+
+    File.write!(f, """
+    :- autoload(library(lists), [member/2]).
+    :- autoload(library(apply)).
+    t(L) :- findall(Y, (member(X, [1, 2]), maplist(=(X), [Y])), L).
+    """)
+
+    try do
+      out = bare("set_prolog_flag(toplevel_autoload, false).\n['#{f}'].\nt(L).\nlast([1], X).\n")
+      assert out =~ "L = [1,2]."
+      # nur member/2 aus lists (die Datei lädt in user)
+      assert out =~ "existence_error(procedure,last/2)"
+    after
+      File.rm(f)
+    end
   end
 end

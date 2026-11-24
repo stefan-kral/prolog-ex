@@ -61,6 +61,10 @@ defmodule PrologEx.Flags do
     # ab zwei Antworten und immer nach Abbruch oder Fehler, on: immer, off:
     # nie
     "toplevel_answer_count" => {:auto, [:auto, :on, :off]},
+    # Toplevel: was eine Anfrage aufruft und eindeutig in einer Bibliothek
+    # liegt, vorher selbst nach user importieren (nur diese Prädikate, mit
+    # Meldung); Programme bleiben ohne
+    "toplevel_autoload" => {true, [false, true]},
     # wie SWI: Farben im Toplevel (Fehler rot, Kommentare grün, Eingabe
     # blau; PrologEx.Terminal) – nur am Terminal und ohne NO_COLOR
     "color_term" => {true, [false, true]},

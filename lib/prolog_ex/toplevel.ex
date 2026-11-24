@@ -300,8 +300,13 @@ defmodule PrologEx.Toplevel do
 
   defp run_text(text, st, mode) do
     Enum.reduce(Reader.read_terms(st.reader, text), st, fn
-      {:error, msg}, st -> err(msg, st)
-      {:term, t, _names}, st -> run_query(PrologEx.unmark(t), st, mode)
+      {:error, msg}, st ->
+        st = err(msg, st)
+        for h <- op_hint(text), do: IO.puts(:stderr, Terminal.paint(:comment, h))
+        st
+
+      {:term, t, _names}, st ->
+        run_query(PrologEx.unmark(t), st, mode)
     end)
   end
 
@@ -324,6 +329,7 @@ defmodule PrologEx.Toplevel do
   @count_key :toplevel_answer_count
 
   defp run_query(goal, st, mode) do
+    st = if mode == :interactive, do: autoload(goal, st), else: st
     answers = PrologEx.solutions(st.db, PrologEx.Builtins.Expansion.expand_query(st.db, goal))
 
     Process.put(@count_key, 0)
@@ -351,6 +357,133 @@ defmodule PrologEx.Toplevel do
     # assert/retract während der Anfrage übernehmen
     %{st | db: PrologEx.current_db()}
   end
+
+  # --- Autoload im Toplevel (Flag toplevel_autoload) -----------------------
+  #
+  # Vor dem Ausführen: Prädikate der Anfrage, die in user nicht sichtbar
+  # sind, aber eindeutig in einer Bibliothek liegen (PrologEx.LibraryIndex.
+  # choice/2), nach user importieren – nur sie (use_module/2 mit Liste),
+  # mit einer Meldung. Durchgesehen werden die Steuerkonstrukte und die
+  # Meta-Argumente (maplist(foo, ...) → foo/N); nach einem Import noch
+  # einmal (die Meta-Argumente einer eben importierten Bibliothek). Was erst
+  # zur Laufzeit entsteht (call(G) mit gebautem G), bleibt beim Fehler mit
+  # Hinweis. Programme (consult) bleiben ohne: nur der Toplevel
+
+  defp autoload(goal, st, rounds \\ 3)
+
+  defp autoload(_goal, st, 0), do: st
+
+  defp autoload(goal, st, rounds) do
+    if PrologEx.Flags.get("toplevel_autoload") == {:atom, "true"} do
+      case scan(goal, st.db, []) |> Enum.reverse() |> Enum.uniq() do
+        [] ->
+          st
+
+        missing ->
+          db =
+            missing
+            |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+            |> Enum.sort()
+            |> Enum.reduce(st.db, &import_into_user/2)
+
+          autoload(goal, %{st | db: db}, rounds - 1)
+      end
+    else
+      st
+    end
+  end
+
+  defp import_into_user({lib, keys}, db) do
+    {:term, spec, _} = PrologEx.Parser.read_one("library(#{lib}).")
+    pis = for {n, a} <- keys, do: {:struct, "/", [{:atom, n}, a]}
+    goal = {:struct, "use_module", [PrologEx.unmark(spec), pis]}
+
+    try do
+      case Enum.take(PrologEx.solutions(db, goal), 1) do
+        [_] ->
+          what = Enum.map_join(pis, ", ", &PrologEx.Writer.format(&1, quoted: true))
+          IO.puts(Terminal.paint(:comment, "% #{what} aus library(#{lib}) importiert"))
+          PrologEx.current_db()
+
+        [] ->
+          db
+      end
+    rescue
+      PrologEx.Error -> db
+    end
+  end
+
+  # Steuerkonstrukte und eingebaute Meta-Prädikate ohne eigene Angabe
+  @control_meta %{
+    {"findall", 3} => ["?", 0, "?"],
+    {"findall", 4} => ["?", 0, "?", "?"],
+    {"once", 1} => [0],
+    {"ignore", 1} => [0],
+    {"catch", 3} => [0, "?", 0],
+    {"phrase", 2} => ["//", "?"],
+    {"phrase", 3} => ["//", "?", "?"]
+  }
+
+  defp scan({:var, _}, _db, acc), do: acc
+  defp scan({:struct, ":", [_, _]}, _db, acc), do: acc
+
+  defp scan({:struct, f, [a, b]}, db, acc) when f in [",", ";", "->", "*->"],
+    do: scan(b, db, scan(a, db, acc))
+
+  defp scan({:struct, "\\+", [a]}, db, acc), do: scan(a, db, acc)
+  defp scan({:struct, "call", [c | extra]}, db, acc), do: closure(c, length(extra), db, acc)
+  defp scan({:atom, n}, db, acc), do: pred(n, [], db, acc)
+  defp scan({:struct, n, args}, db, acc), do: pred(n, args, db, acc)
+  defp scan(_, _db, acc), do: acc
+
+  defp pred(n, args, db, acc) do
+    a = length(args)
+
+    {acc, meta} =
+      case PrologEx.locate(db, "user", n, a) do
+        :none ->
+          case PrologEx.LibraryIndex.choice(n, a) do
+            nil ->
+              {acc, Map.get(@control_meta, {n, a})}
+
+            lib ->
+              {[{lib, {n, a}} | acc],
+               PrologEx.Builtins.meta(PrologEx.Builtins.source(lib, n, a), n, a)}
+          end
+
+        {:db, m, _} ->
+          {acc, Map.get(db, {:meta, m, n, a})}
+
+        {:builtin, m, _} ->
+          {acc, PrologEx.Builtins.meta(m, n, a) || Map.get(@control_meta, {n, a})}
+      end
+
+    case meta do
+      specs when is_list(specs) and length(specs) == a ->
+        Enum.zip(args, specs)
+        |> Enum.reduce(acc, fn
+          {g, 0}, acc -> scan(g, db, acc)
+          {c, k}, acc when is_integer(k) -> closure(c, k, db, acc)
+          {g, "^"}, acc -> scan(strip_caret(g), db, acc)
+          {c, "//"}, acc -> closure(c, 2, db, acc)
+          _, acc -> acc
+        end)
+
+      _ ->
+        acc
+    end
+  end
+
+  # ein Closure mit k weiteren Argumenten
+  defp closure({:atom, n}, k, db, acc), do: pred(n, List.duplicate({:var, 0}, k), db, acc)
+
+  defp closure({:struct, n, args}, k, db, acc) when n != ":",
+    do: pred(n, args ++ List.duplicate({:var, 0}, k), db, acc)
+
+  defp closure(_, _k, _db, acc), do: acc
+
+  defp strip_caret({:struct, "^", [_, g]}), do: strip_caret(g)
+  defp strip_caret(g), do: g
 
   defp error_message(e) do
     IO.puts(Terminal.paint(:error, "Fehler: #{Exception.message(e)}"))
@@ -658,19 +791,57 @@ defmodule PrologEx.Toplevel do
     PrologEx.Error -> PrologEx.format(t)
   end
 
-  # existence_error eines Builtins mit Heimat-Bibliothek: wo es liegt
+  # existence_error eines Prädikats, das eine Bibliothek exportiert: wo es
+  # liegt (PrologEx.LibraryIndex) – eine: der Befehl dazu; mehrere: alle.
+  # Eingebaute mit Heimat-Bibliothek (forall/2 in iso_ext): auch swi_compat
   defp home_hint(%PrologEx.Error{term: t}) do
     with {_, "error", [{_, "existence_error", [{:atom, "procedure"}, pi]}, _]} <- t,
          {_, "/", [{:atom, n}, a]} = pi when is_integer(a) <- strip_pi(PrologEx.unmark(pi)),
-         lib when lib != nil <- PrologEx.Builtins.home(n, a) do
-      "% #{PrologEx.Writer.format(pi, quoted: true)} liegt in library(#{lib}): " <>
-        ":- use_module(library(#{lib})). (oder set_prolog_flag(swi_compat, true))"
+         [_ | _] = libs <- PrologEx.LibraryIndex.libraries(n, a) do
+      what = PrologEx.Writer.format(pi, quoted: true)
+      home = PrologEx.Builtins.home(n, a)
+
+      case home || PrologEx.LibraryIndex.choice(n, a) do
+        nil ->
+          "% #{what} liegt in " <> Enum.map_join(libs, " oder ", &"library(#{&1})")
+
+        lib ->
+          "% #{what} liegt in library(#{lib}): :- use_module(library(#{lib}))." <>
+            if(home, do: " (oder set_prolog_flag(swi_compat, true))", else: "")
+      end
     else
       _ -> nil
     end
   end
 
   defp home_hint(_), do: nil
+
+  # Syntaxfehler: steht in der Eingabe ein Name, den erst eine Bibliothek
+  # zum Operator macht (X #<==> B ohne clpz), wo er liegt
+  defp op_hint(text) do
+    ops = PrologEx.Ops.table()
+
+    Regex.scan(~r/[#$&*+\-.\/:<=>?@^~\\]+|[a-z][a-zA-Z0-9_]*/, text)
+    |> Enum.map(&hd/1)
+    |> Enum.uniq()
+    |> Enum.reject(&Map.has_key?(ops, &1))
+    |> Enum.flat_map(fn name ->
+      case PrologEx.LibraryIndex.op_libraries(name) do
+        [] ->
+          []
+
+        libs ->
+          q = PrologEx.Writer.format({:atom, name}, quoted: true)
+          use = Enum.map_join(libs, " oder ", &":- use_module(library(#{&1})).")
+
+          [
+            "% #{q} ist ein Operator aus " <>
+              Enum.map_join(libs, " oder ", &"library(#{&1})") <> ": " <> use
+          ]
+      end
+    end)
+    |> Enum.take(3)
+  end
 
   # resource_error(memory) einer Speichergrenze: welche, wie tief, und ob
   # eine endlose Rekursion wahrscheinlich ist

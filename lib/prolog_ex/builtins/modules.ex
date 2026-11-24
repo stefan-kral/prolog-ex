@@ -21,6 +21,18 @@ defmodule PrologEx.Builtins.Modules do
     use_module(deref(spec), keys, context_module(), subst())
   end
 
+  # autoload/1,2 wie SWI (eine Datei lädt ihre Bibliotheken dort erst beim
+  # ersten Aufruf): hier gleich, wie use_module/1,2 – dasselbe Ergebnis, nur
+  # früher geladen. Damit laufen SWI-Quellen mit solchen Direktiven
+  defbuiltin "autoload", [spec] do
+    use_module(deref(spec), :all, context_module(), subst())
+  end
+
+  defbuiltin "autoload", [spec, imports] do
+    keys = for {_m, n, ar} <- indicators(resolve(imports), "user"), do: {n, ar}
+    use_module(deref(spec), keys, context_module(), subst())
+  end
+
   defbuiltin "ensure_loaded", [spec] do
     use_module(deref(spec), :all, context_module(), subst())
   end

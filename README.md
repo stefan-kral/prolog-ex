@@ -730,6 +730,43 @@ Antworten, nach Abbruch oder Fehler ab einer – `X = 1.` oder `false.`
 allein bleiben ohne), `on` (immer, auch `% 0 Antworten`), `off` (nie, wie
 SWI). Nicht bei `-g`.
 
+**Autoload im Toplevel** (Flag `toplevel_autoload`, Vorgabe `true`): Was
+eine Anfrage aufruft und in `user` nicht sichtbar ist, aber eindeutig in
+einer Bibliothek liegt, importiert der Toplevel vorher selbst. Er nimmt
+nur diese Prädikate (`use_module/2` mit Liste) und meldet es:
+
+```
+?- last([1, 2], X).
+% last/2 aus library(lists) importiert
+X = 2.
+
+?- maplist(succ, [1, 2], L).
+% maplist/3 aus library(apply) importiert
+% succ/2 aus library(iso_ext) importiert
+L = [2,3].
+```
+
+Durchgesehen werden die Steuerkonstrukte (`,`, `;`, `->`, `\+`, `findall/3`,
+`catch/3`, `phrase/2,3`, …) und die Meta-Argumente (`maplist(succ, …)` →
+`succ/2`). Eigene Definitionen gehen vor. Mehrdeutiges (`add_edges/3` in
+`ugraphs` und `wgraphs`) wird nicht importiert, ebenso wenig, was erst zur
+Laufzeit entsteht (`call(G)` mit gebautem `G`): Dann kommt der Fehler mit
+Hinweis. Programme (`consult`, `-g`) bleiben ohne Autoload. Operatoren
+kann es nicht nachladen (die Anfrage scheitert schon beim Lesen), dafür
+gibt es einen Hinweis: `% #<==> ist ein Operator aus library(clpz)`.
+
+**Hinweise:** Nach `existence_error(procedure, …)` sagt der Toplevel, wo
+das Prädikat liegt: `% last/2 liegt in library(lists): :- use_module(library(lists)).`,
+bei mehreren alle (`… liegt in library(ugraphs) oder library(wgraphs)`).
+Das Verzeichnis (`PrologEx.LibraryIndex`) entsteht aus den Exporten aller
+Bibliotheken, auch derer in Prolog (`priv/library/**/*.pl`, deren
+`:- module/2`), beim ersten Gebrauch. Gewählt wird nur, wenn es eindeutig
+ist: Weitergaben zählen als ihre Quelle (`maplist/3` aus `apply`, nicht
+`lists`; `forall/2` aus `iso_ext`, nicht `swi`), Alternativen wie
+`reif_pl`, `memberd_pl`, `wgraphs` und `linda/client` nie von selbst. Von
+924 exportierten Prädikaten bleiben 33 mehrdeutig (Graphen, Linda,
+`in/2`, `eos//0`).
+
 **Farben** (Flag `color_term`, wie SWI; Vorgabe `true`): am Terminal
 erscheinen Fehler und Warnungen rot, Kommentare (`% …`: Meldungen beim
 Laden, Hinweise) in sattem Grün (256 Farben: 34, `#00af00`) und die
@@ -5024,10 +5061,16 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     `chattop` weiter); ein Aufruf folgt der Kette der Importe.
   * Auflösung eines Aufrufs in Modul `m` wie SICStus: in `m` definiert →
     nach `m` importiert → `system`. Kein Rückgriff auf `user` (sonst
-    `user:foo` schreiben) und kein Autoload:
+    `user:foo` schreiben) und kein Autoload in Programmen:
     Bibliotheksprädikate wie `append/3`, `member/2`, `maplist/2..8` gibt es
-    nur nach `:- use_module(library(lists)).` bzw. `library(apply)` – auch
-    im Toplevel. Eigene Definitionen gehen Importen vor.
+    nur nach `:- use_module(library(lists)).` bzw. `library(apply)`. Die
+    Auflösung hängt so nur vom Inhalt der Datenbank ab, nicht davon, was
+    vorher aufgerufen wurde. Bequemlichkeit gibt es nur im Toplevel: Er
+    importiert, was eine Anfrage braucht, selbst (Flag `toplevel_autoload`,
+    siehe dort) und gibt sonst einen Hinweis, wo ein Prädikat liegt.
+    `autoload/1,2` (wie SWI) laden gleich, wie `use_module/1,2`: dasselbe
+    Ergebnis, nur früher, und SWI-Quellen mit solchen Direktiven laufen.
+    Eigene Definitionen gehen Importen vor.
   * Eingebaut ohne Import ist nur, was ISO vorschreibt oder SICStus
     eingebaut hat – und `evaluable_property/2` (aus Logtalks „Prolog
     commons“): `built_in`, `static`, `template(abs(number), number)`,

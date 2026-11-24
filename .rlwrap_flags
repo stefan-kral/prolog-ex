@@ -23,6 +23,7 @@ prefer_rationals = false true
 stack_limit = unlimited
 swi_compat = false true
 toplevel_answer_count = auto on off
+toplevel_autoload = false true
 unknown = error fail warning
 verbose_load = silent normal full
 version
