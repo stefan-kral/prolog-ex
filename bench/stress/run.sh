@@ -99,7 +99,8 @@ run() {
   rc=$?
   t1=$(date +%s)
   dev=$(grep -c '^ABWEICHUNG' "$log")
-  fails=$(grep -Eo '[0-9]+ failures?' "$log" | tail -1)
+  # die eigene Zusammenfassung der Suite: "Result: 59/60 passed"
+  fails=$(grep -Eo 'Result: [0-9]+/[0-9]+ passed' "$log" | tail -1)
   if [ "$rc" -eq 0 ] && [ "$dev" -eq 0 ]; then
     res=ok
   else
@@ -108,6 +109,21 @@ run() {
   fi
   echo "$res ($((t1 - t0)) s)"
   echo "| $s | $j | $seed | $name | $res | $((t1 - t0)) s |" >>"$SUMMARY"
+  if [ "$res" != ok ]; then
+    # was scheiterte und wie es sich wiederholen lässt
+    {
+      echo
+      echo "<details><summary>$name (Scheduler $s, JIT $j, Seed $seed)</summary>"
+      echo
+      echo '```'
+      echo "ERL_FLAGS=\"+S $s:$s\" CONC_JIT=$j CONC_RANDOM_SEED=$seed CLPZ_RANDOM_SEED=$seed MIX_ENV=test $*"
+      grep -E '^ABWEICHUNG|^  [0-9]+\) test' "$log" | head -20
+      echo '```'
+      echo "</details>"
+      echo
+    } >>"$OUT/problems.md"
+    grep -E '^ABWEICHUNG|^  [0-9]+\) test' "$log" | head -5 | sed 's/^/      /'
+  fi
 }
 
 for s in $SCHED; do
@@ -146,11 +162,13 @@ if [ "$SCALING" = 1 ]; then
   } >>"$SUMMARY"
 fi
 
+[ -f "$OUT/problems.md" ] && cat "$OUT/problems.md" >>"$SUMMARY"
+
 echo
 echo "Zusammenfassung: $SUMMARY"
 if [ "$PROBLEMS" -gt 0 ]; then
-  echo "$PROBLEMS Läufe mit Problemen – Logs siehe Zusammenfassung."
-  echo "Wiederholen: ERL_FLAGS=\"+S N:N\" CONC_JIT=… CONC_RANDOM_SEED=… CONC_RANDOM_COLLECT=1 MIX_ENV=test mix test test/concurrent_random_test.exs --include slow"
+  echo "$PROBLEMS Läufe mit Problemen – was scheiterte und der Befehl zum"
+  echo "Wiederholen stehen am Ende der Zusammenfassung."
   exit 1
 fi
 echo "Alles in Ordnung."

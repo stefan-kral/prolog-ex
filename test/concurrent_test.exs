@@ -721,9 +721,20 @@ defmodule PrologEx.ConcurrentTest do
   # zahlte der zuerst gemessene parallele Lauf das Laden/Übersetzen), dann
   # drei Runden und je die schnellste vergleichen (ein einzelner Ausreißer
   # der Maschine kippt das Ergebnis nicht; mit 2 Schedulern ist parallel
-  # nur etwa 1,4-mal schneller)
+  # nur etwa 1,4-mal schneller). Nur mit mehr als einem Scheduler und nicht
+  # mehr Schedulern als Kernen (+S 10 auf 2 Kernen: die Arbeiter teilen sich
+  # die Kerne, parallel ist dann nicht schneller)
   test "parallel schneller als nacheinander (bei mehr als einem Scheduler)", c do
-    if System.schedulers_online() > 1 do
+    s = System.schedulers_online()
+
+    cores =
+      Enum.find(
+        [:logical_processors_available, :logical_processors_online, :logical_processors],
+        &is_integer(:erlang.system_info(&1))
+      )
+      |> then(&if(&1, do: :erlang.system_info(&1), else: s))
+
+    if s > 1 and s <= cores do
       [a] =
         ask(
           c,

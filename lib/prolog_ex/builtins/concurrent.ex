@@ -1074,7 +1074,10 @@ defmodule PrologEx.Builtins.Concurrent do
             sp |> split_improve(v) |> split_loop()
 
           {:conc_setup, ^ref, us} ->
+            # der Aufbau zählt zur belegten Zeit (er liegt vor dem ersten
+            # Teil, also vor busy_on)
             stat(:setup, us)
+            stat(:busy, us)
             split_loop(sp)
 
           {:DOWN, _mon, :process, pid, reason} when is_map_key(mons, pid) ->
