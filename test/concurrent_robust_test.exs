@@ -25,6 +25,14 @@ defmodule PrologEx.ConcurrentRobustTest do
   no_nine([Y|Ys], X) :- X #= 2 #==> Y #\\= 9, no_nine(Ys, X).
   """
 
+  # zwei Arbeiter fest (concurrent/3), nicht so viele wie Scheduler
+  # (concurrent_maplist/2): auch mit +S 1 (bench/stress/run.sh -f).
+  # Scheitert ein Test, laufen seine Arbeiter (spin/1) sonst weiter und
+  # stören die nächsten (gone!/0, await_workers/1)
+  setup do
+    on_exit(fn -> for w <- workers(), do: Process.exit(w, :kill) end)
+  end
+
   setup_all do
     PrologEx.TestEnv.apply_jit()
     {:ok, r} = Reader.start_link()
@@ -114,7 +122,7 @@ defmodule PrologEx.ConcurrentRobustTest do
   end
 
   test "ein Arbeiter stirbt: Fehler beim Aufrufer, alles aufgeräumt", c do
-    t = start(c, "catch(concurrent_maplist(spin, [1, 2]), error(E, _), true)")
+    t = start(c, "catch(concurrent(2, [spin(1), spin(2)], []), error(E, _), true)")
     [w | _] = await_workers(2)
     Process.exit(w, :kill)
     {ans, state} = Task.await(t, 10_000)
@@ -124,7 +132,7 @@ defmodule PrologEx.ConcurrentRobustTest do
   end
 
   test "ein Arbeiter stirbt mit zusammengesetztem Grund: der Grund im Fehler", c do
-    t = start(c, "catch(concurrent_maplist(spin, [1, 2]), error(E, _), true)")
+    t = start(c, "catch(concurrent(2, [spin(1), spin(2)], []), error(E, _), true)")
     [w | _] = await_workers(2)
     Process.exit(w, {:kaputt, 42})
     {ans, state} = Task.await(t, 10_000)
