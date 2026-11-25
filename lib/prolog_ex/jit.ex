@@ -409,6 +409,8 @@ defmodule PrologEx.Jit do
   defp collect_bis({:bi, "memberchk", _, _}), do: [{"memberchk", 2}]
   defp collect_bis({:bi, n, _, _}) when n in ["length", "sort", "msort"], do: [{n, 2}]
   defp collect_bis({:bi, n, ins, _}) when n in @bytes_bis, do: [{n, length(ins) + 1}]
+  defp collect_bis({:bi, "lfsr_next", _, _}), do: [{"lfsr_next", 3}]
+  defp collect_bis({:bi, "lfsr_done", _, _}), do: [{"lfsr_done", 1}]
   defp collect_bis(t) when is_tuple(t), do: collect_bis(Tuple.to_list(t))
   defp collect_bis(l) when is_list(l), do: Enum.flat_map(l, &collect_bis/1)
   defp collect_bis(_), do: []
@@ -566,6 +568,15 @@ defmodule PrologEx.Jit do
       :builtin when name in @bytes_bis ->
         {ins, out} = Enum.split(a, length(a) - 1)
         {:bi, name, Enum.map(ins, &pat!/1), Enum.map(out, &pat!/1)}
+
+      # library(lfsr): der Zustand bestimmt (sonst aufgeben, der
+      # Interpreter meldet den Fehler); lfsr_next/3 gibt Zahl und Zustand
+      :builtin when key == {"lfsr_next", 3} ->
+        [st, x, st1] = a
+        {:bi, name, [pat!(st)], [pat!(x), pat!(st1)]}
+
+      :builtin when key == {"lfsr_done", 1} ->
+        {:bi, name, Enum.map(a, &pat!/1), []}
 
       :dynamic ->
         no!("ruft das dynamische #{pi(key)}")
@@ -1440,6 +1451,8 @@ defmodule PrologEx.Jit do
   defp bi_types("length"), do: [:num]
   defp bi_types(s) when s in ["sort", "msort"], do: [:list]
   defp bi_types(s) when s in @bytes_bis, do: [:num]
+  defp bi_types("lfsr_next"), do: [:num, :any]
+  defp bi_types("lfsr_done"), do: []
 
   # Typtest auf einer Zahl: true/false, oder (Code mit Floats) :num
   defp num_test(t, _) when t in ["number", "atomic", "nonvar"], do: true
@@ -3122,6 +3135,27 @@ defmodule PrologEx.Jit do
     case PrologEx.Builtins.Lists.append_det(x, y, store()) do
       {:ok, z} -> {z}
       :partial -> throw(:jit_deopt)
+    end
+  end
+
+  # --- library(lfsr) ----------------------------------------------------
+
+  @doc false
+  # lfsr_next/3: {X, St} oder :no (alle gezogen); kein fertiger Zustand:
+  # aufgeben (der Interpreter meldet den Fehler)
+  def b_lfsr_next(st) do
+    case PrologEx.Builtins.Lfsr.fields(bound!(st), store()) do
+      f when is_tuple(f) -> PrologEx.Builtins.Lfsr.next(f)
+      _ -> throw(:jit_deopt)
+    end
+  end
+
+  @doc false
+  # lfsr_done/1: {} oder :no
+  def b_lfsr_done(st) do
+    case PrologEx.Builtins.Lfsr.fields(bound!(st), store()) do
+      f when is_tuple(f) -> if PrologEx.Builtins.Lfsr.done?(f), do: {}, else: :no
+      _ -> throw(:jit_deopt)
     end
   end
 

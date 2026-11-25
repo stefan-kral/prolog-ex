@@ -28,7 +28,9 @@ defmodule PrologEx.Builtins.Lfsr do
   Ab K = 3 springt `lfsr_next/3` mit der Matrix der K Schritte (linear
   über GF(2)), als Tabelle je 8 Bits des Zustands: ⌈N/8⌉ Nachschläge und
   XOR statt K einzelner Schritte; vorberechnet je (N, K) einmal, in
-  :persistent_term.
+  :persistent_term. Der JIT ruft `lfsr_next/3` und `lfsr_done/1` direkt
+  (PrologEx.Jit.b_lfsr_next/1, b_lfsr_done/1 über fields/2, next/1,
+  done?/1).
 
   Fehler: `instantiation_error`, `type_error(integer, …)`,
   `domain_error(lfsr_bits, N)`, `domain_error(lfsr_seed, Seed)`,
@@ -243,19 +245,14 @@ defmodule PrologEx.Builtins.Lfsr do
   end
 
   defbuiltin "lfsr_next", [st0, x, st] do
-    {s, n, d, k} = state!(deref(st0), ctx)
-
-    if d >= (1 <<< n) - 1 do
-      :fail
-    else
-      s1 = steps(s, n, k)
-      {:unify, [{x, s1}, {st, PrologEx.mk("st", [s1, n, d + 1, k])}]}
+    case next(state!(deref(st0), ctx)) do
+      :no -> :fail
+      {x1, st1} -> {:unify, [{x, x1}, {st, st1}]}
     end
   end
 
   defbuiltin "lfsr_done", [st] do
-    {_, n, d, _} = state!(deref(st), ctx)
-    if d >= (1 <<< n) - 1, do: :ok, else: :fail
+    if done?(state!(deref(st), ctx)), do: :ok, else: :fail
   end
 
   defp make(sd, n, k, st), do: {:unify, [{st, PrologEx.mk("st", [sd, n, 0, k])}]}
@@ -361,15 +358,42 @@ defmodule PrologEx.Builtins.Lfsr do
   end
 
   defp state!(st, ctx) do
-    t = PrologEx.unmark_top(st)
-
-    with {:struct, "st", [s, n, d, k]} <- t,
-         [s, n, d, k] = Enum.map([s, n, d, k], &PrologEx.Store.walk(&1, ctx.subst)),
-         true <- Enum.all?([s, n, d, k], &is_integer/1) and n in 1..@max do
-      {s, n, d, k}
-    else
-      {:var, _} -> Error.instantiation!()
-      _ -> Error.type!("lfsr", PrologEx.resolve(st, ctx.subst))
+    case fields(st, ctx.subst) do
+      :var -> Error.instantiation!()
+      :bad -> Error.type!("lfsr", PrologEx.resolve(st, ctx.subst))
+      f -> f
     end
   end
+
+  @doc """
+  Die Felder eines Zustands (schon dereferenziert): `{S, N, Gezogen, K}`,
+  `:var` (ungebunden) oder `:bad` (kein st/4 aus Ganzzahlen mit
+  1 ≤ N ≤ 168). Auch für den übersetzten Code (PrologEx.Jit.b_lfsr_next/1).
+  """
+  def fields({:var, _}, _subst), do: :var
+
+  def fields(st, subst) do
+    with {:struct, "st", [s, n, d, k]} <- PrologEx.unmark_top(st),
+         s when is_integer(s) <- PrologEx.Store.walk(s, subst),
+         n when is_integer(n) and n in 1..@max <- PrologEx.Store.walk(n, subst),
+         d when is_integer(d) <- PrologEx.Store.walk(d, subst),
+         k when is_integer(k) <- PrologEx.Store.walk(k, subst) do
+      {s, n, d, k}
+    else
+      _ -> :bad
+    end
+  end
+
+  @doc "Ein Schritt von lfsr_next/3 auf den Feldern: `{X, St}` oder `:no`."
+  def next({s, n, d, k}) do
+    if d >= (1 <<< n) - 1 do
+      :no
+    else
+      x = steps(s, n, k)
+      {x, PrologEx.mk("st", [x, n, d + 1, k])}
+    end
+  end
+
+  @doc "lfsr_done/1 auf den Feldern."
+  def done?({_, n, d, _}), do: d >= (1 <<< n) - 1
 end

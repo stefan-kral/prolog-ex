@@ -103,7 +103,9 @@ Ein Prolog-Kern in Elixir:
     bestimmtem Index, `bytes_next_bit/3`, `bytes_integer/2` von der Folge
     zur Zahl (sonst aufgeben) – über die gesetzten Bits eines
     200-Bit-Vektors mit `bytes_next_bit/3` 430 → 11 µs
-    (`examples/bitvec.pl`); und
+    (`examples/bitvec.pl`); aus `library(lfsr)` `lfsr_next/3` und
+    `lfsr_done/1` mit fertigem Zustand – 200 000 Zahlen ziehen und damit
+    rechnen (N = 20) 975 → 31 ms; und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
     Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
     ihren Zweigen keiner steht: `(A ; B), !` übersetzt er wie
@@ -1390,8 +1392,21 @@ Ab N ≈ 60 rechnet die BEAM mit Bignums, und Einzelschritte werden teuer:
 | K Einzelschritte | 31 ms | 648 ms | 1804 ms |
 | Tabelle | 14 ms | 54 ms | 217 ms |
 
-Aus Prolog kostet ein `lfsr_next/3` 4–5 µs (N = 20: 0,8 s je 200 000,
-N = 168: 1,0 s), so viel wie ein anderes Builtin außerhalb des JIT.
+Der JIT kennt `lfsr_next/3` und `lfsr_done/1` (mit fertigem Zustand,
+sonst gibt der Code auf und der Interpreter meldet den Fehler): ein
+Prädikat, das zieht, wird übersetzt, samt der Arithmetik mit der
+gezogenen Zahl (dieselben Zahlen, Zustände, Fehler und Inferenzen wie
+der Interpreter, `test/jit_test.exs`). Je 200 000 Zahlen, bestes von
+fünf, ohne → mit JIT:
+
+| | N = 20 | N = 64 | N = 168 |
+|---|---:|---:|---:|
+| ziehen: `lfsr_next(S0, _, S1)` | 816 → 28 ms | 803 → 82 ms | 1080 → 235 ms |
+| würfeln: `A1 is A0 + X mod 6 + 1` dazu | 975 → 31 ms | 973 → 93 ms | 1256 → 253 ms |
+
+Bis `lfsr_done/1` (N = 16, 65 535 Zahlen, XOR aller): 674 → 12 ms. Bei
+N = 20 bleiben rund 0,15 µs je Zahl; bei N = 168 überwiegt der Sprung
+selbst (21 Nachschläge und XOR auf Bignums).
 
 ## Byte-Folgen: `library(bytes)`
 

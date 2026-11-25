@@ -12,6 +12,7 @@ defmodule PrologEx.JitTest do
   :- use_module(library(arithmetic)).
   :- use_module(library(between)).
   :- use_module(library(bytes)).
+  :- use_module(library(lfsr)).
   fib(0, 0).
   fib(1, 1).
   fib(N, F) :- N > 1, A is N-1, B is N-2, fib(A, FA), fib(B, FB), F is FA+FB.
@@ -232,6 +233,13 @@ defmodule PrologEx.JitTest do
   bbit(K, B, X) :- bytes_bit(K, B, X).
   bnb(B, K, P) :- bytes_next_bit(B, K, P).
   bint(B, I) :- bytes_integer(B, I0), I is I0 + 0.
+  % library(lfsr): lfsr_next/3 mit fertigem Zustand, lfsr_done/1
+  lwrf(0, S, S, A, A) :- !.
+  lwrf(I, S0, S, A0, A) :- lfsr_next(S0, X, S1), A1 is A0 + X mod 6 + 1, I1 is I-1, lwrf(I1, S1, S, A1, A).
+  lall(S, A, A) :- lfsr_done(S), !.
+  lall(S0, A0, A) :- lfsr_next(S0, X, S1), A1 is A0 xor X, lall(S1, A1, A).
+  lnx(S0, X, S) :- lfsr_next(S0, X, S).
+  ldn(S) :- lfsr_done(S).
   % msb, lsb, popcount, \\ (direkt, nicht über op1/2)
   bops(X, Y) :- Y is msb(X) + lsb(X) + popcount(X) + \\ X.
   """
@@ -388,6 +396,10 @@ defmodule PrologEx.JitTest do
           {"bbit", 3},
           {"bnb", 3},
           {"bint", 2},
+          {"lwrf", 5},
+          {"lall", 3},
+          {"lnx", 3},
+          {"ldn", 1},
           {"bops", 2}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
@@ -443,6 +455,26 @@ defmodule PrologEx.JitTest do
         "bytes_list(B, [1,0]), bint(B, I)",
         "bytes_list(B, []), bint(B, I)",
         "catch(bint(_, I), error(E, _), true)",
+        # library(lfsr): dieselben Zahlen, Zustände, Fehler und Inferenzen
+        "lfsr_make(7, 20, S0), lwrf(1000, S0, S, 0, A)",
+        "lfsr_make(7, 168, S0), lwrf(300, S0, S, 0, A)",
+        "lfsr_make(7, 20, 1, S0), lwrf(300, S0, S, 0, A)",
+        "lfsr_make(7, 20, S0), inf(lwrf(100, S0, _, 0, _), I)",
+        "lfsr_make(3, 10, S0), lall(S0, 0, A)",
+        "lfsr_make(3, 4, S0), inf(lall(S0, 0, _), I)",
+        "lfsr_make(1, 8, S0), lnx(S0, X, S)",
+        "lfsr_make(1, 8, S0), lnx(S0, 100, S)",
+        "lfsr_make(1, 8, S0), lnx(S0, 5, S)",
+        "lnx(st(1,2,3,2), X, S)",
+        "lnx(st(1,2,0,2), X, st(2,2,1,2))",
+        "lnx(st(1,2,0,2), X, st(3,2,1,2))",
+        "catch(lnx(foo, X, S), error(E, _), true)",
+        "catch(lnx(_, X, S), error(E, _), true)",
+        "catch(lnx(st(1,169,0,1), X, S), error(E, _), true)",
+        "catch(lnx(st(a,2,0,1), X, S), error(E, _), true)",
+        "ldn(st(1,2,3,2))",
+        "ldn(st(1,2,2,2))",
+        "catch(ldn(_), error(E, _), true)",
         # arg/3, functor/3, =../2 zum Zerlegen; Fehler und alles andere
         # wie der Interpreter (dort: aufgeben)
         "targ(f(a,b,c), 2, A)",

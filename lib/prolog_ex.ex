@@ -1245,7 +1245,10 @@ defmodule PrologEx do
     {"bytes_at", 3} => {"bytes", :nondet},
     {"bytes_bit", 3} => {"bytes", :nondet},
     {"bytes_next_bit", 3} => {"bytes", :det},
-    {"bytes_integer", 2} => {"bytes", :det}
+    {"bytes_integer", 2} => {"bytes", :det},
+    # library(lfsr): ziehen mit fertigem Zustand
+    {"lfsr_next", 3} => {"lfsr", :det},
+    {"lfsr_done", 1} => {"lfsr", :det}
   }
 
   defp jit_builtin(db, module, n, a) when is_map_key(@jit_bis, {n, a}) do
