@@ -28,7 +28,7 @@ defmodule PrologEx.Jit do
   (nur durchgereicht – auch eine ungebundene Variable). Listen und
   Strukturen werden erst beim Zerlegen gelesen (list/1, st/3); ein
   Argument einer Struktur, mit dem gerechnet wird, dort zur Zahl gemacht
-  (Herkunft {:sub, ...}). Konstanten auf Werten, die nicht schon Zahlen
+  (Herkunft {:sub, ...}, je Funktor). Konstanten auf Werten, die nicht schon Zahlen
   sind, und zweimal vorkommende Variablen prüft der Code zur Laufzeit wie
   die Unifikation (eqc/2, ueq/2): bände sie etwas, gibt er auf. Was ein Wert sein
   muss, ergibt sich aus dem Gebrauch (gerechnet: Zahl; zerlegt: Liste;
@@ -993,7 +993,7 @@ defmodule PrologEx.Jit do
   defp raise_req({:elem, _, _}, r), do: no!("ein Listenelement müsste #{tname(r)} sein")
 
   # ein Argument einer Struktur: gelesen erst beim Zerlegen (match_pat/4)
-  defp raise_req({:sub, _, _} = o, r) do
+  defp raise_req({:sub, _, _, _} = o, r) do
     reqs = Process.get(@raise_key)
     Process.put(@raise_key, Map.put(reqs, o, rj(Map.get(reqs, o, :any), r)))
   end
@@ -1006,7 +1006,7 @@ defmodule PrologEx.Jit do
   defp origin_t({:elem, key, k}, reqs),
     do: if(Map.fetch!(reqs, {key, k}) == :nlist, do: :num, else: :any)
 
-  defp origin_t({:sub, _, _} = o, reqs), do: Map.get(reqs, o, :any)
+  defp origin_t({:sub, _, _, _} = o, reqs), do: Map.get(reqs, o, :any)
 
   # Ausgabe als Signatur: Eingaben mit Anforderung :any bleiben Parameter
   defp out_sig({t, os}, key, reqs) do
@@ -1123,14 +1123,19 @@ defmodule PrologEx.Jit do
   defp match_pat({:atom, _} = a, _vt, d, _ctx), do: {{:constrt, a}, d}
 
   # Struktur: erst beim Zerlegen gelesen (PrologEx.Jit.st/3); ihre
-  # Argumente haben die Herkunft {:sub, Herkunft, i} – rechnet der Code mit
-  # einem, wird es dort zur Zahl gelesen (wie Listenelemente)
+  # Argumente haben die Herkunft {:sub, Herkunft, {f, n}, i} – rechnet der
+  # Code mit einem, wird es dort zur Zahl gelesen (wie Listenelemente). Mit
+  # dem Funktor: in d(U ^ N, …) :- N1 is N - 1 muss nur das zweite Argument
+  # von ^/2 eine Zahl sein, nicht auch V in d(U + V, …) (sonst gab der Code
+  # dort auf, sobald V keine Zahl war: deriv)
   defp match_pat({:st, f, ps}, {_, os}, d, ctx) do
+    fa = {f, length(ps)}
+
     {mps, d} =
       ps
       |> Enum.with_index()
       |> Enum.map_reduce(d, fn {p, i}, d ->
-        at = if os == [], do: {:any, []}, else: {:bot, for(o <- os, do: {:sub, o, i})}
+        at = if os == [], do: {:any, []}, else: {:bot, for(o <- os, do: {:sub, o, fa, i})}
         {m, d} = match_pat(p, at, d, ctx)
         m = if eff(at, ctx.reqs) == :num and m != :ignore, do: {:num, m}, else: m
         {m, d}

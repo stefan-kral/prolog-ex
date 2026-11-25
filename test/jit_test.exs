@@ -1136,6 +1136,58 @@ defmodule PrologEx.JitTest do
     assert :atomics.get(stats, 3) > 0
   end
 
+  # Argumente von Strukturen im Kopf: eine Anforderung (hier: N ist eine
+  # Zahl, weil N1 is N - 1) gilt nur für Strukturen mit demselben Funktor –
+  # V in d(U + V, …) darf beliebig sein (sonst gab der Code bei x * x auf
+  # und der Interpreter rechnete alles noch einmal: SICStus-Benchmark deriv)
+  test "Strukturargumente: Anforderungen je Funktor", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    d#{u}(U + V, X, DU + DV) :- !, d#{u}(U, X, DU), d#{u}(V, X, DV).
+    d#{u}(U * V, X, DU * V + U * DV) :- !, d#{u}(U, X, DU), d#{u}(V, X, DV).
+    d#{u}(U ^ N, X, DU * N * U ^ N1) :- !, N1 is N - 1, d#{u}(U, X, DU).
+    d#{u}(X, X, 1) :- !.
+    d#{u}(_, _, 0).
+    """
+
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    {int, []} =
+      with_jit_off(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    {:pred, _, _, {:jit, _, _, _, _, stats}, _} = db[{"user", "d#{u}", 3}]
+
+    for q <- [
+          "d#{u}(x * x * x + x ^ 3, x, D)",
+          "d#{u}((x + 1) * (x ^ 2 + 2), x, D)",
+          "d#{u}(x ^ a, x, D)",
+          "catch(d#{u}(x ^ a, x, D), error(E, _), true)"
+        ] do
+      assert TableCase.run(c.reader, db, q) == TableCase.run(c.reader, int, q), q
+    end
+
+    # die ersten beiden: übersetzt, ohne Aufgeben (Fehlschläge zählen 1,
+    # Aufgeben 8; x ^ a gibt auf: der Interpreter meldet den Fehler)
+    :atomics.put(stats, 2, 0)
+    {_, {:answers, [_]}} = TableCase.run(c.reader, db, "d#{u}(x * x * x + x ^ 3, x, D)")
+    {_, {:answers, [_]}} = TableCase.run(c.reader, db, "d#{u}((x + 1) * (x ^ 2 + 2), x, D)")
+    assert :atomics.get(stats, 2) == 0
+    assert :atomics.get(stats, 1) > 0
+  end
+
+  defp with_jit_off(f) do
+    PrologEx.Flags.set("jit", {:atom, "false"})
+
+    try do
+      f.()
+    after
+      PrologEx.Flags.set("jit", {:atom, "true"})
+    end
+  end
+
   # Endaufrufe bleiben Endaufrufe der BEAM: eine Schleife über eine
   # Million Runden braucht keinen Stack (vorher je Runde ein Rahmen)
   test "Schleifen in konstantem Speicher", c do

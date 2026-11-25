@@ -6512,6 +6512,18 @@ Iterationen aus `main.pl`, ms, bestes von 3; alle Ergebnisse gleich):
 | zebra | 500 | 11265 | 716 | 1944 | 15,73 | 2,72 |
 | geom. Mittel | | | | | 9,26 | 2,00 |
 
+Wo die Zeit hingeht: `BENCH_DIR=~/bench mix run bench/sicstus/diag.exs
+[programm …]` zeigt je Programm die Laufzeit mit und ohne JIT, den
+Anteil der Aufrufe, die noch durch den Interpreter laufen, und die
+meistgerufenen Prädikate dort mit ihrem JIT-Status (aus `jit_listing`:
+übersetzt, oder der Grund, warum nicht) und den Zählern des übersetzten
+Codes (Treffer, Fehlschläge – Aufgeben zählt 8 –, übersprungen). So fiel
+auf, dass der Code für `d/3` in deriv fast immer aufgab: eine
+Anforderung an ein Strukturargument (`N` in `d(U ^ N, …)` ist eine
+Zahl) galt für das gleiche Argument jeder Struktur, auch `V` in
+`d(U + V, …)`. Jetzt je Funktor; deriv 409 → 34 ms (5000 Iterationen),
+mit JIT 13-mal schneller als ohne.
+
 Im Mittel braucht PrologEx hier 9-mal die Zeit von SWI (Scryer 2-mal) –
 deutlich mehr als bei `bench/compare.pl` (1,8-mal). Schneller als SWI
 nur, wo der JIT das ganze Programm übersetzt: tak (0,14), nreverse
