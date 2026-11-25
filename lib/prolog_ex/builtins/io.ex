@@ -560,7 +560,9 @@ defmodule PrologEx.Builtins.IO do
   # --- Dateiende ----------------------------------------------------------------
 
   # vor dem Lesen: Stream schon hinter dem Ende? Dann nach eof_action
-  defp pre_read(id, st) do
+  @doc false
+  # vor dem Lesen: hinter dem Ende schon gelesen? (eof_action)
+  def pre_read(id, st) do
     s = S.get(id)
 
     cond do

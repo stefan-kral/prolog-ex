@@ -59,6 +59,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Lambda,
     PrologEx.Builtins.Yall,
     PrologEx.Builtins.Filesex,
+    PrologEx.Builtins.Readutil,
     PrologEx.Builtins.Operators,
     PrologEx.Builtins.Si,
     PrologEx.Builtins.Solutions,
@@ -246,7 +247,10 @@ defmodule PrologEx.Builtins do
     "gensym" => {"state", ~w(gensym/2 reset_gensym/0 reset_gensym/1)},
     "blackboard" => {"state", ~w(bb_b_put/2 bb_delete/2 bb_put/2 bb_update/3)},
     "rlimit" => {"external", ~w(rlimit/3)},
-    "bytes" => {"io", ~w(read_file_to_bytes/2 write_bytes/2 get_bytes/3)}
+    "bytes" => {"io", ~w(read_file_to_bytes/2 write_bytes/2 get_bytes/3)},
+    "readutil" => {"io", ~w(read_line_to_codes/2 read_line_to_codes/3 read_line_to_chars/2
+          read_stream_to_codes/2 read_stream_to_codes/3 read_file_to_codes/3
+          read_file_to_chars/3)}
   }
 
   pi = fn s ->

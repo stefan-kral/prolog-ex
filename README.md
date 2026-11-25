@@ -1299,6 +1299,51 @@ und Codelisten werden angenommen):
 * Nur Abfragen: in den Arbeitern von `library(concurrent)` erlaubt –
   einen Baum parallel durchsuchen:
   `concurrent_maplist([D,Fs]>>findall(F, directory_member(D, F, [recursive(true)]), Fs), Ds, Fss)`.
+
+## Zeilen, Streams und Dateien lesen wie SWI: `library(readutil)` und `library(readutil_pl)`
+
+SWIs `library(readutil)`, in Elixir (`readutil`) und in reinem Prolog
+wie SWIs Prolog-Fassung (`readutil_pl`) – dieselben Antworten und Fehler
+(`test/readutil_test.exs`). Strings gibt es in PrologEx nicht: statt
+`read_line_to_string/2` und `read_file_to_string/3` gibt es
+`read_line_to_chars/2` und `read_file_to_chars/3` (Zeichenlisten, wie
+`"…"`).
+
+```prolog
+?- open('log.txt', read, S), read_line_to_chars(S, L), close(S).
+?- read_file_to_terms('daten.pl', Ts, []).
+?- read_file_to_codes('a.txt', Cs, [tail(Rest)]).
+```
+
+| Prädikat | Ergebnis | am Ende |
+|---|---|---|
+| `read_line_to_codes(S, Cs)` | die Zeile ohne `\n`, jedes `\r` fällt weg | `end_of_file` |
+| `read_line_to_codes(S, Cs, R)` | Differenzliste, `\n` bleibt | `Cs = R = []`; nach einer letzten Zeile ohne `\n` `R = []` |
+| `read_line_to_chars(S, Cs)` | ohne `\n`, `\r` an den Enden fällt weg | `end_of_file` (eine letzte Zeile ohne `\n` kommt noch) |
+| `read_stream_to_codes(S, Cs[, R])` | der ganze Rest | `[]` bzw. `R` |
+| `read_file_to_codes(F, Cs, Os)` | die ganze Datei; Option `tail(R)` | |
+| `read_file_to_chars(F, Cs, Os)` | die ganze Datei als Zeichen | |
+| `read_file_to_terms(F, Ts, Os)` | alle Terme; `tail(R)`, Optionen von `read_term/3` je Term (mit `variable_names/1` und mehreren Termen scheitert es, wie SWI) | |
+
+Andere Optionen (in SWI für `absolute_file_name/3` und `open/4`, etwa
+`encoding(utf8)`) werden übergangen. Daneben gibt es weiter Scryers
+`get_line_to_chars/3`, `get_n_chars/3` und `read_term_from_chars/3`
+(`library(charsio)`), `phrase_from_file/2,3` (`library(pio)`) und
+`read_file_to_bytes/2` (`library(bytes)`). In den Arbeitern von
+`library(concurrent)` erlaubt wie das übrige Lesen: von eigenen Streams,
+aus Dateien. Autoload nimmt `readutil`.
+
+Gemessen über eine Datei mit 100 000 Zeilen (4,9 MB):
+
+| | `readutil` (Elixir) | `readutil_pl` (Prolog) |
+|---|---:|---:|
+| Zeile für Zeile (`read_line_to_codes/2`) | 1,3 s | 17,7 s |
+| `read_file_to_codes/3` | 0,9 s | 57 s |
+| `read_stream_to_codes/2` | 1,1 s | 65 s |
+
+Die Elixir-Fassung nimmt eine Zeile bzw. den Rest in einem Zug aus dem
+Puffer des Streams; die Prolog-Fassung geht Zeichen für Zeichen über
+`get_code/2`.
 ## Byte-Folgen: `library(bytes)`
 
 Ein eigener atomarer Typ für Bytes, ein BEAM-Binary: ein Byte je Byte (eine

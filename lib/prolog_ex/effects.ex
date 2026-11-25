@@ -89,7 +89,8 @@ defmodule PrologEx.Effects do
   # io im Kind von library(concurrent), auf seiner Tiefe: Dateien zum
   # Lesen öffnen (open/3,4 mit read; der Stream gehört dann dem Kind, siehe
   # Stream.set_nse_depth/2), von eigenen Streams lesen, sie schließen; eine
-  # ganze Datei lesen (read_file_to_bytes/2). Was das Kind offen lässt,
+  # ganze Datei lesen (read_file_to_bytes/2, read_file_to_codes/3,
+  # read_file_to_chars/3). Was das Kind offen lässt,
   # schließt library(concurrent) am Ende des Elements, ein beendeter
   # Arbeiter nimmt seine Dateien mit. Nicht: schreiben (das Dateisystem ist
   # geteilt; ein Abbruch ließe halbe Dateien), user_input, Streams des
@@ -125,7 +126,8 @@ defmodule PrologEx.Effects do
   @in_stream MapSet.new(~w(get_char/2 get_code/2 get_byte/2 peek_char/2 peek_code/2 peek_byte/2
                    read/2 read_term/3 at_end_of_stream/1 close/1 close/2 fast_read/2
                    set_stream_position/2 $get_n_chars/3 $lazy_start/2 $lazy_block/5
-                   $lazy_position/4))
+                   $lazy_position/4 read_line_to_codes/2 read_line_to_codes/3
+                   read_line_to_chars/2 read_stream_to_codes/2 read_stream_to_codes/3))
   # with_output_to/2 (öffnet und schließt seinen Speicher-Stream selbst)
   @wot MapSet.new(~w($wot_sink/1 $wot_open/2 $wot_restore/2 $wot_close/3))
 
@@ -155,7 +157,7 @@ defmodule PrologEx.Effects do
       pi in ["open/3", "open/4"] and is_list(args) ->
         child_local?(subst) and read_mode?(args, subst)
 
-      pi == "read_file_to_bytes/2" ->
+      pi in ~w(read_file_to_bytes/2 read_file_to_codes/3 read_file_to_chars/3) ->
         child_local?(subst)
 
       true ->

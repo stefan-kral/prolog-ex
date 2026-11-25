@@ -597,6 +597,45 @@ defmodule PrologEx.Stream do
     end
   end
 
+  @doc """
+  Eine Zeile lesen (library(readutil)): der Text bis einschließlich `\\n`
+  (am Dateiende ohne), `:eof` wenn nichts mehr kommt, `:invalid` bei
+  ungültigem UTF-8 (dann ist nichts gelesen). Position wird nachgeführt.
+  """
+  def read_line(id), do: read_line(get(id), 0)
+
+  defp read_line(s, from) do
+    case :binary.match(s.buf, "\n", scope: {from, byte_size(s.buf) - from}) do
+      {pos, 1} ->
+        take_line(s, pos + 1)
+
+      :nomatch when s.eof ->
+        if s.buf == "",
+          do:
+            (
+              update(s)
+              :eof
+            ),
+          else: take_line(s, byte_size(s.buf))
+
+      :nomatch ->
+        n = byte_size(s.buf)
+        s |> fill() |> read_line(n)
+    end
+  end
+
+  defp take_line(s, n) do
+    {text, rest} = :erlang.split_binary(s.buf, n)
+
+    if String.valid?(text) do
+      update(consume(%{s | buf: rest}, text))
+      text
+    else
+      update(s)
+      :invalid
+    end
+  end
+
   defp fill_all(%{eof: true} = s), do: s
   defp fill_all(s), do: s |> fill() |> fill_all()
 

@@ -639,7 +639,13 @@ re_split 3 4
 reachable 3
 read 1 2
 read_file_to_bytes 2
+read_file_to_chars 3
+read_file_to_codes 3
+read_file_to_terms 3
 read_from_chars 2
+read_line_to_chars 2
+read_line_to_codes 2 3
+read_stream_to_codes 2 3
 read_term 2 3
 read_term_from_atom 3
 read_term_from_chars 3
