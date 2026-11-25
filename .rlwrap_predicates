@@ -382,6 +382,9 @@ lcm 3
 leash 1
 length 2
 lex_chain 1
+lfsr_done 1
+lfsr_make 3 4
+lfsr_next 3
 limit 2
 linda 0 1
 linda_client 1

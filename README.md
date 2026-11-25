@@ -1344,6 +1344,55 @@ Gemessen über eine Datei mit 100 000 Zeilen (4,9 MB):
 Die Elixir-Fassung nimmt eine Zeile bzw. den Rest in einem Zug aus dem
 Puffer des Streams; die Prolog-Fassung geht Zeichen für Zeichen über
 `get_code/2`.
+
+## Pseudozufallszahlen mit voller Periode: `library(lfsr)`
+
+Ein linear rückgekoppeltes Schieberegister (LFSR) mit N Bits
+(1 ≤ N ≤ 168) durchläuft vom Seed aus jede Zahl in 1..2^N−1 genau einmal,
+dann kehrt es zum Seed zurück. Drei Prädikate, der Zustand ist ein
+gewöhnlicher Term `st(Zustand, N, Gezogen, K)`:
+
+```prolog
+?- lfsr_make(12345, 16, S0),        % Seed, N
+   lfsr_next(S0, X1, S1),           % X1 ∈ 1..2^16−1
+   lfsr_next(S1, X2, S2).
+S0 = st(12345,16,0,16), X1 = 8363, S1 = st(8363,16,1,16), X2 = 41912, S2 = st(41912,16,2,16).
+
+alle(S, []) :- lfsr_done(S), !.
+alle(S0, [X|Xs]) :- lfsr_next(S0, X, S), alle(S, Xs).
+```
+
+* `lfsr_make(+Seed, +N, -St)`, `lfsr_make(+Seed, +N, +K, -St)`: K ist die
+  Zahl der Schritte je gezogener Zahl, teilerfremd zu 2^N−1 (sonst wäre
+  die Periode kürzer). Ohne K das kleinste solche K ≥ N: dann ist jedes
+  Bit der nächsten Zahl neu. Mit K = 1 ist die nächste Zahl in der Hälfte
+  der Fälle einfach die halbe vorige.
+* `lfsr_next(+St0, -X, -St)`: die nächste Zahl; scheitert, wenn alle
+  2^N−1 gezogen sind (die letzte ist der Seed).
+* `lfsr_done(+St)`: alle gezogen.
+* Fehler: `domain_error(lfsr_bits, N)` außerhalb 1..168,
+  `domain_error(lfsr_seed, Seed)` außerhalb 1..2^N−1,
+  `domain_error(lfsr_step, K)`, `type_error(lfsr, St)`.
+
+Galois-Form mit den Taps aus Xilinx XAPP052, Tabelle 3. Jedes Polynom ist
+nachgeprüft (x hat die Ordnung 2^N−1, über die Primfaktoren von 2^N−1).
+XAPP052s Eintrag für N = 102 (102, 101, 36, 35) ist falsch: das Polynom
+hat einen Faktor vom Grad 3, die Periode wäre kürzer. Hier steht
+stattdessen 102, 101, 26, 25.
+
+K Schritte sind eine lineare Abbildung über GF(2). `lfsr_next/3` springt
+ab K = 3 über eine je (N, K) einmal vorberechnete Tabelle (je 8 Bits des
+Zustands 256 XOR-Kombinationen): ⌈N/8⌉ Nachschläge statt K Einzelschritte.
+Ab N ≈ 60 rechnet die BEAM mit Bignums, und Einzelschritte werden teuer:
+
+| je 200 000 Sprünge (Elixir) | N = 16, K = 16 | N = 64, K = 64 | N = 168, K = 173 |
+|---|---:|---:|---:|
+| K Einzelschritte | 31 ms | 648 ms | 1804 ms |
+| Tabelle | 14 ms | 54 ms | 217 ms |
+
+Aus Prolog kostet ein `lfsr_next/3` 4–5 µs (N = 20: 0,8 s je 200 000,
+N = 168: 1,0 s), so viel wie ein anderes Builtin außerhalb des JIT.
+
 ## Byte-Folgen: `library(bytes)`
 
 Ein eigener atomarer Typ für Bytes, ein BEAM-Binary: ein Byte je Byte (eine
