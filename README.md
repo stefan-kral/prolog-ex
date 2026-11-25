@@ -102,7 +102,7 @@ Ein Prolog-Kern in Elixir:
     lesend `bytes_length/2`, `bytes_at/3` und `bytes_bit/3` mit
     bestimmtem Index, `bytes_next_bit/3`, `bytes_integer/2` von der Folge
     zur Zahl (sonst aufgeben) – über die gesetzten Bits eines
-    200-Bit-Vektors mit `bytes_next_bit/3` 430 → 10 µs
+    200-Bit-Vektors mit `bytes_next_bit/3` 430 → 11 µs
     (`examples/bitvec.pl`); und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
     Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
@@ -1360,36 +1360,56 @@ jedes Kind kopieren müsste.
 ### Bitvektoren: Ganzzahl oder Byte-Folge (`examples/bitvec.pl`)
 
 Über die gesetzten Bits eines n-Bit-Vektors vom höchsten zum niedrigsten
-laufen und ihre Indizes aufsummieren, auf fünf Arten:
+laufen und ihre Indizes aufsummieren – gerechnet oder in Hilfstabellen
+nachgeschlagen:
 
 | Variante | Weg |
 |---|---|
 | `int_msb` | Ganzzahl: `I is msb(V)`, Bit löschen (`xor`), weiter |
 | `int_scan` | Ganzzahl: alle n Bits von oben mit `getbit/2` |
+| `int_pow` | wie `int_msb`, das Bit `1 << I` aus einem n-Tupel (`arg/3`) |
+| `int_bytetab` | Ganzzahl Byte für Byte (`(V >> 8k) /\ 255`), im Byte msb und Löschen aus Byte-Tabellen |
 | `bytes_next` | Byte-Folge: `bytes_next_bit/3` springt zum nächsten gesetzten Bit |
 | `bytes_bits` | Byte-Folge: `aggregate_all/3` über `bytes_bit(P, B, 1)` |
-| `bytes_bytewise` | Byte-Folge: `bytes_at/3` je Byte, Nullbytes übergehen, im Byte `msb/1` |
+| `bytes_bytewise` | Byte-Folge: `bytes_at/3` je Byte, im Byte `msb/1` |
+| `bytes_msbtab` | wie `bytes_bytewise`, msb und Löschen aus 255-Tupeln (`arg/3`) |
+| `bytes_bytetab` | dasselbe aus Byte-Tabellen (255 Bytes, `bytes_at/3`) |
+| `bytes_listtab` | je Byte die Liste seiner gesetzten Bits aus einem 255-Tupel |
 
 ```
 start_ex examples/bitvec.pl -g bench -q
 ```
 
 µs je Vektor (2000 zufällige Vektoren je n, 5 Runden; alle Varianten
-liefern dieselben Summen):
+liefern dieselben Summen; die Zeiten schwanken hier um ±20 %):
 
-| n | int_msb | int_scan | bytes_next | bytes_bits | bytes_bytewise |
-|---:|---:|---:|---:|---:|---:|
-| 20 | 3,4 | 1,1 | 3,2 | 18,3 | 4,1 |
-| 60 | 5,9 | 4,4 | 6,9 | 46,4 | 7,4 |
-| 100 | 13,9 | 11,2 | 6,7 | 63,9 | 17,8 |
-| 200 | 20,5 | 20,3 | 10,4 | 125,4 | 18,1 |
+| Variante | n = 20 | 60 | 100 | 200 |
+|---|---:|---:|---:|---:|
+| `int_msb` | 3,7 | 6,5 | 10,2 | 27,3 |
+| `int_scan` | 1,7 | 4,6 | 9,5 | 22,8 |
+| `int_pow` | 2,4 | 8,3 | 17,5 | 43,6 |
+| `int_bytetab` | 1,6 | 4,3 | 8,1 | 13,5 |
+| `bytes_next` | 3,0 | 5,1 | 6,9 | 11,4 |
+| `bytes_bits` | 17,8 | 36,7 | 74,7 | 101,4 |
+| `bytes_bytewise` | 4,3 | 7,6 | 10,9 | 25,4 |
+| `bytes_msbtab` | 4,3 | 11,4 | 19,0 | 39,7 |
+| `bytes_bytetab` | 1,8 | 4,2 | 6,9 | 16,5 |
+| `bytes_listtab` | 27,8 | 71,3 | 109,2 | 202,5 |
 
-Bis 60 Bits ist die Ganzzahl so schnell wie die Folge (klein, eine
-BEAM-Ganzzahl bis 59 Bit); darüber kostet jeder Schritt auf der großen
-Ganzzahl eine neue (`xor`), `bytes_next_bit/3` dagegen springt über
-Nullen und legt nichts an. Alle Varianten außer `bytes_bits` (Rücksetzen,
-`aggregate_all/3`) laufen im JIT; vorher fiel jede mit einem Aufruf aus
-`library(bytes)` in den Interpreter (`bytes_next` 430 µs bei n = 200).
+* Bis 60 Bits ist die Ganzzahl so schnell wie die Folge (eine kleine
+  BEAM-Ganzzahl); darüber legt jedes `xor` eine neue große Ganzzahl an.
+  `bytes_next_bit/3` springt über Nullen und legt nichts an.
+* **Tabellen als Tupel lohnen nicht**: die Argumente einer Struktur
+  liegen in PrologEx als Liste vor, `arg(K, T, A)` braucht K Schritte –
+  über ein 255-Tupel im Mittel 128, teurer als `msb/1` oder `1 << I`
+  (ein Befehl der BEAM). **Als Byte-Folge** (`bytes_at/3`, O(1)) lohnen
+  sie für Werte 0..255: `bytes_bytetab` und `int_bytetab` sind mit
+  `bytes_next` die schnellsten.
+* Damit der JIT ein Prädikat mit `arg/3` übersetzt, muss er wissen, dass
+  eine Zahl kommt: `arg(K, P, W), integer(W)`. Eine Liste als Ergebnis
+  (`bytes_listtab`) bleibt im Interpreter, ebenso `bytes_bits`
+  (Rücksetzen). Vorher fiel auch jede Variante mit einem Aufruf aus
+  `library(bytes)` in den Interpreter (`bytes_next` 430 µs bei n = 200).
 
 ### DCGs über Byte-Folgen: `library(dcg/bytes)`
 
