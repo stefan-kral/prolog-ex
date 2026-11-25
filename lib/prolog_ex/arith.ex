@@ -63,6 +63,7 @@ defmodule PrologEx.Arith do
   import PrologEx.Store, only: [walk: 2]
   alias PrologEx.Error
   alias PrologEx.Rational, as: Rat
+  import Bitwise, only: [>>>: 2, <<<: 2, &&&: 2]
 
   @max_tagged 576_460_752_303_423_487
   @min_tagged -576_460_752_303_423_488
@@ -317,6 +318,25 @@ defmodule PrologEx.Arith do
   def op2(op, x, y), do: eval2(op, x, y)
   def op1(op, x), do: eval1(op, x, nil)
 
+  @doc """
+  msb/1, lsb/1, popcount/1, \\/1 mit ihren Prüfungen – auch direkt aus dem
+  übersetzten Code (PrologEx.Jit), ohne den Umweg über op1/2
+  """
+  def msb1(x) when is_integer(x) and x > 0, do: msb(x)
+  def msb1(x), do: msb(positive!(int!(x)))
+  def lsb1(x) when is_integer(x) and x > 0, do: lsb(x)
+  def lsb1(x), do: lsb(positive!(int!(x)))
+  def popcount1(x) when is_integer(x) and x >= 0, do: popcount(x)
+
+  def popcount1(x) do
+    case int!(x) do
+      n when n >= 0 -> popcount(n)
+      n -> Error.domain!("not_less_than_zero", n)
+    end
+  end
+
+  def bnot1(x), do: Bitwise.bnot(int!(x))
+
   defp rn({:num, n}, _l, _s), do: n
 
   defp rn({:leaf, i}, l, s) do
@@ -411,15 +431,9 @@ defmodule PrologEx.Arith do
   defp eval1("ceiling", x, _s), do: ceil(x)
 
   defp eval1("\\", x, _s), do: Bitwise.bnot(int!(x))
-  defp eval1("msb", x, _s), do: msb(positive!(int!(x)))
-  defp eval1("lsb", x, _s), do: lsb(positive!(int!(x)))
-
-  defp eval1("popcount", x, _s) do
-    case int!(x) do
-      n when n >= 0 -> popcount(n)
-      n -> Error.domain!("not_less_than_zero", n)
-    end
-  end
+  defp eval1("msb", x, _s), do: msb1(x)
+  defp eval1("lsb", x, _s), do: lsb1(x)
+  defp eval1("popcount", x, _s), do: popcount1(x)
 
   defp eval1("succ", x, _s), do: nonneg!(int!(x)) + 1
 
@@ -784,19 +798,53 @@ defmodule PrologEx.Arith do
 
   # höchstes gesetztes Bit (x > 0); über die Bytes, nicht die Binärziffern
   # (Integer.digits/2 braucht für 7^7^7 eine Minute)
+  # msb, lsb, popcount über Tabellen je Byte (Tupel-Literale: elem/2 in
+  # O(1), ohne Kopie). Kleine Ganzzahlen (bis 64 Bit) mit Verschieben in
+  # Schritten von 32/16/8 Bit, große über ihre Bytes (encode_unsigned).
+  # Früher Bit für Bit: msb eines Bytes bis zu 7 Schritte, popcount über
+  # Integer.digits/2 (eine Liste je Bit: 200 Bit 7 µs)
+  @msb8 List.to_tuple([0 | for(b <- 1..255, do: length(Integer.digits(b, 2)) - 1)])
+  @lsb8 List.to_tuple([
+          0
+          | for(
+              b <- 1..255,
+              do: b |> Integer.digits(2) |> Enum.reverse() |> Enum.find_index(&(&1 == 1))
+            )
+        ])
+  @pop8 List.to_tuple(for b <- 0..255, do: b |> Integer.digits(2) |> Enum.sum())
+  @small 1 <<< 64
+
+  defp msb(x) when x < @small, do: msb_small(x)
+
   defp msb(x) do
     <<first, _::binary>> = bin = :binary.encode_unsigned(x)
-    (byte_size(bin) - 1) * 8 + byte_msb(first, 0)
+    (byte_size(bin) - 1) * 8 + elem(@msb8, first)
   end
 
-  defp byte_msb(1, n), do: n
-  defp byte_msb(b, n), do: byte_msb(Bitwise.bsr(b, 1), n + 1)
+  defp msb_small(x) when x >= 1 <<< 32, do: 32 + msb_small(x >>> 32)
+  defp msb_small(x) when x >= 1 <<< 16, do: 16 + msb_small(x >>> 16)
+  defp msb_small(x) when x >= 256, do: 8 + msb_small(x >>> 8)
+  defp msb_small(x), do: elem(@msb8, x)
 
-  defp lsb(x), do: lsb(x, 0)
-  defp lsb(x, n) when Bitwise.band(x, 1) == 1, do: n
-  defp lsb(x, n), do: lsb(Bitwise.bsr(x, 1), n + 1)
+  defp lsb(x) when x < @small, do: lsb_small(x, 0)
+  defp lsb(x), do: lsb_bytes(:binary.encode_unsigned(x, :little), 0)
 
-  defp popcount(x), do: x |> Integer.digits(2) |> Enum.sum()
+  defp lsb_small(x, n) when (x &&& 0xFFFFFFFF) == 0, do: lsb_small(x >>> 32, n + 32)
+  defp lsb_small(x, n) when (x &&& 0xFFFF) == 0, do: lsb_small(x >>> 16, n + 16)
+  defp lsb_small(x, n) when (x &&& 0xFF) == 0, do: lsb_small(x >>> 8, n + 8)
+  defp lsb_small(x, n), do: n + elem(@lsb8, x &&& 0xFF)
+
+  defp lsb_bytes(<<0, rest::binary>>, n), do: lsb_bytes(rest, n + 8)
+  defp lsb_bytes(<<b, _::binary>>, n), do: n + elem(@lsb8, b)
+
+  defp popcount(x) when x < @small, do: pop_small(x, 0)
+  defp popcount(x), do: pop_bytes(:binary.encode_unsigned(x), 0)
+
+  defp pop_small(0, c), do: c
+  defp pop_small(x, c), do: pop_small(x >>> 8, c + elem(@pop8, x &&& 0xFF))
+
+  defp pop_bytes(<<b, rest::binary>>, c), do: pop_bytes(rest, c + elem(@pop8, b))
+  defp pop_bytes(<<>>, c), do: c
 
   defp random_float(s) do
     random_ok!(s, "random_float", 0)

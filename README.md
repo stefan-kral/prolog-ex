@@ -1385,26 +1385,32 @@ liefern dieselben Summen; die Zeiten schwanken hier um ±20 %):
 
 | Variante | n = 20 | 60 | 100 | 200 |
 |---|---:|---:|---:|---:|
-| `int_msb` | 3,7 | 6,5 | 10,2 | 27,3 |
-| `int_scan` | 1,7 | 4,6 | 9,5 | 22,8 |
-| `int_pow` | 2,4 | 8,3 | 17,5 | 43,6 |
-| `int_bytetab` | 1,6 | 4,3 | 8,1 | 13,5 |
-| `bytes_next` | 3,0 | 5,1 | 6,9 | 11,4 |
-| `bytes_bits` | 17,8 | 36,7 | 74,7 | 101,4 |
-| `bytes_bytewise` | 4,3 | 7,6 | 10,9 | 25,4 |
-| `bytes_msbtab` | 4,3 | 11,4 | 19,0 | 39,7 |
-| `bytes_bytetab` | 1,8 | 4,2 | 6,9 | 16,5 |
-| `bytes_listtab` | 27,8 | 71,3 | 109,2 | 202,5 |
+| `int_msb` | 3,8 | 4,3 | 7,4 | 14,1 |
+| `int_scan` | 1,0 | 4,5 | 9,6 | 20,6 |
+| `int_pow` | 1,8 | 7,0 | 15,4 | 37,0 |
+| `int_bytetab` | 2,5 | 5,7 | 7,9 | 14,1 |
+| `bytes_next` | 4,6 | 6,0 | 6,8 | 11,1 |
+| `bytes_bits` | 21,3 | 37,2 | 59,8 | 123,0 |
+| `bytes_bytewise` | 3,1 | 5,0 | 9,5 | 11,5 |
+| `bytes_msbtab` | 4,0 | 11,7 | 20,2 | 38,1 |
+| `bytes_bytetab` | 1,9 | 4,4 | 7,2 | 13,7 |
+| `bytes_listtab` | 26,9 | 67,1 | 108,6 | 191,4 |
 
 * Bis 60 Bits ist die Ganzzahl so schnell wie die Folge (eine kleine
   BEAM-Ganzzahl); darüber legt jedes `xor` eine neue große Ganzzahl an.
   `bytes_next_bit/3` springt über Nullen und legt nichts an.
 * **Tabellen als Tupel lohnen nicht**: die Argumente einer Struktur
   liegen in PrologEx als Liste vor, `arg(K, T, A)` braucht K Schritte –
-  über ein 255-Tupel im Mittel 128, teurer als `msb/1` oder `1 << I`
-  (ein Befehl der BEAM). **Als Byte-Folge** (`bytes_at/3`, O(1)) lohnen
-  sie für Werte 0..255: `bytes_bytetab` und `int_bytetab` sind mit
-  `bytes_next` die schnellsten.
+  über ein 255-Tupel im Mittel 128. **Als Byte-Folge** (`bytes_at/3`,
+  O(1)) sind sie schnell, aber nicht schneller als `msb/1` selbst: das
+  schlägt seinerseits in einer Tabelle nach (ein Tupel-Literal in
+  Elixir, `elem/2` in O(1); kleine Zahlen in Schritten von 32/16/8 Bit,
+  große über ihre Bytes) und wird aus dem JIT direkt gerufen. Vorher
+  rechnete `msb/1` das höchste Byte Bit für Bit, und der JIT rief es über
+  den allgemeinen Verteiler `op1/2` (zusammen 100 → 25 ns); da waren die
+  Byte-Tabellen noch deutlich schneller (n = 200: `int_msb` 27 → 14 µs,
+  `bytes_bytewise` 25 → 12 µs). `lsb/1` und `popcount/1` ebenso
+  (`popcount` über 200 Bit 7 µs → 0,2 µs; vorher über `Integer.digits/2`).
 * Damit der JIT ein Prädikat mit `arg/3` übersetzt, muss er wissen, dass
   eine Zahl kommt: `arg(K, P, W), integer(W)`. Eine Liste als Ergebnis
   (`bytes_listtab`) bleibt im Interpreter, ebenso `bytes_bits`

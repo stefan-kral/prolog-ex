@@ -2649,6 +2649,13 @@ defmodule PrologEx.Jit do
 
   defp ex({:op1, "-", a}, %{num: false} = st), do: quote(do: -unquote(ex(a, st)))
   defp ex({:op1, "+", a}, %{num: false} = st), do: ex(a, st)
+  # msb, lsb, popcount, \\ direkt (in Bitschleifen heiß; op1/2 sucht
+  # sonst unter allen Funktoren: msb 100 → 25 ns)
+  defp ex({:op1, op, a}, st) when op in ["msb", "lsb", "popcount"],
+    do: quote(do: PrologEx.Arith.unquote(:"#{op}1")(unquote(ex(a, st))))
+
+  defp ex({:op1, "\\", a}, st), do: quote(do: PrologEx.Arith.bnot1(unquote(ex(a, st))))
+
   defp ex({:op1, op, a}, st), do: quote(do: PrologEx.Arith.op1(unquote(op), unquote(ex(a, st))))
 
   # Vergleich: nur Ganzzahlen direkt, sonst wie der Interpreter

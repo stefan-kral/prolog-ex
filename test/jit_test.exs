@@ -232,6 +232,8 @@ defmodule PrologEx.JitTest do
   bbit(K, B, X) :- bytes_bit(K, B, X).
   bnb(B, K, P) :- bytes_next_bit(B, K, P).
   bint(B, I) :- bytes_integer(B, I0), I is I0 + 0.
+  % msb, lsb, popcount, \\ (direkt, nicht über op1/2)
+  bops(X, Y) :- Y is msb(X) + lsb(X) + popcount(X) + \\ X.
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -385,7 +387,8 @@ defmodule PrologEx.JitTest do
           {"bat", 3},
           {"bbit", 3},
           {"bnb", 3},
-          {"bint", 2}
+          {"bint", 2},
+          {"bops", 2}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
 
@@ -409,6 +412,14 @@ defmodule PrologEx.JitTest do
   end
 
   for q <- [
+        # msb, lsb, popcount, \\: dieselben Werte und Fehler
+        "bops(5, Y)",
+        "bops(255, Y)",
+        "X is 1 << 70 + 6, bops(X, Y)",
+        "X is (1 << 200) - 1, bops(X, Y)",
+        "catch(bops(0, Y), error(E, _), true)",
+        "catch(bops(-1, Y), error(E, _), true)",
+        "catch(bops(1.5, Y), error(E, _), true)",
         # library(bytes): dieselben Antworten, Fehler und Inferenzen
         "bytes_list(B, [0,0,16,1,0,0,0,0,0,0,0,128]), bnext(B, S)",
         "bytes_list(B, []), bnext(B, S)",
