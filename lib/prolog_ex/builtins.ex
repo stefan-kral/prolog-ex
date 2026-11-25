@@ -57,6 +57,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Mutables,
     PrologEx.Builtins.Statistics,
     PrologEx.Builtins.Lambda,
+    PrologEx.Builtins.Yall,
     PrologEx.Builtins.Operators,
     PrologEx.Builtins.Si,
     PrologEx.Builtins.Solutions,

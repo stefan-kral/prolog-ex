@@ -168,10 +168,37 @@ defmodule PrologEx.Autoload do
   # ein Closure mit k weiteren Argumenten
   defp closure({:atom, n}, k, db, m, acc), do: pred(n, List.duplicate({:var, 0}, k), db, m, acc)
 
+  # Lambdas aus library(yall): [X1,...]>>Rumpf mit k Argumenten – der
+  # Rumpf bekommt die nach den Parametern; Free/Rumpf: der Rumpf alle k
+  defp closure({:struct, ">>", [ps, body] = args}, k, db, m, acc) do
+    acc = pred(">>", args ++ List.duplicate({:var, 0}, k), db, m, acc)
+
+    case yall_params(ps) do
+      n when is_integer(n) and n <= k -> body_closure(body, k - n, db, m, acc)
+      _ -> acc
+    end
+  end
+
+  defp closure({:struct, "/", [_free, body] = args}, k, db, m, acc) do
+    acc = pred("/", args ++ List.duplicate({:var, 0}, k), db, m, acc)
+    body_closure(body, k, db, m, acc)
+  end
+
   defp closure({:struct, n, args}, k, db, m, acc) when n != ":",
     do: pred(n, args ++ List.duplicate({:var, 0}, k), db, m, acc)
 
   defp closure(_, _k, _db, _m, acc), do: acc
+
+  # ohne weitere Argumente ein Ziel (Konjunktion, ...), sonst ein Closure
+  defp body_closure(body, 0, db, m, acc), do: scan(body, db, m, acc)
+  defp body_closure(body, k, db, m, acc), do: closure(body, k, db, m, acc)
+
+  defp yall_params({:struct, "/", [_, ps]}), do: yall_params(ps)
+  defp yall_params(ps), do: yall_length(ps, 0)
+
+  defp yall_length([], n), do: n
+  defp yall_length([_ | t], n), do: yall_length(t, n + 1)
+  defp yall_length(_, _), do: nil
 
   defp strip_caret({:struct, "^", [_, g]}), do: strip_caret(g)
   defp strip_caret(g), do: g

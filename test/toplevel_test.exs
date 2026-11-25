@@ -380,6 +380,19 @@ defmodule PrologEx.ToplevelTest do
     refute out =~ "use_module(library(lists)"
     assert out =~ "% last/2 aus library(lists) importiert"
 
+    # in Lambdas aus library(yall): der Rumpf mit den Argumenten nach den
+    # Parametern (hier succ/2), mit Free/ ohne weitere als Ziel
+    out =
+      bare(
+        "maplist([X,Y]>>succ(X,Y), [1,2], L).\nN = 2, maplist({N}/[X]>>(last([N],Z), X > Z), [3]).\n"
+      )
+
+    assert out =~ "% succ/2 aus library(iso_ext) importiert\n"
+    assert out =~ "% (>>)/4 aus library(yall) importiert\n"
+    assert out =~ "L = [2,3]."
+    assert out =~ "% last/2 aus library(lists) importiert\n"
+    assert out =~ "N = 2."
+
     # eigene Definitionen gehen vor
     out = bare("assertz(last(_, eigen)).\nlast([1], X).\n")
     refute out =~ "last/2 aus"

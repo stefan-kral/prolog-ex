@@ -3921,6 +3921,40 @@ eigenes Hilfsprädikat bleibt noch einmal gut 2-mal schneller.
 Bibliotheken in Prolog-Quelltext: `priv/library/NAME.pl` mit
 `:- module(NAME, ...)` lädt `use_module(library(NAME))` wie eine Datei.
 
+
+## Lambdas wie SWI: `library(yall)` und `library(yall_pl)`
+
+„Yet Another Lambda Library“ (Paulo Moura, Jan Wielemaker) wie in
+SWI-Prolog: `library(yall)` in Elixir, `library(yall_pl)` in reinem
+Prolog wie das Original – dieselben Antworten und Fehler
+(`test/yall_test.exs`).
+
+```prolog
+?- maplist([X,Y]>>(Y is X*2), [1,2,3], L).          % L = [2,4,6]
+?- foldl([X,A0,A]>>(A is A0+X), [1,2,3], 0, S).     % S = 6
+?- N = 2, include({N}/[X]>>(X > N), [1,2,3], L).    % L = [3]
+?- maplist([X]>>(Y = X), [1]).                      % true, Y bleibt frei
+```
+
+* `[X1,...]>>Rumpf`: beim Aufruf mit A1, ... eine Kopie des Lambdas
+  (ohne Attribute), `Xi = Ai`, übrige Argumente an den Rumpf angehängt.
+  Darum tragen Bindungen nichts nach außen – außer für die Variablen von
+  `Free` in `Free/[X1,...]>>Rumpf` (`{V1,...}` oder `{}`); `Free/Rumpf`
+  ist `Free/[]>>Rumpf`.
+* Fehler wie SWI: Parameter ungebunden `instantiation_error`, keine Liste
+  `type_error(list, Ps)`, `Free` kein `{...}` `type_error(lambda_free,
+  F)`, weniger Argumente als Parameter
+  `domain_error(lambda_parameters, Ps)`. Dazu `is_lambda/1`.
+* Anders als SWI übersetzt PrologEx Lambdas nicht beim Laden: sie
+  kopieren immer. In SWI teilt ein übersetztes Lambda (im Rumpf einer
+  Klausel, genug instanziiert) seine übrigen Variablen mit der Klausel,
+  ein interpretiertes nicht – hier gilt immer das Zweite.
+* Die Elixir-Fassung kopiert, bindet und ruft in einem Schritt:
+  `maplist([X,Y]>>(Y is X*2), L, _)` über 200 000 Elemente 1,1 s statt
+  2,7–3,1 s mit `yall_pl`.
+* Autoload: `>>` und `/` kommen aus `library(yall)` (nicht `yall_pl`);
+  der Toplevel und das Laden sehen in den Rumpf hinein
+  (`maplist([X,Y]>>succ(X,Y), …)` importiert auch `succ/2`).
 ## Sichere Tests: `library(si)`
 
 „sufficiently instantiated“ (Neumerkel, Scryer), in Elixir: Statt bei zu

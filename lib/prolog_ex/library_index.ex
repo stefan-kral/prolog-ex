@@ -25,7 +25,7 @@ defmodule PrologEx.LibraryIndex do
 
   # Bibliotheken, die eine andere Fassung derselben Prädikate sind oder sie
   # nur weitergeben: nie von selbst gewählt (im Hinweis genannt)
-  @alternatives ~w(swi reif_pl lambda_pl memberd_pl linda/client linda/server)
+  @alternatives ~w(swi reif_pl lambda_pl yall_pl memberd_pl linda/client linda/server)
 
   @doc "Bibliotheken, die name/arity exportieren (sortiert; [] wenn keine)"
   def libraries(name, arity), do: Map.get(index().preds, {name, arity}, [])

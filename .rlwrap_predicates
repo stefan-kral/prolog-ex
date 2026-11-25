@@ -347,6 +347,7 @@ is 2
 is_assoc 1
 is_heap 1
 is_json_term 1 2
+is_lambda 1
 is_list 1
 is_ordset 1
 is_prime 1
