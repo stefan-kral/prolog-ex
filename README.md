@@ -498,7 +498,11 @@ cat prog.pl | mix prolog - -g main   # Programm von stdin
 mix prolog --no-jit prog.pl          # ohne JIT (alles interpretiert)
 ```
 
-`mix rebuild` baut alles neu (wie `make clean && make all`).
+`mix rebuild` baut alles neu (wie `make clean && make all`), nur in der
+eigenen Umgebung (`MIX_ENV`, sonst `dev`): ein bloßes `mix clean` räumt
+alle Umgebungen, auch `_build/test` mitten in einem laufenden `mix test`
+(`bench/stress/run.sh`: plötzlich `existence_error(source_sink,
+library(concurrent))`).
 
 **`./start_ex`** (im Wurzelverzeichnis) startet PrologEx wie `mix prolog
 --no-edit` unter [rlwrap](https://github.com/hanslub42/rlwrap) (`brew

@@ -15,8 +15,10 @@ defmodule PrologEx.MixProject do
       elixir: "~> 1.18.4 or ~> 1.19",
       start_permanent: Mix.env() == :prod,
       aliases: [
-        # alles neu, wie make clean && make all
-        rebuild: ["clean", "compile --force"]
+        # alles neu, wie make clean && make all – nur in der eigenen
+        # Umgebung: mix clean räumt sonst alle (_build/test mitten in einem
+        # laufenden mix test: library(...) nicht mehr gefunden)
+        rebuild: ["clean --only #{Mix.env()}", "compile --force"]
       ],
       # Hilfsdateien der Tests (z. B. der frühere Writer als Referenz)
       test_ignore_filters: [~r"^test/fixtures/"],
