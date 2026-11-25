@@ -6290,7 +6290,12 @@ JIT-Einstellungen (`CONC_JIT`: `on`, `off`, `eager`, `clause`,
 Kerne, 2×Kerne; JIT on, off, clause), `-f` gründlich (Stunden), `-p` dazu
 die Skalierung der Demos (`examples/parallel/run.sh -t`). Ergebnis in
 `bench/stress/out/ZEIT/summary.md`, je Lauf mit der Umgebung zum
-Wiederholen; Rückgabe 1 bei einer Abweichung oder einem Fehler.
+Wiederholen; Rückgabe 1 bei einer Abweichung oder einem Fehler. Was
+scheiterte, steht mit dem Befehl zum Wiederholen am Ende. Zwei Zeiten je
+Lauf: die Uhrzeit und die der Tests laut ExUnit („Finished in“) – weit
+auseinander heißt, der Rechner stand (ein Mac im Schlaf: 2856 s Uhrzeit
+bei 150 s Tests). Unter macOS läuft das Skript darum unter
+`caffeinate -i`.
 
 Differenztests mit Zufallseingaben (`test/concurrent_random_test.exs`):
 jedes `concurrent_X` gegen sein Vorbild nacheinander (`maplist/2,3,4`,

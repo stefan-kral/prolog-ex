@@ -20,9 +20,18 @@
 #
 # Ergebnis: bench/stress/out/ZEIT/summary.md (eine Zeile je Lauf) und je
 # Lauf ein Log; Rückgabe 1, wenn etwas abwich oder scheiterte. Jede Zeile
-# nennt die Umgebung, mit der sich der Lauf wiederholen lässt.
+# nennt die Umgebung, mit der sich der Lauf wiederholen lässt. Dauer: die
+# Uhrzeit (mit Übersetzen und Start) und die Zeit der Tests laut ExUnit
+# („Finished in“); liegen sie weit auseinander, hat der Rechner gestanden
+# (Schlaf). Unter macOS läuft alles unter caffeinate -i.
 set -u
 cd "$(dirname "$0")/../.." || exit 2
+
+# macOS: der Rechner soll während des Laufs nicht schlafen (sonst zählt die
+# Uhrzeit die Schlafpausen mit; die Tests merken davon nichts)
+if [ -z "${STRESS_AWAKE:-}" ] && command -v caffeinate >/dev/null 2>&1; then
+  STRESS_AWAKE=1 exec caffeinate -i "$0" "$@"
+fi
 
 CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 MODE=normal
@@ -82,8 +91,8 @@ mix compile >"$OUT/compile.log" 2>&1 || { echo "mix compile scheiterte, siehe $O
   echo "Rechner: $CORES Kerne, $(uname -sm); Erlang/OTP $(erl -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().' 2>/dev/null)"
   echo "Modus: $MODE; Scheduler: $SCHED; JIT: $JITS; Seeds:$SEEDS; Wiederholungen: $REPEAT"
   echo
-  echo "| Scheduler | JIT | Seed | Test | Ergebnis | Dauer |"
-  echo "|---:|---|---:|---|---|---:|"
+  echo "| Scheduler | JIT | Seed | Test | Ergebnis | Dauer | Tests |"
+  echo "|---:|---|---:|---|---|---:|---:|"
 } >"$SUMMARY"
 
 PROBLEMS=0
@@ -92,7 +101,7 @@ PROBLEMS=0
 # der Zufallstests, "N failures" von ExUnit)
 run() {
   local s=$1 j=$2 seed=$3 name=$4 log=$5; shift 5
-  local t0 t1 rc dev fails res
+  local t0 t1 rc dev fails res tests
   printf '  %-22s ' "$name"
   t0=$(date +%s)
   "$@" >"$log" 2>&1
@@ -107,8 +116,11 @@ run() {
     PROBLEMS=$((PROBLEMS + 1))
     res="**PROBLEM** ($dev Abweichungen${fails:+, $fails}, rc=$rc) – $log"
   fi
-  echo "$res ($((t1 - t0)) s)"
-  echo "| $s | $j | $seed | $name | $res | $((t1 - t0)) s |" >>"$SUMMARY"
+  # die Zeit der Tests laut ExUnit (bei --repeat-until-failure summiert)
+  tests=$(grep -Eo 'Finished in [0-9.]+ seconds' "$log" |
+    awk '{ t += $3 } END { if (NR) printf "%d s", t + 0.5; else printf "-" }')
+  echo "$res ($((t1 - t0)) s, Tests $tests)"
+  echo "| $s | $j | $seed | $name | $res | $((t1 - t0)) s | $tests |" >>"$SUMMARY"
   if [ "$res" != ok ]; then
     # was scheiterte und wie es sich wiederholen lässt
     {
