@@ -1048,6 +1048,80 @@ defmodule PrologEx.JitTest do
     refute out =~ "app/3"
   end
 
+  # Modi aus den Aufrufstellen: eine Faktentabelle legt ihre Modi selbst
+  # nicht fest (jede Belegung wäre übersetzbar); wie sie gerufen wird,
+  # entscheidet – bisher exp(-any, -any, +any), Modi von equal/2 dann im
+  # Widerspruch (SICStus-Benchmark boyer). Auch ein Rufer, der selbst nicht
+  # übersetzt wird (rw/2: functor/3 baut), gibt Hinweise.
+  test "Modi aus den Aufrufstellen", c do
+    Reader.put_current(c.reader)
+    u = System.unique_integer([:positive])
+
+    src = """
+    eq#{u}(e(A, B), C) :- ex#{u}(A, B, C).
+    eq#{u}(l(X, Y), Z) :- ls#{u}(X, Y, Z).
+    eq#{u}(n(X), m(X, X)).
+    ex#{u}(I, p(J, K), t(e(I, J), e(I, K))) :- !.
+    ex#{u}(I, t(J, K), e(e(I, J), K)).
+    ls#{u}(X, Y, t) :- X < Y, !.
+    ls#{u}(_, _, f).
+    rw#{u}(Old, New) :-
+        functor(Old, F, N), functor(Mid, F, N), Mid = Old,
+        ( eq#{u}(Mid, Next) -> New = Next ; New = Mid ).
+    """
+
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+    {out, _} = TableCase.run(c.reader, db, "jit_listing")
+    assert out =~ ~r"% eq#{u}/2 +\S+ +eq#{u}\(\+any, -any\)"
+    assert out =~ ~r"% ex#{u}/3 +\S+ +ex#{u}\(\+any, \+any, -any\)"
+
+    q = "rw#{u}(e(a, p(b, c)), R), rw#{u}(l(1, 2), S), rw#{u}(n(q), T)"
+
+    assert {_, {:answers, ["R = t(e(a,b),e(a,c)), S = t, T = m(q,q)"]}} =
+             TableCase.run(c.reader, db, q)
+  end
+
+  # Ein Aufruf mit schon bestimmter Ausgabe: der Code rechnete und
+  # verglich danach, der Interpreter prüft im Kopf und nimmt die nächste
+  # Klausel – tab(a, 2) gelingt dort (Klausel 2). Jetzt wird so ein Rufer
+  # nicht übersetzt (nichtdeterministische Gerufene ohne Schnitt dürfen:
+  # gefiltert sind es dieselben Lösungen). Und: kann keine Klausel
+  # zurückkehren, macht der Erlang-Compiler aus der Rekursion eine flache
+  # Schleife – nicht übersetzt (der Interpreter stößt an die Grenze).
+  test "bestimmte Ausgaben beim Aufruf, Rekursion ohne Ende", c do
+    Reader.put_current(c.reader)
+    u = System.unique_integer([:positive])
+
+    src = """
+    tab#{u}(a, 1) :- !.
+    tab#{u}(_, 2).
+    c#{u}(X, R) :- X > 0, tab#{u}(a, X), R = ja.
+    c#{u}(_, nein).
+    d#{u}(X, R) :- X > 0, tab#{u}(a, Y), R = Y.
+    e#{u}(X) :- e#{u}(X), e#{u}(X).
+    """
+
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    {int, []} =
+      with_jit_off(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    for q <- [
+          "c#{u}(2, R)",
+          "c#{u}(1, R)",
+          "d#{u}(1, R)",
+          "forall(between(1, 2000, _), c#{u}(2, ja))"
+        ] do
+      assert TableCase.run(c.reader, db, q) == TableCase.run(c.reader, int, q), q
+    end
+
+    {_, {:answers, ["R = ja", "R = nein"]}} = TableCase.run(c.reader, db, "c#{u}(2, R)")
+    {out, _} = TableCase.run(c.reader, db, "jit_listing")
+    assert out =~ ~r"% c#{u}/2 +nein +Klausel 1: ruft tab#{u}/2 mit bestimmter Ausgabe X"
+    assert out =~ ~r"% d#{u}/2 +\S+ +d#{u}\(\+int, -int\)"
+    assert out =~ ~r"% e#{u}/1 +nein +jede Klausel ruft sich selbst"
+  end
+
   # das Flag wirkt auch beim Aufruf: übersetzt geladen, aber abgeschaltet
   # rechnet der Interpreter (Choice Point offen: true statt !)
   test "Flag jit beim Aufruf", c do

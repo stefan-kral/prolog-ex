@@ -62,7 +62,8 @@ defmodule PrologEx.Jit do
   Die Modi (Eingabe/Ausgabe je Argument): steht eine Kopfvariable zuerst
   in einem Vergleich oder rechts in `is`, ist sie Eingabe, links in `is`
   Ausgabe, als Argument eines Aufrufs wie dort. Die übrigen Positionen
-  werden durchprobiert, mehr Ausgaben zuerst, Ausgaben eher rechts.
+  werden durchprobiert: zuerst, wie die Aufrufstellen das Prädikat rufen
+  (call_prefs/2), dann mehr Ausgaben zuerst, Ausgaben eher rechts.
 
   Gleich wie im Interpreter: Antworten, Fehler (dieselben
   Arithmetik-Funktionen), Inferenzen (jeder Aufruf und jedes eingebaute
@@ -194,6 +195,7 @@ defmodule PrologEx.Jit do
     end
 
     parsed = for {k, src} <- preds, p = parse(k, src, callable), p != nil, into: %{}, do: {k, p}
+    pref = call_prefs(preds, parsed)
     {parsed, num} = kinds(drop_orphans(parsed, ext), ext)
 
     solved =
@@ -212,7 +214,7 @@ defmodule PrologEx.Jit do
               do: why(k, "ruft #{pi(d)}, das nicht übersetzt wird")
         end
 
-        case ready && solve(scc, parsed, solved, ext, num) do
+        case ready && solve(scc, parsed, solved, ext, num, pref) do
           {:ok, res} -> Map.merge(solved, res)
           _ -> solved
         end
@@ -636,7 +638,34 @@ defmodule PrologEx.Jit do
   # übrigen Positionen durchprobieren. Je Versuch Typen bis zum Fixpunkt,
   # dann die Ausschließlichkeit.
 
-  defp solve(scc, parsed, solved, ext, num) do
+  defp solve(scc, parsed, solved, ext, num, pref) do
+    if endless?(scc, parsed) do
+      for k <- scc, do: why(k, "jede Klausel ruft sich selbst, ohne zu scheitern: endlos")
+      nil
+    else
+      solve_(scc, parsed, solved, ext, num, pref)
+    end
+  end
+
+  # Kann keine Klausel zurückkehren – Kopf nur Variablen, Rumpf nur Aufrufe
+  # im Zusammenhang (und Schnitte) –, macht der Erlang-Compiler den Aufruf
+  # zum Endaufruf (er kehrt ja nie zurück): der Code liefe als flache
+  # Schleife, wo der Interpreter an die Speichergrenze stößt
+  # (p(X) :- p(X), p(X).)
+  defp endless?(scc, parsed) do
+    Enum.all?(scc, fn k ->
+      Enum.all?(parsed[k].clauses, fn {head, gs} ->
+        Enum.all?(head, &match?({:var, _}, &1)) and gs != [] and
+          Enum.all?(gs, fn
+            :cut -> true
+            {tag, ck, _} when tag in [:call, :callo] -> ck in scc
+            _ -> false
+          end) and Enum.any?(gs, &match?({_, _, _}, &1))
+      end)
+    end)
+  end
+
+  defp solve_(scc, parsed, solved, ext, num, pref) do
     other = fn ck ->
       case solved do
         %{^ck => r} -> r.sig
@@ -649,28 +678,32 @@ defmodule PrologEx.Jit do
     case evidence(scc, parsed, other, false) do
       :no ->
         for k <- scc, do: why(k, "Modi widersprechen sich")
-        nd_solve(scc, parsed, other, num)
+        nd_solve(scc, parsed, other, num, pref)
 
       {:ok, fixed} ->
-        solve_modes(scc, parsed, other, num, fixed, false) || nd_solve(scc, parsed, other, num)
+        solve_modes(scc, parsed, other, num, fixed, false, pref) ||
+          nd_solve(scc, parsed, other, num, pref)
     end
   end
 
   # Hinweise auf Modi hier nur von der ersten Stelle einer Kopfvariablen
   # (btw(L, H, L): die dritte Stelle ist Ausgabe, auch wenn L verglichen
   # wird)
-  defp nd_solve([_] = scc, parsed, other, num) do
+  # (ohne Hinweise der Aufrufstellen: eine Ausgabe dient hier auch dem
+  # Prüfen – Lösungen nach dem Muster gefiltert –, mem(-any, +list) taugt
+  # also auch für mem(1, L), umgekehrt nicht)
+  defp nd_solve([_] = scc, parsed, other, num, _pref) do
     if PrologEx.Flags.get("jit_nondet") == {:atom, "true"} do
       case evidence(scc, parsed, other, true) do
-        {:ok, fixed} -> solve_modes(scc, parsed, other, num, fixed, true)
+        {:ok, fixed} -> solve_modes(scc, parsed, other, num, fixed, true, %{})
         :no -> nil
       end
     end
   end
 
-  defp nd_solve(_, _, _, _), do: nil
+  defp nd_solve(_, _, _, _, _), do: nil
 
-  defp solve_modes(scc, parsed, other, num, fixed, nd) do
+  defp solve_modes(scc, parsed, other, num, fixed, nd, pref) do
     open =
       for key <- scc,
           k <- 0..(parsed[key].arity - 1),
@@ -678,7 +711,7 @@ defmodule PrologEx.Jit do
           do: {key, k}
 
     open
-    |> candidates()
+    |> candidates(pref)
     |> nd_find_value(scc, fn assign ->
       modes = Map.merge(fixed, assign)
 
@@ -716,7 +749,9 @@ defmodule PrologEx.Jit do
                  do: {k, outs[{key, k}]}
                ),
              num: MapSet.member?(num, key),
-             nd: nd
+             nd: nd,
+             # ein Schnitt in einer Klausel (call_flow/4)
+             cut: Enum.any?(p.clauses, fn {_, gs} -> has_cut?(gs) end)
            }
 
            {key, %{sig: sig, irs: Enum.map(irs[key], & &1.ir), p: p}}
@@ -740,24 +775,271 @@ defmodule PrologEx.Jit do
       nil
   end
 
-  # alle Belegungen der offenen Positionen: mehr Ausgaben zuerst, dann
-  # Ausgaben eher rechts
-  defp candidates(open) when length(open) > @max_enum, do: [Map.new(open, &{&1, :out})]
+  # alle Belegungen der offenen Positionen: zuerst die, die am meisten
+  # Hinweisen der Aufrufstellen folgen (call_prefs/2), sonst mehr Ausgaben
+  # zuerst, dann Ausgaben eher rechts. Die alte letzte (die meisten
+  # Eingaben) bleibt die letzte: ihr Grund wird gemeldet, wenn keine passt
+  # (solve_modes/7). Zu viele offene: die bevorzugte, dann alle Ausgaben.
+  defp candidates(open, pref) when length(open) > @max_enum do
+    all_out = Map.new(open, &{&1, :out})
+    Enum.uniq([Map.new(open, &{&1, Map.get(pref, &1, :out)}), all_out])
+  end
 
-  defp candidates(open) do
+  defp candidates(open, pref) do
     n = length(open)
 
-    for mask <- 0..(Bitwise.bsl(1, n) - 1) do
-      outs =
-        for {pos, i} <- Enum.with_index(open), Bitwise.band(mask, Bitwise.bsl(1, i)) != 0, do: pos
+    cands =
+      for mask <- 0..(Bitwise.bsl(1, n) - 1) do
+        outs =
+          for {pos, i} <- Enum.with_index(open),
+              Bitwise.band(mask, Bitwise.bsl(1, i)) != 0,
+              do: pos
 
-      {mask, outs}
+        {mask, outs}
+      end
+      |> Enum.sort_by(fn {mask, outs} -> {-length(outs), -mask} end)
+      |> Enum.map(fn {_, outs} ->
+        Map.new(open, &{&1, if(&1 in outs, do: :out, else: :in)})
+      end)
+
+    if Enum.any?(open, &Map.has_key?(pref, &1)) do
+      agree = fn a -> Enum.count(open, &(Map.get(pref, &1) == a[&1])) end
+      ranked = cands |> Enum.with_index() |> Enum.sort_by(fn {a, i} -> {-agree.(a), i} end)
+      ranked = Enum.map(ranked, &elem(&1, 0))
+      last = List.last(cands)
+      if List.last(ranked) == last, do: ranked, else: ranked ++ [last]
+    else
+      cands
     end
-    |> Enum.sort_by(fn {mask, outs} -> {-length(outs), -mask} end)
-    |> Enum.map(fn {_, outs} ->
-      Map.new(open, &{&1, if(&1 in outs, do: :out, else: :in)})
-    end)
   end
+
+  # --- Hinweise der Aufrufstellen -------------------------------------------
+  #
+  # Für die Wahl unter offenen Modi (candidates/2): an jeder Aufrufstelle
+  # eines Prädikats des Ladeschritts – auch in Klauseln, die selbst nicht
+  # übersetzt werden – ist ein Argument Eingabe, wenn es dort gebunden ist
+  # (ein Term: wenn alle seine Variablen es sind), Ausgabe, wenn es eine
+  # freie Variable ist, sonst kein Hinweis. Der Zustand je Variable, die
+  # Klausel entlang (clause_hints/5): eine Kopfvariable an einer
+  # Eingabestelle des Rufers – oder in einem Kopfargument, das Eingabe ist
+  # – ist gebunden, an einer Ausgabestelle frei, sonst unbekannt; eine
+  # Variable, die erst im Rumpf vorkommt, frei; `V is E` bindet V, `X = T`
+  # X nur, wenn T gebunden ist; functor/3, arg/3 und =../2 geben weiter,
+  # was der Term ist; ein Aufruf bindet seine Variablen (in einer Struktur
+  # übergeben: danach unbekannt), andere Ziele auch.
+  #
+  # Die Modi des Rufers: aus den eigenen Klauseln (wie evidence/4, ohne
+  # Aufrufe) oder wieder aus den Hinweisen – einige Runden. Je Stelle die
+  # Mehrheit; Gleichstand: kein Hinweis. Nur eine Reihenfolge: was eine
+  # Belegung übersetzbar macht (Typen, Ausschluss), prüft solve_modes/7 wie
+  # zuvor. Ergebnis: %{{key, k} => :in | :out}.
+  defp call_prefs(preds, parsed) do
+    batch = MapSet.new(for {k, _} <- preds, do: k)
+    src = for {k, cls} <- preds, {h, b} <- cls, is_tuple(h), do: {k, plain(h), plain(b)}
+    local = local_modes(parsed)
+
+    Enum.reduce_while(1..4, local, fn _, pref ->
+      votes =
+        src
+        |> Enum.flat_map(fn {k, h, b} -> clause_hints(k, h, b, batch, pref) end)
+        |> Enum.reduce(%{}, fn {pos, m}, acc ->
+          Map.update(acc, pos, vote(m), &add_vote(&1, m))
+        end)
+
+      new = Map.merge(majority(votes), local)
+      if new == pref, do: {:halt, new}, else: {:cont, new}
+    end)
+  catch
+    # (unerwartete Formen: keine Hinweise, wie bisher)
+    _, _ -> %{}
+  end
+
+  defp vote(:in), do: {1, 0}
+  defp vote(:out), do: {0, 1}
+  defp add_vote({i, o}, :in), do: {i + 1, o}
+  defp add_vote({i, o}, :out), do: {i, o + 1}
+
+  defp majority(votes) do
+    for {pos, {i, o}} <- votes, i != o, into: %{}, do: {pos, if(i > o, do: :in, else: :out)}
+  end
+
+  # Modi aus den eigenen Klauseln (erste Verwendung einer Kopfvariablen),
+  # ohne Aufrufe; widersprechen sie sich, keiner
+  defp local_modes(parsed) do
+    for {key, p} <- parsed,
+        {head, goals} <- p.clauses,
+        {a, k} <- Enum.with_index(head),
+        match?({:var, _}, a),
+        not anon?(a),
+        e = first_use(a, goals),
+        e in [:in, :out],
+        reduce: %{} do
+      acc -> Map.update(acc, {key, k}, vote(e), &add_vote(&1, e))
+    end
+    |> Enum.flat_map(fn
+      {pos, {i, 0}} when i > 0 -> [{pos, :in}]
+      {pos, {0, o}} when o > 0 -> [{pos, :out}]
+      _ -> []
+    end)
+    |> Map.new()
+  end
+
+  defp clause_hints(key, h, b, batch, pref) do
+    hargs = args(h)
+    m = fn k -> Map.get(pref, {key, k}) end
+
+    nested =
+      for {a, i} <- Enum.with_index(hargs),
+          not match?({:var, _}, a),
+          v <- Enum.uniq(raw_vars(a, [])),
+          reduce: %{} do
+        acc -> Map.update(acc, v, [i], &[i | &1])
+      end
+
+    vs0 =
+      Map.new(nested, fn {v, ks} ->
+        ms = Enum.map(ks, m)
+
+        {v,
+         cond do
+           :in in ms -> :bound
+           Enum.all?(ms, &(&1 == :out)) -> :free
+           true -> :unknown
+         end}
+      end)
+
+    vs =
+      hargs
+      |> Enum.with_index()
+      |> Enum.reduce(vs0, fn
+        {{:var, _} = v, i}, acc ->
+          if Map.has_key?(acc, v) and acc[v] == :bound,
+            do: acc,
+            else: Map.put(acc, v, %{in: :bound, out: :free}[m.(i)] || :unknown)
+
+        _, acc ->
+          acc
+      end)
+
+    {hints, _} = body_hints(b, %{batch: batch, vs: vs})
+    hints
+  end
+
+  defp body_hints({:struct, op, [a, b]}, st) when op in [",", "->", "*->"] do
+    {h1, st} = body_hints(a, st)
+    {h2, st} = body_hints(b, st)
+    {h1 ++ h2, st}
+  end
+
+  defp body_hints({:struct, ";", [a, b]}, st) do
+    {h1, s1} = body_hints(a, st)
+    {h2, s2} = body_hints(b, st)
+
+    # nach der Disjunktion: was beide Zweige gleich sehen, sonst unbekannt
+    vs =
+      for v <- Enum.uniq(Map.keys(s1.vs) ++ Map.keys(s2.vs)), into: %{} do
+        x = vstate(v, s1)
+        {v, if(x == vstate(v, s2), do: x, else: :unknown)}
+      end
+
+    {h1 ++ h2, %{st | vs: vs}}
+  end
+
+  defp body_hints({:struct, "\\+", [g]}, st) do
+    {h, _} = body_hints(g, st)
+    {h, st}
+  end
+
+  defp body_hints({:struct, ":", [_, g]}, st), do: body_hints(g, st)
+
+  defp body_hints({:struct, "is", [{:var, _} = v, _]}, st), do: {[], bound(st, [v])}
+
+  defp body_hints({:struct, "=", [x, y]}, st) do
+    cond do
+      match?({:var, _}, x) and vstate(x, st) != :bound and tstate(y, st) == :bound ->
+        {[], bound(st, [x])}
+
+      match?({:var, _}, y) and vstate(y, st) != :bound and tstate(x, st) == :bound ->
+        {[], bound(st, [y])}
+
+      match?({:var, _}, x) and vstate(x, st) != :bound ->
+        {[], put_vs(st, x, :unknown)}
+
+      match?({:var, _}, y) and vstate(y, st) != :bound ->
+        {[], put_vs(st, y, :unknown)}
+
+      true ->
+        {[], st}
+    end
+  end
+
+  defp body_hints({:struct, "functor", [t, n, a]}, st) do
+    if tstate(t, st) == :bound,
+      do: {[], bound(st, raw_vars([n, a], []))},
+      else: {[], if(match?({:var, _}, t), do: put_vs(st, t, :unknown), else: st)}
+  end
+
+  defp body_hints({:struct, "arg", [_, t, a]}, st) do
+    cond do
+      not match?({:var, _}, a) -> {[], st}
+      tstate(t, st) == :bound -> {[], bound(st, [a])}
+      true -> {[], put_vs(st, a, :unknown)}
+    end
+  end
+
+  defp body_hints({:struct, "=..", [t, l]}, st) do
+    if tstate(t, st) == :bound,
+      do: {[], bound(st, raw_vars(l, []))},
+      else: {[], if(match?({:var, _}, t), do: put_vs(st, t, :unknown), else: st)}
+  end
+
+  defp body_hints({:struct, n, as} = g, st) do
+    k = {n, length(as)}
+
+    if MapSet.member?(st.batch, k) do
+      hs = for {a, j} <- Enum.with_index(as), m = arg_mode(a, st), m != nil, do: {{k, j}, m}
+
+      st =
+        Enum.reduce(as, st, fn
+          {:var, _} = v, st ->
+            bound(st, [v])
+
+          t, st ->
+            Enum.reduce(
+              raw_vars(t, []),
+              st,
+              &if(vstate(&1, &2) == :bound, do: &2, else: put_vs(&2, &1, :unknown))
+            )
+        end)
+
+      {hs, st}
+    else
+      {[], bound(st, raw_vars(g, []))}
+    end
+  end
+
+  defp body_hints(_, st), do: {[], st}
+
+  defp vstate(v, st), do: Map.get(st.vs, v, :free)
+
+  defp tstate({:var, _} = v, st), do: vstate(v, st)
+
+  defp tstate(t, st) do
+    if Enum.all?(raw_vars(t, []), &(vstate(&1, st) == :bound)), do: :bound, else: :unknown
+  end
+
+  defp bound(st, vars), do: Enum.reduce(vars, st, &put_vs(&2, &1, :bound))
+  defp put_vs(st, v, x), do: %{st | vs: Map.put(st.vs, v, x)}
+
+  defp arg_mode({:var, _} = v, st) do
+    case vstate(v, st) do
+      :bound -> :in
+      :free -> :out
+      :unknown -> nil
+    end
+  end
+
+  defp arg_mode(t, st), do: if(tstate(t, st) == :bound, do: :in)
 
   defp evidence(scc, parsed, other, first_only) do
     ev =
@@ -1425,6 +1707,26 @@ defmodule PrologEx.Jit do
 
     indexed = Enum.with_index(as)
 
+    # Ausgaben eines übersetzten Prädikats: nur frische Variablen, je eine.
+    # Der Code rechnet die Ausgabe und vergleicht erst danach; der
+    # Interpreter prüft sie, wo sie gebunden wird – schon im Kopf, und
+    # scheitert die Klausel dort, nimmt er die nächste: tab(a, 1) :- !.
+    # tab(_, 2). gerufen als tab(a, 2) gelingt dort, im Code schlüge der
+    # Vergleich 1 = 2 fehl. Ausgenommen: eingebaute (between/3 prüft
+    # selbst) und nichtdeterministisch übersetzte ohne Schnitt – deren
+    # Lösungen der Reihe nach gefiltert sind dieselben (mem(K-V, L)).
+    if not (Map.get(sig, :builtin, false) or
+              (Map.get(sig, :nd, false) and not Map.get(sig, :cut, true))) do
+      os = for {a, k} <- indexed, sig.modes[k] == :out, not anon?(a), do: a
+
+      for a <- os,
+          not match?({:var, _}, a) or defd?(d, a),
+          do: no!("ruft #{pi(ck)} mit bestimmter Ausgabe #{out_desc(a)}")
+
+      if length(Enum.uniq(os)) != length(os),
+        do: no!("ruft #{pi(ck)} mit derselben Variablen an zwei Ausgaben")
+    end
+
     ins =
       for {a, k} <- indexed, sig.modes[k] == :in do
         {bt, vt} = build!(a, d, ctx)
@@ -1445,6 +1747,17 @@ defmodule PrologEx.Jit do
 
     {{:call, ck, Enum.map(ins, &elem(&1, 1)), outs}, d2}
   end
+
+  # ein Schnitt irgendwo im Rumpf (auch in Zweigen)
+  defp has_cut?(:cut), do: true
+  defp has_cut?(gs) when is_list(gs), do: Enum.any?(gs, &has_cut?/1)
+  defp has_cut?({:ite, c, t, e}), do: has_cut?(c) or has_cut?(t) or has_cut?(e)
+  defp has_cut?({:not, g}), do: has_cut?(g)
+  defp has_cut?(_), do: false
+
+  defp out_desc({:var, _} = v), do: vname(v)
+  defp out_desc(p) when is_tuple(p) or p == :nl, do: desc_p(p)
+  defp out_desc(p), do: inspect(p)
 
   defp bi_types("arg"), do: [:any]
   defp bi_types("functor"), do: [:any, :num]

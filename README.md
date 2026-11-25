@@ -107,7 +107,17 @@ Ein Prolog-Kern in Elixir:
     `lfsr_done/1` mit fertigem Zustand – 200 000 Zahlen ziehen und damit
     rechnen (N = 20) 975 → 31 ms; und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
-    Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
+    Moduls – an deren Ausgabestellen nur frische Variablen, je eine: der
+    Code rechnet eine Ausgabe und vergleicht erst danach, der Interpreter
+    prüft sie, wo sie gebunden wird, schon im Kopf, und nimmt dort, wenn
+    sie nicht passt, die nächste Klausel (`tab(a, 1) :- !. tab(_, 2).`
+    gerufen als `tab(a, 2)` gelingt; bis 26. November 2026 lieferte der
+    Code hier eine falsche Antwort). Ausgenommen eingebaute und
+    nichtdeterministisch übersetzte ohne Schnitt (deren Lösungen der Reihe
+    nach gefiltert sind dieselben). Nicht übersetzt wird auch ein
+    Prädikat, dessen Klauseln alle nur sich selbst rufen (`p(X) :- p(X),
+    p(X).`: der Erlang-Compiler machte eine flache Endlosschleife daraus,
+    der Interpreter stößt an die Speichergrenze); eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
     ihren Zweigen keiner steht: `(A ; B), !` übersetzt er wie
     `(A -> true ; B -> true), !` (gleiche Antworten und Inferenzen); alle
     auswertbaren Funktoren außer `random`/`random_float` (dazu `pi`, `e`,
@@ -155,8 +165,15 @@ Ein Prolog-Kern in Elixir:
   - Modi und Typen: steht eine Kopfvariable zuerst in einem Vergleich
     oder rechts in `is`, ist sie Eingabe, links in `is` Ausgabe, als
     Argument eines Aufrufs wie dort; die übrigen Positionen werden
-    durchprobiert (mehr Ausgaben zuerst, Ausgaben eher rechts: app/3 wird
-    app(+, +, -)). Ein Wert ist eine Zahl, eine Liste, eine Liste von
+    durchprobiert: zuerst, wie die Aufrufstellen im geladenen Programm das
+    Prädikat rufen – auch in Klauseln, die selbst nicht übersetzt werden;
+    ein Argument, das dort gebunden ist, als Eingabe, eine frische
+    Variable als Ausgabe (je Stelle die Mehrheit) –, dann mehr Ausgaben
+    zuerst, Ausgaben eher rechts (app/3 wird app(+, +, -)). So wird eine
+    Faktentabelle wie `exp(I, plus(J,K), times(...)) :- !.`, gerufen als
+    `exp(A, B, C)` mit A, B aus der Eingabe des Rufers, zu exp(+, +, -)
+    statt zum ersten übersetzbaren exp(-, -, +) (SICStus-Benchmark boyer:
+    `equal/2` jetzt übersetzt, vorher „Modi widersprechen sich“). Ein Wert ist eine Zahl, eine Liste, eine Liste von
     Zahlen oder beliebig – dann wird er nur durchgereicht, auch als
     ungebundene Variable (app([1], X, L) gibt L = [1|X]). Was ein Wert
     sein muss, folgt aus dem Gebrauch (gerechnet, zerlegt, verglichen);
