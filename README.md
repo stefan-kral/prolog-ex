@@ -4098,10 +4098,14 @@ Prolog wie das Original – dieselben Antworten und Fehler
   `type_error(list, Ps)`, `Free` kein `{...}` `type_error(lambda_free,
   F)`, weniger Argumente als Parameter
   `domain_error(lambda_parameters, Ps)`. Dazu `is_lambda/1`.
-* Anders als SWI übersetzt PrologEx Lambdas nicht beim Laden: sie
-  kopieren immer. In SWI teilt ein übersetztes Lambda (im Rumpf einer
-  Klausel, genug instanziiert) seine übrigen Variablen mit der Klausel,
-  ein interpretiertes nicht – hier gilt immer das Zweite.
+* Anders als SWI übersetzt PrologEx Lambdas nicht so, dass sich die
+  Bedeutung ändert: sie kopieren immer. In SWI teilt ein übersetztes
+  Lambda (im Rumpf einer Klausel, genug instanziiert) seine übrigen
+  Variablen mit der Klausel, ein interpretiertes nicht – hier gilt immer
+  das Zweite. `library(apply_macros)` (Flag `apply_macros`, an) löst ein
+  Lambda in `maplist/N`, `foldl/N`, `include/3` … nur dort ins
+  Hilfsprädikat auf, wo das dasselbe ergibt (siehe dort): `maplist([X,Y]>>(Y
+  is X*2), L, _)` über 200 000 Elemente 12 ms statt 1,2 s.
 * Die Elixir-Fassung kopiert, bindet und ruft in einem Schritt:
   `maplist([X,Y]>>(Y is X*2), L, _)` über 200 000 Elemente 1,1 s statt
   2,7–3,1 s mit `yall_pl`.
@@ -6278,6 +6282,16 @@ hat: jede Variable des Lambdas, die nicht in `Free` (`Free+\…`) steht,
 kommt in der Klausel nur im Lambda vor (es kopiert bei jedem Aufruf, sie
 wäre also ohnehin jedes Mal frisch), und die Argumente reichen für alle
 Parameter. Sonst ruft das Hilfsprädikat das Lambda wie bisher.
+Ebenso ein **yall-Lambda** (`library(yall)` oder `yall_pl`):
+`Params>>Rumpf`, `Free/Params>>Rumpf`, `Free/Rumpf` – unter denselben
+Bedingungen, dazu: `Params` eine echte Liste, `Free` ein `{…}` ohne
+gemeinsame Variable mit `Params`, kein Schnitt im Rumpf (der wirkte
+sonst im Hilfsprädikat statt nur im Lambda). `maplist([X]>>(Y = X), [1])`
+bleibt also ein Aufruf (`Y` bleibt frei), `maplist({N}/[X]>>(X > N), L)`
+wird aufgelöst. 200 000 Elemente, mit → ohne:
+`maplist([X,Y]>>(Y is X*2), L, M)` 1191 → 12 ms,
+`foldl([X,A0,A]>>(A is A0+X), L, 0, S)` 1141 → 25 ms,
+`include({N}/[X]>>(X > N), L, M)` 1200 → 454 ms.
 Expandiert wird im Rumpf und in `,`, `;`, `->`, `*->`, `\+`, nicht in
 Zielen, die erst zur Laufzeit entstehen (Anfragen, `findall/3`-Ziele),
 und nicht in den Bibliotheken des Systems – außer in clpz: dort laufen

@@ -11,6 +11,7 @@ defmodule PrologEx.ApplyMacrosTest do
   :- use_module(library(apply)).
   :- use_module(library(lists)).
   :- use_module(library(lambda)).
+  :- use_module(library(yall)).
   :- use_module(library(iso_ext)).
   inc(X, Y) :- Y is X + 1.
   add(K, X, Y) :- Y is X + K.
@@ -45,6 +46,26 @@ defmodule PrologEx.ApplyMacrosTest do
   n1(Xs) :- maplist(\\X^(X = 0 ; X = 1), Xs).
   n2(Xs) :- maplist(in01, Xs).
   n3(Xs, Ys) :- maplist(\\X^Y^(member(X-Y, [a-1, b-2, a-3])), Xs, Ys).
+  % library(yall): aufgelöst nur, wo es dieselbe Bedeutung hat
+  y1(L, M) :- maplist([X,Y]>>(Y is X*2), L, M).
+  y2(L, S) :- foldl([X,A0,A]>>(A is A0+X), L, 0, S).
+  y3(N, L, M) :- include({N}/[X]>>(X > N), L, M).
+  y4(L, M) :- maplist([f(X),X]>>true, L, M).
+  y5(L, M) :- maplist([X]>>succ(X), L, M).
+  y6(N, L) :- maplist({N}/succ(N), L).
+  y7(Ls, Ss) :- maplist([L,S]>>foldl([X,A0,A]>>(A is A0+X), L, 0, S), Ls, Ss).
+  y8(L, I, E) :- partition([X]>>(X mod 2 =:= 0), L, I, E).
+  y9(Xs) :- maplist([X]>>(X = 0 ; X = 1), Xs).
+  y10(A, B) :- maplist([X]>>(X = f(_)), [A,B]).
+  % nicht aufgelöst: Variable der Klausel im Lambda (Kopie!), Schnitt,
+  % zu viele Parameter, Lambda in Free/…, keine echte Liste
+  yn1(Y) :- maplist([X]>>(Y = X), [1]).
+  yn2(K, Ls, Ms) :- maplist([L,M]>>include([X]>>(X > K), L, M), Ls, Ms).
+  yn3(L) :- maplist([X]>>(X > 0, !), L).
+  yn4(L) :- maplist([_,_]>>true, L).
+  yn5(N, L) :- maplist({N}/([X]>>(X > N)), L).
+  yn6(L) :- maplist([X|_]>>true, L).
+  yn7(Y, L) :- Y = 1, maplist([X]>>(X =:= Y), L).
   % verschiedene Closures, deren Gerüst phash2 gleich abbildet: je ein
   % eigenes Hilfsprädikat
   h1(L) :- maplist(=(#(0,1,0)), L).
@@ -72,6 +93,52 @@ defmodule PrologEx.ApplyMacrosTest do
     {off, _} = PrologEx.Consult.load(%{}, terms)
     PrologEx.Flags.set("apply_macros", {:atom, "true"})
     {:ok, reader: r, on: on, off: off, own: own_db}
+  end
+
+  # yall: aufgelöst heißt, kein Aufruf von >>/N oder //N mehr im
+  # Hilfsprädikat; die anderen rufen das Lambda (Kopie je Aufruf)
+  test "yall-Lambdas: aufgelöst nur, wo die Bedeutung gleich bleibt", c do
+    aux_of = fn n, a ->
+      {:pred, _, _, _, _} = c.on[{"user", n, a}]
+      [{_, body}] = PrologEx.pred_source(c.on[{"user", n, a}])
+      # das letzte Ziel einer Konjunktion ist der Aufruf
+      last = fn
+        {:struct, ",", [_, g]}, f -> f.(g, f)
+        g, _ -> g
+      end
+
+      {:struct, aux, _} = last.(PrologEx.unmark(body), last)
+
+      for {{"user", ^aux, _}, p} <- c.on,
+          {_, b} <- PrologEx.pred_source(p),
+          do: PrologEx.Writer.format(PrologEx.unmark(b), quoted: true)
+    end
+
+    lam? = fn bodies -> Enum.any?(bodies, &(&1 =~ ">>" or &1 =~ "/(")) end
+
+    for {n, a} <- [
+          {"y1", 2},
+          {"y2", 2},
+          {"y3", 3},
+          {"y4", 2},
+          {"y5", 2},
+          {"y6", 2},
+          {"y8", 3},
+          {"y9", 1},
+          {"y10", 2}
+        ],
+        do: refute(lam?.(aux_of.(n, a)), "#{n}/#{a}: #{inspect(aux_of.(n, a))}")
+
+    for {n, a} <- [
+          {"yn1", 1},
+          {"yn2", 3},
+          {"yn3", 1},
+          {"yn4", 1},
+          {"yn5", 2},
+          {"yn6", 1},
+          {"yn7", 2}
+        ],
+        do: assert(lam?.(aux_of.(n, a)), "#{n}/#{a}: #{inspect(aux_of.(n, a))}")
   end
 
   test "Hilfsprädikate entstehen, wo die Closure bekannt ist", c do
@@ -130,7 +197,30 @@ defmodule PrologEx.ApplyMacrosTest do
         "n1(Xs)",
         "findall(Xs-Ys, n3([a, b], Ys), L)",
         "findall(Xs-Ys, (length(Xs, 2), n3(Xs, Ys)), L)",
-        "h1([X]), h2([Y])"
+        "h1([X]), h2([Y])",
+        "y1([1,2,3], M)",
+        "y1(L, [2,4])",
+        "y2([1,2,3], S)",
+        "y3(1, [1,2,3], M)",
+        "y4([f(1),f(2)], M)",
+        "y4([g(1)], M)",
+        "y5([1,2], M)",
+        "y6(1, [2,2])",
+        "catch(y6(_, [2]), error(E, _), true)",
+        "y7([[1,2],[3]], Ss)",
+        "y8([1,2,3,4], I, E)",
+        "length(Xs, 3), findall(Xs, y9(Xs), L)",
+        "y10(A, B), A == B",
+        "y10(A, B)",
+        "yn1(Y)",
+        "yn2(1, [[1,2],[0,3]], Ms)",
+        "yn3([1,2])",
+        "catch(yn4([1]), error(E, _), true)",
+        "yn5(1, [2,3])",
+        "catch(yn5(_, [2]), error(E, _), true)",
+        "catch(yn6([1]), error(E, _), true)",
+        "yn7(Y, [1,1])",
+        "yn7(Y, [1,2])"
       ] do
     test q, c do
       Reader.put_current(c.reader)

@@ -26,6 +26,13 @@ defmodule PrologEx.ApplyMacros do
       Lambda vor (das Lambda kopiert bei jedem Aufruf – eine solche
       Variable ist ohnehin jedes Mal frisch); und es hat nicht mehr
       Parameter als Argumente. Sonst bleibt es ein Aufruf des Lambdas.
+    * Ebenso ein Lambda aus `library(yall)` (`[X1,…]>>Rumpf`,
+      `Free/[X1,…]>>Rumpf`, `Free/Rumpf`), unter denselben Bedingungen –
+      yall kopiert bei jedem Aufruf (außer `Free`) –, dazu: die Parameter
+      eine echte Liste, höchstens so viele wie Argumente, kein Schnitt im
+      Rumpf, `Free` ein `{…}` ohne Parameter darin. Sonst bleibt es ein
+      Aufruf (anders als SWI, das auch Lambdas mit Variablen der Klausel
+      auflöst und damit deren Bedeutung ändert).
     * Expandiert wird im Rumpf und in `,`, `;`, `->`, `*->`, `\\+`.
 
   Abschalten: `set_prolog_flag(apply_macros, false)` vor dem Laden.
@@ -171,6 +178,13 @@ defmodule PrologEx.ApplyMacros do
       {:struct, "+\\", [free, lam]} ->
         lambda(c, vars(free), lam, nargs, ctx) || plain(c)
 
+      # library(yall): Params>>Rumpf, Free/Params>>Rumpf, Free/Rumpf
+      {:struct, ">>", [ps, body]} ->
+        yall(c, ps, body, nargs, ctx) || plain(c)
+
+      {:struct, "/", [free, body]} ->
+        yall_free(c, free, body, nargs, ctx) || plain(c)
+
       _ ->
         plain(c)
     end
@@ -225,6 +239,78 @@ defmodule PrologEx.ApplyMacros do
          end}
     end
   end
+
+  # Lambdas aus library(yall) ebenso, mit derselben Vorsicht: sie kopieren
+  # sich bei jedem Aufruf (copy_term/2, außer den Variablen von Free).
+  # Aufgelöst nur, wenn das dieselbe Bedeutung hat – jede Variable des
+  # Lambdas außerhalb von Free kommt in der Klausel nur im Lambda vor (dann
+  # ist sie ohnehin bei jedem Aufruf frisch), Params eine echte Liste mit
+  # höchstens so vielen Parametern wie Argumenten (sonst domain_error beim
+  # Aufruf), Free ein {…}, kein Parameter in Free, kein Schnitt im Rumpf
+  # (call/N schneidet nur im Rumpf), library(yall) bzw. yall_pl sichtbar.
+  # Free/Rumpf mit einem Lambda als Rumpf bleibt ein Aufruf (das innere
+  # kopiert die Variablen von Free noch einmal)
+  defp yall(whole, ps, body, nargs, ctx) do
+    {free, plist} =
+      case ps do
+        {:struct, "/", [f, pl]} -> {f, pl}
+        pl -> {nil, pl}
+      end
+
+    with true <- yall_lib?(ctx, ">>", 2 + nargs),
+         true <- free == nil or yall_free?(free),
+         {:ok, params} <- proper(plist),
+         true <- length(params) <= nargs,
+         false <- has_cut?(body),
+         fv = if(free, do: vars(free), else: []),
+         true <- MapSet.disjoint?(MapSet.new(vars(params)), MapSet.new(fv)),
+         true <- Enum.all?(vars(whole), &(&1 in fv or local?(&1, whole, ctx.clause))) do
+      {:ok, fv,
+       fn es ->
+         {_, rest} = Enum.split(es, length(params))
+         {params ++ rest, add_args(body, rest)}
+       end}
+    else
+      _ -> nil
+    end
+  end
+
+  defp yall_free(whole, free, body, nargs, ctx) do
+    with true <- yall_lib?(ctx, "/", 2 + nargs),
+         true <- yall_free?(free),
+         false <- match?({:struct, n, _} when n in [">>", "/"], body),
+         false <- match?({:var, _}, body),
+         false <- has_cut?(body),
+         fv = vars(free),
+         true <- Enum.all?(vars(whole), &(&1 in fv or local?(&1, whole, ctx.clause))) do
+      {:ok, fv, fn es -> {es, add_args(body, es)} end}
+    else
+      _ -> nil
+    end
+  end
+
+  defp yall_free?({:struct, "{}", [_]}), do: true
+  defp yall_free?({:atom, "{}"}), do: true
+  defp yall_free?(_), do: false
+
+  defp yall_lib?(ctx, name, ar) do
+    case PrologEx.locate(ctx.db, ctx.module, name, ar) do
+      {:builtin, "yall", _} -> true
+      {:db, "yall_pl", _} -> true
+      _ -> false
+    end
+  end
+
+  defp proper([]), do: {:ok, []}
+
+  defp proper([h | t]) do
+    case proper(t) do
+      {:ok, l} -> {:ok, [h | l]}
+      e -> e
+    end
+  end
+
+  defp proper(_), do: :no
 
   defp params({:struct, "^", [p, r]}, n, acc) when n > 0, do: params(r, n - 1, [p | acc])
   defp params(body, _n, acc), do: {Enum.reverse(acc), body}
