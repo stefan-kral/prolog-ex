@@ -23,11 +23,60 @@ defmodule PrologEx.Builtins.Swi do
       Strings: scheitert immer), `garbage_collect/0` (tut nichts),
       `get_time/1` (Sekunden seit 1970 als Float), `cyclic_term/1`
       (in `PrologEx.Builtins.Terms`).
+    * Dateinamen: `file_base_name/2`, `file_directory_name/2` (wie POSIX
+      `basename`, `dirname`), `file_name_extension/3`,
+      `is_absolute_file_name/1`; mehr in `library(filesex)`.
   """
   use PrologEx.Builtin
   alias PrologEx.Builtins.{Blackboard, Charsio, IO, Lists}
   alias PrologEx.{Error, Order, Store}
   alias PrologEx.Stream, as: S
+
+  # --- Dateinamen (wie SWI; library(filesex) dazu) ------------------------------
+
+  alias PrologEx.Builtins.Filesex, as: FX
+
+  defbuiltin "file_base_name", [p, b] do
+    {:unify, [{b, {:atom, FX.basename(FX.text!(p, subst()))}}]}
+  end
+
+  defbuiltin "file_directory_name", [p, d] do
+    {:unify, [{d, {:atom, FX.dirname(FX.text!(p, subst()))}}]}
+  end
+
+  defbuiltin "is_absolute_file_name", [p] do
+    if FX.absolute?(FX.text!(p, subst())), do: :ok, else: :fail
+  end
+
+  # file_name_extension(?Base, ?Ext, ?Name): Ext ohne Punkt (".pl" geht
+  # auch); hat Base schon die Endung Ext, ist Name = Base
+  defbuiltin "file_name_extension", [base, ext, name] do
+    s = subst()
+    e0 = FX.opt_text(ext, s)
+    e = e0 && String.replace_prefix(e0, ".", "")
+
+    case FX.opt_text(name, s) do
+      n when is_binary(n) ->
+        {b, ne} = FX.split_ext(n)
+
+        cond do
+          e == nil -> {:unify, [{base, {:atom, b}}, {ext, {:atom, ne}}]}
+          e == ne -> {:unify, [{base, {:atom, b}}]}
+          e == "" -> {:unify, [{base, {:atom, n}}]}
+          true -> :fail
+        end
+
+      nil ->
+        b = FX.text!(base, s)
+
+        cond do
+          e == nil -> Error.instantiation!()
+          e == "" -> {:unify, [{name, {:atom, b}}]}
+          elem(FX.split_ext(b), 1) == e -> {:unify, [{name, {:atom, b}}]}
+          true -> {:unify, [{name, {:atom, b <> "." <> e}}]}
+        end
+    end
+  end
 
   # --- Ausgabe ---------------------------------------------------------------
 

@@ -330,7 +330,7 @@ defmodule PrologEx.Toplevel do
   @count_key :toplevel_answer_count
 
   defp run_query(goal, st, mode) do
-    st = if mode == :interactive, do: autoload(goal, st), else: st
+    st = autoload(goal, st, mode)
     answers = PrologEx.solutions(st.db, PrologEx.Builtins.Expansion.expand_query(st.db, goal))
 
     Process.put(@count_key, 0)
@@ -363,18 +363,26 @@ defmodule PrologEx.Toplevel do
   #
   # Vor dem Ausführen: was die Anfrage aufruft, in user nicht sichtbar ist,
   # aber eindeutig in einer Bibliothek liegt, nach user importieren, mit
-  # einer Meldung (PrologEx.Autoload). Programme: Flag autoload (Consult)
+  # einer Meldung (PrologEx.Autoload). Ebenso die Ziele von -g, dort mit
+  # der Meldung des Ladens (auf stderr, still bei verbose_load = silent,
+  # also mit -q: die Ausgabe eines Benchmarks bleibt sauber). Programme:
+  # Flag autoload (Consult)
 
-  defp autoload(goal, st) do
+  defp autoload(goal, st, mode) do
     if PrologEx.Flags.get("toplevel_autoload") == {:atom, "true"} do
-      report = fn lib, keys ->
-        what =
-          Enum.map_join(keys, ", ", fn {n, a} ->
-            PrologEx.Writer.format({:struct, "/", [{:atom, n}, a]}, quoted: true)
-          end)
+      report =
+        if mode == :goal do
+          fn lib, keys -> PrologEx.LoadLog.autoloaded("user", lib, keys) end
+        else
+          fn lib, keys ->
+            what =
+              Enum.map_join(keys, ", ", fn {n, a} ->
+                PrologEx.Writer.format({:struct, "/", [{:atom, n}, a]}, quoted: true)
+              end)
 
-        IO.puts(Terminal.paint(:comment, "% #{what} aus library(#{lib}) importiert"))
-      end
+            IO.puts(Terminal.paint(:comment, "% #{what} aus library(#{lib}) importiert"))
+          end
+        end
 
       %{st | db: PrologEx.Autoload.run([goal], st.db, "user", report)}
     else

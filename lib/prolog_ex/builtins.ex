@@ -58,6 +58,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Statistics,
     PrologEx.Builtins.Lambda,
     PrologEx.Builtins.Yall,
+    PrologEx.Builtins.Filesex,
     PrologEx.Builtins.Operators,
     PrologEx.Builtins.Si,
     PrologEx.Builtins.Solutions,
@@ -147,7 +148,8 @@ defmodule PrologEx.Builtins do
                     predsort/3 sort/4 code_type/2 nb_setval/2 nb_getval/2 b_setval/2
                     b_getval/2 nb_current/2 term_variables/3 string/1 garbage_collect/0
                     get_time/1 cyclic_term/1 public/1 unifiable/3 term_singletons/2
-                    duplicate_term/2 atom_to_term/3)},
+                    duplicate_term/2 atom_to_term/3 file_base_name/2 file_directory_name/2
+                    file_name_extension/3 is_absolute_file_name/1)},
                 # wie SWI: library(quintus), library(edinburgh) (Chat-80)
                 {"quintus", ~w(mode/1 otherwise/0)},
                 {"edinburgh", ~w(display/1 display/2 name/2)},

@@ -393,6 +393,40 @@ defmodule PrologEx.ToplevelTest do
     assert out =~ "% last/2 aus library(lists) importiert\n"
     assert out =~ "N = 2."
 
+    # -g: ebenso, mit der Meldung des Ladens (stderr; still mit -q)
+    {out, err} =
+      with_io(:stderr, fn ->
+        capture_io(fn ->
+          PrologEx.Toplevel.main([
+            "-q",
+            "-g",
+            "forall(member(X, [1,2]), writeln(X))",
+            "-g",
+            "halt"
+          ])
+        end)
+      end)
+
+    assert {out, err} == {"1\n2\n", ""}
+
+    {out, err} =
+      with_io(:stderr, fn ->
+        capture_io(fn ->
+          PrologEx.Toplevel.main([
+            "-g",
+            "set_prolog_flag(verbose_load, normal)",
+            "-g",
+            "forall(member(X, [1]), writeln(X))",
+            "-g",
+            "halt"
+          ])
+        end)
+      end)
+
+    assert out =~ "1\n"
+    assert err =~ "% user ← iso_ext: forall/2 (autoload)"
+    assert err =~ "% user ← lists: member/2 (autoload)"
+
     # eigene Definitionen gehen vor
     out = bare("assertz(last(_, eigen)).\nlast([1], X).\n")
     refute out =~ "last/2 aus"

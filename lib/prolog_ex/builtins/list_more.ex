@@ -22,7 +22,8 @@ defmodule PrologEx.Builtins.ListMore do
       wie die Prolog-Fassung in `library(memberd_pl)`.
     * `selectd(?X, ?Liste, ?Rest)`, `permutationd(?Liste, ?Perm)` – wie
       `select/3` und `permutation/2`, ebenso mit `dif/2` (in Prolog):
-      `permutationd([a,a,b], P)` gibt jede Anordnung nur einmal.
+      `permutationd([a,a,b], P)` gibt jede Anordnung nur einmal. Zuerst
+      `same_length/2`: terminiert auch mit freier erster Liste.
 
   Dazu, nicht aus SICStus: `list_frequencies/2` und `list_runs/2`
   (Häufigkeiten bzw. Läufe gleicher Elemente, gleich heißt `==/2`; in
@@ -330,10 +331,16 @@ defmodule PrologEx.Builtins.ListMore do
           s("dif", [e, x]),
           s("selectd", [e, xs, ys])
         ]),
-        fact(s("permutationd", [[], []])),
-        rule(s("permutationd", [xs, [e | zs]]), [
+        # erst gleich lang (wie permutation/2 in SWI): terminiert so auch
+        # mit freier erster Liste (permutationd(Xs, [a,b,a]))
+        rule(s("permutationd", [xs, ys]), [
+          s("same_length", [xs, ys]),
+          s("$permutationd", [xs, ys])
+        ]),
+        fact(s("$permutationd", [[], []])),
+        rule(s("$permutationd", [xs, [e | zs]]), [
           s("selectd", [e, xs, ys]),
-          s("permutationd", [ys, zs])
+          s("$permutationd", [ys, zs])
         ]),
 
         # partition/5 (Liste vorn: Indexierung)

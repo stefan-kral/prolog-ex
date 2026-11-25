@@ -98,5 +98,17 @@ defmodule PrologEx.MemberdTest do
     assert ask(c, ex, "permutationd([], P)") == ["P = []"]
     assert ask(c, ex, "permutationd([a,b], [b,a])") == ["true"]
     assert ask(c, ex, "permutationd([a,a], [a,b])") == []
+
+    # erst gleich lang: terminiert auch mit freier erster Liste
+    assert ask(c, ex, "findall(Xs, permutationd(Xs, [a,b,a]), L)") ==
+             [~S(L = ["aba","aab","baa"])]
+
+    assert ask(c, ex, "permutationd(Xs, Ys)", 4) ==
+             [
+               "Xs = [], Ys = []",
+               "Xs = [_A], Ys = [_A]",
+               "Xs = [_A,_B], Ys = [_A,_B]",
+               "Xs = [_A,_B], Ys = [_B,_A], dif(_B,_A)"
+             ]
   end
 end

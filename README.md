@@ -751,6 +751,10 @@ X = 2.
 L = [2,3].
 ```
 
+Ebenso die Ziele von `-g`: `start_ex -g "forall(member(X, [1,2]), writeln(X))"`
+läuft ohne Imports. Die Meldung ist dort die des Ladens (auf stderr:
+`% user ← iso_ext: forall/2 (autoload)`), mit `-q` keine.
+
 Durchgesehen werden die Steuerkonstrukte (`,`, `;`, `->`, `\+`, `findall/3`,
 `catch/3`, `phrase/2,3`, …) und die Meta-Argumente (`maplist(succ, …)` →
 `succ/2`). Eigene Definitionen gehen vor. Mehrdeutiges (`add_edges/3` in
@@ -937,8 +941,9 @@ ohne doppelte Antworten; in Elixir, ohne Choice Point, sobald X mit einem
 Element identisch ist – bei gebundenem X etwa 18-mal so schnell wie die
 Prolog-Fassung `library(memberd_pl)`, `mix run bench/memberd_bench.exs`),
 `selectd/3` und `permutationd/2` (ebenso mit `dif/2`, in Prolog:
-`permutationd([a,a,b], P)` gibt jede Anordnung nur einmal; wie die
-Definition terminiert `permutationd(-, +)` nicht), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
+`permutationd([a,a,b], P)` gibt jede Anordnung nur einmal; zuerst
+`same_length/2` wie `permutation/2` in SWI, so terminiert auch
+`permutationd(Xs, [a,b,a])`), `nth0/3,4`, `nth1/3,4`, `maplist/2..8`, `succ/2`, `call_nth/2`,
 `findall/3,4`, `forall/2`, `once/1`, `ignore/1`, `plus/3`, `numbervars/3`,
 `atomic_list_concat/2,3` (auch zerlegen: `atomic_list_concat(L, '-', 'a-b')`),
 `setup_call_cleanup/3` (wie SWI und der WG17-Vorschlag: Cleanup sofort bei
@@ -1260,6 +1265,35 @@ Das eingebaute `delete_file/1` (wie SWI, auch mit Atom) bleibt
 verfügbar. Nach `use_module(library(files))` gilt das aus `files`, das
 nur Zeichenlisten nimmt.
 
+
+## Verzeichnisbäume und Pfade wie SWI: `library(filesex)`
+
+Der lesende Teil von SWIs `library(filesex)`, Pfade als Atome (Zeichen-
+und Codelisten werden angenommen):
+
+```prolog
+?- findall(F, directory_member(src, F, [recursive(true), extensions([pl])]), Fs).
+?- directory_file_path(D, F, '/x/y/z.pl').           % D = '/x/y', F = 'z.pl'
+?- relative_file_name('/h/j/nice', '/h/j/deep/dir/file', R).   % R = '../../nice'
+```
+
+* `directory_member(+Dir, -Member, +Optionen)`: die Einträge (ohne `.`,
+  `..`) als Pfad, lazy, sortiert (SWI: wie das Betriebssystem sie
+  liefert). Optionen wie SWI: `recursive(B)` (Tiefe zuerst, erst das
+  Verzeichnis, dann sein Inhalt), `follow_links(B)` (jedes Verzeichnis nur
+  einmal: keine Schleifen über Links), `file_type(directory | regular |
+  prolog | txt)`, `extensions(L)` (ohne Punkt), `matches(Glob)`,
+  `exclude(Glob)`, `exclude_directory(Glob)` (weder liefern noch
+  betreten), `hidden(B)`, `file_errors(error | fail)`.
+* `directory_file_path/3` (zusammensetzen und zerlegen; `.` und absolute
+  Dateinamen wie SWI), `relative_file_name/3` (beide Richtungen).
+* In SWI eingebaut, hier mit Heimat `library(swi)`: `file_base_name/2`,
+  `file_directory_name/2` (wie POSIX `basename`, `dirname`),
+  `file_name_extension/3` (hat die Basis die Endung schon, bleibt sie),
+  `is_absolute_file_name/1`.
+* Nur Abfragen: in den Arbeitern von `library(concurrent)` erlaubt –
+  einen Baum parallel durchsuchen:
+  `concurrent_maplist([D,Fs]>>findall(F, directory_member(D, F, [recursive(true)]), Fs), Ds, Fss)`.
 ## Byte-Folgen: `library(bytes)`
 
 Ein eigener atomarer Typ für Bytes, ein BEAM-Binary: ein Byte je Byte (eine
@@ -5195,7 +5229,7 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
     | `library(quintus)` (wie SWI, Auszug) | `mode/1` (DEC-10-Deklaration, ohne Wirkung), `otherwise/0` |
     | `library(edinburgh)` (wie SWI, Auszug) | `display/1,2` (gequotet, ohne Operatoren; Listen bleiben `[H\|T]`), `name/2` (Zahl, wenn der Text eine ist; Codes oder Zeichen) |
     | `library(edinburgh_io)` | die Edinburgh-Ein-/Ausgabe für ältere Programme und Lehrbücher (in SICStus und SWI eingebaut): `see/1`, `seen/0`, `seeing/1`, `tell/1`, `append/1`, `told/0`, `telling/1` (ein Dateiname öffnet beim ersten Mal, danach derselbe Stream, solange er offen ist; `user` ist die Standard-Ein-/Ausgabe) |
-    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `style_check/1`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])`; das `format/3` aus `library(format)` ebenso. Terme: `unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3` |
+    | `library(swi)` | vorläufig der Rest aus SWI: `ignore/1`, `not/1`, `*->/2`, `plus/3`, `atomic_list_concat/2,3`, `atom_number/2`, `term_to_atom/2`, `read_term_from_atom/3`, `=@=/2`, `\=@=/2`, `term_attvars/2`, `findnsols/4,5`, `call_with_depth_limit/3`, `exists_file/1`, `exists_directory/1`, `delete_file/1`, `fast_term_serialized/2`, `time/1`, `style_check/1`, `dcg_translate_rule/2`, `upcase_atom/2`, `downcase_atom/2` (Zeichen für Zeichen wie SWI: `upcase_atom('Grüße', 'GRÜßE')`); Ausgabe: `writeln/1,2`, `tab/1,2` (Ausdruck), `with_output_to/2` (Senken `atom(A)`, `chars(Cs)`, `chars(Cs, Rest)`, `codes(Cs)`, `codes(Cs, Rest)`; das Ziel wie `once/1`); Listen: `select/4`, `selectchk/3,4`, `flatten/2`, `predsort/3`, `sort/4` (Schlüssel 0 oder Argumentnummer, `@<`/`@>` entfernen gleiche Schlüssel, `@=<`/`@>=` nicht; stabil); `code_type/2` mit SWIs Typen (`alpha`, `csym`, `csymf`, `digit(W)`, `xdigit(W)`, `to_lower(L)`, `upper(L)`, `punct`, …; `char_type/2` bleibt Scryers aus `library(charsio)`); globale Variablen `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2`, `nb_current/2` (eigene Schlüssel neben `bb_put/2`; unbekannt: `existence_error(variable, K)`); `term_variables/3`, `string/1` (scheitert immer: keine Strings), `garbage_collect/0`, `get_time/1`, `public/1` (Deklaration ohne Wirkung) – und gibt alle obigen weiter. `format/3` nimmt (eingebaut, ohne Import) dieselben Senken wie `with_output_to/2`: `format(atom(A), "~w", [x])`; das `format/3` aus `library(format)` ebenso. Terme: `unifiable/3`, `term_singletons/2`, `duplicate_term/2`, `atom_to_term/3`; Dateinamen: `file_base_name/2`, `file_directory_name/2`, `file_name_extension/3`, `is_absolute_file_name/1` |
 
     `library(swi)` ist ein Kompromiss auf Zeit: ihre Prädikate wandern nach
     und nach in Bibliotheken, zu denen sie inhaltlich passen. Eigene

@@ -130,7 +130,14 @@ defmodule PrologEx.Autoload do
     {acc, meta} =
       case found do
         :imported ->
-          {acc, Map.get(@control_meta, {n, a})}
+          # die Angabe aus dem Modul, aus dem importiert wurde (eine
+          # Bibliothek in Prolog: erst nach dem Laden bekannt – darum die
+          # zweite Runde von run/5: limit(4, permutationd(…)))
+          src = Map.get(db, {:import, m, n, a})
+
+          {acc,
+           Map.get(db, {:meta, src, n, a}) || PrologEx.Builtins.meta(src, n, a) ||
+             Map.get(@control_meta, {n, a})}
 
         :none ->
           case PrologEx.LibraryIndex.choice(n, a) do
