@@ -230,4 +230,27 @@ defmodule PrologEx.ConsultTest do
     out = capture_io(input, fn -> PrologEx.Toplevel.main(["-q"]) end)
     assert out =~ "X = welt."
   end
+
+  # [Datei, ...] als Ziel ('.'/2) wie consult/1, auch in Direktiven und
+  # Rümpfen (die SICStus-Benchmarks: (:- [boyer], bench(100)).); in einer
+  # Datei relative Namen ab ihrem Ordner
+  @tag :tmp_dir
+  test "[Datei] als Ziel lädt wie consult/1", %{reader: r, tmp_dir: dir} do
+    Reader.put_current(r)
+    File.write!(Path.join(dir, "a.pl"), "a(1).\n")
+    File.write!(Path.join(dir, "b.pl"), "b(2).\n")
+
+    File.write!(
+      Path.join(dir, "main.pl"),
+      "(:- [a], a(X), assertz(seen(X))).\nlade :- ['#{Path.join(dir, "b.pl")}'].\n"
+    )
+
+    PrologEx.put_db(%{})
+    assert ask(r, %{}, "consult('#{Path.join(dir, "main.pl")}'), seen(X).") |> hd() =~ "X = 1"
+    assert ask(r, PrologEx.current_db(), "lade, b(Y).") |> hd() =~ "Y = 2"
+
+    PrologEx.put_db(%{})
+    q = "G = ['#{Path.join(dir, "a.pl")}', '#{Path.join(dir, "b.pl")}'], call(G), a(X), b(Y)."
+    assert ask(r, %{}, q) |> hd() =~ "X = 1, Y = 2"
+  end
 end

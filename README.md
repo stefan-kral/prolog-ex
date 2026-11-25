@@ -5359,7 +5359,8 @@ Flache Module (ein Baum der Tiefe 1 unter `system`), Sichtbarkeit wie SICStus:
   * `module/2`, `use_module/1,2` (Dateien und `library(lists)`,
     `library(apply)`, `library(random)`, `library(atts)`, `library(between)`, `library(reif)`, `library(reif_pl)`,
     `library(blackboard)`, `library(mutables)`, `library(lambda)`,
-    `library(lambda_pl)`, `library(si)`, `library(gensym)`), `ensure_loaded/1`, `consult/1`, `M:Ziel`,
+    `library(lambda_pl)`, `library(si)`, `library(gensym)`), `ensure_loaded/1`, `consult/1` (auch
+    `[Datei, ...]` als Ziel, etwa in Direktiven), `M:Ziel`,
     `M:Kopf :- Rumpf`, `assert(M:Klausel)`, `meta_predicate/1`,
     `current_module/1` (Bibliotheken in Elixir erst, wenn aus ihnen
     importiert wurde, wie in SWI ohne Autoload), `strip_module/3` (ohne
@@ -6449,6 +6450,76 @@ Liste (etwa 2–4 statt 1,5 ns je Klausel; Map oder `gb_trees` mit
 Positionen: rund 19 ns), statische Prädikate unverändert (in
 `try_clauses` liegt der Fall hinter dem Listenfall, der Normalfall bleibt
 ein einziger Test).
+
+### Die SICStus-Benchmarks: Vergleich mit SWI und Scryer
+
+`bench/sicstus/run.sh` lässt die Benchmark-Suite von der SICStus-Seite
+(https://sicstus.sics.se/performance.html, `bench.zip`: 25 Programme,
+meist aus der Aquarius-Suite) in PrologEx, SWI-Prolog und Scryer Prolog
+laufen. Die Quellen liegen nicht im Repo (keine Lizenz angegeben), nur
+der Harness:
+
+```sh
+BENCH_DIR=~/bench bench/sicstus/run.sh        # alle, je bestes von 3
+BENCH_DIR=~/bench ONLY=boyer,tak SCALE=10 RUNS=1 bench/sicstus/run.sh
+```
+
+Je Programm ein eigener Prozess je System (die Programme definieren alle
+`benchmark/2`, `data/1`), zuerst ein **Ergebnis-Check** – `data(D),
+benchmark(D, R)` einmal, `D-R` mit eigenem Schreiber ausgegeben und mit
+der Mehrheit verglichen –, dann die Laufzeit mit dem `harness.pl` der
+Suite (CPU-Zeit nach Abzug einer Leerschleife; in PrologEx gleich der
+Wanduhr). Der Check ist nötig: der Harness misst auch, wenn
+`benchmark/2` scheitert – reducer scheitert in SWI ohne
+`--traditional` (dort ist `[]` kein Atom) und sah 20-mal schneller aus.
+Was die Systeme verschieden brauchen, steht in einem Prelude je System:
+`"..."` als Codes (flatten), SWI mit `--traditional`, Scryer mit
+`name/2`, `dynamic` als Präfixoperator, `statistics/2` aus
+library(time), ohne `:- ensure_loaded/1` und mit Zeichenlisten für
+`format/2`. Dafür kennt PrologEx jetzt `[Datei, ...]` als Ziel
+(`'.'/2`, wie consult/1; `main.pl` der Suite lädt so).
+
+Stand 25. November 2026 (OTP 28, SWI-Prolog 9.0.4 aus Ubuntu, Scryer
+0.10.0 aus crates.io, dieselbe Maschine mit 2 Kernen, nacheinander;
+Iterationen aus `main.pl`, ms, bestes von 3; alle Ergebnisse gleich):
+
+| Programm | Iter. | PrologEx | SWI | Scryer | PrologEx ÷ SWI | Scryer ÷ SWI |
+|---|---:|---:|---:|---:|---:|---:|
+| boyer | 100 | 67837 | 1571 | 5338 | 43,18 | 3,40 |
+| browse | 100 | 66090 | 2411 | 8367 | 27,41 | 3,47 |
+| chat_parser | 100 | 9747 | 674 | 1293 | 14,46 | 1,92 |
+| crypt | 10000 | 19973 | 4081 | 2672 | 4,89 | 0,65 |
+| deriv | 100000 | 7953 | 507 | 1058 | 15,69 | 2,09 |
+| dynamic_unit_clause | 10000 | 16855 | 609 | 1533 | 27,68 | 2,52 |
+| fast_mu | 10000 | 7294 | 563 | 1054 | 12,96 | 1,87 |
+| flatten | 100000 | 52760 | 2692 | 14934 | 19,60 | 5,55 |
+| itak | 100 | 22107 | 1851 | 4070 | 11,94 | 2,20 |
+| meta_qsort | 5000 | 26317 | 1065 | 2511 | 24,71 | 2,36 |
+| mu | 10000 | 6811 | 335 | 814 | 20,33 | 2,43 |
+| nreverse | 100000 | 1070 | 1029 | 3337 | 1,04 | 3,24 |
+| nreverse_builtin | 100000 | 670 | 1254 | 3285 | 0,53 | 2,62 |
+| poly | 1000 | 32553 | 2778 | 4135 | 11,72 | 1,49 |
+| primes | 10000 | 7373 | 780 | 1086 | 9,45 | 1,39 |
+| prover | 10000 | 7567 | 420 | 892 | 18,02 | 2,12 |
+| qsort | 100000 | 20097 | 3093 | 6116 | 6,50 | 1,98 |
+| queens | 10000 | 4714 | 1342 | 1205 | 3,51 | 0,90 |
+| query | 100000 | 38066 | 4843 | 3296 | 7,86 | 0,68 |
+| reducer | 500 | 14769 | 731 | 2391 | 20,20 | 3,27 |
+| sendmore | 500 | 36075 | 4117 | 3257 | 8,76 | 0,79 |
+| simple_analyzer | 500 | 7445 | 425 | 917 | 17,52 | 2,16 |
+| tak | 1000 | 714 | 5104 | 9867 | 0,14 | 1,93 |
+| unify | 20000 | 47613 | 2443 | 5737 | 19,49 | 2,35 |
+| zebra | 500 | 11265 | 716 | 1944 | 15,73 | 2,72 |
+| geom. Mittel | | | | | 9,26 | 2,00 |
+
+Im Mittel braucht PrologEx hier 9-mal die Zeit von SWI (Scryer 2-mal) –
+deutlich mehr als bei `bench/compare.pl` (1,8-mal). Schneller als SWI
+nur, wo der JIT das ganze Programm übersetzt: tak (0,14), nreverse
+(1,0), nreverse_builtin (0,5). Der Rest läuft im Interpreter, 4- bis
+43-mal langsamer als SWI; am weitesten zurück boyer (`functor/3`,
+`arg/3` zum Umbauen von Termen, eine große Faktentabelle mit
+Indexierung über den Funktor), browse, dynamic_unit_clause und
+meta_qsort.
 
 ## Entwicklung
 

@@ -47,6 +47,18 @@ defmodule PrologEx.Builtins.Modules do
     :ok
   end
 
+  # [Datei, ...] als Ziel (in Direktiven, Rümpfen, call/1): consult/1, wie
+  # SWI und SICStus (der Toplevel behandelt ?- [datei]. selbst)
+  defbuiltin ".", [h, t] do
+    for f <- files(resolve([h | t])) do
+      PrologEx.LoadLog.loading(Path.relative_to_cwd(f), fn ->
+        Consult.load_file(f, into: context_module())
+      end)
+    end
+
+    :ok
+  end
+
   defbuiltin "current_module", [m], nondet: true do
     case deref(m) do
       {:atom, name} -> if name in modules(), do: [:ok], else: []
