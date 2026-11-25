@@ -19,6 +19,10 @@ defmodule PrologEx.Builtins.Bytes do
     * `bytes_utf8(B, Text)`, `bytes_latin1(B, Text)` – Text als Zeichen;
       umgekehrt auch Codes oder ein Atom; ungültiges UTF-8 bzw. ein Zeichen
       über 255: `representation_error(character)`
+    * `bytes_integer(B, I)`, `bytes_integer(B, L, I)` – B als
+      vorzeichenlose Ganzzahl, Big-Endian (Bit P der Folge ist Bit 8L-1-P
+      von I); I gegeben: die kürzeste Folge bzw. genau L Bytes (passt
+      nicht: `representation_error(bytes)`)
     * `bytes_hex(B, Hex)`, `bytes_base64(B, Text)` – Kodierungen (Zeichen);
       ungültig: `domain_error(hex_encoding | base64_encoding, Text)`
     * `bytes_length(B, N)`, `bytes_at(I, B, Byte)` (I frei: alle)
@@ -29,7 +33,9 @@ defmodule PrologEx.Builtins.Bytes do
     * Bits: `bytes_fill(N, Byte, B)` (N gleiche Bytes),
       `bytes_and/3`, `bytes_or/3`, `bytes_xor/3` (gleich lang, sonst
       `domain_error(same_length, B)`), `bytes_not/2`, `bytes_popcount/2`,
-      `bytes_bit(I, B, Bit)` (I frei: alle), `bytes_set_bit(I, B0, Bit, B)`
+      `bytes_bit(I, B, Bit)` (I frei: alle; mit Bit 1 nur die gesetzten,
+      Nullbytes übersprungen), `bytes_next_bit(B, Von, P)` (das erste
+      gesetzte Bit ab Von, det.), `bytes_set_bit(I, B0, Bit, B)`
       (eine neue Folge, O(n)); Bit 0 ist das höchste Bit des ersten Bytes
     * `read_file_to_bytes(Datei, B)`, `write_bytes(Stream, B)`,
       `get_bytes(Stream, N, B)` (höchstens N; am Ende die leere Folge) auf
@@ -340,9 +346,73 @@ defmodule PrologEx.Builtins.Bytes do
     a = bytes!(x, s)
 
     case int_or_var!(i, s) do
-      nil -> bits_all(a, 0, bit_size(a), i, bit)
-      k when k >= 0 and k < bit_size(a) -> [{:unify, [{bit, bit_at(a, k)}]}]
-      _ -> []
+      nil ->
+        # Bit 1 gegeben: nur die gesetzten, Nullbytes übersprungen
+        case walk(bit, s) do
+          1 -> set_bits(a, 0, i)
+          _ -> bits_all(a, 0, bit_size(a), i, bit)
+        end
+
+      k when k >= 0 and k < bit_size(a) ->
+        [{:unify, [{bit, bit_at(a, k)}]}]
+
+      _ ->
+        []
+    end
+  end
+
+  # bytes_next_bit(+B, +Von, -P): das erste gesetzte Bit ab Von (det.; keins
+  # mehr: scheitert) – von vorn nach hinten, d. h. vom höchsten Bit der
+  # Ganzzahl (bytes_integer/2) zum niedrigsten
+  defbuiltin "bytes_next_bit", [x, from, p] do
+    s = subst()
+    a = bytes!(x, s)
+
+    k =
+      case int_or_var!(from, s) do
+        nil -> Error.instantiation!()
+        k when k < 0 -> Error.domain!("not_less_than_zero", k)
+        k -> k
+      end
+
+    case next_bit(a, k) do
+      nil -> :fail
+      q -> {:unify, [{p, q}]}
+    end
+  end
+
+  # bytes_integer(?B, ?I): B als vorzeichenlose Ganzzahl, Big-Endian (das
+  # erste Byte am höchsten; Bit P der Folge ist Bit 8L-1-P von I); I
+  # gegeben: die kürzeste Folge (0: ein Nullbyte)
+  defbuiltin "bytes_integer", [x, i] do
+    s = subst()
+
+    case bytes_or_var!(x, s) do
+      nil -> {:unify, [{x, {:bytes, :binary.encode_unsigned(nat!(i, s))}}]}
+      a -> {:unify, [{i, decode_unsigned(a)}]}
+    end
+  end
+
+  # bytes_integer(?B, +L, ?I): genau L Bytes (vorn mit Nullen aufgefüllt);
+  # I passt nicht: representation_error(bytes)
+  defbuiltin "bytes_integer", [x, l, i] do
+    s = subst()
+
+    n =
+      case int_or_var!(l, s) do
+        nil -> Error.instantiation!()
+        n when n < 0 -> Error.domain!("not_less_than_zero", n)
+        n -> n
+      end
+
+    case bytes_or_var!(x, s) do
+      nil ->
+        v = nat!(i, s)
+        if v >= 1 <<< (8 * n), do: Error.representation!("bytes")
+        {:unify, [{x, {:bytes, <<v::size(n * 8)>>}}]}
+
+      a ->
+        if byte_size(a) == n, do: {:unify, [{i, decode_unsigned(a)}]}, else: :fail
     end
   end
 
@@ -402,6 +472,56 @@ defmodule PrologEx.Builtins.Bytes do
   defp bits_all(a, k, n, i, bit) do
     r = {:unify, [{i, k}, {bit, bit_at(a, k)}]}
     if k + 1 == n, do: [r], else: [r | fn -> bits_all(a, k + 1, n, i, bit) end]
+  end
+
+  # die gesetzten Bits ab Bit k, lazy
+  defp set_bits(a, k, i) do
+    case next_bit(a, k) do
+      nil -> []
+      q -> [{:unify, [{i, q}]} | fn -> set_bits(a, q + 1, i) end]
+    end
+  end
+
+  # das erste gesetzte Bit ab k (oder nil): das angebrochene Byte maskiert,
+  # dann Nullen in Stücken zu 8 Bytes übersprungen
+  @doc false
+  def next_bit(a, k) when k >= bit_size(a), do: nil
+
+  def next_bit(a, k) do
+    j = div(k, 8)
+    <<_::binary-size(^j), b, rest::binary>> = a
+    b = b &&& 0xFF >>> rem(k, 8)
+
+    if b != 0,
+      do: 8 * j + lead(b),
+      else: next_byte(rest, j + 1)
+  end
+
+  defp next_byte(<<0::64, rest::binary>>, j), do: next_byte(rest, j + 8)
+  defp next_byte(<<0, rest::binary>>, j), do: next_byte(rest, j + 1)
+  defp next_byte(<<b, _::binary>>, j), do: 8 * j + lead(b)
+  defp next_byte(<<>>, _j), do: nil
+
+  # führende Nullen eines Bytes (1..255)
+  defp lead(b) when b >= 128, do: 0
+  defp lead(b) when b >= 64, do: 1
+  defp lead(b) when b >= 32, do: 2
+  defp lead(b) when b >= 16, do: 3
+  defp lead(b) when b >= 8, do: 4
+  defp lead(b) when b >= 4, do: 5
+  defp lead(b) when b >= 2, do: 6
+  defp lead(_), do: 7
+
+  defp decode_unsigned(<<>>), do: 0
+  defp decode_unsigned(a), do: :binary.decode_unsigned(a)
+
+  defp nat!(t, s) do
+    case walk(t, s) do
+      n when is_integer(n) and n >= 0 -> n
+      n when is_integer(n) -> Error.domain!("not_less_than_zero", n)
+      {:var, _} -> Error.instantiation!()
+      other -> Error.type!("integer", PrologEx.resolve(other, s))
+    end
   end
 
   # gesetzte Bits: je 32 Bit auf einmal (SWAR, bleibt eine kleine Ganzzahl),

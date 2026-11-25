@@ -1238,7 +1238,14 @@ defmodule PrologEx do
     {"sort", 2} => {"system", :det},
     {"msort", 2} => {"system", :det},
     {"member", 2} => {"lists", :nondet},
-    {"between", 3} => {"system", :nondet}
+    {"between", 3} => {"system", :nondet},
+    # library(bytes): lesen mit bestimmtem Index (bytes_at/3 und
+    # bytes_bit/3 sind sonst nichtdeterministisch: freier Index)
+    {"bytes_length", 2} => {"bytes", :det},
+    {"bytes_at", 3} => {"bytes", :nondet},
+    {"bytes_bit", 3} => {"bytes", :nondet},
+    {"bytes_next_bit", 3} => {"bytes", :det},
+    {"bytes_integer", 2} => {"bytes", :det}
   }
 
   defp jit_builtin(db, module, n, a) when is_map_key(@jit_bis, {n, a}) do

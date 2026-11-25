@@ -1636,18 +1636,26 @@ defmodule PrologEx.Builtins.Concurrent do
   # Literal: beim nächsten Aufruf ist der Vergleich sofort entschieden
   # (dieselbe Stelle), nach einer Änderung (assert/1) betrifft er nur die
   # geänderten Teile – die übrigen teilt der neue Wert mit dem Literal.
+  # Abgelegt mit einer Marke: hat zwischen put und get ein anderer Aufrufer
+  # (andere Datenbank) seinen Stand abgelegt, bekommen die Arbeiter den
+  # eigenen Wert (kopiert) statt des fremden
   @shared [:prolog_ex_db, :prolog_ex_ops]
   defp shared(k, v) when k in @shared do
     pk = {:prolog_ex_conc_shared, k}
 
     lit =
       case :persistent_term.get(pk, nil) do
-        c when c === v ->
+        {_, c} when c === v ->
           c
 
         _ ->
-          :persistent_term.put(pk, v)
-          :persistent_term.get(pk)
+          tok = make_ref()
+          :persistent_term.put(pk, {tok, v})
+
+          case :persistent_term.get(pk) do
+            {^tok, c} -> c
+            _ -> v
+          end
       end
 
     Process.put(k, lit)

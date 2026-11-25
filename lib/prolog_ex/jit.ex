@@ -74,6 +74,9 @@ defmodule PrologEx.Jit do
   wieder geladen nimmt das vorhandene Modul.
   """
 
+  # library(bytes), was der übersetzte Code direkt ruft (b_bytes_*/n)
+  @bytes_bis ~w(bytes_length bytes_at bytes_bit bytes_next_bit bytes_integer)
+
   {ops2, ops1} = PrologEx.Arith.ops()
   @ops2 ops2
   @ops1 ops1 -- ~w(random random_float)
@@ -405,6 +408,7 @@ defmodule PrologEx.Jit do
   defp collect_bis({:bi, "bit_is_set", _, _}), do: [{"bit_is_set", 2}]
   defp collect_bis({:bi, "memberchk", _, _}), do: [{"memberchk", 2}]
   defp collect_bis({:bi, n, _, _}) when n in ["length", "sort", "msort"], do: [{n, 2}]
+  defp collect_bis({:bi, n, ins, _}) when n in @bytes_bis, do: [{n, length(ins) + 1}]
   defp collect_bis(t) when is_tuple(t), do: collect_bis(Tuple.to_list(t))
   defp collect_bis(l) when is_list(l), do: Enum.flat_map(l, &collect_bis/1)
   defp collect_bis(_), do: []
@@ -554,6 +558,14 @@ defmodule PrologEx.Jit do
       :builtin when key in [{"length", 2}, {"sort", 2}, {"msort", 2}] ->
         [x, y] = a
         {:bi, name, [pat!(x)], [pat!(y)]}
+
+      # library(bytes), lesend: die Eingaben bestimmt (ein freier Index von
+      # bytes_at/3, bytes_bit/3 oder eine freie Folge: zur Laufzeit
+      # aufgeben), das Ergebnis eine Zahl. bytes_integer/2 nur von der
+      # Folge zur Zahl
+      :builtin when name in @bytes_bis ->
+        {ins, out} = Enum.split(a, length(a) - 1)
+        {:bi, name, Enum.map(ins, &pat!/1), Enum.map(out, &pat!/1)}
 
       :dynamic ->
         no!("ruft das dynamische #{pi(key)}")
@@ -1427,6 +1439,7 @@ defmodule PrologEx.Jit do
   defp bi_types("memberchk"), do: []
   defp bi_types("length"), do: [:num]
   defp bi_types(s) when s in ["sort", "msort"], do: [:list]
+  defp bi_types(s) when s in @bytes_bis, do: [:num]
 
   # Typtest auf einer Zahl: true/false, oder (Code mit Floats) :num
   defp num_test(t, _) when t in ["number", "atomic", "nonvar"], do: true
@@ -3102,6 +3115,78 @@ defmodule PrologEx.Jit do
     case PrologEx.Builtins.Lists.append_det(x, y, store()) do
       {:ok, z} -> {z}
       :partial -> throw(:jit_deopt)
+    end
+  end
+
+  # --- library(bytes) ---------------------------------------------------
+
+  defp bin!(t) do
+    case bound!(t) do
+      {:bytes, b} -> b
+      _ -> throw(:jit_deopt)
+    end
+  end
+
+  defp idx!(t) do
+    case bound!(t) do
+      k when is_integer(k) -> k
+      _ -> throw(:jit_deopt)
+    end
+  end
+
+  @doc false
+  # bytes_length/2: {N}
+  def b_bytes_length(b), do: {byte_size(bin!(b))}
+
+  @doc false
+  # bytes_at/3 mit bestimmtem Index: {Byte} oder :no
+  def b_bytes_at(i, b) do
+    a = bin!(b)
+
+    case idx!(i) do
+      k when k >= 0 and k < byte_size(a) -> {:binary.at(a, k)}
+      _ -> :no
+    end
+  end
+
+  @doc false
+  # bytes_bit/3 mit bestimmtem Index: {Bit} oder :no
+  def b_bytes_bit(i, b) do
+    a = bin!(b)
+
+    case idx!(i) do
+      k when k >= 0 and k < bit_size(a) ->
+        <<_::bits-size(^k), x::1, _::bits>> = a
+        {x}
+
+      _ ->
+        :no
+    end
+  end
+
+  @doc false
+  # bytes_next_bit/3: {P} oder :no; Von negativ: aufgeben (Fehler)
+  def b_bytes_next_bit(b, from) do
+    a = bin!(b)
+
+    case idx!(from) do
+      k when k >= 0 ->
+        case PrologEx.Builtins.Bytes.next_bit(a, k) do
+          nil -> :no
+          q -> {q}
+        end
+
+      _ ->
+        throw(:jit_deopt)
+    end
+  end
+
+  @doc false
+  # bytes_integer/2 von der Folge zur Zahl: {I}
+  def b_bytes_integer(b) do
+    case bin!(b) do
+      <<>> -> {0}
+      a -> {:binary.decode_unsigned(a)}
     end
   end
 

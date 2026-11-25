@@ -11,6 +11,7 @@ defmodule PrologEx.JitTest do
   :- use_module(library(swi)).
   :- use_module(library(arithmetic)).
   :- use_module(library(between)).
+  :- use_module(library(bytes)).
   fib(0, 0).
   fib(1, 1).
   fib(N, F) :- N > 1, A is N-1, B is N-2, fib(A, FA), fib(B, FB), F is FA+FB.
@@ -219,6 +220,18 @@ defmodule PrologEx.JitTest do
   lpi(N, A, S) :- ( N =:= 0 -> S = A ; N1 is N - 1, A1 is A + N, lpi(N1, A1, S) ).
   lpa(0, A, A) :- !.
   lpa(N, A, S) :- A1 is A + N, N1 is N - 1, lpa(N1, A1, S).
+  % library(bytes), lesend: bytes_length/2, bytes_at/3, bytes_bit/3 mit
+  % bestimmtem Index, bytes_next_bit/3, bytes_integer/2 (Folge zur Zahl)
+  bnext(B, S) :- bytes_length(B, L), T is 8 * L - 1, bnext(B, 0, T, 0, S).
+  bnext(B, P0, T, S0, S) :-
+      ( bytes_next_bit(B, P0, P) -> S1 is S0 + T - P, P1 is P + 1, bnext(B, P1, T, S1, S) ; S = S0 ).
+  bsum(B, S) :- bytes_length(B, L), bsum(0, L, B, 0, S).
+  bsum(K, L, _, S, S) :- K >= L, !.
+  bsum(K, L, B, S0, S) :- bytes_at(K, B, X), S1 is S0 + X, K1 is K + 1, bsum(K1, L, B, S1, S).
+  bat(K, B, X) :- bytes_at(K, B, X).
+  bbit(K, B, X) :- bytes_bit(K, B, X).
+  bnb(B, K, P) :- bytes_next_bit(B, K, P).
+  bint(B, I) :- bytes_integer(B, I0), I is I0 + 0.
   """
 
   # übersetzt: der Eintritt lohnt ({:jit, ...} im Prädikat) oder nur für
@@ -364,7 +377,15 @@ defmodule PrologEx.JitTest do
           {"mc", 2},
           {"llen", 2},
           {"srt", 2},
-          {"inl", 3}
+          {"inl", 3},
+          {"bnext", 2},
+          {"bnext", 5},
+          {"bsum", 2},
+          {"bsum", 5},
+          {"bat", 3},
+          {"bbit", 3},
+          {"bnb", 3},
+          {"bint", 2}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
 
@@ -388,6 +409,29 @@ defmodule PrologEx.JitTest do
   end
 
   for q <- [
+        # library(bytes): dieselben Antworten, Fehler und Inferenzen
+        "bytes_list(B, [0,0,16,1,0,0,0,0,0,0,0,128]), bnext(B, S)",
+        "bytes_list(B, []), bnext(B, S)",
+        "bytes_list(B, [1,2,250]), bsum(B, S)",
+        "bytes_list(B, [1,2,250]), inf(bsum(B, _), I)",
+        "bytes_list(B, [0,0,16,1,0,0,0,0,0,0,0,128]), inf(bnext(B, _), I)",
+        "bytes_list(B, [7,9]), bat(1, B, X)",
+        "bytes_list(B, [7,9]), bat(2, B, X)",
+        "bytes_list(B, [7,9]), bat(-1, B, X)",
+        "bytes_list(B, [7,9]), findall(K-X, bat(K, B, X), L)",
+        "catch(bat(0, foo, X), error(E, _), true)",
+        "catch(bat(0, _, X), error(E, _), true)",
+        "bytes_list(B, [7,9]), catch(bat(a, B, X), error(E, _), true)",
+        "bytes_list(B, [128]), bbit(0, B, X), bbit(7, B, Y)",
+        "bytes_list(B, [128]), bbit(8, B, X)",
+        "bytes_list(B, [5]), findall(K, bbit(K, B, 1), L)",
+        "bytes_list(B, [0,1]), bnb(B, 0, P)",
+        "bytes_list(B, [0,1]), bnb(B, 16, P)",
+        "bytes_list(B, [0,1]), catch(bnb(B, -1, P), error(E, _), true)",
+        "bytes_list(B, [0,1]), catch(bnb(B, _, P), error(E, _), true)",
+        "bytes_list(B, [1,0]), bint(B, I)",
+        "bytes_list(B, []), bint(B, I)",
+        "catch(bint(_, I), error(E, _), true)",
         # arg/3, functor/3, =../2 zum Zerlegen; Fehler und alles andere
         # wie der Interpreter (dort: aufgeben)
         "targ(f(a,b,c), 2, A)",

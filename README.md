@@ -98,7 +98,12 @@ Ein Prolog-Kern in Elixir:
     Choice Point des Codes wäre teurer als die des eingebauten im
     Interpreter. Je Element eine Mitgliedsprüfung, 3000 gegen 3001
     Elemente: `memberchk/2` 314 → 9 ms, `( member(X, L) -> …)` 44 → 9 ms;
-    `length/2` über 20 000 kurze Listen 44 → 2 ms; und
+    `length/2` über 20 000 kurze Listen 44 → 2 ms; aus `library(bytes)`
+    lesend `bytes_length/2`, `bytes_at/3` und `bytes_bit/3` mit
+    bestimmtem Index, `bytes_next_bit/3`, `bytes_integer/2` von der Folge
+    zur Zahl (sonst aufgeben) – über die gesetzten Bits eines
+    200-Bit-Vektors mit `bytes_next_bit/3` 430 → 10 µs
+    (`examples/bitvec.pl`); und
     Aufrufe von sich selbst oder anderen übersetzten Prädikaten desselben
     Moduls; eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
     ihren Zweigen keiner steht: `(A ; B), !` übersetzt er wie
@@ -1311,7 +1316,9 @@ umsonst.
     `callable/1` nein); Unifikation und `==` vergleichen den Inhalt; in der
     Standardordnung nach den Atomen und vor dem Zusammengesetzten,
     untereinander Byte für Byte (ein Präfix zuerst)
-  * Umwandeln (in beide Richtungen): `bytes_list/2` (0..255),
+  * Umwandeln (in beide Richtungen): `bytes_integer/2,3` (vorzeichenlose
+    Ganzzahl, Big-Endian: Bit P der Folge ist Bit 8L−1−P der Zahl; die
+    kürzeste Folge bzw. genau L Bytes), `bytes_list/2` (0..255),
     `bytes_utf8/2`, `bytes_latin1/2` (Text als Zeichen, umgekehrt auch Codes
     oder ein Atom), `bytes_hex/2`, `bytes_base64/2`
   * `bytes_length/2`, `bytes_at/3` (Position ab 0; frei: alle),
@@ -1321,8 +1328,11 @@ umsonst.
   * Bits (Bit 0 ist das höchste Bit des ersten Bytes, wie Erlangs
     Bit-Syntax): `bytes_and/3`, `bytes_or/3`, `bytes_xor/3` (gleich lang,
     sonst `domain_error(same_length, B)`), `bytes_not/2`,
-    `bytes_popcount/2`, `bytes_bit(I, B, Bit)` (I frei: alle),
-    `bytes_set_bit(I, B0, Bit, B)` (eine neue Folge, O(n)), dazu
+    `bytes_popcount/2`, `bytes_bit(I, B, Bit)` (I frei: alle; mit Bit 1
+    nur die gesetzten, Nullbytes übersprungen), `bytes_next_bit(B, Von,
+    P)` (das erste gesetzte Bit ab Von, deterministisch: über die
+    gesetzten Bits ohne Rücksetzen), `bytes_set_bit(I, B0, Bit, B)` (eine
+    neue Folge, O(n)), dazu
     `bytes_fill(N, Byte, B)` für eine Folge aus N gleichen Bytes. Und, oder,
     xor und nicht laufen in C (als große Ganzzahlen, in Stücken zu 64 KB):
     20 Mbit in 7–24 ms, popcount in 2 ms
@@ -1346,6 +1356,40 @@ ungültiges UTF-8 und Zeichen über 255 bei Latin-1
 Gemessen (20 MB, rund 206 000 Treffer zählen): seriell 819 ms, verteilt auf
 acht Kinder über `sub_bytes/5` 238 ms – als Code-Liste wären es 320 MB, die
 jedes Kind kopieren müsste.
+
+### Bitvektoren: Ganzzahl oder Byte-Folge (`examples/bitvec.pl`)
+
+Über die gesetzten Bits eines n-Bit-Vektors vom höchsten zum niedrigsten
+laufen und ihre Indizes aufsummieren, auf fünf Arten:
+
+| Variante | Weg |
+|---|---|
+| `int_msb` | Ganzzahl: `I is msb(V)`, Bit löschen (`xor`), weiter |
+| `int_scan` | Ganzzahl: alle n Bits von oben mit `getbit/2` |
+| `bytes_next` | Byte-Folge: `bytes_next_bit/3` springt zum nächsten gesetzten Bit |
+| `bytes_bits` | Byte-Folge: `aggregate_all/3` über `bytes_bit(P, B, 1)` |
+| `bytes_bytewise` | Byte-Folge: `bytes_at/3` je Byte, Nullbytes übergehen, im Byte `msb/1` |
+
+```
+start_ex examples/bitvec.pl -g bench -q
+```
+
+µs je Vektor (2000 zufällige Vektoren je n, 5 Runden; alle Varianten
+liefern dieselben Summen):
+
+| n | int_msb | int_scan | bytes_next | bytes_bits | bytes_bytewise |
+|---:|---:|---:|---:|---:|---:|
+| 20 | 3,4 | 1,1 | 3,2 | 18,3 | 4,1 |
+| 60 | 5,9 | 4,4 | 6,9 | 46,4 | 7,4 |
+| 100 | 13,9 | 11,2 | 6,7 | 63,9 | 17,8 |
+| 200 | 20,5 | 20,3 | 10,4 | 125,4 | 18,1 |
+
+Bis 60 Bits ist die Ganzzahl so schnell wie die Folge (klein, eine
+BEAM-Ganzzahl bis 59 Bit); darüber kostet jeder Schritt auf der großen
+Ganzzahl eine neue (`xor`), `bytes_next_bit/3` dagegen springt über
+Nullen und legt nichts an. Alle Varianten außer `bytes_bits` (Rücksetzen,
+`aggregate_all/3`) laufen im JIT; vorher fiel jede mit einem Aufruf aus
+`library(bytes)` in den Interpreter (`bytes_next` 430 µs bei n = 200).
 
 ### DCGs über Byte-Folgen: `library(dcg/bytes)`
 
@@ -4429,7 +4473,12 @@ ersetzt, wenn sich etwas geändert hat (`assertz/1`, `op/3`, ...); der
 Aufrufer hält danach selbst diese Fassung, so ist der Vergleich beim
 nächsten Aufruf sofort entschieden. Früher wurde er je Aufruf abgelegt und
 gelöscht: 15 ms je Aufruf – `concurrent_maplist/2` mit zwei kleinen Zielen
-dauerte 22,5 ms, jetzt 0,2 ms. **Blockung** wie `schedule(dynamic)` bei
+dauerte 22,5 ms, jetzt 0,2 ms. Rufen mehrere Prozesse mit verschiedenen
+Datenbanken zugleich, ersetzen sie sich den Eintrag gegenseitig; abgelegt
+wird darum mit einer Marke, und wer zwischen Ablegen und Lesen überholt
+wurde, gibt seinen Arbeitern den eigenen Stand (kopiert) statt des fremden
+(früher sahen sie fremde Prädikate: `existence_error` mitten in
+`clpz_concurrent`, `test/concurrent_shared_test.exs`). **Blockung** wie `schedule(dynamic)` bei
 OpenMP mit guided-Paketen: höchstens so viele Arbeiter wie Scheduler (bzw.
 `threads(N)`), jeder bekommt ein Paket von Elementen – Rest / (2·Arbeiter),
 mindestens eines, oder `chunk(K)` – und holt sich danach das nächste. Jedes

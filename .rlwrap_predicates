@@ -79,9 +79,11 @@ bytes_concat 3
 bytes_concat_list 2
 bytes_fill 3
 bytes_hex 2
+bytes_integer 2 3
 bytes_latin1 2
 bytes_length 2
 bytes_list 2
+bytes_next_bit 3
 bytes_not 2
 bytes_or 3
 bytes_popcount 2
