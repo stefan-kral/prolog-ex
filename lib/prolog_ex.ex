@@ -4737,6 +4737,7 @@ defmodule PrologEx do
 
     case jit_outs(outs, args, 0, s, []) do
       {:ok, ov} -> jit_enter(mod, ins, ov, args, rest, st)
+      {:pat, ov, pats} -> jit_enter_pat(mod, ins, outs, ov, pats, args, rest, st)
       :no -> :no
     end
   end
@@ -4872,12 +4873,137 @@ defmodule PrologEx do
       {:var, _} = v ->
         if :lists.member(v, acc), do: :no, else: jit_outs(ks, as, i + 1, s, [v | acc])
 
-      _ ->
-        :no
+      t ->
+        # ein Muster aus frischen Variablen ([I, H | X]): jit_outs_pat/6
+        case jit_pattern(t, s, acc) do
+          {:ok, seen} ->
+            v = {:var, PrologEx.Vars.next()}
+            jit_outs_pat(ks, as, i + 1, s, [v | acc], [{v, t}], seen)
+
+          :no ->
+            :no
+        end
     end
   end
 
   defp jit_outs(ks, [_ | as], i, s, acc), do: jit_outs(ks, as, i + 1, s, acc)
+
+  # Ausgaben, sobald eine ein Muster ist: Variablen wie in jit_outs/5,
+  # Muster bekommen eine frische Variable; dazu die Paare {frisch, muster}
+  # und alle Variablen der Muster (seen)
+  defp jit_outs_pat([], _args, _i, _s, acc, pats, seen),
+    do: {:pat, :lists.reverse(acc), {:lists.reverse(pats), seen}}
+
+  defp jit_outs_pat([i | ks], [a | as], i, s, acc, pats, seen) do
+    case Store.walk(a, s) do
+      {:var, {:attv, _}} ->
+        :no
+
+      {:var, _} = v ->
+        if :lists.member(v, acc) or :lists.member(v, seen),
+          do: :no,
+          else: jit_outs_pat(ks, as, i + 1, s, [v | acc], pats, seen)
+
+      t ->
+        case jit_pattern(t, s, acc ++ seen) do
+          {:ok, seen2} ->
+            v = {:var, PrologEx.Vars.next()}
+            jit_outs_pat(ks, as, i + 1, s, [v | acc], [{v, t} | pats], seen2 ++ seen)
+
+          :no ->
+            :no
+        end
+    end
+  end
+
+  defp jit_outs_pat(ks, [_ | as], i, s, acc, pats, seen),
+    do: jit_outs_pat(ks, as, i + 1, s, acc, pats, seen)
+
+  # Ein Gerüst aus frischen Variablen: Listen und Strukturen, deren Blätter
+  # ungebundene, nicht attributierte Variablen sind, je verschieden und
+  # nicht in taken (andere Ausgaben), dazu [] als Listenende; mindestens
+  # eine Variable. {:ok, variablen} oder :no (Konstanten: wie bisher nein)
+  defp jit_pattern(t, s, taken) do
+    case pat_vars(t, s, []) do
+      {:ok, [_ | _] = vs} -> if Enum.any?(vs, &:lists.member(&1, taken)), do: :no, else: {:ok, vs}
+      _ -> :no
+    end
+  catch
+    :no -> :no
+  end
+
+  defp pat_vars(t, s, vs) do
+    case t do
+      {:var, _} ->
+        case Store.walk(t, s) do
+          {:var, {:attv, _}} -> throw(:no)
+          {:var, _} = v -> if :lists.member(v, vs), do: throw(:no), else: {:ok, [v | vs]}
+          u -> pat_vars(u, s, vs)
+        end
+
+      [] ->
+        {:ok, vs}
+
+      [h | r] ->
+        {:ok, vs} = pat_vars(h, s, vs)
+        pat_vars(r, s, vs)
+
+      {:struct, _, as} ->
+        Enum.reduce(as, {:ok, vs}, fn a, {:ok, vs} -> pat_vars(a, s, vs) end)
+
+      _ ->
+        throw(:no)
+    end
+  end
+
+  # Eintritt mit Muster-Ausgaben (B1). Gilt nur, was ohne Zweifel dasselbe
+  # ist wie im Interpreter: der Code gelingt und das Ergebnis passt aufs
+  # Muster – dann hätte der Interpreter dieselbe Klausel genommen (frühere
+  # scheitern an den Eingaben, nicht an der Ausgabe) und das Muster nur an
+  # frischen Variablen gebunden. Sonst (passt nicht, scheitert, wirft)
+  # gibt der Code auf, der Interpreter rechnet neu – er scheitert vielleicht
+  # früher, schon am Muster, mit weniger Inferenzen. Keine Variable eines
+  # Musters darf in einer Eingabe stehen (der Interpreter bände sie dort
+  # mit).
+  defp jit_enter_pat(mod, ins, outs, ov, {pats, seen}, args, rest, st) do
+    s = st.subst
+
+    shared =
+      args
+      |> Enum.with_index()
+      |> Enum.any?(fn {a, k} ->
+        not :lists.member(k, outs) and
+          Enum.any?(PrologEx.Builtins.Order.variables(a, s), &:lists.member(&1, seen))
+      end)
+
+    with false <- shared,
+         {:ok, iv} <- jit_ins(ins, args, 0, s, []) do
+      n0 = :atomics.get(st.icount, 1)
+
+      case jit_run(mod, iv, ov, rest, st) do
+        {:run, st1} -> jit_match_pats(pats, st1, st, n0)
+        :warming -> :warming
+        _ -> jit_redo(st, n0)
+      end
+    else
+      _ -> :no
+    end
+  end
+
+  defp jit_match_pats([], st1, _st, _n0), do: {:run, st1}
+
+  defp jit_match_pats([{v, t} | ps], st1, st, n0) do
+    case unify(v, t, st1.subst) do
+      {:ok, s1} -> jit_match_pats(ps, %{st1 | subst: s1}, st, n0)
+      :error -> jit_redo(st, n0)
+    end
+  end
+
+  # aufgeben: die Inferenzen wie vor dem Eintritt
+  defp jit_redo(st, n0) do
+    :atomics.put(st.icount, 1, n0)
+    :deopt
+  end
 
   # Prüfpunkt im übersetzten Stück: den verbrauchten Block verbuchen, dann
   # wie limit_hit/5 für die nächste Inferenz prüfen (wirft wie dort);

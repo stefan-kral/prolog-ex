@@ -1122,6 +1122,62 @@ defmodule PrologEx.JitTest do
     assert out =~ ~r"% e#{u}/1 +nein +jede Klausel ruft sich selbst"
   end
 
+  # Aus dem Interpreter mit einem Muster aus frischen Variablen als
+  # Ausgabe (mult([C,B,A], E, [I,H,G,F|X]) in crypt): der Code rechnet mit
+  # frischer Ausgabe; gilt nur, wenn er gelingt und das Ergebnis passt –
+  # sonst rechnet der Interpreter neu (sh(0, [P,Q|R]): Klausel 1 passt nicht
+  # aufs Muster, der Interpreter nimmt Klausel 2). Gleiche Antworten,
+  # Inferenzen; Treffer ohne Aufgeben, wo es passt.
+  test "Muster aus frischen Variablen als Ausgabe beim Eintritt", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    mk#{u}(0, []) :- !.
+    mk#{u}(N, [N|T]) :- N > 0, N1 is N - 1, mk#{u}(N1, T).
+    sh#{u}(0, [a]) :- !.
+    sh#{u}(_, [b, c]).
+    inf(G, I) :- statistics(inferences, I0), call(G), statistics(inferences, I1), I is I1 - I0.
+    warm#{u}(0) :- !.
+    warm#{u}(N) :- mk#{u}(3, _), N1 is N - 1, warm#{u}(N1).
+    """
+
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    {int, []} =
+      with_jit_off(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    qs = [
+      "mk#{u}(3, [A, B | C])",
+      "mk#{u}(2, [_, _, _ | _])",
+      "mk#{u}(2, [A, B])",
+      "sh#{u}(0, [P, Q | R])",
+      "sh#{u}(1, [P, Q])",
+      "X = f(Y), mk#{u}(1, [Y | _])",
+      "L = [Y | _], mk#{u}(1, L)",
+      "inf(mk#{u}(3, [_, _ | _]), I)",
+      "inf((mk#{u}(2, [_, _, _ | _]) -> true ; true), I)",
+      "inf((sh#{u}(0, [_, _ | _]) -> true ; true), I)",
+      "freeze(Z, true), catch(mk#{u}(1, [Z]), E, true)"
+    ]
+
+    {_, {:answers, [_]}} =
+      TableCase.run(c.reader, db, "warm#{u}(3000)")
+
+    for q <- qs do
+      assert TableCase.run(c.reader, db, q) == TableCase.run(c.reader, int, q), q
+    end
+
+    {:pred, _, _, {:jit, _, _, _, _, stats}, _} = db[{"user", "mk#{u}", 2}]
+
+    :atomics.put(stats, 1, 0)
+    :atomics.put(stats, 2, 0)
+    {_, {:answers, [_]}} = TableCase.run(c.reader, db, "mk#{u}(3, [A, B | C])")
+    assert :atomics.get(stats, 1) == 1
+    assert :atomics.get(stats, 2) == 0
+  end
+
   # das Flag wirkt auch beim Aufruf: übersetzt geladen, aber abgeschaltet
   # rechnet der Interpreter (Choice Point offen: true statt !)
   test "Flag jit beim Aufruf", c do

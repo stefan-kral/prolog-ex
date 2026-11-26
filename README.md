@@ -233,7 +233,20 @@ Ein Prolog-Kern in Elixir:
     keine Tiefengrenze) und das Prädikat wenigstens ein Ziel hat – bei
     einem Fakt kostet der Wechsel mehr, als er spart (übersetzt wird er
     trotzdem, für übersetzte Rufer). Die Ausgaben werden unifiziert (sie
-    dürfen in Eingaben vorkommen, samt Occurs-Check wie sonst). Kosten,
+    dürfen in Eingaben vorkommen, samt Occurs-Check wie sonst). Eine
+    Ausgabe darf auch ein Muster aus frischen Variablen sein – Listen und
+    Strukturen, deren Blätter verschiedene ungebundene Variablen ohne
+    Attribute sind (dazu `[]`), keine davon in einer Eingabe:
+    `mult([C,B,A], E, [I,H,G,F|X])` in crypt. Der Code rechnet dann mit
+    frischer Ausgabe; das gilt nur, wenn er gelingt und das Ergebnis aufs
+    Muster passt (dann hätte der Interpreter dieselbe Klausel genommen:
+    frühere scheitern an den Eingaben, nicht an der Ausgabe, und das
+    Muster bindet nur frische Variablen). Sonst – passt nicht, scheitert,
+    wirft – gibt er auf, der Interpreter rechnet neu (er scheitert
+    vielleicht schon früher am Muster, mit weniger Inferenzen; mit Schnitt
+    nimmt er eine spätere Klausel: `sh(0, [a]) :- !. sh(_, [b, c]).`
+    gerufen als `sh(0, [P, Q | R])`). SICStus-Benchmark crypt: `mult/3` von
+    0 auf 222 357 Treffer, 14,8 → 10,2 s. Kosten,
     wo es nicht passt: eine rekursive DCG-Regel über `phrase/2` (der Rest
     ist dort `[]`, gebunden) prüft je Aufruf vergeblich, +2 % Reduktionen.
   - Lohnt sich der Code für ein Prädikat nicht, lässt der Interpreter ihn
