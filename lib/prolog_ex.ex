@@ -3551,6 +3551,25 @@ defmodule PrologEx do
 
   # '$nojit'(G): G im Interpreter, auch wenn es übersetzt ist (nach dem
   # Aufgeben eines nichtdeterministisch übersetzten Aufrufs, jit_nd_retry/2)
+  defp step({:"$nojit", g}, cutb, mod, rest, st),
+    do: step({:struct, "$nojit", [g]}, cutb, mod, rest, st)
+
+  # {:"$jit_skip", zähler, n, c}: die ersten n Lösungen überspringen, bei der
+  # n-ten den Zählerstand c (jit_nd_retry/2)
+  defp step({:"$jit_skip", k, n, c}, _cutb, _mod, rest, st) do
+    case :atomics.add_get(k, 1, 1) do
+      i when i < n ->
+        backtrack(st)
+
+      i when i == n ->
+        :atomics.put(st.icount, 1, c)
+        backtrack(st)
+
+      _ ->
+        run(%{st | goals: rest})
+    end
+  end
+
   defp step({:struct, "$nojit", [g]}, _cutb, mod, rest, st) do
     {name, args} =
       case Store.walk(g, st.subst) do
@@ -4637,7 +4656,8 @@ defmodule PrologEx do
 
   # nichtdeterministisch übersetzt: erste Lösung; weitere über den Choice
   # Point {:jit_nd, weiter, info, ausgaben, ziel, modul, rest, subst, answer,
-  # n} (n: so viele Lösungen sind schon geliefert). {:go, k} – k.() macht
+  # {n, c0}} (n: so viele Lösungen sind schon geliefert; c0: der Zählerstand
+  # beim Eintritt). {:go, k} – k.() macht
   # weiter (Tail Call in call_pred/4), sonst wie jit_call/4
   defp jit_nd_call(info, ins, outs, goal, args, mod, rest, st) do
     s = st.subst
@@ -4661,7 +4681,7 @@ defmodule PrologEx do
             :warming
 
           r ->
-            {:go, fn -> jit_nd_result(r, info, ov, goal, mod, rest, 0, st) end}
+            {:go, fn -> jit_nd_result(r, info, ov, goal, mod, rest, {0, n0}, st) end}
         end
       end
     else
@@ -4671,7 +4691,7 @@ defmodule PrologEx do
 
   # Ergebnis eines Schritts (erster Aufruf oder Zurücksetzen): Lösung binden,
   # für weitere einen Choice Point davor
-  defp jit_nd_result(r, info, ov, goal, mod, rest, n, st) do
+  defp jit_nd_result(r, info, ov, goal, mod, rest, {n, c0}, st) do
     case r do
       {:sol, values, used, nx} ->
         c = :atomics.add_get(st.icount, 1, used)
@@ -4688,7 +4708,7 @@ defmodule PrologEx do
                 push(
                   st,
                   {:jit_nd, nx, info, ov, goal, mod, rest, Store.fast_snapshot(s), st.answer,
-                   n + 1}
+                   {n + 1, c0}}
                 )
 
           case jit_bind(ov, values, s) do
@@ -4712,23 +4732,26 @@ defmodule PrologEx do
 
   # Zurücksetzen in ein nichtdeterministisch übersetztes Prädikat. Gibt der
   # Code jetzt auf (nach n Lösungen), rechnet der Interpreter den Aufruf
-  # neu und überspringt die ersten n: call_nth('$nojit'(Ziel), I), I > n
-  # (dieselben Lösungen in derselben Reihenfolge; die Inferenzen der
-  # Wiederholung zählen mit)
-  defp jit_nd_retry({:jit_nd, nx, info, ov, goal, mod, rest, _s, _a, n}, st) do
+  # neu und überspringt die ersten n (dieselben Lösungen in derselben
+  # Reihenfolge): ab dem Zählerstand beim Eintritt, nach der n-ten Lösung
+  # wieder der jetzige – dieselben Inferenzen und Grenzen wie ohne JIT
+  # (beide Ziele sind Tupel, sie zählen nicht)
+  defp jit_nd_retry({:jit_nd, nx, info, ov, goal, mod, rest, _s, _a, {n, c0} = nc}, st) do
     n0 = :atomics.get(st.icount, 1)
     chunk = if st.ilimit == nil, do: @jit_chunk, else: min(st.ilimit - n0, @jit_chunk)
     check = fn consumed -> jit_check(consumed, st) end
 
-    case PrologEx.Jit.nd_resume(nx, max(chunk, 1), check, st.subst, ov) do
+    # an der Inferenzgrenze: der Interpreter (die nächste Inferenz wirft)
+    r = if chunk < 1, do: :deopt, else: PrologEx.Jit.nd_resume(nx, chunk, check, st.subst, ov)
+
+    case r do
       :deopt ->
-        :atomics.put(st.icount, 1, n0)
-        i = {:var, PrologEx.Vars.next()}
-        skip = mk(",", [mk("call_nth", [mk("$nojit", [goal]), i]), mk(">", [i, n])])
-        run(%{st | goals: [{skip, st.height, mod} | rest]})
+        :atomics.put(st.icount, 1, c0)
+        skip = {:"$jit_skip", :atomics.new(1, []), n, n0}
+        run(%{st | goals: [{{:"$nojit", goal}, st.height, mod}, {skip, st.height, mod} | rest]})
 
       r ->
-        jit_nd_result(r, info, ov, goal, mod, rest, n, st)
+        jit_nd_result(r, info, ov, goal, mod, rest, nc, st)
     end
   end
 
@@ -7390,8 +7413,28 @@ defmodule PrologEx do
     # bleibt so endlich darstellbar); ihre Bindungen kompaktiert
     # close_cyc/3 mit
     :"$cyclic" ->
-      cyc = st.subst |> Store.bound_vars() |> cycle_vars(st.subst)
+      bound = Store.bound_vars(st.subst)
+      cyc = cycle_vars(bound, st.subst)
+
+      cyc =
+        Enum.reduce(
+          bound,
+          cyc,
+          &if(chain_hits?(&1, st.subst, cyc), do: MapSet.put(&2, &1), else: &2)
+        )
+
       compact_all(st, Map.new(cyc, &{&1, :cyc}))
+  end
+
+  # Läuft die Kette der Variablenbindungen von v über eine Zyklusvariable?
+  # Dann bleibt auch v stehen: compact3/4 und compact_spine/5 folgen der
+  # Kette mit Store.walk/2 und gingen über die Zyklusvariable hinweg
+  # (V = W, W = [3|V]: der Zyklus über V liefe endlos)
+  defp chain_hits?(v, subst, cyc) do
+    case Store.binding(subst, v) do
+      {:ok, {:var, _} = w} -> MapSet.member?(cyc, w) or chain_hits?(w, subst, cyc)
+      _ -> false
+    end
   end
 
   # seed: Memo vorab – Zyklusvariable => :cyc

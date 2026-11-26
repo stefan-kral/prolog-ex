@@ -340,7 +340,9 @@ defmodule PrologEx.Jit do
   # --- Zerlegen -----------------------------------------------------------
 
   defp parse({_, arity} = key, source, callable) when arity > 0 do
-    source = Enum.map(source, fn {h, b} -> {plain(h), plain(b)} end)
+    # wie der Interpreter die Klausel ausführt (ein führendes V = T im Kopf,
+    # Aliase weg): dieselben Inferenzen
+    source = Enum.map(source, fn {h, b} -> PrologEx.Compiler.simplify({plain(h), plain(b)}) end)
     ctx = %{self: key, callable: callable}
 
     clauses =
@@ -1680,7 +1682,7 @@ defmodule PrologEx.Jit do
   defp goal_flow({:tt, t, x}, d, ctx) do
     how =
       cond do
-        is_number(x) -> PrologEx.type_test(t, x)
+        is_number(x) -> t != "is_list" and PrologEx.type_test(t, x)
         anon?(x) or not defd?(d, x) -> t == "var"
         eff(d[x], ctx.reqs) == :num -> num_test(t, ctx.num)
         refines?(t, ctx.num) -> :refine
@@ -3147,7 +3149,7 @@ defmodule PrologEx.Jit do
       end
     rescue
       e in PrologEx.Error ->
-        {:thrown, e.term}
+        thrown(e.term)
 
       e in UndefinedFunctionError ->
         cond do
@@ -3234,8 +3236,8 @@ defmodule PrologEx.Jit do
         {:none, b} -> {:fail, chunk_now() - b}
       end
     rescue
-      e in PrologEx.Error -> {:thrown, e.term}
-      ArithmeticError -> nd_error(fn -> PrologEx.Error.evaluation!("undefined") end)
+      e in PrologEx.Error -> thrown(e.term)
+      ArithmeticError -> :deopt
       SystemLimitError -> nd_error(fn -> PrologEx.Error.resource!("memory") end)
       UndefinedFunctionError -> :deopt
     catch
@@ -3247,6 +3249,15 @@ defmodule PrologEx.Jit do
       end
     end
   end
+
+  # Ein Fehler aus dem Code: aufgeben – der Interpreter rechnet neu und
+  # meldet ihn, mit seinen Inferenzen bis dahin (die des Codes bis zum Fehler
+  # sind nicht bekannt) und seinem Kontext. Nicht für die Bälle der
+  # Prüfpunkte (Grenzen, Abbruch; dort ist der Verbrauch verbucht) und für
+  # Speicherfehler.
+  defp thrown({:struct, "error", [{:struct, "resource_error", _}, _]} = b), do: {:thrown, b}
+  defp thrown({:struct, "error", [_, _]}), do: :deopt
+  defp thrown(b), do: {:thrown, b}
 
   defp nd_error(f) do
     f.()

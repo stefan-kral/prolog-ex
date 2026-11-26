@@ -1344,6 +1344,72 @@ defmodule PrologEx.JitTest do
     assert out =~ ~r"% pt#{u}/4 +\S+ +pt#{u}\(\+list\(int\), \+int, -list\(int\), -list\(int\)\)"
   end
 
+  # gefunden vom Differenztest (jit_fuzz_test.exs): Inferenzen wie im
+  # Interpreter – bei = am Rumpfanfang und Aliasen (der Interpreter zieht
+  # sie in den Kopf bzw. streicht sie), bei Fehlern im Code (Aufgeben statt
+  # des Fehlers ohne die Inferenzen bis dahin) und bei einem Fehler nach
+  # dem Zurücksetzen in nichtdeterministischen Code (die Wiederholung
+  # zählte doppelt; an der Inferenzgrenze rechnete er eine zu viel)
+  test "Inferenzen wie im Interpreter: =, Fehler, Aufgeben nach Lösungen", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    a#{u}(X, Y) :- Z = X, Y = 1.
+    b#{u}(X, Y) :- X = f(Y).
+    c#{u}(X, Y) :- Y = X, Y > 0.
+    t#{u}(N, Y) :- N > 0, N1 is N - 1, d#{u}(N1, Y).
+    d#{u}(N, Y) :- Y is N // 0.
+    r#{u}(_, V) :- V = 1.
+    r#{u}(T, V) :- arg(2, T, _), V = 2.
+    p#{u}(V0, V1) :- ( 3 >= 0 -> V2 = f(f(0)) ; V2 = 0 ), \\+ number(V2), V0 is 0 + 3 - 2, V1 = a.
+    p#{u}(V0, V1) :- 3 >= 1, !, V0 is 1, V1 = g(V0, V0).
+    o#{u}([]).
+    q#{u}(V0) :- o#{u}([]), V0 is 1 + 2.
+    q#{u}(V0) :- p#{u}(V1, V2), q#{u}(V3), p#{u}(V4, V5), compare(V6, V4, V2), V0 is V4.
+    """
+
+    {db, _} =
+      PrologEx.Consult.load(
+        PrologEx.use_library(%{}, "iso_ext", "user"),
+        Reader.read_terms(c.reader, src)
+      )
+
+    {int, _} =
+      with_jit_off(fn ->
+        PrologEx.Consult.load(
+          PrologEx.use_library(%{}, "iso_ext", "user"),
+          Reader.read_terms(c.reader, src)
+        )
+      end)
+
+    for g <-
+          [
+            "a#{u}(1, Y)",
+            "b#{u}(f(1), Y)",
+            "c#{u}(1, Y)",
+            "t#{u}(5, Y)",
+            "r#{u}(3, V)",
+            "r#{u}(f(1, 2), V)"
+          ] ++
+            for(l <- 19_990..20_010, do: "call_with_inference_limit(q#{u}([_, _ | _]), #{l}, R)") do
+      q =
+        "statistics(inferences, _I0), catch(#{g}, error(E, _), true), " <>
+          "statistics(inferences, _I1), I is _I1 - _I0"
+
+      assert TableCase.run(c.reader, db, q) == TableCase.run(c.reader, int, q), g
+    end
+
+    # r: die zweite Lösung wirft im übersetzten Code, nach der ersten
+    assert {_, {:answers, ["I = 3, V = 1", "E = type_error(compound,3), I = 7"]}} =
+             TableCase.run(
+               c.reader,
+               db,
+               "statistics(inferences, _I0), catch(r#{u}(3, V), error(E, _), true), statistics(inferences, _I1), I is _I1 - _I0"
+             )
+  end
+
   defp with_jit_off(f) do
     PrologEx.Flags.set("jit", {:atom, "false"})
 

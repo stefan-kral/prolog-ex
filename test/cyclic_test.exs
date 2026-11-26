@@ -159,6 +159,35 @@ defmodule PrologEx.CyclicTest do
     yes(c, "L = [1|T], T = [2|T], cnt(300000, L), L = [1,2,2,2|_]")
   end
 
+  # V = W, W = [3|V] aus Klauseln (Differenztest jit_fuzz_test.exs): die
+  # Kompaktierung lief über die Kette V = W hinweg am Zyklus vorbei, endlos
+  # – throw(:"$cyclic") entkam der Anfrage
+  test "Kompaktierung: Zyklus über eine Kette von Variablen", c do
+    f = Path.join(System.tmp_dir!(), "px_cyc_#{System.unique_integer([:positive])}.pl")
+
+    File.write!(f, """
+    z0(f(V0), V1, V2, [V3|V4]) :- fail, V0 = [], V1 = [V3|V4], V2 = V3.
+    z0(V0, V1, V2, [1|V3]) :- \\+ V3 == g(V3, 1), V0 = V3, V1 = [1|V3], V2 = V0.
+    z0(V0, [], b, V1) :- V0 = 1.
+    z1(3, V0).
+    z1(2, V0) :- ( nonvar(V0) -> V0 =< 3 ; V1 == [V0|[1]] ).
+    z2(V0, V1) :- z0(V2, V3, V4, [V0|V3]), 1 > 0, V0 = [3|V3], V1 = [2|V3].
+    z2(V0, V1) :- 0 =< 0, z0(V2, V3, V4, [2|V3]), z1(V5, V6), z2(V7, V0), V0 = [V5|V3], V1 = [V5|V0].
+    z2(V0, []) :- z2(V1, V2), V3 is 0 + 1 * 1, V0 = [].
+    """)
+
+    {:ok, _} = PrologEx.Consult.load_file(f)
+    File.rm(f)
+
+    # (ob die Kompaktierung in die Kette gerät, hängt an der Nummerierung der
+    # Variablen: K frische davor verschieben sie)
+    for k <- 0..3 do
+      assert ask(c, "length(_L, #{k}), call_with_inference_limit(z2(V0, V1), 20000, R)") ==
+               ["R = true, V0 = [3], V1 = [2]", "R = inference_limit_exceeded"],
+             "K = #{k}"
+    end
+  end
+
   test "Toplevel zeigt Zyklen", c do
     assert ask(c, "X = f(Y), Y = g(X)") == ["X = f(g(X)), Y = g(X)"]
   end

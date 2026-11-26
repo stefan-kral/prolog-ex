@@ -147,8 +147,10 @@ Ein Prolog-Kern in Elixir:
     Inferenzen und Fehler. Sind die Ausgaben des letzten Aufrufs die der
     Klausel (`mem(X, [_|T]) :- mem(X, T)`), reicht die Klausel seine
     Lösungen ohne Hülle weiter. Gibt der Code nach der n-ten Lösung auf,
-    rechnet der Interpreter den Aufruf neu und überspringt die ersten n
-    (`call_nth/2`; die Inferenzen der Wiederholung zählen mit).
+    rechnet der Interpreter den Aufruf neu und überspringt die ersten n –
+    ab dem Zählerstand beim Eintritt, nach der n-ten wieder ab dem
+    jetzigen: dieselben Inferenzen und Grenzen wie ohne JIT (vorher zählte
+    die Wiederholung mit).
     Deterministische Prädikate rufen solche nur dort, wo bloß die erste
     Lösung zählt: gleich gefolgt von einem Schnitt (`mem(X, L), !`), als
     letztes Ziel einer Bedingung (`( mem(X, L) -> … ; … )`) oder unter
@@ -287,7 +289,19 @@ Ein Prolog-Kern in Elixir:
     nicht den der zuletzt versuchten.
   - Gleich wie im Interpreter: Antworten, Fehler, Inferenzen und Grenzen
     (Inferenz-, Zeit-, Speichergrenzen an denselben Prüfpunkten,
-    spätestens alle 65 536 Inferenzen). Zwei Unterschiede, beide zum
+    spätestens alle 65 536 Inferenzen). Ein Fehler im übersetzten Code
+    (`arg/3` auf eine Zahl, Division durch 0) ist Aufgeben: der
+    Interpreter rechnet neu und meldet ihn mit seinen Inferenzen bis
+    dahin (vorher fehlten die des Codes). Der JIT übersetzt die Klauseln
+    so, wie der Interpreter sie ausführt (ein führendes `V = T` im Kopf,
+    Aliase wie `Z = X` mit sonst unbenutztem Z weg – vorher zählte er
+    dafür je eine Inferenz). Geprüft mit einem Differenztest
+    (`test/jit_fuzz_test.exs`): Zufallsprogramme mit Modi und Typen,
+    Rauschen und Anfragen nach und gegen die Modi, mit und ohne JIT –
+    Antworten, Fehler, Inferenzen (bis auf den zweiten Unterschied
+    unten: höchstens so viele), Grenzen (`FUZZ_N`, `FUZZ_SEED`; Vorgabe
+    60 Programme, einige Sekunden; zuletzt 4000 ohne Abweichung). Zwei
+    Unterschiede, beide zum
     Besseren: das übersetzte Prädikat hinterlässt keine Choice Points
     (`call_with_inference_limit/3` gibt `!` statt `true`), und beim
     Zurücksetzen zählt es keine Versuche von Klauseln, die ohnehin nichts
@@ -903,7 +917,10 @@ Was mit zyklischen Termen geht (wie SWI):
 * **Fehler statt Endlosschleife,** wo das Ergebnis keinen Zyklus darstellen
   kann: `assertz` u. a. `representation_error(cyclic_term)`, Arithmetik
   (`X = X + 1, Y is X`) `type_error(acyclic_term, _)`. Die Kompaktierung
-  der Bindungen behält lebende Zyklen.
+  der Bindungen behält lebende Zyklen, auch über eine Kette von
+  Variablen (`V = W, W = [3|V]`: vorher lief sie je nach Nummerierung der
+  Variablen über W am Zyklus vorbei, und ein internes `throw` entkam der
+  Anfrage – gefunden vom Differenztest des JIT).
 
 Erkannt wird ein Zyklus ohne Vorab-Prüfung: Ein Durchlauf zählt auf dem
 aktuellen Pfad, wie oft er über eine Bindung ging. In einem endlichen Term

@@ -68,9 +68,8 @@ defmodule PrologEx.Compiler do
   `PrologEx.mk_struct/2` und `PrologEx.cons/2`.
   """
 
-  def compile_clause({head, body}) do
-    {head, body} = fold_head(head, body)
-    body = alias_vars(head, body)
+  def compile_clause(clause) do
+    {head, body} = simplify(clause)
     counts = count_vars(body, count_vars(head, %{}))
     st = %{slots: %{}, fresh: %{}, oslots: %{}, prefix: true, counts: counts, voids: 0}
 
@@ -164,6 +163,15 @@ defmodule PrologEx.Compiler do
   # Quelle.
 
   @control ~w(, ; -> *-> \\+)
+
+  @doc false
+  # die Vereinfachungen von compile_clause/1 (fold_head, alias_vars) – auch
+  # für PrologEx.Jit: er übersetzt dieselbe Klausel, mit denselben
+  # Inferenzen
+  def simplify({head, body}) do
+    {head, body} = fold_head(head, body)
+    {head, alias_vars(head, body)}
+  end
 
   @doc false
   def alias_vars(head, body) do
