@@ -1160,10 +1160,10 @@ defmodule PrologEx do
   # steht für übersetzte Rufer unter {:jit_info, m, n, a}. Gerufen werden
   # dürfen auch schon übersetzte statische Prädikate desselben Moduls
   # außerhalb dieses Schritts
-  defp jit_batch(preds, db, module) do
+  defp jit_batch(preds, db, module, nums \\ MapSet.new()) do
     {src, ext, dyn} = jit_input(preds, db, module)
     decl = PrologEx.Builtins.IsDirectives.jit_modes(db, module)
-    res = PrologEx.Jit.compile_batch(src, ext, dyn, decl)
+    res = PrologEx.Jit.compile_batch(src, ext, dyn, decl, %{}, nums)
 
     Enum.reduce(preds, %{}, fn {{n, a} = k, p}, acc ->
       case res do
@@ -4638,9 +4638,11 @@ defmodule PrologEx do
   # @jit_variants_max je Prädikat.
   @jit_variants_max 4
 
-  # abgewiesen: gebundene Ausgaben – eine Variante; sonst ein Fehlschlag
+  # abgewiesen: Floats für ganzzahligen Code – neu übersetzen
+  # (jit_renum/4); gebundene Ausgaben – eine Variante; sonst ein Fehlschlag
   defp jit_no(pred, jit, goal, name, args, mod, rest, st) do
     {_, _, _, outs, _, _} = jit
+    jit_floats(jit, mod, name, args, st)
 
     mask = {bound_outs(outs, args, 0, st.subst, []), []}
 
@@ -4661,6 +4663,7 @@ defmodule PrologEx do
   # als eine Abweisung: der Interpreter macht die Arbeit noch einmal)
   defp jit_deopted(pred, jit, goal, name, args, mod, rest, st) do
     {_, {_, _, _, _, sig}, _, _, _, _} = jit
+    jit_floats(jit, mod, name, args, st)
 
     mask = {[], free_ins(sig.modes, args, 0, st.subst, [])}
     # (vor dem Kaltwerden: @jit_cold_min / @jit_deopt_weight Mal aufgegeben)
@@ -4821,6 +4824,142 @@ defmodule PrologEx do
 
       _ ->
         :none
+    end
+  end
+
+  # --- Floats für ganzzahligen Code ---------------------------------------
+  #
+  # Ganzzahlig übersetzt wird, wo im Programm nichts auf Floats deutet
+  # (PrologEx.Jit, kinds); kommen sie doch – als Daten, von außen –, weist
+  # der Code ab oder gibt auf, wird kalt, und jeder Aufruf zahlt die
+  # Kalt-Prüfung, ohne dass der Code je hilft (qsort auf Floats: 1,1 Mio.
+  # Aufrufe, +5,5 % Reduktionen gegenüber ohne JIT). Darum: hat ein Aufruf,
+  # den ganzzahliger Code abweist oder aufgibt, ein Float in den
+  # Argumenten (höchstens @float_scan Teilterme angesehen), wird der
+  # zusammenhängende Teil der ganzzahligen Prädikate des Moduls (über ihre
+  # Aufrufe verbunden) noch einmal übersetzt, für Zahlen – einmal: der
+  # neue Code ersetzt den alten in der Datenbank (wie assert; Rufer in
+  # anderen Modulen behalten den alten, für Ganzzahlen weiter richtigen);
+  # gelingt es nicht, bleibt es dabei (vermerkt in :persistent_term je
+  # Modul des ganzzahligen Codes – gelingt es, ist der neue Code nicht mehr
+  # ganzzahlig und löst nichts mehr aus).
+  @float_scan 1000
+
+  defp jit_floats({_, {pm, _, _, _, sig}, _, _, _, _}, mod, name, args, st) do
+    if sig.num == false and floats?(args, st.subst, @float_scan) and
+         :persistent_term.get({PrologEx.JitRenum, pm}, nil) == nil do
+      case jit_renum(current_db(), mod, name, length(args)) do
+        {:ok, db} -> put_db(db)
+        :no -> :persistent_term.put({PrologEx.JitRenum, pm}, :failed)
+      end
+    end
+  end
+
+  # ein Float in den Argumenten? (höchstens b Teilterme angesehen)
+  defp floats?(args, s, b) do
+    scan(args, s, b)
+    false
+  catch
+    :float_found -> true
+  end
+
+  defp scan(_, _s, b) when b <= 0, do: b
+  defp scan([t | ts], s, b), do: scan(ts, s, scan1(t, s, b))
+  defp scan(_, _s, b), do: b
+
+  # (jeder Teilterm kostet 1 – auch bei Zyklen endet es)
+  defp scan1(_t, _s, b) when b <= 0, do: b
+
+  defp scan1(t, s, b) do
+    case Store.walk(t, s) do
+      f when is_float(f) -> throw(:float_found)
+      {:struct, _, as} -> scan(as, s, b - 1)
+      [h | tl] -> scan1(tl, s, scan1(h, s, b - 1))
+      {:glist, l} -> gscan(l, s, b - 1)
+      {:gstruct, _, as} -> scan(as, s, b - 1)
+      _ -> b - 1
+    end
+  end
+
+  # eine grundierte Liste (auch mit anderem Rest als [])
+  defp gscan(_, _s, b) when b <= 0, do: b
+  defp gscan([h | t], s, b), do: gscan(t, s, scan1(h, s, b))
+  defp gscan(t, s, b), do: scan1(t, s, b)
+
+  @doc false
+  # die ganzzahligen übersetzten Prädikate des Moduls, die mit name/arity
+  # über Aufrufe zusammenhängen, für Zahlen neu übersetzen (jit_floats/5):
+  # {:ok, db} oder :no
+  def jit_renum(db, module, name, arity) do
+    int =
+      for {{^module, n, a} = k, v} <- db,
+          is_binary(n),
+          info = jit_info_of(db, k, v),
+          info != nil,
+          elem(info, 4).num == false,
+          into: %{},
+          do: {{n, a}, info}
+
+    adj =
+      Enum.reduce(int, %{}, fn {k, {_, _, _, deps, _}}, acc ->
+        Enum.reduce(deps, acc, fn
+          {^module, dn, da}, acc ->
+            d = {dn, da}
+
+            if Map.has_key?(int, d),
+              do: acc |> Map.update(k, [d], &[d | &1]) |> Map.update(d, [k], &[k | &1]),
+              else: acc
+
+          _, acc ->
+            acc
+        end)
+      end)
+
+    group = reach([{name, arity}], adj, MapSet.new())
+
+    preds =
+      for k <- group do
+        {:pred, cls, by_key, vo, entries} = db[Tuple.insert_at(k, 0, module)]
+        vo = with {t, _, _, _, v, _} when t in [:jit, :jit_nd] <- vo, do: v
+        {k, {:pred, cls, by_key, vo, entries}}
+      end
+
+    new = jit_batch(preds, db, module, group)
+
+    if jit_num?(new, {module, name, arity}) do
+      keys = for {n, a} <- group, do: {module, n, a}
+
+      {:ok,
+       db
+       |> Map.drop(for {m, n, a} <- keys, do: {:jit_info, m, n, a})
+       |> Map.merge(new)
+       |> note_callers(new)}
+    else
+      :no
+    end
+  end
+
+  defp jit_info_of(_db, _k, {:pred, _, _, {t, info, _, _, _, _}, _}) when t in [:jit, :jit_nd],
+    do: info
+
+  defp jit_info_of(db, {m, n, a}, {:pred, _, _, _, _}), do: Map.get(db, {:jit_info, m, n, a})
+  defp jit_info_of(_, _, _), do: nil
+
+  defp reach([], _adj, seen), do: seen
+
+  defp reach([k | ks], adj, seen) do
+    if MapSet.member?(seen, k),
+      do: reach(ks, adj, seen),
+      else: reach(Map.get(adj, k, []) ++ ks, adj, MapSet.put(seen, k))
+  end
+
+  defp jit_num?(new, k) do
+    case new do
+      %{^k => {:pred, _, _, {t, {_, _, _, _, sig}, _, _, _, _}, _}} when t in [:jit, :jit_nd] ->
+        sig.num
+
+      _ ->
+        false
     end
   end
 

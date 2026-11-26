@@ -1530,6 +1530,72 @@ defmodule PrologEx.JitTest do
     assert out =~ ~r"%   ↳ Variante sg#{u}\(\+int, \+any\)\n"
   end
 
+  # Floats für ganzzahligen Code: der Teil des Aufrufgraphen wird für Zahlen
+  # neu übersetzt (statt kalt zu werden und je Aufruf die Kalt-Prüfung zu
+  # zahlen); Antworten und Inferenzen wie im Interpreter
+  test "Floats: ganzzahliger Code wird für Zahlen neu übersetzt", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    qi#{u}([X|L], R, R0) :- pi#{u}(L, X, L1, L2), qi#{u}(L2, R1, R0), qi#{u}(L1, R, [X|R1]).
+    qi#{u}([], R, R).
+    pi#{u}([X|L], Y, [X|L1], L2) :- X =< Y, !, pi#{u}(L, Y, L1, L2).
+    pi#{u}([X|L], Y, L1, [X|L2]) :- pi#{u}(L, Y, L1, L2).
+    pi#{u}([], _, [], []).
+    """
+
+    {db, _} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    {int, _} =
+      with_jit_off(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    {out, _} = TableCase.run(c.reader, db, "jit_listing")
+    assert out =~ ~r"% qi#{u}/3 +\S+ +qi#{u}\(\+list\(int\), -, \+any\)"
+
+    for q <- [
+          "qi#{u}([2.5, 1, 7, 0.5, 3], R, [])",
+          "qi#{u}([3, 1, 2], R, [])",
+          "catch(qi#{u}([2.5, a, 1], R, []), error(E, _), true)"
+        ] do
+      q2 =
+        "statistics(inferences, _I0), (#{q}), statistics(inferences, _I1), I is _I1 - _I0"
+
+      assert TableCase.run(c.reader, db, q2) == TableCase.run(c.reader, int, q2), q
+    end
+
+    # nach einem Aufruf mit Floats: für Zahlen übersetzt, und der Code trifft
+    {_, _} = TableCase.run(c.reader, db, "qi#{u}([1.5, 0.5], _, [])")
+    db2 = PrologEx.current_db()
+    {out, _} = TableCase.run(c.reader, db2, "qi#{u}([2.5, 1, 0.5], _, []), jit_listing")
+    assert out =~ ~r"% qi#{u}/3 +\S+ +qi#{u}\(\+list\(num\), -, \+any\)"
+    assert out =~ ~r"% pi#{u}/4 +\S+ +pi#{u}\(\+list\(num\), \+num, -list\(num\), -list\(num\)\)"
+
+    {:pred, _, _, {:jit, _, _, _, _, st}, _} = db2 |> Map.fetch!({"user", "qi#{u}", 3})
+    assert :atomics.get(st, 1) > 0
+    assert :atomics.get(st, 2) == 0
+  end
+
+  # OTP 28 vor 28.3.1: der JIT der BEAM rechnet `X * X + X * X` falsch
+  # (OTP-19889; aus `X * 0 + X * 0` wird X) – dort wird der erzeugte Code
+  # ohne die Optimierung gemeinsamer Teilausdrücke übersetzt
+  test "X * 0 + X * 0 (JIT-Fehler in OTP 28 vor 28.3.1)", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    a#{u}(V0, V1) :- _ is 3 + V1 - V1 * 1, V0 is V1 * 0 + V1 * 0.
+    b#{u}(V0, V1) :- V0 is V1 * 0 + V1 * 0 + 1, _ is V1 * 2 + V1 * 2.
+    """
+
+    {db, _} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    assert {_, {:answers, ["A = 0, B = 1"]}} =
+             TableCase.run(c.reader, db, "a#{u}(A, 5), b#{u}(B, 5)")
+  end
+
   defp with_jit_off(f) do
     PrologEx.Flags.set("jit", {:atom, "false"})
 

@@ -317,12 +317,15 @@ defmodule PrologEx.JitFuzz do
   defp glist,
     do:
       "[" <>
-        Enum.map_join(1..Enum.random(0..4)//1, ",", fn _ ->
-          Integer.to_string(Enum.random(0..5))
-        end) <>
+        Enum.map_join(1..Enum.random(0..4)//1, ",", fn _ -> gnum() end) <>
         "]"
 
-  defp gterm(:int), do: Integer.to_string(Enum.random(0..5))
+  # eine Zahl für Anfragen, ab und zu ein Float (ganzzahlig übersetzter
+  # Code wird dann für Zahlen neu übersetzt, PrologEx.jit_renum/4)
+  defp gnum,
+    do: if(:rand.uniform() < 0.08, do: "#{Enum.random(0..5)}.5", else: "#{Enum.random(0..5)}")
+
+  defp gterm(:int), do: gnum()
   defp gterm(:list), do: glist()
   defp gterm(:any), do: gterm_any(0)
 

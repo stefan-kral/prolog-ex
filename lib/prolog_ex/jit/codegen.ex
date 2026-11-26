@@ -275,12 +275,43 @@ defmodule PrologEx.Jit.Codegen do
         end
       end)
 
+    cse = if cse_off?(), do: [quote(do: @compile(:no_ssa_opt_cse))], else: []
+
     quote do
       defmodule unquote(mod) do
         @moduledoc false
         @compile {:no_warn_undefined, PrologEx.Jit.Runtime}
+        unquote_splicing(cse)
         unquote_splicing(funs)
       end
+    end
+  end
+
+  # OTP 28 vor 28.3.1 (ERTS 16.0 bis 16.3.0): der JIT der BEAM rechnet
+  # `X * X + X * X` falsch (OTP-19889) – nach der Optimierung gemeinsamer
+  # Teilausdrücke wird daraus `Y + Y` aus einem Register, und der
+  # Maschinencode liest einen Operanden veraltet (`Z = Y * X, Z + Z` gibt
+  # X + Z; `V0 is V1 * 0 + V1 * 0` gab 3, manche Formen bringen die BEAM
+  # zum Absturz). Für diese Versionen den erzeugten Code ohne sie
+  # übersetzen (kostet dort bis 11 %, crypt 8 %, deriv 11 %)
+  defp cse_off? do
+    case :persistent_term.get({__MODULE__, :cse_off}, nil) do
+      nil ->
+        v =
+          case :erlang.system_info(:version) |> to_string() |> String.split(".") do
+            ["16", mi | rest] ->
+              p = with [x | _] <- rest, {n, ""} <- Integer.parse(x), do: n, else: (_ -> 0)
+              {String.to_integer(mi), p} < {3, 1}
+
+            _ ->
+              false
+          end
+
+        :persistent_term.put({__MODULE__, :cse_off}, v)
+        v
+
+      v ->
+        v
     end
   end
 

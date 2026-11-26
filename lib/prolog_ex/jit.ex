@@ -107,15 +107,18 @@ defmodule PrologEx.Jit do
   `force`: Modi, die ein Prädikat haben muss, %{{name, stelligkeit} =>
   %{k => :in | :out}} (anders als decl kein Hinweis – passen sie nicht,
   wird es nicht übersetzt; für die Varianten, PrologEx.jit_variant/7).
+  `nums`: Prädikate, die auch Floats sehen (nicht ganzzahlig übersetzt,
+  wie ihr Teil des Aufrufgraphen; PrologEx.jit_renum/4).
   """
   def compile_batch(
         preds,
         ext \\ fn _ -> nil end,
         dynamic \\ MapSet.new(),
         decl \\ %{},
-        force \\ %{}
+        force \\ %{},
+        nums \\ MapSet.new()
       ) do
-    case settle(preds, ext, dynamic, decl, force) do
+    case settle(preds, ext, dynamic, decl, force, nums) do
       %{solved: solved} when map_size(solved) == 0 -> %{}
       s -> Codegen.build(s, :load)
     end
@@ -126,7 +129,7 @@ defmodule PrologEx.Jit do
   {:ok, signatur} | {:no, grund}} (für jit_listing).
   """
   def explain(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new(), decl \\ %{}) do
-    s = settle(preds, ext, dynamic, decl, %{})
+    s = settle(preds, ext, dynamic, decl, %{}, MapSet.new())
 
     Map.new(preds, fn {k, _} ->
       case s.solved do
@@ -149,7 +152,7 @@ defmodule PrologEx.Jit do
   @doc false
   # der erzeugte Elixir-Code (zum Nachsehen); preds wie compile_batch/3
   def code(preds) do
-    case settle(preds, fn _ -> nil end, MapSet.new(), %{}, %{}) do
+    case settle(preds, fn _ -> nil end, MapSet.new(), %{}, %{}, MapSet.new()) do
       %{solved: solved} when map_size(solved) == 0 -> :no
       s -> Codegen.build(s, :show)
     end
@@ -174,23 +177,18 @@ defmodule PrologEx.Jit do
   # decl: Modi aus is-Deklarationen (PrologEx.Builtins.IsDirectives.jit_modes/2),
   # %{{name, stelligkeit} => %{k => :in | :out}}: Hinweise vor denen der
   # Aufrufstellen (call_prefs/3)
-  defp settle(preds, ext0, dynamic, decl, force) do
+  defp settle(preds, ext0, dynamic, decl, force, nums) do
     Process.put(@why_key, %{})
 
     try do
-      settle_(
-        preds,
-        ext0,
-        dynamic,
-        decl,
-        for({k, ms} <- force, {i, m} <- ms, into: %{}, do: {{k, i}, m})
-      )
+      force = for {k, ms} <- force, {i, m} <- ms, into: %{}, do: {{k, i}, m}
+      settle_(preds, ext0, dynamic, decl, force, nums)
     after
       Process.delete(@why_key)
     end
   end
 
-  defp settle_(preds, ext0, dynamic, decl, force) do
+  defp settle_(preds, ext0, dynamic, decl, force, nums) do
     batch = MapSet.new(for {k, _} <- preds, do: k)
     ext = fn k -> if MapSet.member?(batch, k), do: nil, else: ext0.(k) end
 
@@ -206,7 +204,7 @@ defmodule PrologEx.Jit do
       for {k, src} <- preds, p = Parse.parse(k, src, callable), p != nil, into: %{}, do: {k, p}
 
     pref = Hints.call_prefs(preds, parsed, decl)
-    {parsed, num} = kinds(drop_orphans(parsed, ext), ext)
+    {parsed, num} = kinds(drop_orphans(parsed, ext), ext, nums)
 
     solved =
       parsed
@@ -252,7 +250,7 @@ defmodule PrologEx.Jit do
   # kann ein Float sein, ein Argument auch) – je zusammenhängendem Teil
   # des Aufrufgraphen; ein ganzzahliges schon übersetztes Prädikat darf
   # von einem nicht ganzzahligen nicht gerufen werden
-  defp kinds(parsed, ext) do
+  defp kinds(parsed, ext, nums) do
     ext_num = fn d ->
       case ext.(d) do
         nil -> nil
@@ -262,7 +260,8 @@ defmodule PrologEx.Jit do
 
     seed =
       for {k, p} <- parsed,
-          not Parse.int_only?(p.clauses) or Enum.any?(p.deps, &(ext_num.(&1) == true)),
+          MapSet.member?(nums, k) or not Parse.int_only?(p.clauses) or
+            Enum.any?(p.deps, &(ext_num.(&1) == true)),
           into: MapSet.new(),
           do: k
 
@@ -278,7 +277,7 @@ defmodule PrologEx.Jit do
             do: Util.why(k, "ruft #{Util.pi(d)}: übersetzt nur für Ganzzahlen, hier auch Floats")
 
         bad = Enum.map(bad, &elem(&1, 0))
-        kinds(drop_orphans(Map.drop(parsed, bad), ext), ext)
+        kinds(drop_orphans(Map.drop(parsed, bad), ext), ext, nums)
     end
   end
 

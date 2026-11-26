@@ -234,7 +234,26 @@ Ein Prolog-Kern in Elixir:
     ganzzahligen Operationen (+ - * // mod rem div min max >> << /\ \/
     xor gcd abs sign msb \), rechnet der Code + - * direkt und nimmt
     ganzzahlige Eingaben; sonst alles über dieselben Funktionen wie der
-    Interpreter (Floats, auch rationale Zwischenwerte).
+    Interpreter (Floats, auch rationale Zwischenwerte). Kommen Floats doch
+    – als Daten, von außen –, weist ganzzahliger Code sie ab oder gibt auf;
+    hat ein solcher Aufruf ein Float in den Argumenten (höchstens 1000
+    Teilterme angesehen), wird der zusammenhängende Teil der ganzzahligen
+    Prädikate des Moduls einmal für Zahlen neu übersetzt und ersetzt den
+    alten Code. Vorher wurde er kalt, und jeder Aufruf zahlte die
+    Kalt-Prüfung (drei atomics-Operationen) vor dem Interpreter: qsort auf
+    50 Floats, 3000-mal, +5,5 % Reduktionen und 8–13 % mehr Zeit als ohne
+    JIT – jetzt 55 ms statt 1,9 s. Ganzzahlen laufen danach im Code für Zahlen etwa 10 %
+    langsamer als im ganzzahligen.
+  - OTP 28 vor 28.3.1 (ERTS 16.0 bis 16.3.0) hat einen Fehler im JIT der
+    BEAM, der Ausdrücke wie `X * X + X * X` falsch übersetzt (OTP-19889):
+    nach der Optimierung gemeinsamer Teilausdrücke wird daraus `Y + Y` aus
+    einem Register, und der Maschinencode liest einen Operanden veraltet
+    (`Z = Y * X, Z + Z` gibt X + Z; manche Formen bringen die BEAM zum
+    Absturz). Gefunden vom Differenztest: `V0 is V1 * 0 + V1 * 0` gab 3.
+    Auf diesen Versionen wird der erzeugte Code ohne diese Optimierung
+    übersetzt (`@compile :no_ssa_opt_cse`; kostet dort bis 11 %: crypt 8 %,
+    deriv 11 %, mu 6 %); besser ist OTP 28.3.1 oder neuer – der Fehler
+    trifft auch anderen Erlang- und Elixir-Code.
   - Die Prädikate eines Ladeschritts werden zusammen analysiert;
     wechselseitig rekursive teilen sich ein Modul. Gerufen werden dürfen
     auch schon übersetzte statische Prädikate früherer Schritte, direkt.
