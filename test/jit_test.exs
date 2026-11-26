@@ -1475,6 +1475,61 @@ defmodule PrologEx.JitTest do
     end
   end
 
+  # B2: Aufrufe mit gebundenen Ausgaben (sd: SICStus sendmore) oder freien
+  # Eingaben (tt: unify, übersetzt als tt(+any, +any)) bekommen eine
+  # Variante mit diesen Modi – Antworten und Inferenzen wie im Interpreter
+  # (die Köpfe vergleicht die Variante wie er)
+  test "Varianten für gebundene Ausgaben und freie Eingaben", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    sd#{u}(C, A, B, S, D) :- X is C + A + B, ( X < 10 -> S = X, D = 0 ; S is X - 10, D = 1 ).
+    st#{u}(T) :- nonvar(T), \\+ atomic(T), \\+ T = [_|_].
+    cn#{u}(T) :- nonvar(T), T = [_|_].
+    tt#{u}(T, tstr) :- st#{u}(T).
+    tt#{u}(T, tlst) :- cn#{u}(T).
+    tt#{u}(T, tatm) :- atomic(T).
+    tt#{u}(T, tvar) :- var(T).
+    sg#{u}(X, neg) :- X < 0, !.
+    sg#{u}(_, pos).
+    """
+
+    {db, _} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    {int, _} =
+      with_jit_off(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    for q <- [
+          "sd#{u}(0, 5, 7, 2, D)",
+          "sd#{u}(0, 5, 7, 3, D)",
+          "sd#{u}(0, 5, 7, S, 1)",
+          "sd#{u}(0, 5, 7, S, 0)",
+          "sd#{u}(1, 2, 3, 6, 0)",
+          "tt#{u}(f(x), T)",
+          "findall(X-Y, ((Y = a ; Y = [1] ; Y = f(y) ; true), tt#{u}(Y, X)), L)",
+          "tt#{u}(_, T)",
+          "sg#{u}(5, pos)",
+          "sg#{u}(5, neg)",
+          "sg#{u}(-1, neg)",
+          "sg#{u}(-1, pos)"
+        ] do
+      q2 =
+        "statistics(inferences, _I0), (#{q}), statistics(inferences, _I1), I is _I1 - _I0"
+
+      assert TableCase.run(c.reader, db, q2) == TableCase.run(c.reader, int, q2), q
+    end
+
+    {out, _} = TableCase.run(c.reader, db, "jit_listing")
+    assert out =~ ~r"% sd#{u}/5 +\S+ +sd#{u}\(\+int, \+int, \+int, -int, -int\)\n"
+    assert out =~ ~r"%   ↳ Variante sd#{u}\(\+int, \+int, \+int, \+int, -int\)\n"
+    assert out =~ ~r"%   ↳ Variante sd#{u}\(\+int, \+int, \+int, -int, \+any\)\n"
+    assert out =~ ~r"%   ↳ Variante sd#{u}\(\+int, \+int, \+int, \+int, \+any\)\n"
+    assert out =~ ~r"%   ↳ Variante tt#{u}\(\+any, -any\)  nichtdeterministisch\n"
+    assert out =~ ~r"%   ↳ Variante sg#{u}\(\+int, \+any\)\n"
+  end
+
   defp with_jit_off(f) do
     PrologEx.Flags.set("jit", {:atom, "false"})
 

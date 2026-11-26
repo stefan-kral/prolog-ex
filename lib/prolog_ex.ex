@@ -1180,7 +1180,7 @@ defmodule PrologEx do
               Map.put(
                 acc,
                 {module, n, a},
-                {:pred, cls, by_key, {tag, info, ins, outs, vo, :atomics.new(3, [])}, entries}
+                {:pred, cls, by_key, {tag, info, ins, outs, vo, :atomics.new(4, [])}, entries}
               ),
             else: acc |> Map.put({module, n, a}, p) |> Map.put({:jit_info, module, n, a}, info)
 
@@ -4318,6 +4318,8 @@ defmodule PrologEx do
   # doppelt so viele sind wie die Treffer, nimmt der Interpreter die Aufrufe
   # direkt; nach @jit_reprobe übersprungenen beginnt die Zählung neu (die
   # Aufrufe können sich ändern). Kostet sonst ein atomics-Lesen je Aufruf.
+  # 4: Aufrufe mit gebundenen Ausgaben, bis eine Variante übersetzt wird
+  # (jit_variant/6) – sie zählen nicht als Fehlschläge.
   @jit_cold_min 64
   @jit_reprobe 4096
   @jit_deopt_weight 8
@@ -4343,14 +4345,12 @@ defmodule PrologEx do
             interp_call(pred, goal, name, args, mod, rest, st)
 
           :no ->
-            :atomics.add(stats, 2, 1)
-            interp_call(pred, goal, name, args, mod, rest, st)
+            jit_no(pred, jit, goal, name, args, mod, rest, st)
 
           # aufgegeben: die Arbeit bis dahin war umsonst, der Interpreter
           # macht sie noch einmal – zählt mehr als eine Abweisung
           :deopt ->
-            :atomics.add(stats, 2, @jit_deopt_weight)
-            interp_call(pred, goal, name, args, mod, rest, st)
+            jit_deopted(pred, jit, goal, name, args, mod, rest, st)
 
           {:run, st} ->
             :atomics.add(stats, 1, 1)
@@ -4367,7 +4367,7 @@ defmodule PrologEx do
 
       # nichtdeterministisch übersetzt: Lösungen über einen Choice Point
       # {:jit_nd, ...}
-      {:ok, {:pred, _, _, {:jit_nd, info, ins, outs, _, stats}, _} = pred} ->
+      {:ok, {:pred, _, _, {:jit_nd, info, ins, outs, _, stats} = jit, _} = pred} ->
         r =
           cond do
             st.dlimit != nil or jit_cold?(stats) -> :cold
@@ -4379,12 +4379,10 @@ defmodule PrologEx do
             interp_call(pred, goal, name, args, mod, rest, st)
 
           :no ->
-            :atomics.add(stats, 2, 1)
-            interp_call(pred, goal, name, args, mod, rest, st)
+            jit_no(pred, jit, goal, name, args, mod, rest, st)
 
           :deopt ->
-            :atomics.add(stats, 2, @jit_deopt_weight)
-            interp_call(pred, goal, name, args, mod, rest, st)
+            jit_deopted(pred, jit, goal, name, args, mod, rest, st)
 
           :warming ->
             interp_call(pred, goal, name, args, mod, rest, st)
@@ -4618,6 +4616,213 @@ defmodule PrologEx do
   # auch nach der Tiefe des Stacks).
 
   @jit_chunk 65_536
+
+  # --- Varianten für gebundene Ausgaben (B2) ---
+  #
+  # Ein Aufruf mit gebundenen Ausgaben (sumdigit(C, S, M, O, M) mit O, M
+  # schon Zahlen) passt nicht auf den übersetzten Code; einer mit freien
+  # Eingaben (termtag(T, Tag), übersetzt als termtag(+any, +any)) gibt auf.
+  # Statt dessen: nach jit_threshold solchen Aufrufen das Prädikat noch
+  # einmal übersetzen, diese Argumente als Eingaben bzw. Ausgaben (Hinweise
+  # wie is-Deklarationen) – liefert der JIT genau diese Modi, ist das die
+  # Variante für dieses Muster, mit eigenen Zählern. Gesucht wird erst
+  # nach dem Abweisen bzw. Aufgeben (der Aufruf ohne Variante kostet nichts
+  # mehr; nach dem Aufgeben stehen die Inferenzen wieder wie vor dem
+  # Eintritt). Exakt wie der
+  # Interpreter, wie jede Übersetzung: die Köpfe vergleichen wie dort, aus
+  # `S = X` wird ein Vergleich (ein Ergebnis erst rechnen und dann
+  # vergleichen zählte Rümpfe früherer Klauseln mit, die der Interpreter am
+  # Kopf verwirft). Abgelegt in :persistent_term je {Modul, Funktion} des
+  # übersetzten Codes ({Maske => Variante | :none}; der Name hängt am
+  # Inhalt und an den Gerufenen – neu übersetzt, neue Varianten), höchstens
+  # @jit_variants_max je Prädikat.
+  @jit_variants_max 4
+
+  # abgewiesen: gebundene Ausgaben – eine Variante; sonst ein Fehlschlag
+  defp jit_no(pred, jit, goal, name, args, mod, rest, st) do
+    {_, _, _, outs, _, _} = jit
+
+    mask = {bound_outs(outs, args, 0, st.subst, []), []}
+
+    case jit_variant(pred, jit, mask, PrologEx.Flags.get("jit_threshold"), name, args, mod) do
+      {:ok, v} ->
+        variant_call(v, pred, goal, name, args, mod, rest, st)
+
+      :later ->
+        interp_call(pred, goal, name, args, mod, rest, st)
+
+      :none ->
+        :atomics.add(elem(jit, 5), 2, 1)
+        interp_call(pred, goal, name, args, mod, rest, st)
+    end
+  end
+
+  # aufgegeben: freie Eingaben – eine Variante; sonst ein Fehlschlag (mehr
+  # als eine Abweisung: der Interpreter macht die Arbeit noch einmal)
+  defp jit_deopted(pred, jit, goal, name, args, mod, rest, st) do
+    {_, {_, _, _, _, sig}, _, _, _, _} = jit
+
+    mask = {[], free_ins(sig.modes, args, 0, st.subst, [])}
+    # (vor dem Kaltwerden: @jit_cold_min / @jit_deopt_weight Mal aufgegeben)
+    n = min(PrologEx.Flags.get("jit_threshold"), div(@jit_cold_min, @jit_deopt_weight))
+
+    case jit_variant(pred, jit, mask, n, name, args, mod) do
+      {:ok, v} ->
+        variant_call(v, pred, goal, name, args, mod, rest, st)
+
+      :later ->
+        :atomics.add(elem(jit, 5), 2, @jit_deopt_weight)
+        interp_call(pred, goal, name, args, mod, rest, st)
+
+      :none ->
+        :atomics.add(elem(jit, 5), 2, @jit_deopt_weight)
+        interp_call(pred, goal, name, args, mod, rest, st)
+    end
+  end
+
+  defp variant_call({tag, info, ins, outs, _, vst} = v, pred, goal, name, args, mod, rest, st) do
+    r =
+      cond do
+        jit_cold?(vst) -> :cold
+        tag == :jit -> jit_call(v, args, rest, st)
+        st.dlimit != nil -> :cold
+        true -> jit_nd_call(info, ins, outs, goal, args, mod, rest, st)
+      end
+
+    case r do
+      r when r in [:cold, :warming] ->
+        interp_call(pred, goal, name, args, mod, rest, st)
+
+      :no ->
+        :atomics.add(vst, 2, 1)
+        interp_call(pred, goal, name, args, mod, rest, st)
+
+      :deopt ->
+        :atomics.add(vst, 2, @jit_deopt_weight)
+        interp_call(pred, goal, name, args, mod, rest, st)
+
+      {:run, st} ->
+        :atomics.add(vst, 1, 1)
+        run(st)
+
+      :backtrack ->
+        :atomics.add(vst, 1, 1)
+        backtrack(st)
+
+      {:throw, ball} ->
+        :atomics.add(vst, 1, 1)
+        throw_ball(ball, st)
+
+      {:go, k} ->
+        :atomics.add(vst, 1, 1)
+        k.()
+    end
+  end
+
+  @doc false
+  # die Varianten des übersetzten Codes {modul, funktion}: %{maske => v | :none}
+  def jit_variants({pm, _, pf, _, _}),
+    do: :persistent_term.get({PrologEx.JitVariants, pm, pf}, %{})
+
+  # mask: {gebundene Ausgaben, freie Eingaben}; nach n solchen Aufrufen
+  # übersetzen
+  defp jit_variant(
+         pred,
+         {_, {pm, _, pf, _, _} = info, _, _, _, stats} = jit,
+         mask,
+         n,
+         name,
+         args,
+         mod
+       ) do
+    case mask do
+      {[], []} ->
+        :none
+
+      _ ->
+        vs = jit_variants(info)
+
+        case vs do
+          %{^mask => :none} ->
+            :none
+
+          %{^mask => v} ->
+            {:ok, v}
+
+          _ when map_size(vs) >= @jit_variants_max ->
+            :none
+
+          _ ->
+            if :atomics.add_get(stats, 4, 1) < n do
+              :later
+            else
+              :atomics.put(stats, 4, 0)
+              v = compile_variant(pred, jit, mod, name, length(args), mask)
+              :persistent_term.put({PrologEx.JitVariants, pm, pf}, Map.put(vs, mask, v))
+              if v == :none, do: :none, else: {:ok, v}
+            end
+        end
+    end
+  end
+
+  # die Ausgaben, die gebunden sind (aufsteigend); [] – keine, oder eine
+  # attributierte Variable darunter
+  defp bound_outs([], _args, _i, _s, acc), do: :lists.reverse(acc)
+
+  defp bound_outs([i | ks], [a | as], i, s, acc) do
+    case Store.walk(a, s) do
+      {:var, {:attv, _}} -> []
+      {:var, _} -> bound_outs(ks, as, i + 1, s, acc)
+      _ -> bound_outs(ks, as, i + 1, s, [i | acc])
+    end
+  end
+
+  defp bound_outs(ks, [_ | as], i, s, acc), do: bound_outs(ks, as, i + 1, s, acc)
+
+  # die Eingaben, die ungebundene (nicht attributierte) Variablen sind
+  defp free_ins(_modes, [], _i, _s, acc), do: :lists.reverse(acc)
+
+  defp free_ins(modes, [a | as], i, s, acc) do
+    acc =
+      case modes do
+        %{^i => :in} ->
+          case Store.walk(a, s) do
+            {:var, {:attv, _}} -> acc
+            {:var, _} -> [i | acc]
+            _ -> acc
+          end
+
+        _ ->
+          acc
+      end
+
+    free_ins(modes, as, i + 1, s, acc)
+  end
+
+  defp compile_variant(pred, {_, {_, _, _, _, sig}, _, _, vo, _}, module, name, arity, {bo, fi}) do
+    want = Enum.reduce(bo, sig.modes, &Map.put(&2, &1, :in))
+    want = Enum.reduce(fi, want, &Map.put(&2, &1, :out))
+    db = current_db()
+    {src, ext, dyn} = jit_input([{{name, arity}, pred}], db, module)
+
+    decl =
+      db
+      |> PrologEx.Builtins.IsDirectives.jit_modes(module)
+      |> Map.put({name, arity}, want)
+
+    case PrologEx.Jit.compile_batch(src, ext, dyn, decl, %{{name, arity} => want}) do
+      %{{^name, ^arity} => {{_, _, _, _, vsig} = info, ins, outs}} ->
+        if vsig.modes == want and vsig.entry do
+          tag = if Map.get(vsig, :nd, false), do: :jit_nd, else: :jit
+          {tag, info, ins, outs, vo, :atomics.new(4, [])}
+        else
+          :none
+        end
+
+      _ ->
+        :none
+    end
+  end
 
   # (Zähler und Schwellen: siehe die Attribute vor call_pred/4)
   defp jit_cold?(stats) do

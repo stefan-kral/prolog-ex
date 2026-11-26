@@ -492,10 +492,17 @@ defmodule PrologEx.JitFuzzTest do
     # der übersetzte Code läuft tatsächlich
     if n >= 20, do: assert(elem(stats, 2) > 0)
 
+    # Varianten (gebundene Ausgaben, freie Eingaben; PrologEx.jit_variant/7)
+    vs =
+      for {{PrologEx.JitVariants, _, _}, m} <- :persistent_term.get(), {_, v} <- m, do: v
+
+    nv = Enum.count(vs, &(&1 != :none))
+
     IO.puts(
       "\nJIT-Fuzz ab #{s0}: #{n} Programme, #{elem(stats, 1)} von #{elem(stats, 0)} Prädikaten übersetzt, " <>
         "Treffer #{elem(stats, 2)}, Fehlschläge #{elem(stats, 3)}; Anfragen gleich #{Process.get(:eq, 0)}, " <>
-        "weniger Inferenzen #{Process.get(:fewer, 0)}, nur der Interpreter an der Grenze #{Process.get(:limit, 0)}"
+        "weniger Inferenzen #{Process.get(:fewer, 0)}, nur der Interpreter an der Grenze #{Process.get(:limit, 0)}; " <>
+        "Varianten #{nv} (#{length(vs) - nv} nicht übersetzbar)"
     )
   end
 end

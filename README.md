@@ -273,6 +273,26 @@ Ein Prolog-Kern in Elixir:
     0 auf 222 357 Treffer, 14,8 → 10,2 s. Kosten,
     wo es nicht passt: eine rekursive DCG-Regel über `phrase/2` (der Rest
     ist dort `[]`, gebunden) prüft je Aufruf vergeblich, +2 % Reduktionen.
+    Offen: hat eine frühere Klausel ein Ausgabemuster im Kopf, das nicht
+    aufs gegebene passt (`f(X, []) :- X > 5, !. f(X, [X]).` gerufen als
+    `f(3, [A|B])`), verwirft der Interpreter sie schon am Kopf, der Code
+    rechnet ihren Rumpf – dieselbe Antwort, eine Inferenz mehr.
+  - Varianten: ein Aufruf mit gebundenen Ausgaben
+    (`sumdigit(C, S, M, O, M)` in sendmore, O und M schon Zahlen) oder
+    freien Eingaben (`termtag(T, Tag)` in unify, übersetzt als
+    `termtag(+any, +any)`) bekommt, wenn solche Aufrufe sich häufen
+    (`jit_threshold` mit gebundenen Ausgaben; nach 8-mal Aufgeben mit
+    freien Eingaben, vor dem Kaltwerden), eine eigene Übersetzung mit
+    diesen Modi – als feste Vorgabe, auch nichtdeterministisch
+    (`termtag(+any, -any)`). Sie vergleicht die Köpfe wie der Interpreter
+    (aus `S = X` wird ein Vergleich): Antworten und Inferenzen wie dort.
+    Je Prädikat höchstens 4, mit eigenen Zählern; gesucht erst nach dem
+    Abweisen bzw. Aufgeben (kein Aufwand, wo der Aufruf passt);
+    `jit_listing` zeigt sie („↳ Variante …“, „↳ keine Variante mit …“).
+    Bisher nur beim Eintritt aus dem Interpreter: übersetzter Code ruft
+    andere übersetzte Prädikate nur in deren Hauptmodus (prover:
+    `expand/3` ruft `includes/2` mit gebundener Ausgabe – nicht
+    übersetzt).
   - Lohnt sich der Code für ein Prädikat nicht, lässt der Interpreter ihn
     bald liegen: je Prädikat zählen Treffer und Fehlschläge (beim Eintritt
     abgewiesen; aufgegeben zählt achtfach – die Arbeit bis dahin war

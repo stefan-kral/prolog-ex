@@ -4,13 +4,15 @@ defmodule PrologEx.JitListing do
   hat – mit Modi und Typen –, und für die übrigen, warum nicht.
 
       % fib/2       übersetzt          fib(+int, -int)
-      % app/3       übersetzt          app(+list, +any, -)
+      % app/3       übersetzt          app(+any, +any, -)
       % sq/2        nur für Rufer      sq(+int, -int)
       % klasse/2    nein               Klausel 2: Ziel is_list/1
-      % mem/2       übersetzt          mem(-any, +list)  nichtdeterministisch
-      % cnt/2       übersetzt          cnt(+list, -any)  nichtdeterministisch
+      % mem/2       übersetzt          mem(-any, +any)  nichtdeterministisch
+      % cnt/2       übersetzt          cnt(+any, -any)  nichtdeterministisch
       %   ↳ deklariert cnt(+, -) is det: nichtdeterministisch übersetzt – die
       %     Klauseln schließen sich nicht nachweislich aus
+      % tag/2       übersetzt          tag(+any, +any)
+      %   ↳ Variante tag(+any, -any)  nichtdeterministisch
 
   Status: „übersetzt“ (Code geladen), „analysiert“ (übersetzt ab dem n-ten
   Aufruf, Flag jit_threshold), „nur für Rufer“ (übersetzt, aber der Interpreter tritt nicht ein:
@@ -19,6 +21,10 @@ defmodule PrologEx.JitListing do
   PrologEx.Builtins.IsDirectives) bekommt eine Zeile darunter, wenn das
   Ergebnis von ihr abweicht: nicht übersetzt, nichtdeterministisch
   übersetzt, oder mit anderen Modi als ihr Aufrufmuster (`+`, `-`).
+  Varianten für Aufrufe mit gebundenen Ausgaben oder freien Eingaben
+  (PrologEx.jit_variant/7, übersetzt erst, wenn solche Aufrufe kommen):
+  je eine Zeile „Variante …“ (oder „keine Variante mit …“, wenn die
+  verlangten Modi nicht gehen).
   Typen: int/num (Zahl; Ganzzahl im ganzzahligen Code), list,
   list(int), list(num), any (nur durchgereicht); eine Ausgabe ohne Typ
   hängt von den Eingaben ab.
@@ -69,7 +75,8 @@ defmodule PrologEx.JitListing do
               end
           end
 
-        {"#{n}/#{a}", what, detail, decl_notes(decls[k], status(db, module, k, p))}
+        st = status(db, module, k, p)
+        {"#{n}/#{a}", what, detail, decl_notes(decls[k], st) ++ variant_notes(n, a, st)}
       end)
 
     w1 = rows |> Enum.map(&String.length(elem(&1, 0))) |> Enum.max(fn -> 0 end)
@@ -85,6 +92,24 @@ defmodule PrologEx.JitListing do
       Enum.count(rows, fn {_, w, _, _} -> w in ["übersetzt", "analysiert", "nur für Rufer"] end)
 
     Enum.join(lines) <> "% #{done} von #{length(rows)} übersetzt\n"
+  end
+
+  # die Varianten (PrologEx.jit_variants/1)
+  defp variant_notes(_n, _a, nil), do: []
+
+  defp variant_notes(n, a, {_, {_, _, _, _, sig} = info}) do
+    for {{bo, fi}, v} <- Enum.sort(PrologEx.jit_variants(info)) do
+      case v do
+        :none ->
+          want = Enum.reduce(bo, sig.modes, &Map.put(&2, &1, :in))
+          want = Enum.reduce(fi, want, &Map.put(&2, &1, :out))
+          ms = Enum.map_join(0..(a - 1), ", ", &if(want[&1] == :in, do: "+", else: "-"))
+          "keine Variante mit #{n}(#{ms})"
+
+        {_, vinfo, _, _, _, _} ->
+          "Variante #{signature(n, a, vinfo)}"
+      end
+    end
   end
 
   # Abweichungen von det/semidet-Deklarationen (sonst nichts)
