@@ -99,6 +99,8 @@ defmodule PrologEx.Jit do
   @raise_key :prolog_ex_jit_raise
   @why_key :prolog_ex_jit_why
   @soft_key :prolog_ex_jit_soft
+  # wo need/2 gerade prüft (Prädikat, Klausel), für die Meldung
+  @where_key :prolog_ex_jit_where
 
   # --- Schnittstelle ------------------------------------------------------
 
@@ -713,6 +715,12 @@ defmodule PrologEx.Jit do
           not Map.has_key?(fixed, {key, k}),
           do: {key, k}
 
+    # gemeldet wird, warum der gemeinte Modus nicht geht: mit Hinweisen der
+    # Aufrufstellen (call_prefs/3) der erste Kandidat, sonst der letzte (die
+    # meisten Eingaben)
+    first? = Enum.any?(open, &Map.has_key?(pref, &1))
+    seen = make_ref()
+
     open
     |> candidates(pref)
     |> nd_find_value(scc, fn assign ->
@@ -760,13 +768,19 @@ defmodule PrologEx.Jit do
            {key, %{sig: sig, irs: Enum.map(irs[key], & &1.ir), p: p}}
          end)}
       catch
-        # der Grund aus dem letzten Versuch (die meisten Eingaben: meist
-        # der gemeinte Modus)
         {:no, r} ->
-          for k <- scc, do: Process.put(@why_key, Map.put(Process.get(@why_key), k, r))
+          # (die nichtdeterministische Analyse nach der deterministischen:
+          # deren Grund bleibt)
+          if not (first? and Process.get(seen) == true) do
+            Process.put(seen, true)
+            put = if nd, do: &Map.put_new/3, else: &Map.put/3
+            for k <- scc, do: Process.put(@why_key, put.(Process.get(@why_key), k, r))
+          end
+
           nil
       end
     end)
+    |> tap(fn _ -> Process.delete(seen) end)
   end
 
   # wie Enum.find_value/2; {:nd_stop, Grund} bricht ab (nil)
@@ -1176,7 +1190,7 @@ defmodule PrologEx.Jit do
           into: %{},
           do: {{key, k}, {:bot, []}}
 
-    types_fix(scc, parsed, modes, {other, num, nd}, reqs0, outs0, 12)
+    types_fix(scc, parsed, modes, {other, num, nd}, reqs0, outs0, 24)
   end
 
   defp types_fix(_, _, _, _, _, _, 0), do: no!("Typen kommen zu keinem Fixpunkt")
@@ -1210,6 +1224,8 @@ defmodule PrologEx.Jit do
            parsed[key].clauses
            |> Enum.with_index(1)
            |> Enum.map(fn {c, i} ->
+             Process.put(@where_key, "#{pre}Klausel #{i}: ")
+
              try do
                flow(c, ctx)
              catch
@@ -1226,6 +1242,7 @@ defmodule PrologEx.Jit do
 
     reqs2 = Process.delete(@raise_key)
     soft = Process.delete(@soft_key)
+    Process.delete(@where_key)
 
     outs2 =
       for {{key, k}, _} <- outs, into: %{} do
@@ -1238,10 +1255,31 @@ defmodule PrologEx.Jit do
         {{key, k}, o}
       end
 
+    # Steigen die Anforderungen, fangen die Ausgaben wieder bei :bot an: sie
+    # hängen von ihnen ab (ein Element einer Eingabe, die :nlist wird, ist
+    # eine Zahl), und die Vereinigung käme von einem zu groben Typ der
+    # früheren Runde nicht mehr herunter (partition/4: Ausgaben :list statt
+    # :nlist, qsort/3 bekam dann :list, wo :nlist gebraucht wird)
     cond do
-      reqs2 != reqs or outs2 != outs -> types_fix(scc, parsed, modes, on, reqs2, outs2, n - 1)
-      soft -> no!(soft)
-      true -> {reqs, outs, irs}
+      reqs2 != reqs ->
+        types_fix(
+          scc,
+          parsed,
+          modes,
+          on,
+          reqs2,
+          Map.new(outs, fn {k, _} -> {k, {:bot, []}} end),
+          n - 1
+        )
+
+      outs2 != outs ->
+        types_fix(scc, parsed, modes, on, reqs2, outs2, n - 1)
+
+      soft ->
+        no!(soft)
+
+      true ->
+        {reqs, outs, irs}
     end
   end
 
@@ -1274,7 +1312,11 @@ defmodule PrologEx.Jit do
 
   defp need(r, {t, os}) do
     unless sat?(t, r) or Process.get(@soft_key),
-      do: Process.put(@soft_key, "#{tname(t)}, wo #{tname(r)} gebraucht wird")
+      do:
+        Process.put(
+          @soft_key,
+          "#{Process.get(@where_key)}#{tname(t)}, wo #{tname(r)} gebraucht wird"
+        )
 
     Enum.each(os, &raise_req(&1, r))
   end

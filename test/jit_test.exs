@@ -1308,6 +1308,42 @@ defmodule PrologEx.JitTest do
     assert :atomics.get(stats, 1) > 0
   end
 
+  # Typ-Fixpunkt: steigen die Anforderungen (qsort: Pivot int, weil
+  # partition vergleicht), beginnen die Ausgaben wieder bei ⊥ – sonst bleibt
+  # die Ausgabe von partition auf `any` aus der ersten Runde stehen und die
+  # Anforderung +list(int) an qsort ist nie erfüllt (SICStus-Benchmark qsort).
+  test "Typ-Fixpunkt: Ausgaben neu ab ⊥, wenn Anforderungen steigen", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    qs#{u}([X|L], R, R0) :- pt#{u}(L, X, L1, L2), qs#{u}(L2, R1, R0), qs#{u}(L1, R, [X|R1]).
+    qs#{u}([], R, R).
+    pt#{u}([X|L], Y, [X|L1], L2) :- X =< Y, !, pt#{u}(L, Y, L1, L2).
+    pt#{u}([X|L], Y, L1, [X|L2]) :- pt#{u}(L, Y, L1, L2).
+    pt#{u}([], _, [], []).
+    """
+
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    {int, []} =
+      with_jit_off(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    for q <- [
+          "qs#{u}([27,74,17,33,94,18,46,83,65,2,32,53,28,85,99,47,28,82,6,11], R, [])",
+          "qs#{u}([3,1,2], R, [x])",
+          "qs#{u}([], R, [])",
+          "catch(qs#{u}([b,a], R, []), error(E, _), true)"
+        ] do
+      assert TableCase.run(c.reader, db, q) == TableCase.run(c.reader, int, q), q
+    end
+
+    {out, _} = TableCase.run(c.reader, db, "jit_listing")
+    assert out =~ ~r"% qs#{u}/3 +übersetzt +qs#{u}\(\+list\(int\), -, \+any\)"
+    assert out =~ ~r"% pt#{u}/4 +\S+ +pt#{u}\(\+list\(int\), \+int, -list\(int\), -list\(int\)\)"
+  end
+
   defp with_jit_off(f) do
     PrologEx.Flags.set("jit", {:atom, "false"})
 

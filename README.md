@@ -178,7 +178,12 @@ Ein Prolog-Kern in Elixir:
     ungebundene Variable (app([1], X, L) gibt L = [1|X]). Was ein Wert
     sein muss, folgt aus dem Gebrauch (gerechnet, zerlegt, verglichen);
     Ausgabetypen dürfen von Eingaben abhängen (app/3 gibt eine Liste,
-    wenn das zweite Argument eine ist).
+    wenn das zweite Argument eine ist). Anforderungen und Ausgaben einer
+    Gruppe sich gegenseitig rufender Prädikate werden zusammen bis zum
+    Fixpunkt bestimmt; steigt eine Anforderung, beginnen die Ausgaben neu
+    (sonst bliebe eine Ausgabe auf „beliebig“ aus der ersten Runde stehen:
+    qsort/partition des SICStus-Benchmarks qsort jetzt
+    `qsort(+list(int), -, +any)`, 20,1 s → 0,96 s, schneller als SWI).
   - Typtests: auf einer Zahl meist schon beim Übersetzen entschieden,
     sonst zur Laufzeit wie im Interpreter; nach `integer(X)` (im Code mit
     Floats auch `float/number`) ist X eine Zahl, mit der gerechnet werden
@@ -276,7 +281,10 @@ Ein Prolog-Kern in Elixir:
   - `jit_listing/0,1` zeigt je Prädikat eines Moduls, ob es übersetzt ist
     (Modi und Typen, etwa `app(+list, +any, -)`) oder warum nicht
     („Klausel 2: Ziel is_list/1“, „Klauseln 1 und 2 schließen sich nicht
-    nachweislich aus“, „ruft r/2, das nicht übersetzt wird“).
+    nachweislich aus“, „ruft r/2, das nicht übersetzt wird“, „Klausel 2:
+    beliebiger Term, wo Zahl gebraucht wird“) – bei mehreren Belegungen
+    den Grund der bevorzugten (aus Aufrufstellen oder Deklarationen),
+    nicht den der zuletzt versuchten.
   - Gleich wie im Interpreter: Antworten, Fehler, Inferenzen und Grenzen
     (Inferenz-, Zeit-, Speichergrenzen an denselben Prüfpunkten,
     spätestens alle 65 536 Inferenzen). Zwei Unterschiede, beide zum
@@ -6598,6 +6606,11 @@ Anforderung an ein Strukturargument (`N` in `d(U ^ N, …)` ist eine
 Zahl) galt für das gleiche Argument jeder Struktur, auch `V` in
 `d(U + V, …)`. Jetzt je Funktor; deriv 409 → 34 ms (5000 Iterationen),
 mit JIT 13-mal schneller als ohne.
+
+Seit der Tabelle (26. November, volle Iterationen, ms): deriv 7953 → 553
+(Anforderungen je Funktor), crypt 19973 → 10479 (Muster als Ausgabe),
+qsort 20097 → 962 (Typ-Fixpunkt: Ausgaben neu ab ⊥) – qsort damit
+schneller als SWI (3093 in der Tabelle).
 
 Im Mittel braucht PrologEx hier 9-mal die Zeit von SWI (Scryer 2-mal) –
 deutlich mehr als bei `bench/compare.pl` (1,8-mal). Schneller als SWI
