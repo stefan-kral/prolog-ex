@@ -82,7 +82,8 @@ defmodule PrologEx.Consult do
     into = Keyword.get(opts, :into, "user")
 
     st = %{
-      db: db,
+      # (lädt eine Datei neu: ihre is-Deklarationen kommen neu)
+      db: PrologEx.Builtins.IsDirectives.reset(db, Keyword.get(opts, :file)),
       pending: %{},
       # seit dem letzten flush geänderte Prädikate
       dirty: MapSet.new(),
@@ -922,7 +923,20 @@ defmodule PrologEx.Consult do
     end)
   end
 
-  defp directive(g, st) do
+  # :- Spec is det. (semidet, multi, nondet, failing, throwing): eine
+  # Deklaration wie in SICStus (PrologEx.Builtins.IsDirectives), kein
+  # arithmetisches is/2
+  defp directive({:struct, "is", [_, {:atom, ann}]} = g, st)
+       when ann in ~w(det semidet multi nondet failing throwing) do
+    case PrologEx.Builtins.IsDirectives.parse(g, st.module) do
+      {:ok, rec} -> %{st | db: PrologEx.Builtins.IsDirectives.record(st.db, st.file, rec)}
+      :no -> goal_directive(g, st)
+    end
+  end
+
+  defp directive(g, st), do: goal_directive(g, st)
+
+  defp goal_directive(g, st) do
     st = flush(st)
     st = autoload_goals(st, st.module, [g])
     st = if import_directive?(g), do: late(st, st.module), else: st

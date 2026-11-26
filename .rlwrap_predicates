@@ -195,6 +195,7 @@ current_gensym_base 1
 current_host 1
 current_hostname 1
 current_input 1
+current_is_directive 3 6
 current_module 1
 current_op 3
 current_output 1

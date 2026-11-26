@@ -61,6 +61,7 @@ defmodule PrologEx.Builtins do
     PrologEx.Builtins.Filesex,
     PrologEx.Builtins.Readutil,
     PrologEx.Builtins.Lfsr,
+    PrologEx.Builtins.IsDirectives,
     PrologEx.Builtins.Operators,
     PrologEx.Builtins.Si,
     PrologEx.Builtins.Solutions,

@@ -1162,7 +1162,8 @@ defmodule PrologEx do
   # außerhalb dieses Schritts
   defp jit_batch(preds, db, module) do
     {src, ext, dyn} = jit_input(preds, db, module)
-    res = PrologEx.Jit.compile_batch(src, ext, dyn)
+    decl = PrologEx.Builtins.IsDirectives.jit_modes(db, module)
+    res = PrologEx.Jit.compile_batch(src, ext, dyn, decl)
 
     Enum.reduce(preds, %{}, fn {{n, a} = k, p}, acc ->
       case res do

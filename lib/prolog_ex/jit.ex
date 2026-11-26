@@ -115,19 +115,19 @@ defmodule PrologEx.Jit do
   :list, :ilist (Ganzzahlen), :nlist (Zahlen) oder :any; ausgaben [k];
   gerufen: die anderen Prädikate, die der Code direkt ruft.
   """
-  def compile_batch(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new()) do
-    case settle(preds, ext, dynamic) do
+  def compile_batch(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new(), decl \\ %{}) do
+    case settle(preds, ext, dynamic, decl) do
       %{solved: solved} when map_size(solved) == 0 -> %{}
       s -> build(s, :load)
     end
   end
 
   @doc """
-  Wie compile_batch/3, aber nur die Analyse: %{{name, stelligkeit} =>
+  Wie compile_batch/4, aber nur die Analyse: %{{name, stelligkeit} =>
   {:ok, signatur} | {:no, grund}} (für jit_listing).
   """
-  def explain(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new()) do
-    s = settle(preds, ext, dynamic)
+  def explain(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new(), decl \\ %{}) do
+    s = settle(preds, ext, dynamic, decl)
 
     Map.new(preds, fn {k, _} ->
       case s.solved do
@@ -150,7 +150,7 @@ defmodule PrologEx.Jit do
   @doc false
   # der erzeugte Elixir-Code (zum Nachsehen); preds wie compile_batch/3
   def code(preds) do
-    case settle(preds, fn _ -> nil end, MapSet.new()) do
+    case settle(preds, fn _ -> nil end, MapSet.new(), %{}) do
       %{solved: solved} when map_size(solved) == 0 -> :no
       s -> build(s, :show)
     end
@@ -172,17 +172,20 @@ defmodule PrologEx.Jit do
   # Typen, Fluss, Ausschließlichkeit. Was nicht passt, fällt heraus, und
   # mit ihm, wer es ruft.
 
-  defp settle(preds, ext0, dynamic) do
+  # decl: Modi aus is-Deklarationen (PrologEx.Builtins.IsDirectives.jit_modes/2),
+  # %{{name, stelligkeit} => %{k => :in | :out}}: Hinweise vor denen der
+  # Aufrufstellen (call_prefs/3)
+  defp settle(preds, ext0, dynamic, decl) do
     Process.put(@why_key, %{})
 
     try do
-      settle_(preds, ext0, dynamic)
+      settle_(preds, ext0, dynamic, decl)
     after
       Process.delete(@why_key)
     end
   end
 
-  defp settle_(preds, ext0, dynamic) do
+  defp settle_(preds, ext0, dynamic, decl) do
     batch = MapSet.new(for {k, _} <- preds, do: k)
     ext = fn k -> if MapSet.member?(batch, k), do: nil, else: ext0.(k) end
 
@@ -195,7 +198,7 @@ defmodule PrologEx.Jit do
     end
 
     parsed = for {k, src} <- preds, p = parse(k, src, callable), p != nil, into: %{}, do: {k, p}
-    pref = call_prefs(preds, parsed)
+    pref = call_prefs(preds, parsed, decl)
     {parsed, num} = kinds(drop_orphans(parsed, ext), ext)
 
     solved =
@@ -829,14 +832,24 @@ defmodule PrologEx.Jit do
   # übergeben: danach unbekannt), andere Ziele auch.
   #
   # Die Modi des Rufers: aus den eigenen Klauseln (wie evidence/4, ohne
-  # Aufrufe) oder wieder aus den Hinweisen – einige Runden. Je Stelle die
-  # Mehrheit; Gleichstand: kein Hinweis. Nur eine Reihenfolge: was eine
-  # Belegung übersetzbar macht (Typen, Ausschluss), prüft solve_modes/7 wie
-  # zuvor. Ergebnis: %{{key, k} => :in | :out}.
-  defp call_prefs(preds, parsed) do
+  # Aufrufe), aus einer is-Deklaration (`:- p(+, -) is det.`) oder wieder
+  # aus den Hinweisen – einige Runden. Je Stelle die Mehrheit; Gleichstand:
+  # kein Hinweis; eine Deklaration geht den Aufrufstellen vor, die eigenen
+  # Klauseln allem. Nur eine Reihenfolge: was eine Belegung übersetzbar
+  # macht (Typen, Ausschluss), prüft solve_modes/7 wie zuvor. Ergebnis:
+  # %{{key, k} => :in | :out}.
+  defp call_prefs(preds, parsed, decl) do
     batch = MapSet.new(for {k, _} <- preds, do: k)
     src = for {k, cls} <- preds, {h, b} <- cls, is_tuple(h), do: {k, plain(h), plain(b)}
-    local = local_modes(parsed)
+
+    declared =
+      for {key, ms} <- decl,
+          MapSet.member?(batch, key),
+          {k, m} <- ms,
+          into: %{},
+          do: {{key, k}, m}
+
+    local = Map.merge(declared, local_modes(parsed))
 
     Enum.reduce_while(1..4, local, fn _, pref ->
       votes =

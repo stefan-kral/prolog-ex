@@ -1425,6 +1425,51 @@ Bis `lfsr_done/1` (N = 16, 65 535 Zahlen, XOR aller): 674 → 12 ms. Bei
 N = 20 bleiben rund 0,15 µs je Zahl; bei N = 168 überwiegt der Sprung
 selbst (21 Nachschläge und XOR auf Bignums).
 
+## Determinismus-Deklarationen: `library(is_directives)`
+
+Wie in SICStus deklariert `:- Spec is Annotation.`, wie oft ein Prädikat
+gelingt – `det` (genau einmal), `semidet` (höchstens einmal), `multi`
+(mindestens einmal), `nondet`, `failing`, `throwing`. Erkannt beim Laden,
+auch ohne `use_module(library(is_directives))`, wenn rechts eine dieser
+sechs steht (sonst bleibt `is/2` die Arithmetik):
+
+```prolog
+:- foo/2 is det.
+:- bar(+, ?) is semidet.             % 1. Argument beim Aufruf keine Variable
+:- bar(-, ?) is nondet.              % ... eine Variable
+:- parent_of(+Parent, -Child) is nondet.
+:- dolist(+, -, det) is det.         % je nach Determinismus der Closure
+```
+
+Abgefragt mit `current_is_directive(?Skel, ?M, ?Annotation, ?Spec,
+?Directive, ?Context)` und `current_is_directive(:MSkel, ?Annotation,
+?Spec)` aus `library(is_directives)`. Die Reihenfolge – SICStus legt keine
+fest – ist die des Quelltexts, Dateien in der Reihenfolge, in der sie
+zuerst geladen wurden; mehrere Deklarationen je Prädikat bleiben alle;
+lädt eine Datei neu, ersetzen ihre Deklarationen die alten aus ihr, an
+derselben Stelle.
+
+Wie in SICStus sind es Hinweise, geprüft wird nichts. Der JIT nimmt die
+Aufrufmuster von `det`/`semidet`-Deklarationen als Hinweise auf die Modi
+(`+` Eingabe, `-` Ausgabe; vor denen der Aufrufstellen, nach denen aus
+den eigenen Klauseln) – eine Faktentabelle wie
+`ex(I, p(J,K), t(e(I,J), e(I,K))) :- !.` wird mit `:- ex(+, +, -) is det.`
+zu `ex(+any, +any, -any)` statt `ex(-any, -any, +any)`. Den Determinismus
+selbst nimmt er nicht: deterministisch übersetzt wird nur, was er
+nachweist (eine falsche Deklaration verlöre sonst Lösungen).
+`jit_listing/0` vermerkt, wo eine `det`/`semidet`-Deklaration und das
+Ergebnis auseinandergehen:
+
+```
+% cnt/2  analysiert  cnt(+list, -any)  nichtdeterministisch
+%   ↳ deklariert cnt/2 is det: nichtdeterministisch übersetzt – die Klauseln schließen sich nicht nachweislich aus
+% m3/2   nein        Klausel 1: Ziel write/1
+%   ↳ deklariert m3(+,-) is semidet: nicht übersetzt (siehe oben)
+```
+
+(auch „übersetzt mit anderen Modi“, wenn das Aufrufmuster nicht zu den
+gewählten passt).
+
 ## Byte-Folgen: `library(bytes)`
 
 Ein eigener atomarer Typ für Bytes, ein BEAM-Binary: ein Byte je Byte (eine
