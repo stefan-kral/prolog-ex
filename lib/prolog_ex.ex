@@ -1224,7 +1224,7 @@ defmodule PrologEx do
     {src, ext, dyn}
   end
 
-  # Eingebaute für übersetzten Code (PrologEx.Jit.b_*/n bzw. nd_*/n): in
+  # Eingebaute für übersetzten Code (PrologEx.Jit.Runtime.b_*/n bzw. nd_*/n): in
   # module sichtbar als das eingebaute (Modul, Art) und nicht selbst
   # definiert – eine spätere eigene Definition nimmt den Rufern ihren Code
   # (:jit_callers). member/2 und between/3 sind nichtdeterministisch: für
@@ -1260,7 +1260,7 @@ defmodule PrologEx do
       case {n, a} do
         {"member", 2} ->
           %{
-            mod: PrologEx.Jit,
+            mod: PrologEx.Jit.Runtime,
             p: :nd_member,
             sig: %{
               modes: %{0 => :out, 1 => :in},
@@ -1275,7 +1275,7 @@ defmodule PrologEx do
 
         {"between", 3} ->
           %{
-            mod: PrologEx.Jit,
+            mod: PrologEx.Jit.Runtime,
             p: :nd_between,
             sig: %{
               modes: %{0 => :in, 1 => :in, 2 => :out},
@@ -1296,7 +1296,7 @@ defmodule PrologEx do
     end
   end
 
-  # arithmetic:bit_is_set/2 ebenso (PrologEx.Jit.b_bit_is_set/2)
+  # arithmetic:bit_is_set/2 ebenso (PrologEx.Jit.Runtime.b_bit_is_set/2)
   defp jit_builtin(db, module, "bit_is_set", 2) do
     with false <- Map.has_key?(db, {module, "bit_is_set", 2}),
          {:db, "arithmetic", _} <- locate(db, module, "bit_is_set", 2),
@@ -4614,7 +4614,7 @@ defmodule PrologEx do
   # Tiefengrenze. Sonst :no – dann der Interpreter. Inferenzen zählt das
   # übersetzte Stück selbst; an den Prüfpunkten (Inferenz-, Zeit-,
   # Speichergrenzen) ruft es jit_check/2, wie run_step limit_hit/5 –
-  # spätestens alle @jit_chunk Inferenzen (dort sieht PrologEx.Jit.tick/0
+  # spätestens alle @jit_chunk Inferenzen (dort sieht PrologEx.Jit.Runtime.tick/0
   # auch nach der Tiefe des Stacks).
 
   @jit_chunk 65_536
@@ -4672,7 +4672,7 @@ defmodule PrologEx do
       else
         check = fn consumed -> jit_check(consumed, st) end
 
-        case PrologEx.Jit.nd_run(info, iv, chunk, check, s, ov) do
+        case PrologEx.Jit.Runtime.nd_run(info, iv, chunk, check, s, ov) do
           :deopt ->
             :atomics.put(st.icount, 1, n0)
             :deopt
@@ -4742,7 +4742,10 @@ defmodule PrologEx do
     check = fn consumed -> jit_check(consumed, st) end
 
     # an der Inferenzgrenze: der Interpreter (die nächste Inferenz wirft)
-    r = if chunk < 1, do: :deopt, else: PrologEx.Jit.nd_resume(nx, chunk, check, st.subst, ov)
+    r =
+      if chunk < 1,
+        do: :deopt,
+        else: PrologEx.Jit.Runtime.nd_resume(nx, chunk, check, st.subst, ov)
 
     case r do
       :deopt ->
@@ -4795,8 +4798,8 @@ defmodule PrologEx do
     else
       check = fn consumed -> jit_check(consumed, st) end
 
-      # (Prolog-Fehler fängt PrologEx.Jit.run/6 selbst: {:thrown, ball})
-      case PrologEx.Jit.run(mod, iv, chunk, check, s, ov) do
+      # (Prolog-Fehler fängt PrologEx.Jit.Runtime.run/6 selbst: {:thrown, ball})
+      case PrologEx.Jit.Runtime.run(mod, iv, chunk, check, s, ov) do
         {:ok, values, used} ->
           n = :atomics.add_get(icount, 1, used)
 
@@ -4879,7 +4882,7 @@ defmodule PrologEx do
   defp jit_in(:int, n, _s) when is_integer(n), do: n
   defp jit_in(:num, n, _s) when is_integer(n) or is_float(n), do: n
   defp jit_in(:any, t, _s), do: t
-  # Listen: erst beim Zerlegen gelesen (PrologEx.Jit.list/1); eine
+  # Listen: erst beim Zerlegen gelesen (PrologEx.Jit.Runtime.list/1); eine
   # ungebundene Variable gleich dem Interpreter
   defp jit_in(c, {:var, _}, _s) when c in [:list, :ilist, :nlist], do: :no
   defp jit_in(c, t, _s) when c in [:list, :ilist, :nlist], do: t

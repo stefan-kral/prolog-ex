@@ -51,7 +51,9 @@ Ein Prolog-Kern in Elixir:
   Interpreter rechnet – so lässt sich in einer Sitzung vergleichen;
   `mix prolog --no-jit` setzt es schon vor dem Laden):
   in BEAM-Code übersetzt, die Werte in Erlang-Variablen
-  statt in Bindungen. fib(23) 390 → 1–2 ms, eine Zählschleife über 10⁶
+  statt in Bindungen (`PrologEx.Jit`: Ablauf; `.Parse`, `.Hints`,
+  `.Types`, `.Excl` die Analyse, `.Codegen` der erzeugte Code, `.Runtime`
+  was er zur Laufzeit ruft). fib(23) 390 → 1–2 ms, eine Zählschleife über 10⁶
   1,1 s → 9 ms, eine nicht endrekursive Summe über 200 000 1,6 s → 5 ms,
   eine Float-Rekursion 1,3 s → 28 ms, nrev über 500 Elemente
   190 → 3 ms (≈ 40 Mio. LIPS), app/len/sum/rev über 300 000 Elemente
@@ -4777,7 +4779,7 @@ also ab etwa 0,1 ms Arbeit je Element.
   immer aufgibt – das Prädikat wurde kalt und lief im Interpreter, je nach
   Zufall der Reihenfolge bis zu 100-mal langsamer (1 000 000 Primzahlen:
   110 statt 2 s). Jetzt übersetzt je Modul nur ein Prozess, die anderen
-  warten auf ihn (`PrologEx.Jit.ensure/1`).
+  warten auf ihn (`PrologEx.Jit.Codegen.ensure/1`).
 * **Einblick:** `concurrent_statistics(G, S)` (bzw. die Option `stats(S)`)
   misst im Aufrufer, was die parallelen Läufe in `G` taten – wie viele
   Teile, wie oft gestohlen, wie lange die Arbeiter warteten, wie viel

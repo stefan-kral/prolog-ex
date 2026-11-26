@@ -29,7 +29,7 @@ defmodule PrologEx.Builtins.Lfsr do
   über GF(2)), als Tabelle je 8 Bits des Zustands: ⌈N/8⌉ Nachschläge und
   XOR statt K einzelner Schritte; vorberechnet je (N, K) einmal, in
   :persistent_term. Der JIT ruft `lfsr_next/3` und `lfsr_done/1` direkt
-  (PrologEx.Jit.b_lfsr_next/1, b_lfsr_done/1 über fields/2, next/1,
+  (PrologEx.Jit.Runtime.b_lfsr_next/1, b_lfsr_done/1 über fields/2, next/1,
   done?/1).
 
   Fehler: `instantiation_error`, `type_error(integer, …)`,
@@ -368,7 +368,7 @@ defmodule PrologEx.Builtins.Lfsr do
   @doc """
   Die Felder eines Zustands (schon dereferenziert): `{S, N, Gezogen, K}`,
   `:var` (ungebunden) oder `:bad` (kein st/4 aus Ganzzahlen mit
-  1 ≤ N ≤ 168). Auch für den übersetzten Code (PrologEx.Jit.b_lfsr_next/1).
+  1 ≤ N ≤ 168). Auch für den übersetzten Code (PrologEx.Jit.Runtime.b_lfsr_next/1).
   """
   def fields({:var, _}, _subst), do: :var
 
