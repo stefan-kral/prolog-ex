@@ -118,6 +118,9 @@ defmodule PrologEx.RetractIndexTest do
 
   test "Aufruf mit offenem erstem Argument macht flach und schreibt zurück", c do
     all = fn -> PrologEx.current_db() |> Map.fetch!({"user", "r", 2}) |> elem(1) end
+    # (ist r/2 übersetzt – der JIT nimmt auch dynamische –, baut das erste
+    # assertz einmal schlicht neu: materialize/1; danach aufgeschoben)
+    ask(c, "assertz(r(7, x)), r(7, _)")
     # gebundenes erstes Argument: bleibt aufgeschoben
     ask(c, "assertz(r(9, z)), r(9, _)")
     assert {:cat, _, _} = all.()

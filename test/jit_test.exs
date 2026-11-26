@@ -303,9 +303,10 @@ defmodule PrologEx.JitTest do
             for(n <- ~w(nrev len suml reverse2 maxl dbl last2 avg first2), do: {"user", n, 2}),
         do: assert(jitted.(k), inspect(k))
 
-    # app/3: erste Liste aufgelöst, zweite durchgereicht; Summe: Zahlen
+    # app/3: beide durchgereicht (die erste erst beim Zerlegen gelesen –
+    # ein Listenmuster verlangt beim Eintritt nichts); Summe: Zahlen
     # (Floats auch: avg/2 ruft suml/2 und rechnet mit /), dbl/2: Ganzzahlen
-    assert {:pred, _, _, {:jit, _, [{0, :list}, {1, :any}], [2], _, _}, _} =
+    assert {:pred, _, _, {:jit, _, [{0, :any}, {1, :any}], [2], _, _}, _} =
              c.jit[{"user", "app", 3}]
 
     assert {:pred, _, _, {:jit, _, [{0, :nlist}], [1], _, _}, _} = c.jit[{"user", "suml", 2}]
@@ -1035,13 +1036,13 @@ defmodule PrologEx.JitTest do
     Reader.put_current(c.reader)
     {out, _} = TableCase.run(c.reader, c.jit, "fib(5, _), jit_listing")
     assert out =~ ~r"% fib/2 +übersetzt +fib\(\+int, -int\)"
-    assert out =~ ~r"% app/3 +\S+ +app\(\+list, \+any, -\)"
-    assert out =~ ~r"% first2/2 +nur für Rufer +first2\(\+list, -any\)"
+    assert out =~ ~r"% app/3 +\S+ +app\(\+any, \+any, -\)"
+    assert out =~ ~r"% first2/2 +nur für Rufer +first2\(\+any, -any\)"
     assert out =~ ~r"% pz/2 +nein +Klausel 1: Z ist nur in einem Zweig"
     assert out =~ ~r"% cnj/2 +nein +ruft nj/2, das nicht übersetzt wird"
     assert out =~ ~r"% nj/2 +nein +Klausel 1: Ziel atom_length/2"
     assert out =~ ~r"% wd/2 +\S+ +wd\(\+int, -int\)  nichtdeterministisch"
-    assert out =~ ~r"% mem/2 +\S+ +mem\(-any, \+list\)  nichtdeterministisch"
+    assert out =~ ~r"% mem/2 +\S+ +mem\(-any, \+any\)  nichtdeterministisch"
     assert out =~ ~r"% udsq/2 +nein +Klausel 1: ruft das dynamische dsq/2"
     {out, _} = TableCase.run(c.reader, c.int, "jit_listing(fib/2)")
     assert out =~ ~r"% fib/2 +wäre übersetzbar"
@@ -1408,6 +1409,70 @@ defmodule PrologEx.JitTest do
                db,
                "statistics(inferences, _I0), catch(r#{u}(3, V), error(E, _), true), statistics(inferences, _I1), I is _I1 - _I0"
              )
+  end
+
+  # SICStus-Benchmarks poly und unify: eine Eingabe, die andere Klauseln
+  # zerlegen, muss nur in der Klausel eine Zahl sein, die mit ihr rechnet
+  # (pa: am Anfang der letzten Klausel zur Zahl gelesen, nicht beim
+  # Eintritt verlangt); ein Listenmuster verlangt beim Eintritt nichts (cn:
+  # sonst wiese der Eintritt Variablen ab, sz bekäme +list); ein Wert ohne
+  # Herkunft an einer Listen-Eingabe wird beim Aufruf geprüft (sa: arg/3)
+  test "klausellokale Anforderungen, Listenmuster ohne Anforderung", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    pa#{u}(poly(V, T1), poly(V, T2), poly(V, T)) :- !, ta#{u}(T1, T2, T).
+    pa#{u}(poly(V, T1), C, poly(V, T)) :- !, ao#{u}(T1, C, T).
+    pa#{u}(C, poly(V, T2), poly(V, T)) :- !, ao#{u}(T2, C, T).
+    pa#{u}(C1, C2, C) :- C is C1 + C2.
+    ta#{u}([], X, X) :- !.
+    ta#{u}(X, [], X) :- !.
+    ta#{u}([term(E, C1)|T1], [term(E, C2)|T2], [term(E, C)|T]) :- !, pa#{u}(C1, C2, C), ta#{u}(T1, T2, T).
+    ta#{u}([term(E1, C1)|T1], [term(E2, C2)|T2], [term(E1, C1)|T]) :- E1 < E2, !, ta#{u}(T1, [term(E2, C2)|T2], T).
+    ta#{u}(T1, [X|T2], [X|T]) :- ta#{u}(T1, T2, T).
+    ao#{u}([term(0, C1)|T], C2, [term(0, C)|T]) :- !, pa#{u}(C1, C2, C).
+    ao#{u}(T, C, [term(0, C)|T]).
+    cn#{u}(X) :- nonvar(X), X = [_|_].
+    st#{u}(X) :- nonvar(X), \\+ atomic(X), \\+ X = [_|_].
+    sz#{u}(T, N0, N) :- st#{u}(T), !, functor(T, _, A), N1 is N0 + 1 + A, sa#{u}(1, A, T, N1, N).
+    sz#{u}(T, N0, N) :- cn#{u}(T), !, N1 is N0 + 2, sa#{u}(1, 2, T, N1, N).
+    sz#{u}(_, N, N).
+    sa#{u}(I, A, _, N, N) :- I > A, !.
+    sa#{u}(I, A, T, N0, N) :- arg(I, T, X), sz#{u}(X, N0, N1), I1 is I + 1, sa#{u}(I1, A, T, N1, N).
+    """
+
+    {db, _} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    {int, _} =
+      with_jit_off(fn -> PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src)) end)
+
+    {out, _} = TableCase.run(c.reader, db, "jit_listing")
+
+    for p <- ~w(pa ta ao cn st sz sa),
+        do: assert(out =~ ~r"% #{p}#{u}/\d+ +(übersetzt|nur für Rufer|analysiert) ", p)
+
+    assert out =~ ~r"% pa#{u}/3 +\S+ +pa#{u}\(\+any, \+any, -any\)"
+    assert out =~ ~r"% cn#{u}/1 +\S+ +cn#{u}\(\+any\)"
+
+    for q <- [
+          "pa#{u}(poly(x, [term(0, 1), term(1, 1)]), poly(y, [term(1, 1)]), Q)",
+          "pa#{u}(poly(x, [term(0, 1), term(2, 3)]), poly(x, [term(0, 2), term(1, 1)]), Q)",
+          "pa#{u}(1, 2, Q)",
+          "pa#{u}(poly(x, [term(1, 1)]), 5, Q)",
+          "catch(pa#{u}(a, 2, Q), error(E, _), true)",
+          "sz#{u}(f(g(a, [1, 2]), h(X, Y), [Z]), 0, N)",
+          "sz#{u}(X, 0, N)",
+          "sz#{u}([a|T], 0, N)",
+          "cn#{u}(X)",
+          "cn#{u}(f(x))"
+        ] do
+      q2 =
+        "statistics(inferences, _I0), (#{q}), statistics(inferences, _I1), I is _I1 - _I0"
+
+      assert TableCase.run(c.reader, db, q2) == TableCase.run(c.reader, int, q2), q
+    end
   end
 
   defp with_jit_off(f) do

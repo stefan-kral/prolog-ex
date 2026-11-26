@@ -188,6 +188,21 @@ Ein Prolog-Kern in Elixir:
     (sonst bliebe eine Ausgabe auf „beliebig“ aus der ersten Runde stehen:
     qsort/partition des SICStus-Benchmarks qsort jetzt
     `qsort(+list(int), -, +any)`, 20,1 s → 0,96 s, schneller als SWI).
+    Eine Eingabe, die eine Klausel zerlegt (Struktur, Liste, Atom) und
+    eine andere als Variable nimmt, muss nur dort eine Zahl sein, wo damit
+    gerechnet wird: am Anfang dieser Klausel zur Zahl gelesen (keine:
+    aufgeben, der Interpreter meldet den Fehler), nicht beim Eintritt
+    verlangt – das schlösse die anderen Klauseln aus
+    (`poly_add(C1, C2, C) :- C is C1 + C2` hinter den Klauseln für
+    `poly(Var, Terms)`). Ein Listenmuster (`[]`, `[H|T]`, auch
+    `X = [_|_]`) verlangt beim Eintritt nichts (gelesen wird erst beim
+    Zerlegen; ein anderer Term passt nicht, eine ungebundene Variable:
+    aufgeben): `cons(X) :- nonvar(X), X = [_|_]` nimmt so auch
+    Variablen, und `app/3` heißt `app(+any, +any, -)`. Ein Wert ohne
+    Herkunft (aus `arg/3`, einer Struktur) an einer Listen-Eingabe wird
+    beim Aufruf geprüft. SICStus-Benchmarks: poly ×31 (2,7 s → 87 ms bei
+    1/10 der Iterationen), unify ×7,9 (3,9 s → 0,49 s); die anderen
+    gleich, die Fehlschläge in clpz weniger.
   - Typtests: auf einer Zahl meist schon beim Übersetzen entschieden,
     sonst zur Laufzeit wie im Interpreter; nach `integer(X)` (im Code mit
     Floats auch `float/number`) ist X eine Zahl, mit der gerechnet werden
@@ -6628,8 +6643,10 @@ mit JIT 13-mal schneller als ohne.
 
 Seit der Tabelle (26. November, volle Iterationen, ms): deriv 7953 → 553
 (Anforderungen je Funktor), crypt 19973 → 10479 (Muster als Ausgabe),
-qsort 20097 → 962 (Typ-Fixpunkt: Ausgaben neu ab ⊥) – qsort damit
-schneller als SWI (3093 in der Tabelle).
+qsort 20097 → 962 (Typ-Fixpunkt: Ausgaben neu ab ⊥), poly 32553 → 925
+(klausellokale Anforderungen), unify 47613 → 5475 (Listenmuster ohne
+Anforderung) – qsort und poly damit schneller als SWI (3093 und 2778 in
+der Tabelle).
 
 Im Mittel braucht PrologEx hier 9-mal die Zeit von SWI (Scryer 2-mal) –
 deutlich mehr als bei `bench/compare.pl` (1,8-mal). Schneller als SWI

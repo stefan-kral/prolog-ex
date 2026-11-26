@@ -449,6 +449,9 @@ defmodule PrologEx.Jit.Codegen do
   defp build_ast({:cons, h, t}, st), do: [{:|, [], [build_ast(h, st), build_ast(t, st)]}]
   defp build_ast({:atom, _} = a, _st), do: Macro.escape(a)
 
+  # ein Argument, das keine ungebundene Variable sein darf (Types.arg_check/4)
+  defp build_ast({:nv, b}, st), do: quote(do: PrologEx.Jit.Runtime.nv(unquote(build_ast(b, st))))
+
   defp build_ast({:st, f, bs}, st),
     do: quote(do: {:struct, unquote(f), unquote(Enum.map(bs, &build_ast(&1, st)))})
 

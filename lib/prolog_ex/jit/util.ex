@@ -110,6 +110,7 @@ defmodule PrologEx.Jit.Util do
   def vars({:cons, a, b}), do: vars(a) ++ vars(b)
 
   def vars({:st, _, ps}), do: Enum.flat_map(ps, &vars/1)
+  def vars({:nv, b}), do: vars(b)
 
   def vars(_), do: []
 

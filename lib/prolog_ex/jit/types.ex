@@ -14,6 +14,9 @@ defmodule PrologEx.Jit.Types do
   @soft_key :prolog_ex_jit_soft
   # wo need/2 gerade prüft (Prädikat, Klausel), für die Meldung
   @where_key :prolog_ex_jit_where
+  # klausellokale Eingaben der Klausel, die flow/2 gerade ansieht:
+  # {key, i, MapSet von k} (local_args/2, raise_req/2)
+  @local_key :prolog_ex_jit_local
 
   # --- Typen --------------------------------------------------------------
   #
@@ -71,15 +74,25 @@ defmodule PrologEx.Jit.Types do
         Map.new(scc, fn key ->
           ctx = %{key: key, sig: sig, reqs: reqs, num: MapSet.member?(num, key), nd: nd}
           pre = if length(scc) > 1, do: "#{Util.pi(key)}, ", else: ""
+          poly = poly_args(parsed[key].clauses, sig.(key).modes)
 
           {key,
            parsed[key].clauses
            |> Enum.with_index(1)
            |> Enum.map(fn {c, i} ->
              Process.put(@where_key, "#{pre}Klausel #{i}: ")
+             locals = local_args(c, poly)
+             Process.put(@local_key, {key, i, locals})
+
+             # in dieser Klausel gilt für eine klausellokale Eingabe ihre
+             # eigene Anforderung
+             creqs =
+               Enum.reduce(locals, reqs, fn k, acc ->
+                 Map.put(acc, {key, k}, Map.get(reqs, {:local, key, i, k}, :any))
+               end)
 
              try do
-               flow(c, ctx)
+               flow(c, %{ctx | reqs: creqs})
              catch
                {:no, r} -> Util.no!("#{pre}Klausel #{i}: #{r}")
              end
@@ -89,12 +102,14 @@ defmodule PrologEx.Jit.Types do
         {:no, _} = e ->
           Process.delete(@raise_key)
           Process.delete(@soft_key)
+          Process.delete(@local_key)
           throw(e)
       end
 
     reqs2 = Process.delete(@raise_key)
     soft = Process.delete(@soft_key)
     Process.delete(@where_key)
+    Process.delete(@local_key)
 
     outs2 =
       for {{key, k}, _} <- outs, into: %{} do
@@ -173,9 +188,39 @@ defmodule PrologEx.Jit.Types do
     Enum.each(os, &raise_req(&1, r))
   end
 
-  defp raise_req({:arg, key, k}, r) do
+  # Eine klausellokale Eingabe (local_args/2), die eine Zahl sein muss: nur
+  # in dieser Klausel ({:local, key, i, k}; dort am Anfang zur Zahl gelesen,
+  # flow/2) – nicht beim Eintritt, andere Klauseln zerlegen sie
+  # Ein Muster für Listen ([], [H|T]) braucht nur, dass der Wert eine
+  # Liste sein kann: gelesen wird erst beim Zerlegen (Runtime.list/1 – ein
+  # anderer Term passt nicht, eine ungebundene Variable: aufgeben). Keine
+  # Anforderung an die Eingabe – sie schlösse beim Eintritt aus, was die
+  # Klausel scheitern ließe (cons(X) :- nonvar(X), X = [_|_] mit einer
+  # Variablen: unify) oder was andere Klauseln nehmen
+  defp need_type(r, {t, _}) do
+    unless sat?(t, r) or t == :any or Process.get(@soft_key),
+      do:
+        Process.put(
+          @soft_key,
+          "#{Process.get(@where_key)}#{Util.tname(t)}, wo #{Util.tname(r)} gebraucht wird"
+        )
+  end
+
+  defp raise_req({:arg, key, k} = o, r) do
     reqs = Process.get(@raise_key)
-    Process.put(@raise_key, Map.put(reqs, {key, k}, rj(Map.fetch!(reqs, {key, k}), r)))
+
+    case Process.get(@local_key) do
+      {^key, i, locals} when r == :num ->
+        if MapSet.member?(locals, k) do
+          lo = {:local, key, i, k}
+          Process.put(@raise_key, Map.put(reqs, lo, rj(Map.get(reqs, lo, :any), r)))
+        else
+          raise_arg(reqs, o, r)
+        end
+
+      _ ->
+        raise_arg(reqs, o, r)
+    end
   end
 
   defp raise_req({:elem, key, k}, :num), do: raise_req({:arg, key, k}, :nlist)
@@ -185,6 +230,38 @@ defmodule PrologEx.Jit.Types do
   defp raise_req({:sub, _, _, _} = o, r) do
     reqs = Process.get(@raise_key)
     Process.put(@raise_key, Map.put(reqs, o, rj(Map.get(reqs, o, :any), r)))
+  end
+
+  defp raise_arg(reqs, {:arg, key, k}, r),
+    do: Process.put(@raise_key, Map.put(reqs, {key, k}, rj(Map.fetch!(reqs, {key, k}), r)))
+
+  # Klausellokal sind Eingaben, die eine Klausel zerlegt (Struktur, Liste,
+  # Atom) und eine andere als Variable nimmt: rechnet diese damit
+  # (`poly_add(C1, C2, C) :- C is C1 + C2` hinter Klauseln für
+  # `poly(Var, Terms)`), muss das Argument nur dort eine Zahl sein. Beim
+  # Eintritt verlangt, schlösse es die anderen Klauseln aus (SICStus-
+  # Benchmark poly: jeder Aufruf mit einem Polynom abgewiesen)
+  defp poly_args(clauses, modes) do
+    for {k, :in} <- modes,
+        Enum.any?(clauses, fn {ps, _} -> structural?(Enum.at(ps, k)) end),
+        into: MapSet.new(),
+        do: k
+  end
+
+  defp structural?({:st, _, _}), do: true
+  defp structural?({:cons, _, _}), do: true
+  defp structural?(:nl), do: true
+  defp structural?({:atom, _}), do: true
+  defp structural?(_), do: false
+
+  # die klausellokalen Eingaben einer Klausel: polymorph und hier eine
+  # Variable
+  defp local_args({ps, _}, poly) do
+    for k <- poly,
+        match?({:var, _}, Enum.at(ps, k)),
+        not Util.anon?(Enum.at(ps, k)),
+        into: MapSet.new(),
+        do: k
   end
 
   # Typ, den der Wert jetzt hat (nach den Anforderungen dieser Runde)
@@ -243,7 +320,23 @@ defmodule PrologEx.Jit.Types do
       |> Enum.with_index()
       |> Enum.filter(fn {_, k} -> modes[k] == :in end)
       |> Enum.map_reduce(%{}, fn {a, k}, d ->
-        {mp, d} = match_pat(a, {:bot, [{:arg, ctx.key, k}]}, d, ctx)
+        vt = {:bot, [{:arg, ctx.key, k}]}
+        {mp, d} = match_pat(a, vt, d, ctx)
+
+        # klausellokal eine Zahl (raise_req/2): hier zur Zahl lesen – keine
+        # Zahl: aufgeben, der Interpreter meldet den Fehler
+        mp =
+          case {mp, Process.get(@local_key)} do
+            {{:bind, _}, {_, i, locals}} ->
+              if MapSet.member?(locals, k) and
+                   Map.get(ctx.reqs, {:local, ctx.key, i, k}) == :num,
+                 do: {:num, mp},
+                 else: mp
+
+            _ ->
+              mp
+          end
+
         {{k, mp}, d}
       end)
 
@@ -351,14 +444,14 @@ defmodule PrologEx.Jit.Types do
   end
 
   defp match_pat(:nl, vt, d, _ctx) do
-    need(:list, vt)
+    need_type(:list, vt)
     {:nl, d}
   end
 
   # Elemente einer Liste von Zahlen: erst zur Zahl machen (aus der Eingabe
   # kommen sie ungelesen, PrologEx.Jit.Runtime.num/1)
   defp match_pat({:cons, h, t}, vt, d, ctx) do
-    need(:list, vt)
+    need_type(:list, vt)
     et = elem_of(vt)
     {hm, d} = match_pat(h, et, d, ctx)
     hm = if eff(et, ctx.reqs) == :num and hm != :ignore, do: {:num, hm}, else: hm
@@ -646,8 +739,7 @@ defmodule PrologEx.Jit.Types do
     ins =
       for {a, k} <- indexed, sig.modes[k] == :in do
         {bt, vt} = build!(a, d, ctx)
-        need(sig.req[k], vt)
-        {k, bt, vt}
+        {k, arg_check(sig.req[k], bt, vt, ctx), vt}
       end
 
     actual = Map.new(ins, fn {k, _, vt} -> {k, vt} end)
@@ -662,6 +754,26 @@ defmodule PrologEx.Jit.Types do
       end)
 
     {{:call, ck, Enum.map(ins, &elem(&1, 1)), outs}, d2}
+  end
+
+  # Ein Argument für eine Eingabe mit Anforderung r. Eine Liste verlangt
+  # beim Eintritt nur: keine ungebundene Variable (die Elemente liest der
+  # Gerufene selbst zur Zahl, PrologEx.Jit.Runtime.list/1, num/1). Hat der
+  # Wert keine Herkunft, deren Anforderung steigen könnte (aus arg/3, einer
+  # Struktur, einer Ausgabe), prüft das der Code hier ({:nv, Bau},
+  # Runtime.nv/1: sonst aufgeben) – statt das Prädikat nicht zu übersetzen
+  # (size_args/5 im SICStus-Benchmark unify: `arg(I, T, A), size(A)`)
+  defp arg_check(r, bt, {_, []} = vt, ctx) when r in [:list, :nlist] do
+    case eff(vt, ctx.reqs) do
+      t when t in [:list, :nlist] -> bt
+      :any -> {:nv, bt}
+      _ -> need(r, vt) && bt
+    end
+  end
+
+  defp arg_check(r, bt, vt, _ctx) do
+    need(r, vt)
+    bt
   end
 
   # ein Schnitt irgendwo im Rumpf (auch in Zweigen)

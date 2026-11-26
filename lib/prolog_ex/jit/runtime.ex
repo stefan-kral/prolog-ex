@@ -596,6 +596,18 @@ defmodule PrologEx.Jit.Runtime do
   def list(t), do: t
 
   @doc false
+  # ein Wert, der keine ungebundene Variable sein darf (ein Argument für
+  # eine Listen-Eingabe, wie die Eintrittsprüfung); sonst aufgeben
+  def nv({:var, _} = v) do
+    case PrologEx.Store.walk(v, store()) do
+      {:var, _} -> throw(:jit_deopt)
+      _ -> v
+    end
+  end
+
+  def nv(t), do: t
+
+  @doc false
   # eine Struktur f/n lesen: ihre Argumente, oder :no (passt nicht); eine
   # ungebundene Variable: aufgeben (der Interpreter bände sie)
   def st({tag, f, args}, f, n) when tag in [:struct, :gstruct],
