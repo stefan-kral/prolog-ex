@@ -483,7 +483,8 @@ defmodule PrologEx.JitFuzzTest do
             for {_, {:pred, _, _, {t, _, _, _, _, st}, _}} <- jit,
                 t in [:jit, :jit_nd],
                 reduce: {0, 0} do
-              {h, f} -> {h + :atomics.get(st, 1), f + :atomics.get(st, 2)}
+              # (2 negativ: kalt, PrologEx.jit_cold?/1)
+              {h, f} -> {h + :atomics.get(st, 1), f + max(:atomics.get(st, 2), 0)}
             end
 
           if verbose,

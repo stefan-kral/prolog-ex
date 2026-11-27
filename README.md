@@ -244,16 +244,19 @@ Ein Prolog-Kern in Elixir:
     50 Floats, 3000-mal, +5,5 % Reduktionen und 8–13 % mehr Zeit als ohne
     JIT – jetzt 55 ms statt 1,9 s. Ganzzahlen laufen danach im Code für Zahlen etwa 10 %
     langsamer als im ganzzahligen.
-  - OTP 28 vor 28.3.1 (ERTS 16.0 bis 16.3.0) hat einen Fehler im JIT der
-    BEAM, der Ausdrücke wie `X * X + X * X` falsch übersetzt (OTP-19889):
+  - ERTS vor 16.3.1 (OTP 28) bzw. vor 15.2.7.7 (OTP 27) hat einen Fehler
+    im JIT der BEAM, der Ausdrücke wie `X * X + X * X` falsch übersetzt
+    (OTP-19889):
     nach der Optimierung gemeinsamer Teilausdrücke wird daraus `Y + Y` aus
     einem Register, und der Maschinencode liest einen Operanden veraltet
     (`Z = Y * X, Z + Z` gibt X + Z; manche Formen bringen die BEAM zum
     Absturz). Gefunden vom Differenztest: `V0 is V1 * 0 + V1 * 0` gab 3.
     Auf diesen Versionen wird der erzeugte Code ohne diese Optimierung
     übersetzt (`@compile :no_ssa_opt_cse`; kostet dort bis 11 %: crypt 8 %,
-    deriv 11 %, mu 6 %); besser ist OTP 28.3.1 oder neuer – der Fehler
-    trifft auch anderen Erlang- und Elixir-Code.
+    deriv 11 %, mu 6 %; ältere Linien vorsichtshalber mit). Besser ist
+    eine behobene Version – der Fehler trifft auch anderen Erlang- und
+    Elixir-Code; die Checks laufen seit dem 27. November auf OTP 28.5.0.9
+    (vorher 28.2).
   - Die Prädikate eines Ladeschritts werden zusammen analysiert;
     wechselseitig rekursive teilen sich ein Modul. Gerufen werden dürfen
     auch schon übersetzte statische Prädikate früherer Schritte, direkt.
@@ -317,7 +320,10 @@ Ein Prolog-Kern in Elixir:
     abgewiesen; aufgegeben zählt achtfach – die Arbeit bis dahin war
     umsonst, oft für jede Rekursionsstufe darunter). Ab 64 Fehlschlägen,
     mehr als doppelt so viele wie Treffer, nimmt der Interpreter die
-    Aufrufe direkt, nach 4096 übersprungenen versucht er es neu. Der
+    Aufrufe direkt, nach 4096 übersprungenen versucht er es neu. Das
+    Überspringen kostet ein atomics-Lesen und -Herunterzählen je Aufruf
+    (vorher drei Operationen: bei qsort auf Floats 5 Reduktionen je
+    Aufruf, 1,1 Mio. Aufrufe). Der
     Eintritt selbst ist schlank (ein Fehlerfang statt dreier, Ausgaben
     aus Zahlen ohne Unifikation, die Grenzprüfung nur über dem
     Prüfpunkt) – bei einem Prädikat mit einem Ziel etwa so teuer wie der

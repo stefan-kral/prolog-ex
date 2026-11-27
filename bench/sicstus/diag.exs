@@ -95,7 +95,8 @@ defmodule Diag do
   end
 
   # Zähler des übersetzten Codes je Prädikat (PrologEx.call_pred/4):
-  # Treffer, Fehlschläge (abgewiesen 1, aufgegeben 8), übersprungen
+  # Treffer, Fehlschläge (abgewiesen 1, aufgegeben 8; negativ: kalt, so
+  # viele Aufrufe bis zum nächsten Versuch), wie oft kalt geworden
   def jit_stats(db) do
     for {{"user", n, a}, {:pred, _, _, j, _}} <- db,
         is_tuple(j),
@@ -168,7 +169,8 @@ for {name, count} <- progs do
 
     s =
       case js do
-        %{^key => [h, f, sk]} -> s <> "  [Treffer #{h}, Fehlschl. #{f}, übersprungen #{sk}]"
+        %{^key => [h, f, k]} when f < 0 -> s <> "  [Treffer #{h}, kalt (#{k}-mal)]"
+        %{^key => [h, f, k]} -> s <> "  [Treffer #{h}, Fehlschl. #{f}, kalt geworden #{k}-mal]"
         _ -> s
       end
 

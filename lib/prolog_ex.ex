@@ -4313,11 +4313,15 @@ defmodule PrologEx do
   # Lohnt der Eintritt? Zähler je Prädikat: 1 Treffer (Ergebnis aus dem
   # übersetzten Code), 2 Fehlschläge (beim Eintritt abgewiesen: 1;
   # aufgegeben: @jit_deopt_weight – dann rechnet der Interpreter alles noch
-  # einmal, oft auch für jeden rekursiven Aufruf darunter), 3
-  # übersprungene Aufrufe. Ab @jit_cold_min Fehlschlägen, die mehr als
-  # doppelt so viele sind wie die Treffer, nimmt der Interpreter die Aufrufe
-  # direkt; nach @jit_reprobe übersprungenen beginnt die Zählung neu (die
-  # Aufrufe können sich ändern). Kostet sonst ein atomics-Lesen je Aufruf.
+  # einmal, oft auch für jeden rekursiven Aufruf darunter), 3 wie oft es
+  # kalt wurde. Ab @jit_cold_min Fehlschlägen, die mehr als doppelt so
+  # viele sind wie die Treffer, ist es kalt: der Interpreter nimmt die
+  # Aufrufe direkt, nach @jit_reprobe solchen beginnt die Zählung neu (die
+  # Aufrufe können sich ändern). Kalt steht in 2 selbst, als -(Aufrufe bis
+  # dahin), gesetzt beim Verbuchen eines Fehlschlags (jit_fail/2): ein
+  # warmer Aufruf liest einen Zähler, ein kalter liest einen und zählt
+  # einen herunter (vorher drei: Fehlschläge, Treffer, übersprungene – bei
+  # qsort auf Floats 5 Reduktionen je Aufruf).
   # 4: Aufrufe mit gebundenen Ausgaben, bis eine Variante übersetzt wird
   # (jit_variant/6) – sie zählen nicht als Fehlschläge.
   @jit_cold_min 64
@@ -4654,7 +4658,7 @@ defmodule PrologEx do
         interp_call(pred, goal, name, args, mod, rest, st)
 
       :none ->
-        :atomics.add(elem(jit, 5), 2, 1)
+        jit_fail(elem(jit, 5), 1)
         interp_call(pred, goal, name, args, mod, rest, st)
     end
   end
@@ -4674,11 +4678,11 @@ defmodule PrologEx do
         variant_call(v, pred, goal, name, args, mod, rest, st)
 
       :later ->
-        :atomics.add(elem(jit, 5), 2, @jit_deopt_weight)
+        jit_fail(elem(jit, 5), @jit_deopt_weight)
         interp_call(pred, goal, name, args, mod, rest, st)
 
       :none ->
-        :atomics.add(elem(jit, 5), 2, @jit_deopt_weight)
+        jit_fail(elem(jit, 5), @jit_deopt_weight)
         interp_call(pred, goal, name, args, mod, rest, st)
     end
   end
@@ -4697,11 +4701,11 @@ defmodule PrologEx do
         interp_call(pred, goal, name, args, mod, rest, st)
 
       :no ->
-        :atomics.add(vst, 2, 1)
+        jit_fail(vst, 1)
         interp_call(pred, goal, name, args, mod, rest, st)
 
       :deopt ->
-        :atomics.add(vst, 2, @jit_deopt_weight)
+        jit_fail(vst, @jit_deopt_weight)
         interp_call(pred, goal, name, args, mod, rest, st)
 
       {:run, st} ->
@@ -4963,23 +4967,34 @@ defmodule PrologEx do
     end
   end
 
-  # (Zähler und Schwellen: siehe die Attribute vor call_pred/4)
+  # einen Fehlschlag verbuchen (Gewicht w); dabei kalt werden
+  defp jit_fail(stats, w) do
+    m = :atomics.add_get(stats, 2, w)
+
+    if m >= @jit_cold_min and m > 2 * :atomics.get(stats, 1) do
+      :atomics.put(stats, 2, -@jit_reprobe)
+      :atomics.add(stats, 3, 1)
+    end
+
+    :ok
+  end
+
+  # (Zähler und Schwellen: siehe die Attribute vor call_pred/4; eingebettet:
+  # jeder Eintritt prüft es)
+  @compile {:inline, jit_cold?: 1}
   defp jit_cold?(stats) do
-    m = :atomics.get(stats, 2)
+    if :atomics.get(stats, 2) >= 0 do
+      false
+    else
+      case :atomics.add_get(stats, 2, 1) do
+        0 ->
+          # erneut versuchen, die Zählung von vorn
+          :atomics.put(stats, 1, 0)
+          false
 
-    cond do
-      m < @jit_cold_min ->
-        false
-
-      m <= 2 * :atomics.get(stats, 1) ->
-        false
-
-      :atomics.add_get(stats, 3, 1) < @jit_reprobe ->
-        true
-
-      true ->
-        for i <- 1..3, do: :atomics.put(stats, i, 0)
-        false
+        _ ->
+          true
+      end
     end
   end
 

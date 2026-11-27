@@ -1263,8 +1263,10 @@ defmodule PrologEx.JitTest do
     {:pred, _, _, {:jit, _, _, _, _, stats}, _} = db[{"user", "nb#{u}", 3}]
     q = "\\+ (between(1, 200, _), mk#{u}(5, T), \\+ (nb#{u}(T, 1, N), N == 32))"
     assert {_, {:answers, ["true"]}} = TableCase.run(c.reader, db, q)
-    assert :atomics.get(stats, 2) >= 64
-    assert :atomics.get(stats, 3) > 0
+    # kalt: 2 zählt die Aufrufe bis zum nächsten Versuch herunter
+    # (negativ), 3 wie oft es kalt wurde
+    assert :atomics.get(stats, 2) < 0
+    assert :atomics.get(stats, 3) >= 1
   end
 
   # Argumente von Strukturen im Kopf: eine Anforderung (hier: N ist eine
@@ -1577,10 +1579,10 @@ defmodule PrologEx.JitTest do
     assert :atomics.get(st, 2) == 0
   end
 
-  # OTP 28 vor 28.3.1: der JIT der BEAM rechnet `X * X + X * X` falsch
-  # (OTP-19889; aus `X * 0 + X * 0` wird X) – dort wird der erzeugte Code
-  # ohne die Optimierung gemeinsamer Teilausdrücke übersetzt
-  test "X * 0 + X * 0 (JIT-Fehler in OTP 28 vor 28.3.1)", c do
+  # ERTS vor 16.3.1 bzw. 15.2.7.7: der JIT der BEAM rechnet `X * X + X * X`
+  # falsch (OTP-19889; aus `X * 0 + X * 0` wird X) – dort wird der erzeugte
+  # Code ohne die Optimierung gemeinsamer Teilausdrücke übersetzt
+  test "X * 0 + X * 0 (JIT-Fehler OTP-19889)", c do
     Reader.put_current(c.reader)
     PrologEx.Flags.set("jit", {:atom, "true"})
     u = System.unique_integer([:positive])
@@ -1594,6 +1596,15 @@ defmodule PrologEx.JitTest do
 
     assert {_, {:answers, ["A = 0, B = 1"]}} =
              TableCase.run(c.reader, db, "a#{u}(A, 5), b#{u}(B, 5)")
+
+    # betroffen: ERTS vor 15.2.7.7 und 16.0 bis vor 16.3.1
+    alias PrologEx.Jit.Codegen
+    assert Codegen.jit_bug_19889?([16, 1, 2])
+    assert Codegen.jit_bug_19889?([16, 3, 0])
+    refute Codegen.jit_bug_19889?([16, 3, 1])
+    refute Codegen.jit_bug_19889?([16, 4, 0, 7])
+    assert Codegen.jit_bug_19889?([15, 2, 7, 6])
+    refute Codegen.jit_bug_19889?([15, 2, 7, 7])
   end
 
   defp with_jit_off(f) do
