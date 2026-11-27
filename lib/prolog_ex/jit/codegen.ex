@@ -65,8 +65,7 @@ defmodule PrologEx.Jit.Codegen do
           num: sig.num,
           deps: r.p.deps,
           bdeps: r.p.bdeps,
-          sig: sig,
-          nd: Map.get(sig, :nd, false)
+          sig: sig
         }
       end)
 
@@ -77,7 +76,7 @@ defmodule PrologEx.Jit.Codegen do
     # schon ein Vergleich spart mehr, als der Wechsel kostet; ein Fakt
     # nicht. Übersetzt wird trotzdem – für übersetzte Rufer
     entry =
-      Enum.any?(infos, & &1.nd) or length(scc) > 1 or Enum.any?(scc, &s.parsed[&1].rec) or
+      length(scc) > 1 or Enum.any?(scc, &s.parsed[&1].rec) or
         Enum.sum(Enum.map(scc, &s.parsed[&1].size)) >= @entry_size or
         Enum.any?(infos, fn i ->
           Enum.any?(i.deps, fn d ->
@@ -108,7 +107,7 @@ defmodule PrologEx.Jit.Codegen do
         :erlang.term_to_binary(
           {Enum.map(
              infos,
-             &{Enum.map(&1.clauses, fn c -> canon(c) end), &1.ins, &1.outs, &1.num, &1.nd}
+             &{Enum.map(&1.clauses, fn c -> canon(c) end), &1.ins, &1.outs, &1.num}
            ), Enum.sort(remote)}
         )
       )
@@ -163,7 +162,7 @@ defmodule PrologEx.Jit.Codegen do
 
     unless :erlang.module_loaded(mod) or :persistent_term.get(key, nil) != nil do
       callees = for({_, {:remote, m, _}} <- targets, do: m) |> Enum.uniq()
-      slim = Enum.map(infos, &Map.take(&1, [:j, :ins, :clauses, :num, :nd]))
+      slim = Enum.map(infos, &Map.take(&1, [:j, :ins, :clauses, :num]))
       # Aufrufzähler bis zur Schwelle (Flag jit_threshold, siehe run/7)
       :persistent_term.put(key, {:ir, slim, targets, callees, :atomics.new(1, [])})
     end
@@ -239,40 +238,28 @@ defmodule PrologEx.Jit.Codegen do
         # deterministisch: p ruft die erste Klausel; jede ruft beim
         # Scheitern vor einem Schnitt selbst die nächste (so bleibt ein
         # Aufruf am Schluss einer Klausel Endaufruf, siehe failure/1)
-        nd = Map.get(info, :nd, false)
-
         clause_funs =
           info.clauses
           |> Enum.with_index(1)
           |> Enum.map(fn {c, i} ->
-            next = if not nd and i < n, do: ccall(info.j, i + 1, ins)
-            gen_clause(c, i, info, targets, not nd and i == n, next)
+            next = if i < n, do: ccall(info.j, i + 1, ins)
+            gen_clause(c, i, info, targets, i == n, next)
           end)
 
         dispatch = ccall(info.j, 1, ins)
 
-        if nd do
-          t1 = {:"t#{info.j}_1", [], ins ++ [Macro.var(:b, __MODULE__)]}
-
-          [
-            quote(do: def(unquote(e)(unquote_splicing(ins), b), do: unquote(t1))),
-            quote(do: def(unquote(pf)(unquote_splicing(ins), b), do: unquote(t1)))
-            | gen_nd_chain(info, ins, n) ++ clause_funs
-          ]
-        else
-          [
-            quote do
-              def unquote(e)(unquote_splicing(ins), b) do
-                unquote(pf)(unquote_splicing(ins), b)
-              rescue
-                ArithmeticError -> PrologEx.Error.evaluation!("undefined")
-                SystemLimitError -> PrologEx.Error.resource!("memory")
-              end
-            end,
-            quote(do: def(unquote(pf)(unquote_splicing(ins), b), do: unquote(dispatch)))
-            | clause_funs
-          ]
-        end
+        [
+          quote do
+            def unquote(e)(unquote_splicing(ins), b) do
+              unquote(pf)(unquote_splicing(ins), b)
+            rescue
+              ArithmeticError -> PrologEx.Error.evaluation!("undefined")
+              SystemLimitError -> PrologEx.Error.resource!("memory")
+            end
+          end,
+          quote(do: def(unquote(pf)(unquote_splicing(ins), b), do: unquote(dispatch)))
+          | clause_funs
+        ]
       end)
 
     cse = if cse_off?(), do: [quote(do: @compile(:no_ssa_opt_cse))], else: []
@@ -317,40 +304,6 @@ defmodule PrologEx.Jit.Codegen do
 
   @doc false
   def jit_bug_19889?(v), do: v < [15, 2, 7, 7] or (v >= [16] and v < [16, 3, 1])
-
-  # nichtdeterministisch: t<j>_<i> versucht Klausel i, dann (beim
-  # Zurücksetzen) die nächsten. Ergebnis {:sol, b, Ausgaben, weiter} (weiter:
-  # fn b -> ... end oder nil, wenn nichts mehr kommt) oder {:none, b}
-  defp gen_nd_chain(info, ins, n) do
-    b = Macro.var(:b, __MODULE__)
-    j = info.j
-
-    for {c, i} <- Enum.with_index(info.clauses, 1) do
-      tnext = {:"t#{j}_#{i + 1}", [], ins ++ [b]}
-      last = i == n or :cut in c.goals
-      next = if last, do: nil, else: quote(do: fn b -> unquote(tnext) end)
-      failnext = if i == n, do: quote(do: {:none, b}), else: tnext
-
-      quote do
-        defp unquote(:"t#{j}_#{i}")(unquote_splicing(ins), b) do
-          case unquote(ccall(j, i, ins)) do
-            {:tail, step, mapf} ->
-              PrologEx.Jit.Runtime.nd_tail(step, mapf, unquote(next))
-
-            r when is_tuple(r) ->
-              [b | outs] = Tuple.to_list(r)
-              {:sol, b, outs, unquote(next)}
-
-            b when b >= 0 ->
-              unquote(failnext)
-
-            nb ->
-              {:none, -nb - 1}
-          end
-        end
-      end
-    end
-  end
 
   # Aufruf der Klauselfunktion c<j>_<i>(Eingaben..., b)
   defp ccall(j, i, ins), do: {:"c#{j}_#{i}", [], ins ++ [Macro.var(:b, __MODULE__)]}
@@ -656,38 +609,8 @@ defmodule PrologEx.Jit.Codegen do
 
   defp gen_goals([{:call, ck, ins, outs} | gs], st), do: gen_call(ck, ins, outs, gs, st)
 
-  # letzter Aufruf eines nichtdeterministischen Prädikats: seine Lösungen
-  # (step) und wie aus seinen Ausgaben die der Klausel werden (mapf: fn
-  # Ausgaben, b -> {b, Ausgaben der Klausel} | b; nil, wenn sie dieselben
-  # sind)
-  defp gen_goals([{:tail_nd, ck, ins, outs} | _], st) do
-    args = Enum.map(ins, &build_ast(&1, st))
-    step = call_ast(st.targets[ck], args)
-
-    if Util.same_outs?(outs, st.hout) do
-      counted(quote(do: {:tail, unquote(step), nil}))
-    else
-      st2 = %{st | cut: false, local: true}
-      tmps = for {_, j} <- Enum.with_index(outs), do: Macro.var(:"o#{j}", __MODULE__)
-      houts = for {_, bt} <- st.hout, do: build_ast(bt, st)
-
-      body =
-        outs
-        |> Enum.zip(tmps)
-        |> Enum.reverse()
-        |> Enum.reduce(quote(do: {b, unquote(houts)}), fn {mp, tmp}, acc ->
-          match_ast(tmp, mp, acc, st2)
-        end)
-
-      counted(
-        quote do
-          {:tail, unquote(step), fn unquote(tmps), b -> unquote(body) end}
-        end
-      )
-    end
-  end
-
-  # erste Lösung eines nichtdeterministisch übersetzten Gerufenen, deren
+  # erste Lösung eines nichtdeterministischen Gerufenen (member/2,
+  # between/3: PrologEx.Jit.Runtime.nd_member/3, nd_between/4), deren
   # Ausgaben zu den Mustern passen (wie der Interpreter: er setzte in den
   # Gerufenen zurück, bis eine passt). Nur frische Variablen als Muster:
   # gleich die erste

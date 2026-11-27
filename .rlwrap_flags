@@ -13,7 +13,6 @@ dialect
 double_quotes = chars codes atom
 integer_rounding_function
 jit = false true
-jit_nondet = false true
 jit_threshold =
 last_call_optimisation
 max_arity

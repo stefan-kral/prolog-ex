@@ -108,9 +108,9 @@ defmodule PrologEx.IsDirectivesTest do
     # ohne Deklaration die erste übersetzbare Belegung, mit ihr die gemeinte
     assert out =~ ~r"% ex/3 +\S+ +ex\(\+any, \+any, -any\)\n"
     assert out =~ ~r"% ex0/3 +\S+ +ex0\(-any, -any, \+any\)\n"
-    # deklariert det, aber nicht nachweislich: nichtdeterministisch
+    # deklariert det, aber nicht nachweislich: nicht übersetzt
     assert out =~
-             ~r"% cnt/2 .*nichtdeterministisch\n%   ↳ deklariert cnt/2 is det: nichtdeterministisch übersetzt"
+             ~r"% cnt/2 +nein +Klauseln 1 und 2 schließen sich nicht nachweislich aus\n%   ↳ deklariert cnt/2 is det: nicht übersetzt"
 
     assert out =~ ~r"%   ↳ deklariert m3\(\+,-\) is semidet: nicht übersetzt"
     # passt: kein Vermerk

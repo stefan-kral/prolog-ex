@@ -1,11 +1,10 @@
 defmodule PrologEx.Jit.Runtime do
   @moduledoc """
   Laufzeit des übersetzten Codes (PrologEx.Jit): Eintritt aus dem
-  Interpreter (run/6, nd_run/6, nd_resume/5), Prüfpunkte (tick/0) und was
-  der erzeugte Code ruft – Zerlegen (list/1, st/3), Tests und Vergleiche
-  (tt/2, teq/2, tord/3, ueq/2, eqc/2), eingebaute Prädikate (b_*/n,
-  nd_*/n) und die Verkettung nichtdeterministischer Lösungen (nd_tail/3,
-  nd_first/2).
+  Interpreter (run/6), Prüfpunkte (tick/0) und was der erzeugte Code ruft
+  – Zerlegen (list/1, st/3), Tests und Vergleiche (tt/2, teq/2, tord/3,
+  ueq/2, eqc/2), eingebaute Prädikate (b_*/n; member/2 und between/3 als
+  Schritte, nd_*/n, davon die erste passende Lösung: nd_first/2).
   """
 
   # --- Laufzeit -----------------------------------------------------------
@@ -123,33 +122,10 @@ defmodule PrologEx.Jit.Runtime do
     end
   end
 
-  # --- nichtdeterministisch übersetzte Prädikate ---------------------------
+  # --- Schritte (member/2, between/3) -------------------------------------
   #
   # Lösungen als Schritte: {:sol, b, Ausgaben, weiter} (weiter: fn b ->
-  # Schritt end oder nil) oder {:none, b}. Der Interpreter legt für weiter
-  # einen Choice Point an ({:jit_nd, ...}) und ruft es beim Zurücksetzen
-  # über nd_resume/6 – mit neuem Block und neuem Eintrag unter @run_key.
-
-  @doc false
-  # Lösungen eines letzten Aufrufs (step) über mapf zu denen der Klausel,
-  # danach die weiteren Klauseln (alt)
-  def nd_tail({:none, b}, _mapf, nil), do: {:none, b}
-  def nd_tail({:none, b}, _mapf, alt), do: alt.(b)
-  def nd_tail({:sol, _, _, _} = step, nil, nil), do: step
-  def nd_tail({:sol, b, outs, nx}, nil, alt), do: {:sol, b, outs, nd_chain(nx, nil, alt)}
-
-  def nd_tail({:sol, b, outs, nx}, mapf, alt) do
-    case mapf.(outs, b) do
-      {b, houts} ->
-        {:sol, b, houts, nd_chain(nx, mapf, alt)}
-
-      b ->
-        case nx do
-          nil -> nd_tail({:none, b}, mapf, alt)
-          f -> nd_tail(f.(b), mapf, alt)
-        end
-    end
-  end
+  # Schritt end oder nil) oder {:none, b}.
 
   @doc false
   # die erste Lösung, deren Ausgaben f passen: {:ok, b, Werte} | {:none, b}
@@ -163,45 +139,6 @@ defmodule PrologEx.Jit.Runtime do
     end
   end
 
-  defp nd_chain(nil, _mapf, alt), do: alt
-  defp nd_chain(nx, mapf, alt), do: fn b -> nd_tail(nx.(b), mapf, alt) end
-
-  @doc false
-  # erster Aufruf: {:sol, Ausgaben, verbraucht, weiter} | {:fail, verbraucht}
-  # | :deopt | :warming | {:thrown, ball}
-  def nd_run({mod, entry, _, _, _}, ins, chunk, check, store, outs) do
-    if :erlang.module_loaded(mod) or warm?(mod),
-      do: nd_go(fn b -> apply(mod, entry, ins ++ [b]) end, chunk, check, store, outs),
-      else: :warming
-  end
-
-  @doc false
-  # beim Zurücksetzen: die nächste Lösung (wie nd_run/6)
-  def nd_resume(next, chunk, check, store, outs), do: nd_go(next, chunk, check, store, outs)
-
-  defp nd_go(f, chunk, check, store, outs) do
-    Process.put(@run_key, {chunk, check, store, nil, outs})
-
-    try do
-      case f.(chunk) do
-        {:sol, b, vals, nx} -> {:sol, vals, chunk_now() - b, nx}
-        {:none, b} -> {:fail, chunk_now() - b}
-      end
-    rescue
-      e in PrologEx.Error -> thrown(e.term)
-      ArithmeticError -> :deopt
-      SystemLimitError -> nd_error(fn -> PrologEx.Error.resource!("memory") end)
-      UndefinedFunctionError -> :deopt
-    catch
-      :jit_deopt -> :deopt
-    after
-      case Process.delete(@run_key) do
-        {_, _, _, {old, _}, _} -> Process.flag(:min_heap_size, old)
-        _ -> :ok
-      end
-    end
-  end
-
   # Ein Fehler aus dem Code: aufgeben – der Interpreter rechnet neu und
   # meldet ihn, mit seinen Inferenzen bis dahin (die des Codes bis zum Fehler
   # sind nicht bekannt) und seinem Kontext. Nicht für die Bälle der
@@ -210,12 +147,6 @@ defmodule PrologEx.Jit.Runtime do
   defp thrown({:struct, "error", [{:struct, "resource_error", _}, _]} = b), do: {:thrown, b}
   defp thrown({:struct, "error", [_, _]}), do: :deopt
   defp thrown(b), do: {:thrown, b}
-
-  defp nd_error(f) do
-    f.()
-  rescue
-    e in PrologEx.Error -> {:thrown, e.term}
-  end
 
   defp chunk_now, do: elem(Process.get(@run_key), 0)
 
@@ -419,8 +350,8 @@ defmodule PrologEx.Jit.Runtime do
   end
 
   @doc false
-  # member/2 als nichtdeterministisch übersetztes Prädikat (Schritte wie
-  # nd_tail/3): die Elemente der Reihe nach; nach dem letzten einer echten
+  # member/2 in Schritten (für nd_first/2): die Elemente der Reihe nach;
+  # nach dem letzten einer echten
   # Liste keine Fortsetzung; ein offener Rest: aufgeben (beim Weiterlesen)
   def nd_member(l, b) do
     case list(l) do

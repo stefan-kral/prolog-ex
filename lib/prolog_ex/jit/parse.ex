@@ -105,8 +105,8 @@ defmodule PrologEx.Jit.Parse do
 
   # Aufrufe, von denen nur die erste Lösung zählt ({:callo, ...}): gleich
   # gefolgt von einem Schnitt, letztes Ziel einer Bedingung oder unter \+.
-  # Ist der Gerufene nichtdeterministisch übersetzt, nimmt der Code seine
-  # erste Lösung ({:call1, ...}); sonst ein gewöhnlicher Aufruf
+  # Ist der Gerufene nichtdeterministisch (member/2, between/3), nimmt der
+  # Code seine erste Lösung ({:call1, ...}); sonst ein gewöhnlicher Aufruf
   defp mark_once(gs), do: gs |> mark_cut() |> Enum.map(&mark_inner/1)
 
   defp mark_cut([{:call, k, a}, :cut | rest]), do: [{:callo, k, a}, :cut | mark_cut(rest)]

@@ -95,10 +95,7 @@ Ein Prolog-Kern in Elixir:
     Liste, `sort/2` und `msort/2` einer echten Liste (Ergebnis eine frische
     Variable); `member/2` und `between/3` dort, wo nur die erste Lösung
     zählt (Bedingung, `\+`, Schnitt danach – `member(X, L)` mit
-    bestimmtem X wie `memberchk/2`). Als letztes Ziel eines
-    nichtdeterministischen Prädikats nicht: jede weitere Lösung über den
-    Choice Point des Codes wäre teurer als die des eingebauten im
-    Interpreter. Je Element eine Mitgliedsprüfung, 3000 gegen 3001
+    bestimmtem X wie `memberchk/2`). Je Element eine Mitgliedsprüfung, 3000 gegen 3001
     Elemente: `memberchk/2` 314 → 9 ms, `( member(X, L) -> …)` 44 → 9 ms;
     `length/2` über 20 000 kurze Listen 44 → 2 ms; aus `library(bytes)`
     lesend `bytes_length/2`, `bytes_at/3` und `bytes_bit/3` mit
@@ -114,9 +111,7 @@ Ein Prolog-Kern in Elixir:
     prüft sie, wo sie gebunden wird, schon im Kopf, und nimmt dort, wenn
     sie nicht passt, die nächste Klausel (`tab(a, 1) :- !. tab(_, 2).`
     gerufen als `tab(a, 2)` gelingt; bis 26. November 2026 lieferte der
-    Code hier eine falsche Antwort). Ausgenommen eingebaute und
-    nichtdeterministisch übersetzte ohne Schnitt (deren Lösungen der Reihe
-    nach gefiltert sind dieselben). Nicht übersetzt wird auch ein
+    Code hier eine falsche Antwort). Ausgenommen eingebaute. Nicht übersetzt wird auch ein
     Prädikat, dessen Klauseln alle nur sich selbst rufen (`p(X) :- p(X),
     p(X).`: der Erlang-Compiler machte eine flache Endlosschleife daraus,
     der Interpreter stößt an die Speichergrenze); eine Disjunktion nur, wenn gleich ein Schnitt folgt und in
@@ -131,45 +126,15 @@ Ein Prolog-Kern in Elixir:
     Muster ohne Gemeinsames wie `integer(X)` / `float(X)` / `[]`; davor
     darf in der späteren Klausel nichts werfen können). Eine Variable, die nur ein
     Zweig eines If-then-else bestimmt, darf danach nicht mehr vorkommen.
-  - **Nichtdeterministische „Blatt“-Prädikate** (Flag `jit_nondet`,
-    Voreinstellung `true`): Schließen sich die Klauseln eines Prädikats
-    nicht aus, wird es trotzdem übersetzt, wenn jeder Rumpf wie oben
-    deterministisch ist und höchstens als letztes Ziel ein solches
-    Prädikat ruft (auch sich selbst): `member/2`, `between/3` in ihrer
-    üblichen Form, Faktentabellen, Prüfungen wie `divisible/2`. Ein
-    rekursiver letzter Aufruf nur in der letzten Klausel (oder nach einem
-    Schnitt) und mit denselben Ausgaben wie die Klausel – `select/3` baut
-    `[H|R]` auf jeder Stufe neu, jede Lösung aus Tiefe k liefe durch k
-    Hüllen (über 3000 Elemente 45-mal langsamer als der Interpreter, der
-    die Zellen einmal baut und nur bindet); solche bleiben im Interpreter.
-    Ein Schnitt nur auf oberster Ebene des Rumpfs.
-    Der Code liefert eine Lösung samt Fortsetzung (Closure); der
-    Interpreter legt dafür einen Choice Point an und ruft sie beim
-    Zurücksetzen – dieselben Lösungen in derselben Reihenfolge, dieselben
-    Inferenzen und Fehler. Sind die Ausgaben des letzten Aufrufs die der
-    Klausel (`mem(X, [_|T]) :- mem(X, T)`), reicht die Klausel seine
-    Lösungen ohne Hülle weiter. Gibt der Code nach der n-ten Lösung auf,
-    rechnet der Interpreter den Aufruf neu und überspringt die ersten n –
-    ab dem Zählerstand beim Eintritt, nach der n-ten wieder ab dem
-    jetzigen: dieselben Inferenzen und Grenzen wie ohne JIT (vorher zählte
-    die Wiederholung mit). Aufgegeben wird beim Zurücksetzen nur an einer
-    echten Inferenzgrenze; am Prüfpunkt einer Zeit- oder Speichergrenze
-    läuft der Code weiter (sonst lag der Prüfpunkt nach dem Neurechnen
-    wieder dahinter, jede Lösung kostete O(n): `repeat/1` aus `harness.pl`
-    der SICStus-Suite, 20000 Runden 46 s statt 0,03 s).
-    Deterministische Prädikate rufen solche nur dort, wo bloß die erste
-    Lösung zählt: gleich gefolgt von einem Schnitt (`mem(X, L), !`), als
-    letztes Ziel einer Bedingung (`( mem(X, L) -> … ; … )`) oder unter
-    `\+` – dann nimmt der Code die erste Lösung, deren Ausgaben zu den
-    Mustern am Aufrufort passen (`mem(X, L)` mit gebundenem X prüft also
-    wie der Interpreter, ohne Choice Point). Sonst bleiben sie im
-    Interpreter (`mem(X, L), X > 10, !` setzt in `mem/2` zurück). Eine
-    Mitgliedsprüfung je Element, 2000 gegen 2001 Elemente: 4,3 s → 0,9 s.
-    `jit_listing/0` vermerkt „nichtdeterministisch“.
-    Gemessen, 200× bis zur letzten Lösung: `member/2` über 10 000 Elemente
-    1,8 s → 1,0 s, `between/3` bis 10 000 4,4 s → 1,3 s; SWI-Benchmarks
-    `perfect` ×7, der Rest im Rauschen (±15 %). `repeat/1` ist eingebaut und bleibt es
-    (Prädikate ohne Argumente übersetzt der JIT nicht).
+  - Schließen sich die Klauseln nicht aus (nichtdeterministisch), rechnet
+    der Interpreter – ebenso für Rufer solcher Prädikate. Bis zum 27.
+    November 2026 übersetzte der JIT auch nichtdeterministische
+    „Blatt“-Prädikate (Lösung samt Fortsetzung, vom Interpreter als Choice
+    Point gehalten; Flag `jit_nondet`). In der SICStus-Suite brachte das im
+    geometrischen Mittel 1 % (deriv, nreverse, sendmore +20–50 %, zebra,
+    unify, crypt −15–20 %; SWI-Benchmark `perfect` ×7), dafür die
+    aufwendigste Maschinerie des JIT (Neurechnen beim Zurücksetzen mit
+    exakten Inferenzen, eigene Choice Points); sie ist entfernt.
   - Modi und Typen: steht eine Kopfvariable zuerst in einem Vergleich
     oder rechts in `is`, ist sie Eingabe, links in `is` Ausgabe, als
     Argument eines Aufrufs wie dort; die übrigen Positionen werden
@@ -1551,8 +1516,8 @@ nachweist (eine falsche Deklaration verlöre sonst Lösungen).
 Ergebnis auseinandergehen:
 
 ```
-% cnt/2  analysiert  cnt(+list, -any)  nichtdeterministisch
-%   ↳ deklariert cnt/2 is det: nichtdeterministisch übersetzt – die Klauseln schließen sich nicht nachweislich aus
+% cnt/2  nein        Klauseln 1 und 2 schließen sich nicht nachweislich aus
+%   ↳ deklariert cnt/2 is det: nicht übersetzt (siehe oben)
 % m3/2   nein        Klausel 1: Ziel write/1
 %   ↳ deklariert m3(+,-) is semidet: nicht übersetzt (siehe oben)
 ```

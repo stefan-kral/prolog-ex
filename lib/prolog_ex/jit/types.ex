@@ -30,7 +30,7 @@ defmodule PrologEx.Jit.Types do
   # Ausgaben: {t, ps} – t vereinigt mit den Typen der Eingaben ps (deren
   # Anforderung :any ist: durchgereicht), am Aufrufort eingesetzt.
 
-  def types(scc, parsed, modes, other, num, nd) do
+  def types(scc, parsed, modes, other, num) do
     reqs0 =
       for key <- scc,
           k <- 0..(parsed[key].arity - 1),
@@ -45,12 +45,12 @@ defmodule PrologEx.Jit.Types do
           into: %{},
           do: {{key, k}, {:bot, []}}
 
-    types_fix(scc, parsed, modes, {other, num, nd}, reqs0, outs0, 24)
+    types_fix(scc, parsed, modes, {other, num}, reqs0, outs0, 24)
   end
 
   defp types_fix(_, _, _, _, _, _, 0), do: Util.no!("Typen kommen zu keinem Fixpunkt")
 
-  defp types_fix(scc, parsed, modes, {other, num, nd} = on, reqs, outs, n) do
+  defp types_fix(scc, parsed, modes, {other, num} = on, reqs, outs, n) do
     sig = fn ck ->
       if ck in scc do
         ar = parsed[ck].arity
@@ -58,8 +58,7 @@ defmodule PrologEx.Jit.Types do
         %{
           modes: Map.new(0..(ar - 1), &{&1, modes[{ck, &1}]}),
           req: for(k <- 0..(ar - 1), modes[{ck, k}] == :in, into: %{}, do: {k, reqs[{ck, k}]}),
-          out: for(k <- 0..(ar - 1), modes[{ck, k}] == :out, into: %{}, do: {k, outs[{ck, k}]}),
-          nd: nd
+          out: for(k <- 0..(ar - 1), modes[{ck, k}] == :out, into: %{}, do: {k, outs[{ck, k}]})
         }
       else
         other.(ck)
@@ -72,7 +71,7 @@ defmodule PrologEx.Jit.Types do
     irs =
       try do
         Map.new(scc, fn key ->
-          ctx = %{key: key, sig: sig, reqs: reqs, num: MapSet.member?(num, key), nd: nd}
+          ctx = %{key: key, sig: sig, reqs: reqs, num: MapSet.member?(num, key)}
           pre = if length(scc) > 1, do: "#{Util.pi(key)}, ", else: ""
           poly = poly_args(parsed[key].clauses, sig.(key).modes)
 
@@ -566,8 +565,9 @@ defmodule PrologEx.Jit.Types do
 
   # Aufruf: Eingaben bauen (Anforderungen des Gerufenen), Ausgaben als
   # Muster gegen die Ergebnisse (Typ am Aufrufort eingesetzt)
-  # nur die erste Lösung zählt: ein nichtdeterministischer Gerufener gibt
-  # seine erste ({:call1, ...}), ein deterministischer wie sonst
+  # nur die erste Lösung zählt: ein nichtdeterministischer Gerufener (die
+  # eingebauten member/2, between/3) gibt seine erste ({:call1, ...}), ein
+  # deterministischer wie sonst
   defp goal_flow({:callo, ck, as}, d, ctx) do
     sig = ctx.sig.(ck)
 
@@ -587,9 +587,8 @@ defmodule PrologEx.Jit.Types do
   end
 
   defp goal_flow({:call, ck, as}, d, ctx) do
-    # nichtdeterministisch übersetzt: nur aus ebensolchen, als letztes Ziel
-    # (nd_irs!/3), sonst nur für die erste Lösung ({:callo, ...})
-    if Map.get(ctx.sig.(ck), :nd, false) and not ctx.nd,
+    # nichtdeterministisch (eingebaut): nur für die erste Lösung ({:callo, ...})
+    if Map.get(ctx.sig.(ck), :nd, false),
       do: Util.no!("ruft #{Util.pi(ck)}, das nichtdeterministisch ist")
 
     call_flow(ck, as, d, ctx)
@@ -722,10 +721,8 @@ defmodule PrologEx.Jit.Types do
     # scheitert die Klausel dort, nimmt er die nächste: tab(a, 1) :- !.
     # tab(_, 2). gerufen als tab(a, 2) gelingt dort, im Code schlüge der
     # Vergleich 1 = 2 fehl. Ausgenommen: eingebaute (between/3 prüft
-    # selbst) und nichtdeterministisch übersetzte ohne Schnitt – deren
-    # Lösungen der Reihe nach gefiltert sind dieselben (mem(K-V, L)).
-    if not (Map.get(sig, :builtin, false) or
-              (Map.get(sig, :nd, false) and not Map.get(sig, :cut, true))) do
+    # selbst).
+    if not Map.get(sig, :builtin, false) do
       os = for {a, k} <- indexed, sig.modes[k] == :out, not Util.anon?(a), do: a
 
       for a <- os,
@@ -776,13 +773,6 @@ defmodule PrologEx.Jit.Types do
     bt
   end
 
-  # ein Schnitt irgendwo im Rumpf (auch in Zweigen)
-  def has_cut?(:cut), do: true
-  def has_cut?(gs) when is_list(gs), do: Enum.any?(gs, &has_cut?/1)
-  def has_cut?({:ite, c, t, e}), do: has_cut?(c) or has_cut?(t) or has_cut?(e)
-  def has_cut?({:not, g}), do: has_cut?(g)
-  def has_cut?(_), do: false
-
   defp out_desc({:var, _} = v), do: Util.vname(v)
   defp out_desc(p) when is_tuple(p) or p == :nl, do: desc_p(p)
   defp out_desc(p), do: inspect(p)
@@ -827,78 +817,5 @@ defmodule PrologEx.Jit.Types do
       if not defd?(d, v), do: Util.no!("#{Util.vname(v)} ist hier nicht bestimmt")
       need(:num, Map.get(d, v, {:bot, []}))
     end
-  end
-
-  # --- Nichtdeterministisch ("Blatt") ---------------------------------------
-  #
-  # Klauseln, die sich nicht ausschließen: jede Klausel ein Rumpf wie sonst
-  # (deterministisch), höchstens als letztes Ziel ein Aufruf eines
-  # nichtdeterministischen Prädikats (auch sich selbst) – {:tail_nd, ...}:
-  # dessen Lösungen sind (über die Ausgabemuster) die der Klausel. Ein
-  # Schnitt nur auf oberster Ebene des Rumpfs (danach keine weiteren
-  # Klauseln); nichtdeterministische Aufrufe sonst nirgends.
-
-  #
-  # Ein rekursiver letzter Aufruf nur ohne Hülle: in der letzten Klausel
-  # (oder nach einem Schnitt) und mit denselben Ausgaben wie die Klausel –
-  # sonst liefe jede Lösung aus Tiefe k durch k Hüllen (select/3 baut
-  # [H|R] auf jeder Stufe neu: über 3000 Elemente 45-mal langsamer als der
-  # Interpreter, der die Zellen einmal baut und nur bindet)
-  def nd_irs!(cs, scc, other) do
-    nd? = fn ck -> ck in scc or Map.get(other.(ck), :nd, false) end
-    n = length(cs)
-
-    cs
-    |> Enum.with_index(1)
-    |> Enum.map(fn {c, i} ->
-      try do
-        goals = c.ir.goals
-
-        if Enum.any?(goals, &(match?({:ite, _, _, _, _, _}, &1) and Util.cut_in?([&1]))),
-          do: Util.no!("Schnitt in einem Zweig")
-
-        {pre, last} =
-          case Enum.reverse(goals) do
-            [{:call, ck, ins, outs} | r] ->
-              if nd?.(ck), do: {Enum.reverse(r), {:tail_nd, ck, ins, outs}}, else: {goals, nil}
-
-            _ ->
-              {goals, nil}
-          end
-
-        if nd_call_in?(pre, nd?),
-          do: Util.no!("nichtdeterministischer Aufruf nicht als letztes Ziel")
-
-        # member/2, between/3: ihre weiteren Lösungen liefert der
-        # Interpreter billiger (lazy Liste) als ein Choice Point des Codes
-        with {:tail_nd, ck, _, _} <- last,
-             false <- ck in scc,
-             true <- Map.get(other.(ck), :builtin, false),
-             do: Util.no!("#{Util.pi(ck)} als letztes Ziel: eingebaut, im Interpreter schneller")
-
-        with {:tail_nd, ck, _, outs} <- last, true <- ck in scc do
-          if not (i == n or :cut in pre), do: Util.no!("rekursiver Aufruf vor weiteren Klauseln")
-          # (kein schwächerer Modus danach: rule1([H|X], [H|Y]) :- rule1(X, Y)
-          # mit beiden Stellen als Eingabe passte, nützte aber keinem Aufruf)
-          if not Util.same_outs?(outs, c.ir.hout),
-            do: throw({:nd_stop, "Klausel #{i}: rekursiver Aufruf mit anderen Ausgaben"})
-        end
-
-        %{c | ir: %{c.ir | goals: if(last, do: pre ++ [last], else: pre)}}
-      catch
-        {:no, r} -> Util.no!("Klausel #{i}: #{r}")
-      end
-    end)
-  end
-
-  # die Ausgaben des Aufrufs sind die der Klausel (dieselben Variablen,
-  # in derselben Reihenfolge)
-  defp nd_call_in?(gs, nd?) do
-    Enum.any?(gs, fn
-      {:call, ck, _, _} -> nd?.(ck)
-      {:ite, c, _, t, e, _} -> nd_call_in?(c, nd?) or nd_call_in?(t, nd?) or nd_call_in?(e, nd?)
-      {:not, g} -> nd_call_in?(g, nd?)
-      _ -> false
-    end)
   end
 end

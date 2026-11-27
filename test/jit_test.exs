@@ -336,8 +336,8 @@ defmodule PrologEx.JitTest do
     # Z nur in einem Zweig bestimmt: nein
     refute jitted.({"user", "pz", 2})
     # vor X > 0 kann 1 // X werfen (der Interpreter würde die Klausel nach
-    # wd(0, Y) beim Zurücksetzen versuchen): nichtdeterministisch
-    assert jitted.({"user", "wd", 2})
+    # wd(0, Y) beim Zurücksetzen versuchen): schließen sich nicht aus, nein
+    refute jitted.({"user", "wd", 2})
     # mit Flag jit = false nichts
     refute jitted?(c.int, {"user", "fib", 2})
   end
@@ -368,20 +368,8 @@ defmodule PrologEx.JitTest do
           {"nrv", 2},
           {"tap", 3},
           {"tapc", 2},
-          {"mem", 2},
-          {"btw", 3},
           {"pk", 2},
-          {"nde", 2},
-          {"ndl", 2},
-          {"wrap", 2},
-          {"ones", 2},
-          {"sq3", 2},
           {"ndf", 2},
-          {"memc", 2},
-          {"incl", 3},
-          {"notin", 2},
-          {"cntin", 3},
-          {"pairin", 3},
           {"bcount", 4},
           {"gsum", 4},
           {"hasx", 3},
@@ -404,6 +392,24 @@ defmodule PrologEx.JitTest do
           {"bops", 2}
         ],
         do: assert(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
+
+    # Klauseln, die sich nicht ausschließen (nichtdeterministisch), und ihre
+    # Rufer: der Interpreter
+    for {n, a} <- [
+          {"mem", 2},
+          {"btw", 3},
+          {"nde", 2},
+          {"ndl", 2},
+          {"wrap", 2},
+          {"ones", 2},
+          {"sq3", 2},
+          {"memc", 2},
+          {"incl", 3},
+          {"notin", 2},
+          {"cntin", 3},
+          {"pairin", 3}
+        ],
+        do: refute(jitted?(c.jit, {"user", n, a}), "#{n}/#{a}")
 
     # select/3: der rekursive Aufruf baut [H|R] auf jeder Stufe – jede
     # Lösung aus Tiefe k liefe durch k Hüllen: nicht übersetzt (auch in
@@ -1028,8 +1034,8 @@ defmodule PrologEx.JitTest do
     assert {_, {:answers, ["X = g(1999)"]}} = TableCase.run(c.reader, db, "tb(f(1999), X)")
     {out, _} = TableCase.run(c.reader, db, "jit_listing")
     assert out =~ ~r"% tab/2 .*tab\(\+any, -int\)"
-    # (ohne Schlüssel nicht als deterministisch übersetzt)
-    assert out =~ ~r"% tb/2 .*nichtdeterministisch"
+    # (ohne Schlüssel nicht übersetzt)
+    assert out =~ ~r"% tb/2 +nein +mehr als 300 Klauseln ohne Schlüssel"
   end
 
   test "jit_listing", c do
@@ -1041,8 +1047,8 @@ defmodule PrologEx.JitTest do
     assert out =~ ~r"% pz/2 +nein +Klausel 1: Z ist nur in einem Zweig"
     assert out =~ ~r"% cnj/2 +nein +ruft nj/2, das nicht übersetzt wird"
     assert out =~ ~r"% nj/2 +nein +Klausel 1: Ziel atom_length/2"
-    assert out =~ ~r"% wd/2 +\S+ +wd\(\+int, -int\)  nichtdeterministisch"
-    assert out =~ ~r"% mem/2 +\S+ +mem\(-any, \+any\)  nichtdeterministisch"
+    assert out =~ ~r"% wd/2 +nein +Klauseln 1 und 2 schließen sich nicht nachweislich aus"
+    assert out =~ ~r"% mem/2 +nein +Klauseln 1 und 2 schließen sich nicht nachweislich aus"
     assert out =~ ~r"% udsq/2 +nein +Klausel 1: ruft das dynamische dsq/2"
     {out, _} = TableCase.run(c.reader, c.int, "jit_listing(fib/2)")
     assert out =~ ~r"% fib/2 +wäre übersetzbar"
@@ -1267,44 +1273,6 @@ defmodule PrologEx.JitTest do
     # (negativ), 3 wie oft es kalt wurde
     assert :atomics.get(stats, 2) < 0
     assert :atomics.get(stats, 3) >= 1
-  end
-
-  # Zurücksetzen in übersetzten nichtdeterministischen Code am Prüfpunkt
-  # einer Zeit- oder Speichergrenze (st.ilimit gesetzt, aber keine echte
-  # Inferenzgrenze): weiter im Code, nicht Aufgeben – das Aufgeben rechnet
-  # die ersten n Lösungen neu, und weil es den Zähler zurücksetzt, lag der
-  # Prüfpunkt danach wieder dahinter: jede Lösung O(n), die Schleife
-  # quadratisch (harness.pl der SICStus-Suite: repeat/1, 20000 Runden 46 s).
-  # Gemessen in Reduktionen: 10-mal so viele Runden, etwa 10-mal so viele
-  test "Zurücksetzen am Prüfpunkt einer Zeitgrenze: linear", c do
-    Reader.put_current(c.reader)
-    PrologEx.Flags.set("jit", {:atom, "true"})
-    u = System.unique_integer([:positive])
-
-    src = """
-    :- use_module(library(time)).
-    rp#{u}(_).
-    rp#{u}(N) :- N > 1, N1 is N - 1, rp#{u}(N1).
-    """
-
-    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
-
-    red = fn n ->
-      Task.async(fn ->
-        Reader.put_current(c.reader)
-        q = "call_with_time_limit(100, \\+ (rp#{u}(#{n}), fail))"
-        TableCase.run(c.reader, db, "rp#{u}(3)")
-        {:reductions, r0} = Process.info(self(), :reductions)
-        assert {_, {:answers, ["true"]}} = TableCase.run(c.reader, db, q)
-        {:reductions, r1} = Process.info(self(), :reductions)
-        r1 - r0
-      end)
-      |> Task.await(120_000)
-    end
-
-    assert jitted?(db, {"user", "rp#{u}", 1})
-    {r1, r2} = {red.(1000), red.(10_000)}
-    assert r2 < 20 * r1, "1000 Runden: #{r1} Reduktionen, 10000: #{r2}"
   end
 
   # Argumente von Strukturen im Kopf: eine Anforderung (hier: N ist eine

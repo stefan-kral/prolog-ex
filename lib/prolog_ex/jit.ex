@@ -51,13 +51,10 @@ defmodule PrologEx.Jit do
   Klausel darf nichts einen Fehler werfen können (der Interpreter würde
   sie beim Zurücksetzen versuchen).
 
-  Schließen sich die Klauseln nicht aus, wird ein Prädikat
-  nichtdeterministisch übersetzt (Flag jit_nondet), wenn jeder Rumpf wie
-  oben ist und höchstens als letztes Ziel ein nichtdeterministisches
-  Prädikat ruft (Types.nd_irs!/3): Lösungen als Schritte samt Fortsetzung
-  (Runtime.nd_tail/3), die der Interpreter als Choice Point hält. Wo nur die erste
-  Lösung zählt (Schnitt gleich danach, letztes Ziel einer Bedingung, unter
-  \\+), rufen auch deterministische Prädikate solche ({:call1, ...}).
+  Schließen sich die Klauseln nicht aus, rechnet der Interpreter. (Eine
+  nichtdeterministische Übersetzung – Lösungen als Schritte samt
+  Fortsetzung, vom Interpreter als Choice Point gehalten – gab es bis zum
+  27. November 2026; in der SICStus-Suite brachte sie im Mittel 1 %.)
 
   Die Modi (Eingabe/Ausgabe je Argument): steht eine Kopfvariable zuerst
   in einem Vergleich oder rechts in `is`, ist sie Eingabe, links in `is`
@@ -320,37 +317,17 @@ defmodule PrologEx.Jit do
       end
     end
 
-    # deterministisch, wo es geht; sonst (ein Prädikat, Klauseln, die sich
-    # nicht ausschließen) nichtdeterministisch (siehe nd_irs!/3)
-    case Hints.evidence(scc, parsed, other, false) do
+    case Hints.evidence(scc, parsed, other) do
       :no ->
         for k <- scc, do: Util.why(k, "Modi widersprechen sich")
-        nd_solve(scc, parsed, other, num, pref)
+        nil
 
       {:ok, fixed} ->
-        solve_modes(scc, parsed, other, num, fixed, false, pref) ||
-          nd_solve(scc, parsed, other, num, pref)
+        solve_modes(scc, parsed, other, num, fixed, pref)
     end
   end
 
-  # Hinweise auf Modi hier nur von der ersten Stelle einer Kopfvariablen
-  # (btw(L, H, L): die dritte Stelle ist Ausgabe, auch wenn L verglichen
-  # wird)
-  # (ohne Hinweise der Aufrufstellen: eine Ausgabe dient hier auch dem
-  # Prüfen – Lösungen nach dem Muster gefiltert –, mem(-any, +list) taugt
-  # also auch für mem(1, L), umgekehrt nicht)
-  defp nd_solve([_] = scc, parsed, other, num, _pref) do
-    if PrologEx.Flags.get("jit_nondet") == {:atom, "true"} do
-      case Hints.evidence(scc, parsed, other, true) do
-        {:ok, fixed} -> solve_modes(scc, parsed, other, num, fixed, true, %{})
-        :no -> nil
-      end
-    end
-  end
-
-  defp nd_solve(_, _, _, _, _), do: nil
-
-  defp solve_modes(scc, parsed, other, num, fixed, nd, pref) do
+  defp solve_modes(scc, parsed, other, num, fixed, pref) do
     open =
       for key <- scc,
           k <- 0..(parsed[key].arity - 1),
@@ -365,21 +342,14 @@ defmodule PrologEx.Jit do
 
     open
     |> candidates(pref)
-    |> nd_find_value(scc, fn assign ->
+    |> Enum.find_value(fn assign ->
       modes = Map.merge(fixed, assign)
 
       try do
-        {reqs, outs, irs} = Types.types(scc, parsed, modes, other, num, nd)
+        {reqs, outs, irs} = Types.types(scc, parsed, modes, other, num)
 
-        irs =
-          if nd do
-            Map.new(irs, fn {key, cs} -> {key, Types.nd_irs!(cs, scc, other)} end)
-          else
-            for key <- scc,
-                do: Excl.exclusive!(Enum.map(irs[key], & &1.ir), MapSet.member?(num, key))
-
-            irs
-          end
+        for key <- scc,
+            do: Excl.exclusive!(Enum.map(irs[key], & &1.ir), MapSet.member?(num, key))
 
         {:ok,
          Map.new(scc, fn key ->
@@ -401,37 +371,22 @@ defmodule PrologEx.Jit do
                  into: %{},
                  do: {k, outs[{key, k}]}
                ),
-             num: MapSet.member?(num, key),
-             nd: nd,
-             # ein Schnitt in einer Klausel (call_flow/4)
-             cut: Enum.any?(p.clauses, fn {_, gs} -> Types.has_cut?(gs) end)
+             num: MapSet.member?(num, key)
            }
 
            {key, %{sig: sig, irs: Enum.map(irs[key], & &1.ir), p: p}}
          end)}
       catch
         {:no, r} ->
-          # (die nichtdeterministische Analyse nach der deterministischen:
-          # deren Grund bleibt)
           if not (first? and Process.get(seen) == true) do
             Process.put(seen, true)
-            put = if nd, do: &Map.put_new/3, else: &Map.put/3
-            for k <- scc, do: Process.put(@why_key, put.(Process.get(@why_key), k, r))
+            for k <- scc, do: Process.put(@why_key, Map.put(Process.get(@why_key), k, r))
           end
 
           nil
       end
     end)
     |> tap(fn _ -> Process.delete(seen) end)
-  end
-
-  # wie Enum.find_value/2; {:nd_stop, Grund} bricht ab (nil)
-  defp nd_find_value(cands, scc, f) do
-    Enum.find_value(cands, f)
-  catch
-    {:nd_stop, r} ->
-      for k <- scc, do: Process.put(@why_key, Map.put(Process.get(@why_key), k, r))
-      nil
   end
 
   # alle Belegungen der offenen Positionen: zuerst die, die am meisten

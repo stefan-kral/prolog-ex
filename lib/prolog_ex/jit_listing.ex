@@ -7,18 +7,16 @@ defmodule PrologEx.JitListing do
       % app/3       übersetzt          app(+any, +any, -)
       % sq/2        nur für Rufer      sq(+int, -int)
       % klasse/2    nein               Klausel 2: Ziel is_list/1
-      % mem/2       übersetzt          mem(-any, +any)  nichtdeterministisch
-      % cnt/2       übersetzt          cnt(+any, -any)  nichtdeterministisch
-      %   ↳ deklariert cnt(+, -) is det: nichtdeterministisch übersetzt – die
-      %     Klauseln schließen sich nicht nachweislich aus
+      % mem/2       nein               Klauseln 1 und 2 schließen sich nicht nachweislich aus
+      %   ↳ deklariert mem(-, +) is det: nicht übersetzt (siehe oben)
 
   Status: „übersetzt“ (Code geladen), „analysiert“ (übersetzt ab dem n-ten
   Aufruf, Flag jit_threshold), „nur für Rufer“ (übersetzt, aber der Interpreter tritt nicht ein:
   ein Fakt), „wäre übersetzbar“ (beim Laden war das Flag jit aus), „nein“
   mit Grund. Eine Deklaration `:- p(...) is det.` (oder semidet,
   PrologEx.Builtins.IsDirectives) bekommt eine Zeile darunter, wenn das
-  Ergebnis von ihr abweicht: nicht übersetzt, nichtdeterministisch
-  übersetzt, oder mit anderen Modi als ihr Aufrufmuster (`+`, `-`).
+  Ergebnis von ihr abweicht: nicht übersetzt oder mit anderen Modi als
+  ihr Aufrufmuster (`+`, `-`).
   Typen: int/num (Zahl; Ganzzahl im ganzzahligen Code), list,
   list(int), list(num), any (nur durchgereicht); eine Ausgabe ohne Typ
   hängt von den Eingaben ab.
@@ -101,16 +99,7 @@ defmodule PrologEx.JitListing do
   defp decl_note(r, {_, {_, _, _, _, sig}}) do
     ms = PrologEx.Builtins.IsDirectives.pattern_modes(r.spec)
 
-    cond do
-      Map.get(sig, :nd, false) ->
-        "nichtdeterministisch übersetzt – die Klauseln schließen sich nicht nachweislich aus"
-
-      Enum.any?(ms, fn {k, m} -> sig.modes[k] != m end) ->
-        "übersetzt mit anderen Modi"
-
-      true ->
-        nil
-    end
+    if Enum.any?(ms, fn {k, m} -> sig.modes[k] != m end), do: "übersetzt mit anderen Modi"
   end
 
   defp pick?(:all, _, _), do: true
@@ -121,7 +110,7 @@ defmodule PrologEx.JitListing do
   # übersetzt? {status, info} oder nil
   defp status(db, module, {n, a}, p) do
     case p do
-      {:pred, _, _, {t, info, _, _, _, _}, _} when t in [:jit, :jit_nd] ->
+      {:pred, _, _, {:jit, info, _, _, _, _}, _} ->
         {loaded(info), info}
 
       _ ->
@@ -150,8 +139,7 @@ defmodule PrologEx.JitListing do
         end
       end
 
-    nd = if Map.get(sig, :nd, false), do: "  nichtdeterministisch", else: ""
-    "#{n}(#{Enum.join(args, ", ")})#{nd}"
+    "#{n}(#{Enum.join(args, ", ")})"
   end
 
   defp tdesc(:num, false), do: "int"

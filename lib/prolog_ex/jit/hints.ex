@@ -243,14 +243,13 @@ defmodule PrologEx.Jit.Hints do
 
   defp arg_mode(t, st), do: if(tstate(t, st) == :bound, do: :in)
 
-  def evidence(scc, parsed, other, first_only) do
+  def evidence(scc, parsed, other) do
     ev =
       for key <- scc,
           {head, goals} <- parsed[key].clauses,
           {a, k} <- Enum.with_index(head),
           match?({:var, _}, a),
           not Util.anon?(a),
-          not first_only or Enum.find_index(head, &(&1 == a)) == k,
           e = first_use(a, goals),
           e not in [nil, :none] do
         case e do

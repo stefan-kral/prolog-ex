@@ -1172,15 +1172,12 @@ defmodule PrologEx do
           deps = Enum.map(deps, fn {dn, da} -> {module, dn, da} end)
           info = {mod, e, pf, deps, sig}
 
-          # nichtdeterministisch übersetzt: {:jit_nd, ...} (jit_nd_run/5)
-          tag = if Map.get(sig, :nd, false), do: :jit_nd, else: :jit
-
           if sig.entry,
             do:
               Map.put(
                 acc,
                 {module, n, a},
-                {:pred, cls, by_key, {tag, info, ins, outs, vo, :atomics.new(3, [])}, entries}
+                {:pred, cls, by_key, {:jit, info, ins, outs, vo, :atomics.new(3, [])}, entries}
               ),
             else: acc |> Map.put({module, n, a}, p) |> Map.put({:jit_info, module, n, a}, info)
 
@@ -1199,7 +1196,7 @@ defmodule PrologEx do
 
       info =
         case db do
-          %{^k => {:pred, _, _, {t, i, _, _, _, _}, _}} when t in [:jit, :jit_nd] -> i
+          %{^k => {:pred, _, _, {:jit, i, _, _, _, _}, _}} -> i
           %{{:jit_info, ^module, ^n, ^a} => i} -> i
           _ -> nil
         end
@@ -1228,10 +1225,8 @@ defmodule PrologEx do
   # module sichtbar als das eingebaute (Modul, Art) und nicht selbst
   # definiert – eine spätere eigene Definition nimmt den Rufern ihren Code
   # (:jit_callers). member/2 und between/3 sind nichtdeterministisch: für
-  # den JIT wie übersetzte Prädikate mit fester Signatur – gerufen nur, wo
-  # die erste Lösung zählt (als letztes Ziel eines nichtdeterministischen
-  # Prädikats wäre jede weitere Lösung über den Choice Point des Codes
-  # teurer als die des eingebauten im Interpreter)
+  # den JIT Prädikate mit fester Signatur, gerufen nur, wo die erste Lösung
+  # zählt (Schnitt gleich danach, letztes Ziel einer Bedingung, unter \\+)
   @jit_bis %{
     {"append", 3} => {"lists", :det},
     {"memberchk", 2} => {"lists", :det},
@@ -1324,9 +1319,7 @@ defmodule PrologEx do
     end
   end
 
-  defp jit_deps(k, {:pred, _, _, {t, {_, _, _, deps, _}, _, _, _, _}, _})
-       when t in [:jit, :jit_nd],
-       do: [{k, deps}]
+  defp jit_deps(k, {:pred, _, _, {:jit, {_, _, _, deps, _}, _, _, _, _}, _}), do: [{k, deps}]
 
   defp jit_deps({:jit_info, m, n, a}, {_, _, _, deps, _}), do: [{{m, n, a}, deps}]
   defp jit_deps(_, _), do: []
@@ -1356,7 +1349,7 @@ defmodule PrologEx do
 
     db =
       case db do
-        %{^k => {:pred, cls, by_key, {t, _, _, _, vo, _}, entries}} when t in [:jit, :jit_nd] ->
+        %{^k => {:pred, cls, by_key, {:jit, _, _, _, vo, _}, entries}} ->
           Map.put(db, k, {:pred, cls, by_key, vo, entries})
 
         _ ->
@@ -1709,7 +1702,6 @@ defmodule PrologEx do
   defp fallback(l, _k) when is_list(l), do: l
   defp fallback({:spec, l}, _k), do: l
   defp fallback({:jit, _, _, _, vo, _}, k), do: fallback(vo, k)
-  defp fallback({:jit_nd, _, _, _, vo, _}, k), do: fallback(vo, k)
 
   defp fallback({:classes, m, all}, k) do
     case key_class(k) do
@@ -3549,40 +3541,6 @@ defmodule PrologEx do
     run(%{rearm(st) | goals: rest})
   end
 
-  # '$nojit'(G): G im Interpreter, auch wenn es übersetzt ist (nach dem
-  # Aufgeben eines nichtdeterministisch übersetzten Aufrufs, jit_nd_retry/2)
-  defp step({:"$nojit", g}, cutb, mod, rest, st),
-    do: step({:struct, "$nojit", [g]}, cutb, mod, rest, st)
-
-  # {:"$jit_skip", zähler, n, c}: die ersten n Lösungen überspringen, bei der
-  # n-ten den Zählerstand c (jit_nd_retry/2)
-  defp step({:"$jit_skip", k, n, c}, _cutb, _mod, rest, st) do
-    case :atomics.add_get(k, 1, 1) do
-      i when i < n ->
-        backtrack(st)
-
-      i when i == n ->
-        :atomics.put(st.icount, 1, c)
-        backtrack(st)
-
-      _ ->
-        run(%{st | goals: rest})
-    end
-  end
-
-  defp step({:struct, "$nojit", [g]}, _cutb, mod, rest, st) do
-    {name, args} =
-      case Store.walk(g, st.subst) do
-        {_, f, as} when is_binary(f) and is_list(as) -> {f, as}
-        other -> name_args(other)
-      end
-
-    case Map.fetch(current_db(), {mod, name, length(args)}) do
-      {:ok, {:pred, _, _, _, _} = pred} -> interp_call(pred, g, name, args, mod, rest, st)
-      _ -> run(%{st | goals: [{g, st.height, mod} | rest]})
-    end
-  end
-
   # '$sleep'(Ms): schlafen, aber höchstens bis zur nächsten Deadline –
   # dann time_limit_exceeded
   defp step({:struct, "$sleep", [ms]}, _cutb, _mod, rest, st) do
@@ -3816,7 +3774,7 @@ defmodule PrologEx do
   end
 
   # übersetzte Prädikate (JIT) im Interpreter: sonst liefen ihre Aufrufe
-  # untereinander am Tracer vorbei (wie '$nojit'/1)
+  # untereinander am Tracer vorbei
   defp trace_dispatch(goal, cutb, mod, rest, st) do
     {name, args} =
       case goal do
@@ -3825,7 +3783,7 @@ defmodule PrologEx do
       end
 
     case Map.fetch(current_db(), {mod, name, length(args)}) do
-      {:ok, {:pred, _, _, {t, _, _, _, _, _}, _} = pred} when t in [:jit, :jit_nd] ->
+      {:ok, {:pred, _, _, {:jit, _, _, _, _, _}, _} = pred} ->
         interp_call(pred, goal, name, args, mod, rest, st)
 
       _ ->
@@ -4367,33 +4325,6 @@ defmodule PrologEx do
             throw_ball(ball, st)
         end
 
-      # nichtdeterministisch übersetzt: Lösungen über einen Choice Point
-      # {:jit_nd, ...}
-      {:ok, {:pred, _, _, {:jit_nd, info, ins, outs, _, stats} = jit, _} = pred} ->
-        r =
-          cond do
-            st.dlimit != nil or jit_cold?(stats) -> :cold
-            true -> jit_nd_call(info, ins, outs, goal, args, mod, rest, st)
-          end
-
-        case r do
-          :cold ->
-            interp_call(pred, goal, name, args, mod, rest, st)
-
-          :no ->
-            jit_no(pred, jit, goal, name, args, mod, rest, st)
-
-          :deopt ->
-            jit_deopted(pred, jit, goal, name, args, mod, rest, st)
-
-          :warming ->
-            interp_call(pred, goal, name, args, mod, rest, st)
-
-          {:go, k} ->
-            :atomics.add(stats, 1, 1)
-            k.()
-        end
-
       # noch nicht übersetzt (PrologEx.ClauseCode): zählen
       {:ok, {:pred, [{:clause, _, _, _, _, _, _, {:cold, _, _} = cold} | _], _, _, _} = pred}
       when st.dlimit == nil ->
@@ -4674,116 +4605,6 @@ defmodule PrologEx do
     case depth_enter(st, rest, mod) do
       {st, rest} -> try_clauses(args, candidates(pred, mod, name, args, st.subst), rest, mod, st)
       :fail -> backtrack(st)
-    end
-  end
-
-  # nichtdeterministisch übersetzt: erste Lösung; weitere über den Choice
-  # Point {:jit_nd, weiter, info, ausgaben, ziel, modul, rest, subst, answer,
-  # {n, c0}} (n: so viele Lösungen sind schon geliefert; c0: der Zählerstand
-  # beim Eintritt). {:go, k} – k.() macht
-  # weiter (Tail Call in call_pred/4), sonst wie jit_call/4
-  defp jit_nd_call(info, ins, outs, goal, args, mod, rest, st) do
-    s = st.subst
-
-    with {:ok, ov} <- jit_outs(outs, args, 0, s, []),
-         {:ok, iv} <- jit_ins(ins, args, 0, s, []) do
-      n0 = :atomics.get(st.icount, 1)
-      chunk = if st.ilimit == nil, do: @jit_chunk, else: min(st.ilimit - n0, @jit_chunk)
-
-      if chunk < 1 or PrologEx.Flags.jit_off?() do
-        :warming
-      else
-        check = fn consumed -> jit_check(consumed, st) end
-
-        case PrologEx.Jit.Runtime.nd_run(info, iv, chunk, check, s, ov) do
-          :deopt ->
-            :atomics.put(st.icount, 1, n0)
-            :deopt
-
-          :warming ->
-            :warming
-
-          r ->
-            {:go, fn -> jit_nd_result(r, info, ov, goal, mod, rest, {0, n0}, st) end}
-        end
-      end
-    else
-      _ -> :no
-    end
-  end
-
-  # Ergebnis eines Schritts (erster Aufruf oder Zurücksetzen): Lösung binden,
-  # für weitere einen Choice Point davor
-  defp jit_nd_result(r, info, ov, goal, mod, rest, {n, c0}, st) do
-    case r do
-      {:sol, values, used, nx} ->
-        c = :atomics.add_get(st.icount, 1, used)
-
-        if jit_over?(c, st) do
-          throw_ball({:atom, "inference_limit_exceeded"}, st)
-        else
-          s = st.subst
-
-          st =
-            if nx == nil,
-              do: st,
-              else:
-                push(
-                  st,
-                  {:jit_nd, nx, info, ov, goal, mod, rest, Store.fast_snapshot(s), st.answer,
-                   {n + 1, c0}}
-                )
-
-          case jit_bind(ov, values, s) do
-            {:ok, s1} -> run(%{st | goals: rest, subst: s1})
-            :error -> backtrack(st)
-            {:thrown, ball} -> throw_ball(ball, st)
-          end
-        end
-
-      {:fail, used} ->
-        c = :atomics.add_get(st.icount, 1, used)
-
-        if jit_over?(c, st),
-          do: throw_ball({:atom, "inference_limit_exceeded"}, st),
-          else: backtrack(st)
-
-      {:thrown, ball} ->
-        throw_ball(ball, st)
-    end
-  end
-
-  # Zurücksetzen in ein nichtdeterministisch übersetztes Prädikat. Gibt der
-  # Code jetzt auf (nach n Lösungen), rechnet der Interpreter den Aufruf
-  # neu und überspringt die ersten n (dieselben Lösungen in derselben
-  # Reihenfolge): ab dem Zählerstand beim Eintritt, nach der n-ten Lösung
-  # wieder der jetzige – dieselben Inferenzen und Grenzen wie ohne JIT
-  # (beide Ziele sind Tupel, sie zählen nicht)
-  defp jit_nd_retry({:jit_nd, nx, info, ov, goal, mod, rest, _s, _a, {n, c0} = nc}, st) do
-    n0 = :atomics.get(st.icount, 1)
-    chunk = if st.ilimit == nil, do: @jit_chunk, else: min(st.ilimit - n0, @jit_chunk)
-    check = fn consumed -> jit_check(consumed, st) end
-
-    # an der Inferenzgrenze: der Interpreter (die nächste Inferenz wirft);
-    # nur am Prüfpunkt einer Zeit- oder Speichergrenze (st.ilimit gesetzt,
-    # keine Inferenzgrenze erreicht): ein Schritt, dann prüft jit_check/2.
-    # Nicht aufgeben – das setzt den Zähler zurück, der Prüfpunkt läge
-    # danach wieder dahinter: jede weitere Lösung aufgegeben, O(n) je Lösung
-    r =
-      cond do
-        chunk >= 1 -> PrologEx.Jit.Runtime.nd_resume(nx, chunk, check, st.subst, ov)
-        over_ilimit?(st.ilimits, n0 + 1) -> :deopt
-        true -> PrologEx.Jit.Runtime.nd_resume(nx, 1, check, st.subst, ov)
-      end
-
-    case r do
-      :deopt ->
-        :atomics.put(st.icount, 1, c0)
-        skip = {:"$jit_skip", :atomics.new(1, []), n, n0}
-        run(%{st | goals: [{{:"$nojit", goal}, st.height, mod}, {skip, st.height, mod} | rest]})
-
-      r ->
-        jit_nd_result(r, info, ov, goal, mod, rest, nc, st)
     end
   end
 
@@ -7023,16 +6844,6 @@ defmodule PrologEx do
         | cps: cps,
           height: st.height - 1,
           goals: [goal | rest],
-          subst: Store.fast_restore(subst),
-          answer: answer
-      })
-
-  defp backtrack(%{cps: [{:jit_nd, _, _, _, _, _, _, subst, answer, _} = cp | cps]} = st),
-    do:
-      jit_nd_retry(cp, %{
-        st
-        | cps: cps,
-          height: st.height - 1,
           subst: Store.fast_restore(subst),
           answer: answer
       })
