@@ -1160,10 +1160,10 @@ defmodule PrologEx do
   # steht für übersetzte Rufer unter {:jit_info, m, n, a}. Gerufen werden
   # dürfen auch schon übersetzte statische Prädikate desselben Moduls
   # außerhalb dieses Schritts
-  defp jit_batch(preds, db, module, nums \\ MapSet.new()) do
+  defp jit_batch(preds, db, module) do
     {src, ext, dyn} = jit_input(preds, db, module)
     decl = PrologEx.Builtins.IsDirectives.jit_modes(db, module)
-    res = PrologEx.Jit.compile_batch(src, ext, dyn, decl, %{}, nums)
+    res = PrologEx.Jit.compile_batch(src, ext, dyn, decl)
 
     Enum.reduce(preds, %{}, fn {{n, a} = k, p}, acc ->
       case res do
@@ -1180,7 +1180,7 @@ defmodule PrologEx do
               Map.put(
                 acc,
                 {module, n, a},
-                {:pred, cls, by_key, {tag, info, ins, outs, vo, :atomics.new(4, [])}, entries}
+                {:pred, cls, by_key, {tag, info, ins, outs, vo, :atomics.new(3, [])}, entries}
               ),
             else: acc |> Map.put({module, n, a}, p) |> Map.put({:jit_info, module, n, a}, info)
 
@@ -4322,8 +4322,6 @@ defmodule PrologEx do
   # warmer Aufruf liest einen Zähler, ein kalter liest einen und zählt
   # einen herunter (vorher drei: Fehlschläge, Treffer, übersprungene – bei
   # qsort auf Floats 5 Reduktionen je Aufruf).
-  # 4: Aufrufe mit gebundenen Ausgaben, bis eine Variante übersetzt wird
-  # (jit_variant/6) – sie zählen nicht als Fehlschläge.
   @jit_cold_min 64
   @jit_reprobe 4096
   @jit_deopt_weight 8
@@ -4621,350 +4619,16 @@ defmodule PrologEx do
 
   @jit_chunk 65_536
 
-  # --- Varianten für gebundene Ausgaben (B2) ---
-  #
-  # Ein Aufruf mit gebundenen Ausgaben (sumdigit(C, S, M, O, M) mit O, M
-  # schon Zahlen) passt nicht auf den übersetzten Code; einer mit freien
-  # Eingaben (termtag(T, Tag), übersetzt als termtag(+any, +any)) gibt auf.
-  # Statt dessen: nach jit_threshold solchen Aufrufen das Prädikat noch
-  # einmal übersetzen, diese Argumente als Eingaben bzw. Ausgaben (Hinweise
-  # wie is-Deklarationen) – liefert der JIT genau diese Modi, ist das die
-  # Variante für dieses Muster, mit eigenen Zählern. Gesucht wird erst
-  # nach dem Abweisen bzw. Aufgeben (der Aufruf ohne Variante kostet nichts
-  # mehr; nach dem Aufgeben stehen die Inferenzen wieder wie vor dem
-  # Eintritt). Exakt wie der
-  # Interpreter, wie jede Übersetzung: die Köpfe vergleichen wie dort, aus
-  # `S = X` wird ein Vergleich (ein Ergebnis erst rechnen und dann
-  # vergleichen zählte Rümpfe früherer Klauseln mit, die der Interpreter am
-  # Kopf verwirft). Abgelegt in :persistent_term je {Modul, Funktion} des
-  # übersetzten Codes ({Maske => Variante | :none}; der Name hängt am
-  # Inhalt und an den Gerufenen – neu übersetzt, neue Varianten), höchstens
-  # @jit_variants_max je Prädikat.
-  @jit_variants_max 4
-
-  # abgewiesen: Floats für ganzzahligen Code – neu übersetzen
-  # (jit_renum/4); gebundene Ausgaben – eine Variante; sonst ein Fehlschlag
+  # abgewiesen: ein Fehlschlag; aufgegeben: zählt mehr (die Arbeit bis
+  # dahin war umsonst, der Interpreter macht sie noch einmal)
   defp jit_no(pred, jit, goal, name, args, mod, rest, st) do
-    {_, _, _, outs, _, _} = jit
-    jit_floats(jit, mod, name, args, st)
-
-    mask = {bound_outs(outs, args, 0, st.subst, []), []}
-
-    case jit_variant(pred, jit, mask, PrologEx.Flags.get("jit_threshold"), name, args, mod) do
-      {:ok, v} ->
-        variant_call(v, pred, goal, name, args, mod, rest, st)
-
-      :later ->
-        interp_call(pred, goal, name, args, mod, rest, st)
-
-      :none ->
-        jit_fail(elem(jit, 5), 1)
-        interp_call(pred, goal, name, args, mod, rest, st)
-    end
+    jit_fail(elem(jit, 5), 1)
+    interp_call(pred, goal, name, args, mod, rest, st)
   end
 
-  # aufgegeben: freie Eingaben – eine Variante; sonst ein Fehlschlag (mehr
-  # als eine Abweisung: der Interpreter macht die Arbeit noch einmal)
   defp jit_deopted(pred, jit, goal, name, args, mod, rest, st) do
-    {_, {_, _, _, _, sig}, _, _, _, _} = jit
-    jit_floats(jit, mod, name, args, st)
-
-    mask = {[], free_ins(sig.modes, args, 0, st.subst, [])}
-    # (vor dem Kaltwerden: @jit_cold_min / @jit_deopt_weight Mal aufgegeben)
-    n = min(PrologEx.Flags.get("jit_threshold"), div(@jit_cold_min, @jit_deopt_weight))
-
-    case jit_variant(pred, jit, mask, n, name, args, mod) do
-      {:ok, v} ->
-        variant_call(v, pred, goal, name, args, mod, rest, st)
-
-      :later ->
-        jit_fail(elem(jit, 5), @jit_deopt_weight)
-        interp_call(pred, goal, name, args, mod, rest, st)
-
-      :none ->
-        jit_fail(elem(jit, 5), @jit_deopt_weight)
-        interp_call(pred, goal, name, args, mod, rest, st)
-    end
-  end
-
-  defp variant_call({tag, info, ins, outs, _, vst} = v, pred, goal, name, args, mod, rest, st) do
-    r =
-      cond do
-        jit_cold?(vst) -> :cold
-        tag == :jit -> jit_call(v, args, rest, st)
-        st.dlimit != nil -> :cold
-        true -> jit_nd_call(info, ins, outs, goal, args, mod, rest, st)
-      end
-
-    case r do
-      r when r in [:cold, :warming] ->
-        interp_call(pred, goal, name, args, mod, rest, st)
-
-      :no ->
-        jit_fail(vst, 1)
-        interp_call(pred, goal, name, args, mod, rest, st)
-
-      :deopt ->
-        jit_fail(vst, @jit_deopt_weight)
-        interp_call(pred, goal, name, args, mod, rest, st)
-
-      {:run, st} ->
-        :atomics.add(vst, 1, 1)
-        run(st)
-
-      :backtrack ->
-        :atomics.add(vst, 1, 1)
-        backtrack(st)
-
-      {:throw, ball} ->
-        :atomics.add(vst, 1, 1)
-        throw_ball(ball, st)
-
-      {:go, k} ->
-        :atomics.add(vst, 1, 1)
-        k.()
-    end
-  end
-
-  @doc false
-  # die Varianten des übersetzten Codes {modul, funktion}: %{maske => v | :none}
-  def jit_variants({pm, _, pf, _, _}),
-    do: :persistent_term.get({PrologEx.JitVariants, pm, pf}, %{})
-
-  # mask: {gebundene Ausgaben, freie Eingaben}; nach n solchen Aufrufen
-  # übersetzen
-  defp jit_variant(
-         pred,
-         {_, {pm, _, pf, _, _} = info, _, _, _, stats} = jit,
-         mask,
-         n,
-         name,
-         args,
-         mod
-       ) do
-    case mask do
-      {[], []} ->
-        :none
-
-      _ ->
-        vs = jit_variants(info)
-
-        case vs do
-          %{^mask => :none} ->
-            :none
-
-          %{^mask => v} ->
-            {:ok, v}
-
-          _ when map_size(vs) >= @jit_variants_max ->
-            :none
-
-          _ ->
-            if :atomics.add_get(stats, 4, 1) < n do
-              :later
-            else
-              :atomics.put(stats, 4, 0)
-              v = compile_variant(pred, jit, mod, name, length(args), mask)
-              :persistent_term.put({PrologEx.JitVariants, pm, pf}, Map.put(vs, mask, v))
-              if v == :none, do: :none, else: {:ok, v}
-            end
-        end
-    end
-  end
-
-  # die Ausgaben, die gebunden sind (aufsteigend); [] – keine, oder eine
-  # attributierte Variable darunter
-  defp bound_outs([], _args, _i, _s, acc), do: :lists.reverse(acc)
-
-  defp bound_outs([i | ks], [a | as], i, s, acc) do
-    case Store.walk(a, s) do
-      {:var, {:attv, _}} -> []
-      {:var, _} -> bound_outs(ks, as, i + 1, s, acc)
-      _ -> bound_outs(ks, as, i + 1, s, [i | acc])
-    end
-  end
-
-  defp bound_outs(ks, [_ | as], i, s, acc), do: bound_outs(ks, as, i + 1, s, acc)
-
-  # die Eingaben, die ungebundene (nicht attributierte) Variablen sind
-  defp free_ins(_modes, [], _i, _s, acc), do: :lists.reverse(acc)
-
-  defp free_ins(modes, [a | as], i, s, acc) do
-    acc =
-      case modes do
-        %{^i => :in} ->
-          case Store.walk(a, s) do
-            {:var, {:attv, _}} -> acc
-            {:var, _} -> [i | acc]
-            _ -> acc
-          end
-
-        _ ->
-          acc
-      end
-
-    free_ins(modes, as, i + 1, s, acc)
-  end
-
-  defp compile_variant(pred, {_, {_, _, _, _, sig}, _, _, vo, _}, module, name, arity, {bo, fi}) do
-    want = Enum.reduce(bo, sig.modes, &Map.put(&2, &1, :in))
-    want = Enum.reduce(fi, want, &Map.put(&2, &1, :out))
-    db = current_db()
-    {src, ext, dyn} = jit_input([{{name, arity}, pred}], db, module)
-
-    decl =
-      db
-      |> PrologEx.Builtins.IsDirectives.jit_modes(module)
-      |> Map.put({name, arity}, want)
-
-    case PrologEx.Jit.compile_batch(src, ext, dyn, decl, %{{name, arity} => want}) do
-      %{{^name, ^arity} => {{_, _, _, _, vsig} = info, ins, outs}} ->
-        if vsig.modes == want and vsig.entry do
-          tag = if Map.get(vsig, :nd, false), do: :jit_nd, else: :jit
-          {tag, info, ins, outs, vo, :atomics.new(4, [])}
-        else
-          :none
-        end
-
-      _ ->
-        :none
-    end
-  end
-
-  # --- Floats für ganzzahligen Code ---------------------------------------
-  #
-  # Ganzzahlig übersetzt wird, wo im Programm nichts auf Floats deutet
-  # (PrologEx.Jit, kinds); kommen sie doch – als Daten, von außen –, weist
-  # der Code ab oder gibt auf, wird kalt, und jeder Aufruf zahlt die
-  # Kalt-Prüfung, ohne dass der Code je hilft (qsort auf Floats: 1,1 Mio.
-  # Aufrufe, +5,5 % Reduktionen gegenüber ohne JIT). Darum: hat ein Aufruf,
-  # den ganzzahliger Code abweist oder aufgibt, ein Float in den
-  # Argumenten (höchstens @float_scan Teilterme angesehen), wird der
-  # zusammenhängende Teil der ganzzahligen Prädikate des Moduls (über ihre
-  # Aufrufe verbunden) noch einmal übersetzt, für Zahlen – einmal: der
-  # neue Code ersetzt den alten in der Datenbank (wie assert; Rufer in
-  # anderen Modulen behalten den alten, für Ganzzahlen weiter richtigen);
-  # gelingt es nicht, bleibt es dabei (vermerkt in :persistent_term je
-  # Modul des ganzzahligen Codes – gelingt es, ist der neue Code nicht mehr
-  # ganzzahlig und löst nichts mehr aus).
-  @float_scan 1000
-
-  defp jit_floats({_, {pm, _, _, _, sig}, _, _, _, _}, mod, name, args, st) do
-    if sig.num == false and floats?(args, st.subst, @float_scan) and
-         :persistent_term.get({PrologEx.JitRenum, pm}, nil) == nil do
-      case jit_renum(current_db(), mod, name, length(args)) do
-        {:ok, db} -> put_db(db)
-        :no -> :persistent_term.put({PrologEx.JitRenum, pm}, :failed)
-      end
-    end
-  end
-
-  # ein Float in den Argumenten? (höchstens b Teilterme angesehen)
-  defp floats?(args, s, b) do
-    scan(args, s, b)
-    false
-  catch
-    :float_found -> true
-  end
-
-  defp scan(_, _s, b) when b <= 0, do: b
-  defp scan([t | ts], s, b), do: scan(ts, s, scan1(t, s, b))
-  defp scan(_, _s, b), do: b
-
-  # (jeder Teilterm kostet 1 – auch bei Zyklen endet es)
-  defp scan1(_t, _s, b) when b <= 0, do: b
-
-  defp scan1(t, s, b) do
-    case Store.walk(t, s) do
-      f when is_float(f) -> throw(:float_found)
-      {:struct, _, as} -> scan(as, s, b - 1)
-      [h | tl] -> scan1(tl, s, scan1(h, s, b - 1))
-      {:glist, l} -> gscan(l, s, b - 1)
-      {:gstruct, _, as} -> scan(as, s, b - 1)
-      _ -> b - 1
-    end
-  end
-
-  # eine grundierte Liste (auch mit anderem Rest als [])
-  defp gscan(_, _s, b) when b <= 0, do: b
-  defp gscan([h | t], s, b), do: gscan(t, s, scan1(h, s, b))
-  defp gscan(t, s, b), do: scan1(t, s, b)
-
-  @doc false
-  # die ganzzahligen übersetzten Prädikate des Moduls, die mit name/arity
-  # über Aufrufe zusammenhängen, für Zahlen neu übersetzen (jit_floats/5):
-  # {:ok, db} oder :no
-  def jit_renum(db, module, name, arity) do
-    int =
-      for {{^module, n, a} = k, v} <- db,
-          is_binary(n),
-          info = jit_info_of(db, k, v),
-          info != nil,
-          elem(info, 4).num == false,
-          into: %{},
-          do: {{n, a}, info}
-
-    adj =
-      Enum.reduce(int, %{}, fn {k, {_, _, _, deps, _}}, acc ->
-        Enum.reduce(deps, acc, fn
-          {^module, dn, da}, acc ->
-            d = {dn, da}
-
-            if Map.has_key?(int, d),
-              do: acc |> Map.update(k, [d], &[d | &1]) |> Map.update(d, [k], &[k | &1]),
-              else: acc
-
-          _, acc ->
-            acc
-        end)
-      end)
-
-    group = reach([{name, arity}], adj, MapSet.new())
-
-    preds =
-      for k <- group do
-        {:pred, cls, by_key, vo, entries} = db[Tuple.insert_at(k, 0, module)]
-        vo = with {t, _, _, _, v, _} when t in [:jit, :jit_nd] <- vo, do: v
-        {k, {:pred, cls, by_key, vo, entries}}
-      end
-
-    new = jit_batch(preds, db, module, group)
-
-    if jit_num?(new, {module, name, arity}) do
-      keys = for {n, a} <- group, do: {module, n, a}
-
-      {:ok,
-       db
-       |> Map.drop(for {m, n, a} <- keys, do: {:jit_info, m, n, a})
-       |> Map.merge(new)
-       |> note_callers(new)}
-    else
-      :no
-    end
-  end
-
-  defp jit_info_of(_db, _k, {:pred, _, _, {t, info, _, _, _, _}, _}) when t in [:jit, :jit_nd],
-    do: info
-
-  defp jit_info_of(db, {m, n, a}, {:pred, _, _, _, _}), do: Map.get(db, {:jit_info, m, n, a})
-  defp jit_info_of(_, _, _), do: nil
-
-  defp reach([], _adj, seen), do: seen
-
-  defp reach([k | ks], adj, seen) do
-    if MapSet.member?(seen, k),
-      do: reach(ks, adj, seen),
-      else: reach(Map.get(adj, k, []) ++ ks, adj, MapSet.put(seen, k))
-  end
-
-  defp jit_num?(new, k) do
-    case new do
-      %{^k => {:pred, _, _, {t, {_, _, _, _, sig}, _, _, _, _}, _}} when t in [:jit, :jit_nd] ->
-        sig.num
-
-      _ ->
-        false
-    end
+    jit_fail(elem(jit, 5), @jit_deopt_weight)
+    interp_call(pred, goal, name, args, mod, rest, st)
   end
 
   # einen Fehlschlag verbuchen (Gewicht w); dabei kalt werden

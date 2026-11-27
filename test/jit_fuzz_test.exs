@@ -321,7 +321,7 @@ defmodule PrologEx.JitFuzz do
         "]"
 
   # eine Zahl für Anfragen, ab und zu ein Float (ganzzahlig übersetzter
-  # Code wird dann für Zahlen neu übersetzt, PrologEx.jit_renum/4)
+  # Code weist ab oder gibt auf)
   defp gnum,
     do: if(:rand.uniform() < 0.08, do: "#{Enum.random(0..5)}.5", else: "#{Enum.random(0..5)}")
 
@@ -496,17 +496,10 @@ defmodule PrologEx.JitFuzzTest do
     # der übersetzte Code läuft tatsächlich
     if n >= 20, do: assert(elem(stats, 2) > 0)
 
-    # Varianten (gebundene Ausgaben, freie Eingaben; PrologEx.jit_variant/7)
-    vs =
-      for {{PrologEx.JitVariants, _, _}, m} <- :persistent_term.get(), {_, v} <- m, do: v
-
-    nv = Enum.count(vs, &(&1 != :none))
-
     IO.puts(
       "\nJIT-Fuzz ab #{s0}: #{n} Programme, #{elem(stats, 1)} von #{elem(stats, 0)} Prädikaten übersetzt, " <>
         "Treffer #{elem(stats, 2)}, Fehlschläge #{elem(stats, 3)}; Anfragen gleich #{Process.get(:eq, 0)}, " <>
-        "weniger Inferenzen #{Process.get(:fewer, 0)}, nur der Interpreter an der Grenze #{Process.get(:limit, 0)}; " <>
-        "Varianten #{nv} (#{length(vs) - nv} nicht übersetzbar)"
+        "weniger Inferenzen #{Process.get(:fewer, 0)}, nur der Interpreter an der Grenze #{Process.get(:limit, 0)}"
     )
   end
 end

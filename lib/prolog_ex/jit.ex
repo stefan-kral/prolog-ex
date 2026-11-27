@@ -103,22 +103,9 @@ defmodule PrologEx.Jit do
   eingaben, ausgaben}}: eingaben [{k, prüfung}] mit prüfung :int, :num,
   :list, :ilist (Ganzzahlen), :nlist (Zahlen) oder :any; ausgaben [k];
   gerufen: die anderen Prädikate, die der Code direkt ruft.
-
-  `force`: Modi, die ein Prädikat haben muss, %{{name, stelligkeit} =>
-  %{k => :in | :out}} (anders als decl kein Hinweis – passen sie nicht,
-  wird es nicht übersetzt; für die Varianten, PrologEx.jit_variant/7).
-  `nums`: Prädikate, die auch Floats sehen (nicht ganzzahlig übersetzt,
-  wie ihr Teil des Aufrufgraphen; PrologEx.jit_renum/4).
   """
-  def compile_batch(
-        preds,
-        ext \\ fn _ -> nil end,
-        dynamic \\ MapSet.new(),
-        decl \\ %{},
-        force \\ %{},
-        nums \\ MapSet.new()
-      ) do
-    case settle(preds, ext, dynamic, decl, force, nums) do
+  def compile_batch(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new(), decl \\ %{}) do
+    case settle(preds, ext, dynamic, decl) do
       %{solved: solved} when map_size(solved) == 0 -> %{}
       s -> Codegen.build(s, :load)
     end
@@ -129,7 +116,7 @@ defmodule PrologEx.Jit do
   {:ok, signatur} | {:no, grund}} (für jit_listing).
   """
   def explain(preds, ext \\ fn _ -> nil end, dynamic \\ MapSet.new(), decl \\ %{}) do
-    s = settle(preds, ext, dynamic, decl, %{}, MapSet.new())
+    s = settle(preds, ext, dynamic, decl)
 
     Map.new(preds, fn {k, _} ->
       case s.solved do
@@ -152,7 +139,7 @@ defmodule PrologEx.Jit do
   @doc false
   # der erzeugte Elixir-Code (zum Nachsehen); preds wie compile_batch/3
   def code(preds) do
-    case settle(preds, fn _ -> nil end, MapSet.new(), %{}, %{}, MapSet.new()) do
+    case settle(preds, fn _ -> nil end, MapSet.new(), %{}) do
       %{solved: solved} when map_size(solved) == 0 -> :no
       s -> Codegen.build(s, :show)
     end
@@ -177,18 +164,17 @@ defmodule PrologEx.Jit do
   # decl: Modi aus is-Deklarationen (PrologEx.Builtins.IsDirectives.jit_modes/2),
   # %{{name, stelligkeit} => %{k => :in | :out}}: Hinweise vor denen der
   # Aufrufstellen (call_prefs/3)
-  defp settle(preds, ext0, dynamic, decl, force, nums) do
+  defp settle(preds, ext0, dynamic, decl) do
     Process.put(@why_key, %{})
 
     try do
-      force = for {k, ms} <- force, {i, m} <- ms, into: %{}, do: {{k, i}, m}
-      settle_(preds, ext0, dynamic, decl, force, nums)
+      settle_(preds, ext0, dynamic, decl)
     after
       Process.delete(@why_key)
     end
   end
 
-  defp settle_(preds, ext0, dynamic, decl, force, nums) do
+  defp settle_(preds, ext0, dynamic, decl) do
     batch = MapSet.new(for {k, _} <- preds, do: k)
     ext = fn k -> if MapSet.member?(batch, k), do: nil, else: ext0.(k) end
 
@@ -204,7 +190,7 @@ defmodule PrologEx.Jit do
       for {k, src} <- preds, p = Parse.parse(k, src, callable), p != nil, into: %{}, do: {k, p}
 
     pref = Hints.call_prefs(preds, parsed, decl)
-    {parsed, num} = kinds(drop_orphans(parsed, ext), ext, nums)
+    {parsed, num} = kinds(drop_orphans(parsed, ext), ext)
 
     solved =
       parsed
@@ -222,7 +208,7 @@ defmodule PrologEx.Jit do
               do: Util.why(k, "ruft #{Util.pi(d)}, das nicht übersetzt wird")
         end
 
-        case ready && solve(scc, parsed, solved, ext, num, pref, force) do
+        case ready && solve(scc, parsed, solved, ext, num, pref) do
           {:ok, res} -> Map.merge(solved, res)
           _ -> solved
         end
@@ -250,7 +236,7 @@ defmodule PrologEx.Jit do
   # kann ein Float sein, ein Argument auch) – je zusammenhängendem Teil
   # des Aufrufgraphen; ein ganzzahliges schon übersetztes Prädikat darf
   # von einem nicht ganzzahligen nicht gerufen werden
-  defp kinds(parsed, ext, nums) do
+  defp kinds(parsed, ext) do
     ext_num = fn d ->
       case ext.(d) do
         nil -> nil
@@ -260,8 +246,7 @@ defmodule PrologEx.Jit do
 
     seed =
       for {k, p} <- parsed,
-          MapSet.member?(nums, k) or not Parse.int_only?(p.clauses) or
-            Enum.any?(p.deps, &(ext_num.(&1) == true)),
+          not Parse.int_only?(p.clauses) or Enum.any?(p.deps, &(ext_num.(&1) == true)),
           into: MapSet.new(),
           do: k
 
@@ -277,7 +262,7 @@ defmodule PrologEx.Jit do
             do: Util.why(k, "ruft #{Util.pi(d)}: übersetzt nur für Ganzzahlen, hier auch Floats")
 
         bad = Enum.map(bad, &elem(&1, 0))
-        kinds(drop_orphans(Map.drop(parsed, bad), ext), ext, nums)
+        kinds(drop_orphans(Map.drop(parsed, bad), ext), ext)
     end
   end
 
@@ -300,12 +285,12 @@ defmodule PrologEx.Jit do
   # übrigen Positionen durchprobieren. Je Versuch Typen bis zum Fixpunkt,
   # dann die Ausschließlichkeit.
 
-  defp solve(scc, parsed, solved, ext, num, pref, force) do
+  defp solve(scc, parsed, solved, ext, num, pref) do
     if endless?(scc, parsed) do
       for k <- scc, do: Util.why(k, "jede Klausel ruft sich selbst, ohne zu scheitern: endlos")
       nil
     else
-      solve_(scc, parsed, solved, ext, num, pref, force)
+      solve_(scc, parsed, solved, ext, num, pref)
     end
   end
 
@@ -327,7 +312,7 @@ defmodule PrologEx.Jit do
     end)
   end
 
-  defp solve_(scc, parsed, solved, ext, num, pref, force) do
+  defp solve_(scc, parsed, solved, ext, num, pref) do
     other = fn ck ->
       case solved do
         %{^ck => r} -> r.sig
@@ -340,35 +325,11 @@ defmodule PrologEx.Jit do
     case Hints.evidence(scc, parsed, other, false) do
       :no ->
         for k <- scc, do: Util.why(k, "Modi widersprechen sich")
-        nd_solve(scc, parsed, other, num, pref, force)
+        nd_solve(scc, parsed, other, num, pref)
 
       {:ok, fixed} ->
-        with {:ok, fixed} <- forced(fixed, scc, force, parsed) do
-          solve_modes(scc, parsed, other, num, fixed, false, pref)
-        end ||
-          nd_solve(scc, parsed, other, num, pref, force)
-    end
-  end
-
-  # die festen Modi (force) zu denen aus den Klauseln: widersprechen sie
-  # sich, nil
-  defp forced(fixed, scc, force, parsed) do
-    f =
-      for key <- scc,
-          k <- 0..(parsed[key].arity - 1),
-          m = force[{key, k}],
-          m != nil,
-          into: %{},
-          do: {{key, k}, m}
-
-    if Enum.all?(f, fn {p, m} -> Map.get(fixed, p, m) == m end) do
-      {:ok, Map.merge(fixed, f)}
-    else
-      for key <- scc,
-          map_size(f) > 0,
-          do: Util.why(key, "die verlangten Modi widersprechen den Klauseln")
-
-      nil
+        solve_modes(scc, parsed, other, num, fixed, false, pref) ||
+          nd_solve(scc, parsed, other, num, pref)
     end
   end
 
@@ -378,18 +339,16 @@ defmodule PrologEx.Jit do
   # (ohne Hinweise der Aufrufstellen: eine Ausgabe dient hier auch dem
   # Prüfen – Lösungen nach dem Muster gefiltert –, mem(-any, +list) taugt
   # also auch für mem(1, L), umgekehrt nicht)
-  defp nd_solve([_] = scc, parsed, other, num, _pref, force) do
+  defp nd_solve([_] = scc, parsed, other, num, _pref) do
     if PrologEx.Flags.get("jit_nondet") == {:atom, "true"} do
-      with {:ok, fixed} <- Hints.evidence(scc, parsed, other, true),
-           {:ok, fixed} <- forced(fixed, scc, force, parsed) do
-        solve_modes(scc, parsed, other, num, fixed, true, %{})
-      else
-        _ -> nil
+      case Hints.evidence(scc, parsed, other, true) do
+        {:ok, fixed} -> solve_modes(scc, parsed, other, num, fixed, true, %{})
+        :no -> nil
       end
     end
   end
 
-  defp nd_solve(_, _, _, _, _, _), do: nil
+  defp nd_solve(_, _, _, _, _), do: nil
 
   defp solve_modes(scc, parsed, other, num, fixed, nd, pref) do
     open =

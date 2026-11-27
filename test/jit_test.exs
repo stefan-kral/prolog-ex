@@ -1515,11 +1515,10 @@ defmodule PrologEx.JitTest do
     end
   end
 
-  # B2: Aufrufe mit gebundenen Ausgaben (sd: SICStus sendmore) oder freien
-  # Eingaben (tt: unify, übersetzt als tt(+any, +any)) bekommen eine
-  # Variante mit diesen Modi – Antworten und Inferenzen wie im Interpreter
-  # (die Köpfe vergleicht die Variante wie er)
-  test "Varianten für gebundene Ausgaben und freie Eingaben", c do
+  # Aufrufe mit gebundenen Ausgaben (sd: SICStus sendmore) oder freien
+  # Eingaben (tt: unify, übersetzt als tt(+any, +any)): der Interpreter –
+  # Antworten und Inferenzen wie ohne JIT, auch wenn sie sich häufen
+  test "gebundene Ausgaben und freie Eingaben", c do
     Reader.put_current(c.reader)
     PrologEx.Flags.set("jit", {:atom, "true"})
     u = System.unique_integer([:positive])
@@ -1558,24 +1557,21 @@ defmodule PrologEx.JitTest do
       q2 =
         "statistics(inferences, _I0), (#{q}), statistics(inferences, _I1), I is _I1 - _I0"
 
-      assert TableCase.run(c.reader, db, q2) == TableCase.run(c.reader, int, q2), q
+      for _ <- 1..3,
+          do: assert(TableCase.run(c.reader, db, q2) == TableCase.run(c.reader, int, q2), q)
     end
 
     {out, _} = TableCase.run(c.reader, db, "jit_listing")
     assert out =~ ~r"% sd#{u}/5 +\S+ +sd#{u}\(\+int, \+int, \+int, -int, -int\)\n"
-    assert out =~ ~r"%   ↳ Variante sd#{u}\(\+int, \+int, \+int, \+int, -int\)\n"
-    assert out =~ ~r"%   ↳ Variante sd#{u}\(\+int, \+int, \+int, -int, \+any\)\n"
-    assert out =~ ~r"%   ↳ Variante sd#{u}\(\+int, \+int, \+int, \+int, \+any\)\n"
-    assert out =~ ~r"%   ↳ Variante tt#{u}\(\+any, -any\)  nichtdeterministisch\n"
-    assert out =~ ~r"%   ↳ Variante sg#{u}\(\+int, \+any\)\n"
   end
 
-  # Floats für ganzzahligen Code: der Teil des Aufrufgraphen wird für Zahlen
-  # neu übersetzt (statt kalt zu werden und je Aufruf die Kalt-Prüfung zu
-  # zahlen); Antworten und Inferenzen wie im Interpreter
-  test "Floats: ganzzahliger Code wird für Zahlen neu übersetzt", c do
+  # Floats für ganzzahligen Code: abgewiesen bzw. aufgegeben, der
+  # Interpreter rechnet; Antworten und Inferenzen wie ohne JIT, auch bei
+  # vielen solchen Aufrufen
+  test "Floats für ganzzahligen Code", c do
     Reader.put_current(c.reader)
     PrologEx.Flags.set("jit", {:atom, "true"})
+    PrologEx.Flags.set("jit_threshold", 1)
     u = System.unique_integer([:positive])
 
     src = """
@@ -1605,16 +1601,8 @@ defmodule PrologEx.JitTest do
       assert TableCase.run(c.reader, db, q2) == TableCase.run(c.reader, int, q2), q
     end
 
-    # nach einem Aufruf mit Floats: für Zahlen übersetzt, und der Code trifft
-    {_, _} = TableCase.run(c.reader, db, "qi#{u}([1.5, 0.5], _, [])")
-    db2 = PrologEx.current_db()
-    {out, _} = TableCase.run(c.reader, db2, "qi#{u}([2.5, 1, 0.5], _, []), jit_listing")
-    assert out =~ ~r"% qi#{u}/3 +\S+ +qi#{u}\(\+list\(num\), -, \+any\)"
-    assert out =~ ~r"% pi#{u}/4 +\S+ +pi#{u}\(\+list\(num\), \+num, -list\(num\), -list\(num\)\)"
-
-    {:pred, _, _, {:jit, _, _, _, _, st}, _} = db2 |> Map.fetch!({"user", "qi#{u}", 3})
-    assert :atomics.get(st, 1) > 0
-    assert :atomics.get(st, 2) == 0
+    q = "findall(R, (between(1, 200, _), qi#{u}([1.5, 0.5], R, [])), L), length(L, N)"
+    assert TableCase.run(c.reader, db, q) == TableCase.run(c.reader, int, q)
   end
 
   # ERTS vor 16.3.1 bzw. 15.2.7.7: der JIT der BEAM rechnet `X * X + X * X`

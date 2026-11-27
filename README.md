@@ -239,15 +239,11 @@ Ein Prolog-Kern in Elixir:
     xor gcd abs sign msb \), rechnet der Code + - * direkt und nimmt
     ganzzahlige Eingaben; sonst alles über dieselben Funktionen wie der
     Interpreter (Floats, auch rationale Zwischenwerte). Kommen Floats doch
-    – als Daten, von außen –, weist ganzzahliger Code sie ab oder gibt auf;
-    hat ein solcher Aufruf ein Float in den Argumenten (höchstens 1000
-    Teilterme angesehen), wird der zusammenhängende Teil der ganzzahligen
-    Prädikate des Moduls einmal für Zahlen neu übersetzt und ersetzt den
-    alten Code. Vorher wurde er kalt, und jeder Aufruf zahlte die
-    Kalt-Prüfung (drei atomics-Operationen) vor dem Interpreter: qsort auf
-    50 Floats, 3000-mal, +5,5 % Reduktionen und 8–13 % mehr Zeit als ohne
-    JIT – jetzt 55 ms statt 1,9 s. Ganzzahlen laufen danach im Code für Zahlen etwa 10 %
-    langsamer als im ganzzahligen.
+    – als Daten, von außen –, weist ganzzahliger Code sie ab oder gibt auf,
+    wird kalt, und der Interpreter rechnet (qsort auf Floats etwa wie ohne
+    JIT). Eine Neuübersetzung für Zahlen in diesem Fall gab es vom 26. bis
+    27. November; in der SICStus-Suite brachte sie nichts (geometrisches
+    Mittel 1,00), sie ist wieder entfernt.
   - ERTS vor 16.3.1 (OTP 28) bzw. vor 15.2.7.7 (OTP 27) hat einen Fehler
     im JIT der BEAM, der Ausdrücke wie `X * X + X * X` falsch übersetzt
     (OTP-19889):
@@ -303,22 +299,12 @@ Ein Prolog-Kern in Elixir:
     aufs gegebene passt (`f(X, []) :- X > 5, !. f(X, [X]).` gerufen als
     `f(3, [A|B])`), verwirft der Interpreter sie schon am Kopf, der Code
     rechnet ihren Rumpf – dieselbe Antwort, eine Inferenz mehr.
-  - Varianten: ein Aufruf mit gebundenen Ausgaben
-    (`sumdigit(C, S, M, O, M)` in sendmore, O und M schon Zahlen) oder
-    freien Eingaben (`termtag(T, Tag)` in unify, übersetzt als
-    `termtag(+any, +any)`) bekommt, wenn solche Aufrufe sich häufen
-    (`jit_threshold` mit gebundenen Ausgaben; nach 8-mal Aufgeben mit
-    freien Eingaben, vor dem Kaltwerden), eine eigene Übersetzung mit
-    diesen Modi – als feste Vorgabe, auch nichtdeterministisch
-    (`termtag(+any, -any)`). Sie vergleicht die Köpfe wie der Interpreter
-    (aus `S = X` wird ein Vergleich): Antworten und Inferenzen wie dort.
-    Je Prädikat höchstens 4, mit eigenen Zählern; gesucht erst nach dem
-    Abweisen bzw. Aufgeben (kein Aufwand, wo der Aufruf passt);
-    `jit_listing` zeigt sie („↳ Variante …“, „↳ keine Variante mit …“).
-    Bisher nur beim Eintritt aus dem Interpreter: übersetzter Code ruft
-    andere übersetzte Prädikate nur in deren Hauptmodus (prover:
-    `expand/3` ruft `includes/2` mit gebundener Ausgabe – nicht
-    übersetzt).
+  - Ein Aufruf mit gebundenen Ausgaben (`sumdigit(C, S, M, O, M)` in
+    sendmore) oder freien Eingaben (`termtag(T, Tag)` in unify, übersetzt
+    als `termtag(+any, +any)`) geht an den Interpreter. Varianten für
+    solche Aufrufe (eigene Übersetzungen mit diesen Modi) gab es vom 26.
+    bis 27. November; in der SICStus-Suite brachten sie im geometrischen
+    Mittel 1 % (im Rauschen), sie sind wieder entfernt.
   - Lohnt sich der Code für ein Prädikat nicht, lässt der Interpreter ihn
     bald liegen: je Prädikat zählen Treffer und Fehlschläge (beim Eintritt
     abgewiesen; aufgegeben zählt achtfach – die Arbeit bis dahin war
