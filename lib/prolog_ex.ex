@@ -5100,11 +5100,17 @@ defmodule PrologEx do
     chunk = if st.ilimit == nil, do: @jit_chunk, else: min(st.ilimit - n0, @jit_chunk)
     check = fn consumed -> jit_check(consumed, st) end
 
-    # an der Inferenzgrenze: der Interpreter (die nächste Inferenz wirft)
+    # an der Inferenzgrenze: der Interpreter (die nächste Inferenz wirft);
+    # nur am Prüfpunkt einer Zeit- oder Speichergrenze (st.ilimit gesetzt,
+    # keine Inferenzgrenze erreicht): ein Schritt, dann prüft jit_check/2.
+    # Nicht aufgeben – das setzt den Zähler zurück, der Prüfpunkt läge
+    # danach wieder dahinter: jede weitere Lösung aufgegeben, O(n) je Lösung
     r =
-      if chunk < 1,
-        do: :deopt,
-        else: PrologEx.Jit.Runtime.nd_resume(nx, chunk, check, st.subst, ov)
+      cond do
+        chunk >= 1 -> PrologEx.Jit.Runtime.nd_resume(nx, chunk, check, st.subst, ov)
+        over_ilimit?(st.ilimits, n0 + 1) -> :deopt
+        true -> PrologEx.Jit.Runtime.nd_resume(nx, 1, check, st.subst, ov)
+      end
 
     case r do
       :deopt ->

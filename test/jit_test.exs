@@ -1269,6 +1269,44 @@ defmodule PrologEx.JitTest do
     assert :atomics.get(stats, 3) >= 1
   end
 
+  # Zurücksetzen in übersetzten nichtdeterministischen Code am Prüfpunkt
+  # einer Zeit- oder Speichergrenze (st.ilimit gesetzt, aber keine echte
+  # Inferenzgrenze): weiter im Code, nicht Aufgeben – das Aufgeben rechnet
+  # die ersten n Lösungen neu, und weil es den Zähler zurücksetzt, lag der
+  # Prüfpunkt danach wieder dahinter: jede Lösung O(n), die Schleife
+  # quadratisch (harness.pl der SICStus-Suite: repeat/1, 20000 Runden 46 s).
+  # Gemessen in Reduktionen: 10-mal so viele Runden, etwa 10-mal so viele
+  test "Zurücksetzen am Prüfpunkt einer Zeitgrenze: linear", c do
+    Reader.put_current(c.reader)
+    PrologEx.Flags.set("jit", {:atom, "true"})
+    u = System.unique_integer([:positive])
+
+    src = """
+    :- use_module(library(time)).
+    rp#{u}(_).
+    rp#{u}(N) :- N > 1, N1 is N - 1, rp#{u}(N1).
+    """
+
+    {db, []} = PrologEx.Consult.load(%{}, Reader.read_terms(c.reader, src))
+
+    red = fn n ->
+      Task.async(fn ->
+        Reader.put_current(c.reader)
+        q = "call_with_time_limit(100, \\+ (rp#{u}(#{n}), fail))"
+        TableCase.run(c.reader, db, "rp#{u}(3)")
+        {:reductions, r0} = Process.info(self(), :reductions)
+        assert {_, {:answers, ["true"]}} = TableCase.run(c.reader, db, q)
+        {:reductions, r1} = Process.info(self(), :reductions)
+        r1 - r0
+      end)
+      |> Task.await(120_000)
+    end
+
+    assert jitted?(db, {"user", "rp#{u}", 1})
+    {r1, r2} = {red.(1000), red.(10_000)}
+    assert r2 < 20 * r1, "1000 Runden: #{r1} Reduktionen, 10000: #{r2}"
+  end
+
   # Argumente von Strukturen im Kopf: eine Anforderung (hier: N ist eine
   # Zahl, weil N1 is N - 1) gilt nur für Strukturen mit demselben Funktor –
   # V in d(U + V, …) darf beliebig sein (sonst gab der Code bei x * x auf

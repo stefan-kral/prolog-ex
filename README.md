@@ -152,7 +152,11 @@ Ein Prolog-Kern in Elixir:
     rechnet der Interpreter den Aufruf neu und überspringt die ersten n –
     ab dem Zählerstand beim Eintritt, nach der n-ten wieder ab dem
     jetzigen: dieselben Inferenzen und Grenzen wie ohne JIT (vorher zählte
-    die Wiederholung mit).
+    die Wiederholung mit). Aufgegeben wird beim Zurücksetzen nur an einer
+    echten Inferenzgrenze; am Prüfpunkt einer Zeit- oder Speichergrenze
+    läuft der Code weiter (sonst lag der Prüfpunkt nach dem Neurechnen
+    wieder dahinter, jede Lösung kostete O(n): `repeat/1` aus `harness.pl`
+    der SICStus-Suite, 20000 Runden 46 s statt 0,03 s).
     Deterministische Prädikate rufen solche nur dort, wo bloß die erste
     Lösung zählt: gleich gefolgt von einem Schnitt (`mem(X, L), !`), als
     letztes Ziel einer Bedingung (`( mem(X, L) -> … ; … )`) oder unter
